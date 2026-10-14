@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { windowsFilesRequest, type WindowsFileEntry, type WindowsFileMetadata, type WindowsFileRef, type WindowsThumbnail } from '../../lib/windowsFiles';
-import { NativeWindowsFileIcon } from '../explorer/WindowsFileIcon';
+import WindowsFileIcon from '../explorer/WindowsFileIcon';
+import { ICON_SIZE, explorerIconSize } from '../../lib/metrics';
 import { X as T, FONT_STACK } from './explorerTheme';
 import { FOLDER_COLUMNS, contentsRows, extensionOf, type ContentsRow, type FolderColumn, type FolderLayout, type FolderView } from './viewModel';
 import { entryKey, type useSelection } from './useSelection';
@@ -131,7 +132,7 @@ function pumpThumbnails() {
     const job = thumbnailQueue.shift()!;
     if (job.signal?.aborted) { thumbnailCache.delete(job.key); job.resolve(null); continue; }
     activeThumbnails++;
-    void windowsFilesRequest<WindowsThumbnail>({ action: 'thumbnail', ref: job.ref, size: job.size }, { signal: job.signal }).then((answer) => {
+    void windowsFilesRequest<WindowsThumbnail>({ action: 'thumbnail', ref: job.ref, size: job.size, thumbnailOnly: true }, { signal: job.signal }).then((answer) => {
       const value = answer.ok && answer.data.dataUrl.startsWith('data:image/') ? answer.data.dataUrl : null;
       if (!value && thumbnailCache.get(job.key)) thumbnailCache.delete(job.key);
       job.resolve(value);
@@ -156,6 +157,12 @@ function requestThumbnail(ref: WindowsFileRef, size: number, modifiedAt: string,
   return result;
 }
 
+/**
+ * Миниатюра — только настоящая картинка содержимого (снимок, страница PDF,
+ * кадр видео), и только там, где значок крупный. Без неё, и в мелких видах
+ * всегда, стоит значок Flux по формату файла: системные значки не запрашиваются
+ * (`thumbnailOnly`), иначе оболочка подсовывала бы свой значок вместо нашего.
+ */
 function Thumbnail({ entry, rootId, size }: { entry: WindowsFileEntry; rootId: string; size: number }) {
   const actualRootId = entry.rootId || rootId;
   const [url, setUrl] = useState<string | null>(null);
@@ -163,14 +170,14 @@ function Thumbnail({ entry, rootId, size }: { entry: WindowsFileEntry; rootId: s
     let alive = true;
     const controller = new AbortController();
     setUrl(null);
-    if (entry.kind !== 'file') return () => { alive = false; controller.abort(); };
+    if (entry.kind !== 'file' || size < ICON_SIZE.start) return () => { alive = false; controller.abort(); };
     void requestThumbnail({ rootId: actualRootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) }, size, entry.modifiedAt, controller.signal)
       .then((value) => { if (alive) setUrl(value); });
     return () => { alive = false; controller.abort(); };
   }, [entry.kind, entry.modifiedAt, entry.relativePath, entry.draftId, actualRootId, size]);
   return url
     ? <img src={url} alt="" draggable={false} width={size} height={size} className="shrink-0 rounded-sm object-contain" />
-    : <NativeWindowsFileIcon entry={entry} fileRef={{ rootId: actualRootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) }} size={size} />;
+    : <WindowsFileIcon entry={entry} size={size} />;
 }
 
 function displayName(entry: WindowsFileEntry, extensions: boolean) {
@@ -224,7 +231,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
   }, []);
   useEffect(() => () => { if (typeaheadTimer.current) clearTimeout(typeaheadTimer.current); }, []);
 
-  const tileWidth = view.layout === 'extraLarge' ? 176 : view.layout === 'large' ? 142 : view.layout === 'medium' ? 124 : view.layout === 'small' || view.layout === 'tiles' ? 220 : 1;
+  const tileWidth = view.layout === 'extraLarge' ? 288 : view.layout === 'large' ? 132 : view.layout === 'medium' ? 124 : view.layout === 'small' || view.layout === 'tiles' ? 220 : 1;
   const gridColumns = GRID_LAYOUTS.has(view.layout) ? Math.max(1, Math.floor(containerWidth / tileWidth)) : 1;
   const shownEntries = useMemo(() => entries.filter((entry) => view.hidden || !(entry as WindowsFileEntry & { hidden?: boolean }).hidden), [entries, view.hidden]);
   const listRowsPerColumn = Math.max(1, Math.floor(containerHeight / 32));
@@ -236,12 +243,12 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
     return columns;
   }, [shownEntries, view, listRowsPerColumn]);
   const rows = useMemo(() => rowsForView(shownEntries, view, gridColumns), [shownEntries, view, gridColumns]);
-  const rowSize = view.layout === 'extraLarge' ? 168 : view.layout === 'large' ? 132 : view.layout === 'medium' ? 104 : view.layout === 'small' ? 32 : view.layout === 'tiles' ? 76 : view.layout === 'content' ? 70 : view.layout === 'details' ? 34 : 30;
+  const rowSize = view.layout === 'extraLarge' ? 312 : view.layout === 'large' ? 148 : view.layout === 'medium' ? 104 : view.layout === 'small' ? 32 : view.layout === 'tiles' ? 76 : view.layout === 'content' ? 70 : view.layout === 'details' ? 34 : 30;
   const virtualizer = useVirtualizer({ count: rows.length, getScrollElement: () => containerRef.current, estimateSize: (index) => rows[index]?.[0]?.kind === 'group' ? 30 : rowSize, overscan: 8 });
   const listVirtualizer = useVirtualizer({ count: listColumns.length, getScrollElement: () => containerRef.current, horizontal: true, estimateSize: () => 196, overscan: 2 });
   const visibleRows = view.layout === 'list' ? listVirtualizer.getVirtualItems() : virtualizer.getVirtualItems();
   const columns = view.columns;
-  const iconSize = view.layout === 'extraLarge' ? 112 : view.layout === 'large' ? 72 : view.layout === 'medium' ? 48 : view.layout === 'small' ? 20 : 32;
+  const iconSize = explorerIconSize(view.layout);
   const thumbnailSize = Math.max(32, Math.min(256, iconSize * 2));
   const ordered = useMemo(() => contentsRows(shownEntries, view).flatMap((row) => row.kind === 'entry' ? [row.entry] : []), [shownEntries, view]);
 
@@ -279,7 +286,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
 
   const choose = (entry: WindowsFileEntry, event: React.MouseEvent | React.PointerEvent) => selection.click(entry, { ctrl: event.ctrlKey || event.metaKey, shift: event.shiftKey });
   const renderName = (entry: WindowsFileEntry, large = false) => <span className={`flex min-w-0 items-center ${large ? 'flex-col justify-center gap-2 text-center' : 'gap-2'}`}>
-    <Thumbnail entry={entry} rootId={rootId} size={large ? iconSize : view.layout === 'tiles' ? 48 : 20} />
+    <Thumbnail entry={entry} rootId={rootId} size={large ? iconSize : explorerIconSize(view.layout)} />
     <span className={`min-w-0 truncate ${large ? 'max-w-full whitespace-normal line-clamp-2' : ''}`} title={entry.name}>{editing?.fileId === entry.fileId ? <input autoFocus aria-label="Новое имя" value={editing.value} onFocus={(e) => { const dot = editing.value.lastIndexOf('.'); e.currentTarget.setSelectionRange(0, dot > 0 ? dot : editing.value.length); }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onChange={(e) => editing.onChange(e.target.value)} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') editing.onCommit(); if (e.key === 'Escape') editing.onCancel(); }} className="h-6 max-w-full border border-[#0067c0] bg-white px-1 text-xs text-[#1b1b1b] outline-none dark:border-[#4cc2ff] dark:bg-[#383838] dark:text-white" /> : displayName(entry, view.extensions)}</span>
     {entry.storage === 'flux' && !large && <span className={`shrink-0 text-xs ${T.faint}`}>Только в Flux</span>}
   </span>;
@@ -415,7 +422,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
       {view.checkboxes && <span className="flex justify-center"><input type="checkbox" aria-label={`Выбрать ${entry.name}`} checked={selection.isSelected(entry)} onClick={(event) => event.stopPropagation()} onChange={(event) => selection.click(entry, { ctrl: true })} /></span>}
       {view.layout === 'details' ? columns.map((column) => <div key={column} role="cell" className={`h-full min-w-0 overflow-hidden border-r px-2 ${T.line} ${column === 'size' ? 'text-right tabular-nums' : ''}`} style={{ width: displayWidth(view, column), flex: `0 0 ${displayWidth(view, column)}px`, lineHeight: '32px' }}>{cellValue(entry, column)}</div>)
         : <div className={`flex min-w-0 flex-1 items-center gap-3 px-2 ${compact ? 'gap-2' : 'py-1'}`}>
-          {compact || content ? renderName(entry) : <Thumbnail entry={entry} rootId={rootId} size={48} />}
+          {compact || content ? renderName(entry) : <Thumbnail entry={entry} rootId={rootId} size={ICON_SIZE.medium} />}
           {content && <span className={`min-w-0 flex-1 truncate ${T.muted}`}>{typeName(entry)} · {entry.kind === 'directory' ? '' : formatSize(entry.size)} · {formatDate(entry.modifiedAt)}</span>}
           {view.layout === 'list' && <span className={`ml-auto shrink-0 ${T.muted}`}>{typeName(entry)}</span>}
         </div>}
@@ -438,7 +445,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
               : <div key={item.key} className="relative flex h-8 shrink-0 items-center" onDragOver={(event) => { if (item.entry.kind === 'directory' && onDrop) event.preventDefault(); }} onDrop={(event) => { if (item.entry.kind === 'directory') { event.stopPropagation(); onDrop?.(event, item.entry); } }}>
                 {view.checkboxes && <input type="checkbox" aria-label={`Выбрать ${item.entry.name}`} checked={selection.isSelected(item.entry)} onClick={(event) => event.stopPropagation()} onChange={() => selection.click(item.entry, { ctrl: true })} className="mr-1" />}
                 <button type="button" role="row" data-entry-key={entryKey(item.entry)} draggable={!!onDragStart} onDragStart={(event) => onDragStart?.(event, item.entry)} onMouseDown={() => containerRef.current?.focus()} onClick={(event) => choose(item.entry, event)} onDoubleClick={() => onOpen(item.entry)} onContextMenu={(event) => onContext(event, item.entry)} aria-selected={selection.isSelected(item.entry)} className={`flex h-full min-w-0 flex-1 items-center gap-1 rounded px-1 text-left text-xs ${T.text} ${T.paneHover} aria-selected:bg-[#e5e5e5] aria-selected:dark:bg-[#333333]`}>
-                  <Thumbnail entry={item.entry} rootId={rootId} size={20} /><span className="min-w-0 truncate">{displayName(item.entry, view.extensions)}</span>
+                  <Thumbnail entry={item.entry} rootId={rootId} size={ICON_SIZE.row} /><span className="min-w-0 truncate">{displayName(item.entry, view.extensions)}</span>
                 </button>
               </div>)}
           </div>

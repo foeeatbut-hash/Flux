@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import ContextMenu, { type MenuItem } from '../ContextMenu';
 import { ArrowUpDown, Folder,
-  Monitor, MoreVertical, Palette, RefreshCw, Rows3, Shapes, Trash2, ExternalLink } from 'lucide-react';
+  Monitor, MoreVertical, Palette, RefreshCw, Rows3, Trash2, ExternalLink } from 'lucide-react';
 import { useModalStore } from '../../store/modalStore';
 import { useToastStore } from '../../store/toastStore';
 import type { ShellDesktopSnapshot, ShellDesktopItem, ShellDesktopBridge } from '../../../filesystem/shellDesktop';
@@ -13,7 +13,8 @@ import {
   fileRefHref, folderRefHref, onWindowsFilesChanged, windowsFilesRequest,
   type WindowsFileEntry, type WindowsFileRef, type WindowsRoot,
 } from '../../lib/windowsFiles';
-import { NativeWindowsFileIcon } from '../explorer/WindowsFileIcon';
+import WindowsFileIcon, { ShellItemIcon } from '../explorer/WindowsFileIcon';
+import { DESK, ICON_SIZE } from '../../lib/metrics';
 import { useCreatePanel } from '../files/CreatePanel';
 import { isCreated } from '../files/createEntry';
 import { entryKey } from '../files/useSelection';
@@ -25,8 +26,6 @@ type DesktopItem =
   | { id: string; kind: 'file'; entry: WindowsFileEntry }
   | { id: string; kind: 'shell'; item: ShellDesktopItem };
 const LAYOUT_PREFIX = 'flux_windows_desktop_cells_v1:';
-const CELL_WIDTH = 104;
-const CELL_HEIGHT = 100;
 const ROOT_REF = (rootId: string): WindowsFileRef => ({ rootId, relativePath: '' });
 const shellBridge = () => (window as any).electron?.desktopShell as ShellDesktopBridge | undefined;
 
@@ -298,7 +297,9 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   };
 
   const contents = items.length === 0 && shellItems.length === 0 && !loading && !error;
-  const cellSize = iconScale === 'small' ? { width: 88, height: 84, icon: 24 } : iconScale === 'large' ? { width: 120, height: 116, icon: 44 } : { width: CELL_WIDTH, height: CELL_HEIGHT, icon: 32 };
+  // Те же три размера, что у рабочего стола Flux (lib/metrics.ts): значок 32 / 48 / 96
+  const metric = iconScale === 'small' ? DESK.small : iconScale === 'large' ? DESK.large : DESK.normal;
+  const cellSize = { width: metric.w, height: metric.h, icon: metric.icon };
   const columns = Math.max(1, Math.floor((area.width - 24) / cellSize.width));
   const positions = React.useMemo(() => layoutWindowsDesktop(items.map((item) => item.kind === 'file' ? item.entry.fileId : item.id), cells, columns), [items.map((item) => item.kind === 'file' ? item.entry.fileId : item.id).join('|'), cells, columns]);
   const filesHiddenByShell = nativeIconsHidden && fluxEntries.length === 0;
@@ -317,8 +318,8 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
           return <button key={desktopItem.id} type="button" aria-label={desktopItem.item.name} title={desktopItem.item.name}
             onDoubleClick={() => openItem(desktopItem)} onContextMenu={(event) => contextMenu(event, desktopItem.id)}
             className="absolute z-[1] flex flex-col items-center gap-1 rounded-md p-1 text-center text-xs hover:bg-sky-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:hover:bg-sky-900/40"
-            style={{ left, top, width: Math.max(60, desktopItem.item.cell?.width || 96), minHeight: (desktopItem.item.icon?.height || 32) + 40 }}>
-            {desktopItem.item.fileRef ? <NativeWindowsFileIcon entry={{ fileId: desktopItem.item.id, name: desktopItem.item.name, relativePath: desktopItem.item.fileRef.relativePath, kind: desktopItem.item.kind === 'directory' ? 'directory' : 'file', modifiedAt: '', size: 0, storage: 'windows' } as WindowsFileEntry} fileRef={desktopItem.item.fileRef} size={shellDesktop?.view?.iconSize || 32} /> : desktopItem.item.icon ? <img src={desktopItem.item.icon.dataUrl} alt="" draggable={false} style={{ width: desktopItem.item.icon.width, height: desktopItem.item.icon.height, objectFit: 'contain' }} /> : <Shapes size={shellDesktop?.view?.iconSize || 32} />}
+            style={{ left, top, width: Math.max(60, desktopItem.item.cell?.width || 96), minHeight: (shellDesktop?.view?.iconSize || ICON_SIZE.desktop) + 40 }}>
+            <ShellItemIcon item={desktopItem.item} size={shellDesktop?.view?.iconSize || ICON_SIZE.desktop} />
             <span className="line-clamp-2 break-words leading-4 [text-shadow:0_1px_2px_white] dark:[text-shadow:0_1px_2px_black]">{desktopItem.item.name}</span>
           </button>;
         })}
@@ -329,7 +330,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
               const title = fileTitle(item.entry.name);
               const isSelected = selected.includes(item.id);
               return <div key={item.id} data-desktop-item={item.id} role="button" aria-selected={isSelected} tabIndex={0} draggable onClick={(event) => select(event, item)} onDoubleClick={() => openItem(item)} onContextMenu={(event) => contextMenu(event, item.id)} onKeyDown={(event) => { if (event.key === 'Enter') openItem(item); if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) contextMenu(event as any, item.id); }} onDragStart={(event) => { dragged.current = item.entry.fileId; event.dataTransfer.setData('text/plain', item.entry.fileId); event.dataTransfer.effectAllowed = 'move'; }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; if (!id || id === item.entry.fileId) return; const from = positions[id]; const to = positions[item.entry.fileId]; if (from && to) placeCells({ [id]: to, [item.entry.fileId]: from }); }} className={`group flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${isSelected ? 'bg-sky-100 ring-1 ring-sky-400 dark:bg-sky-950/50 dark:ring-sky-700' : 'hover:bg-slate-200/70 dark:hover:bg-dark-surface/70'}`} style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}>
-                <NativeWindowsFileIcon entry={item.entry} fileRef={entryRef(root!.id, item.entry)} size={cellSize.icon} />
+                <WindowsFileIcon entry={item.entry} size={cellSize.icon} />
                 <span className="line-clamp-2 w-full break-words text-xs leading-4" title={item.entry.name}>{title}</span>
                 {item.entry.draftId && <span className="text-xs text-slate-500 dark:text-slate-400">Черновик Flux</span>}
               </div>;

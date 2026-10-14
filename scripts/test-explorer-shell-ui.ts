@@ -123,11 +123,14 @@ const { ok, done } = checks();
       // Отступы значка, стрелки и подписи — те же, что на эталоне (стрелка 21, значок 45, подпись 59; уровнем ниже +8)
       const at = (selector: string) => page.locator(selector).first().evaluate((el, left) => { const r = el.getBoundingClientRect(); return { c: r.x + r.width / 2 - left, l: r.x - left }; }, nav.x);
       const yandex = '[role="treeitem"][title="Яндекс Диск"]', disk = '[role="treeitem"][title="Локальный диск (C:)"]';
-      const lvl0 = { chevron: await at(`${yandex} [data-nav-chevron]`), icon: await at(`${yandex} img`), label: await at(`${yandex} span.truncate`) };
+      const lvl0 = { chevron: await at(`${yandex} [data-nav-chevron]`), icon: await at(`${yandex} [data-place-icon] svg`), label: await at(`${yandex} span.truncate`) };
       const lvl1 = { chevron: await at(`${disk} [data-nav-chevron]`), label: await at(`${disk} span.truncate`) };
       ok(`[${t}] Первый уровень: стрелка 21, значок 45, подпись с 59 точек`, near(lvl0.chevron.c, 21) && near(lvl0.icon.c, 45) && near(lvl0.label.l, 59), lvl0);
       ok(`[${t}] Второй уровень сдвинут на 8: стрелка 29, подпись с 67`, near(lvl1.chevron.c, 29) && near(lvl1.label.l, 67), lvl1);
-      ok(`[${t}] Значок Windows через мост: у «Рабочего стола» и у диска — PNG из getIcon`, await page.locator('[role="treeitem"][title="Рабочий стол"] img[src^="data:image/png"]').count() === 1 && await page.locator(`${disk} img[src^="data:image/png"]`).count() === 1);
+      // Значки мест — наши, нарисованные: картинок из оболочки (getIcon) в панели нет, у каждого места свой знак 16 точек
+      ok(`[${t}] Значки мест нарисованы Flux: картинок из Windows нет`, await page.locator('[data-nav-pane] img').count() === 0 && await page.locator('[role="treeitem"][title="Рабочий стол"] [data-place-icon] svg').count() === 1 && await page.locator(`${disk} [data-place-icon] svg`).count() === 1);
+      ok(`[${t}] Значки мест — 16 точек`, await page.locator('[data-nav-pane] [data-place-icon] svg').evaluateAll((nodes) => nodes.length > 4 && nodes.every((node) => { const r = node.getBoundingClientRect(); return Math.round(r.width) === 16 && Math.round(r.height) === 16; })));
+      ok(`[${t}] Диск и облако различаются со значком папки`, await page.locator(`${disk} [data-place-icon] svg path`).first().getAttribute('d') !== await page.locator('[role="treeitem"][title="Рабочий стол"] [data-place-icon] svg path').first().getAttribute('d'));
       ok(`[${t}] Шрифт — системный стек Windows`, (await measure(page, '[data-nav-pane]')).family.startsWith('"Segoe UI Variable Text"'));
       ok(`[${t}] Горизонтальной прокрутки нет`, await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
       if (SHOTS) await page.screenshot({ path: `${SHOTS}/shell-${theme}.png` });

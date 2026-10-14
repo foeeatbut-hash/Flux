@@ -359,8 +359,8 @@ function ProjectDesktop() {
       icon: <FolderPlus className="w-3.5 h-3.5" />,
       items: [
         { label: 'Папку', icon: <FolderPlus className="w-3.5 h-3.5" />, onClick: () => create('folder', canPersonal ? 'PERSONAL' : 'SHARED') },
-        { label: 'Документ', icon: <FileBadge file="Документ.docx" size={14} />, onClick: () => create('doc', canPersonal ? 'PERSONAL' : 'SHARED') },
-        { label: 'Таблицу', icon: <FileBadge file="Таблица.xlsx" size={14} />, onClick: () => create('sheet', canPersonal ? 'PERSONAL' : 'SHARED') },
+        { label: 'Документ', icon: <FileBadge file="Документ.docx" size={16} />, onClick: () => create('doc', canPersonal ? 'PERSONAL' : 'SHARED') },
+        { label: 'Таблицу', icon: <FileBadge file="Таблица.xlsx" size={16} />, onClick: () => create('sheet', canPersonal ? 'PERSONAL' : 'SHARED') },
         { label: 'Заметку', icon: <StickyNote className="w-3.5 h-3.5" />, onClick: () => create('NOTE', 'PERSONAL') },
         { label: 'Таблицу на общем столе', separated: true, icon: <Users className="w-3.5 h-3.5" />, onClick: () => create('sheet', 'SHARED') },
       ],

@@ -31,6 +31,7 @@ import { countOf } from '../lib/plural';
 import { motion } from 'motion/react';
 import SeasonalBackdrop from '../components/SeasonalBackdrop';
 import { splitFullName } from '../lib/declension';
+import { ICON_SIZE } from '../lib/metrics';
 import {
   Search, History, ExternalLink, ArrowRight, Plus, Check,
   FolderKanban, NotebookPen, CornerDownLeft, X, Clock,
@@ -546,7 +547,7 @@ export default function Dashboard() {
                   data-share-label={s.title}
                   className="flex items-center gap-2.5 px-3 h-10 rounded-lg flux-tile transition-ui cursor-pointer text-left min-w-0"
                 >
-                  {Icon && <Icon className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />}
+                  {Icon && <Icon size={ICON_SIZE.row} />}
                   <span className="text-[13px] font-medium truncate">{s.title}</span>
                 </button>
               );
@@ -572,7 +573,7 @@ export default function Dashboard() {
                 data-share-label={s.title}
                 className="flex items-center gap-2.5 px-3 h-10 rounded-lg flux-tile transition-ui cursor-pointer text-left min-w-0"
               >
-                {Icon && <Icon className="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" />}
+                {Icon && <Icon size={ICON_SIZE.row} />}
                 <span className="text-[13px] font-medium truncate">{s.title}</span>
               </button>
             );

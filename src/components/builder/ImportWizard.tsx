@@ -20,6 +20,8 @@ import { catalogService } from '../../services/catalogService';
 import { newItemId, nextSort } from '../../store/builderStore';
 import { Btn, Chip, Confidence, Empty, Field, Input, Select, Seg } from '../catalog/ui';
 import ImportFileChooser from '../ImportFileChooser';
+import FileBadge from '../ui/FileBadge';
+import { ICON_SIZE } from '../../lib/metrics';
 
 type Step = 'file' | 'columns' | 'plan';
 
@@ -236,7 +238,7 @@ export default function ImportWizard({ catalog, classId, items, learned, canLear
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) openFile(f); }}
           className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 dark:border-slate-700 px-6 py-10 text-center">
-          <FileSpreadsheet className="w-8 h-8 text-emerald-600" />
+          <FileBadge file="Таблица.xlsx" size={ICON_SIZE.start} />
           <b className="text-sm">Перетащите MTO или спецификацию сюда</b>
           <span className="text-xs text-slate-500 dark:text-slate-400">Выберите файл Excel (.xlsx, .xls, .csv). Файл читается на этом компьютере и никуда не загружается.</span>
           <ImportFileChooser accept=".xlsx,.xls,.xlsm,.csv" onFiles={files => { if (files[0]) void openFile(files[0]); }} />

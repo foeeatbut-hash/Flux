@@ -1,8 +1,10 @@
 import React from 'react';
-import { Archive, ChevronRight, Pin } from 'lucide-react';
+import { ChevronRight, Pin } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import ContextMenu, { type MenuItem } from '../ContextMenu';
 import PlaceIcon from './PlaceIcon';
+import { ArchivesAppIcon } from '../icons/FluxIcons';
+import { ICON_SIZE } from '../../lib/metrics';
 import { useNavTree } from './useNavTree';
 import { usePlaceCatalog } from './usePlaceCatalog';
 import { NAV_MAX, NAV_MIN, clampNav, useNavWidth } from './useNavWidth';
@@ -119,10 +121,8 @@ export default function NavPane({ place, onOpen, onOpenInNewTab }: {
                     </button>
                   )}
                 </span>
-                <span className="ml-2 flex h-4 w-4 shrink-0 items-center justify-center">
-                  {row.icon
-                    ? <img src={row.icon} alt="" width={16} height={16} draggable={false} className="h-4 w-4 object-contain" />
-                    : <PlaceIcon kind={row.place!.kind} name={row.label} fileRef={row.place!.ref} flux={row.flux} size={16} />}
+                <span data-place-icon className="ml-2 flex h-4 w-4 shrink-0 items-center justify-center">
+                  <PlaceIcon kind={row.place!.kind} name={row.label} fileRef={row.place!.ref} flux={row.flux} glyph={row.glyph} size={ICON_SIZE.row} />
                 </span>
                 <span className="ml-1.5 min-w-0 flex-1 truncate">{row.label}</span>
                 {row.loading && <span className={`ml-2 shrink-0 ${T.faint}`}>…</span>}
@@ -134,7 +134,7 @@ export default function NavPane({ place, onOpen, onOpenInNewTab }: {
         <div role="separator" className="mx-2 my-1 border-t border-[#e5e5e5] dark:border-[#202020]" />
         <div role="treeitem" data-nav-key="flux-archive" aria-level={1} tabIndex={-1} title="Открыть сохранённый архив Flux" onClick={() => navigate('/explorer?projectFiles=1')} className="group relative cursor-default select-none outline-none" style={{ height: SIZE.navItem }}>
           <span aria-hidden className={`absolute inset-y-px left-px right-[3px] rounded group-focus-visible:outline group-focus-visible:outline-2 group-focus-visible:outline-[#0067c0] dark:group-focus-visible:outline-[#4cc2ff] ${T.paneHover}`} />
-          <span className="relative flex h-full items-center" style={{ paddingLeft: 13, paddingRight: 10 }}><Archive width={16} height={16} className="ml-6 mr-1.5 shrink-0 text-slate-500" /><span className="min-w-0 flex-1 truncate">Архив Flux</span></span>
+          <span className="relative flex h-full items-center" style={{ paddingLeft: 13, paddingRight: 10 }}><ArchivesAppIcon size={ICON_SIZE.row} className="ml-6 mr-1.5" /><span className="min-w-0 flex-1 truncate">Архив Flux</span></span>
         </div>
       </div>
       <div role="separator" aria-orientation="vertical" aria-label="Ширина панели навигации" aria-valuemin={NAV_MIN} aria-valuemax={NAV_MAX} aria-valuenow={width} tabIndex={0}

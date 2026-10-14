@@ -1,45 +1,20 @@
+/**
+ * Значки Flux — вход для остальной программы.
+ *
+ * Рисунки лежат рядом: файлы и системные места — SystemIcons.tsx, программы
+ * по разделам — AppIcons.tsx, лист файла — ui/FileBadge.tsx. Здесь же — метки
+ * поверх значка («файл Flux», «общий»), которые не зависят от рисунка.
+ */
 import React from 'react';
-import { FileQuestion, Shapes } from 'lucide-react';
-import { SECTIONS } from '../../workspace/sections';
-import FileBadge, { DocAppIcon, SheetAppIcon, PdfAppIcon } from '../ui/FileBadge';
 
-export type FileIconKind = 'folder' | 'this-pc' | 'bin' | 'word' | 'excel' | 'pdf' | 'unknown' | 'document';
-
-/** Общие системные и офисные знаки: одна форма в Проводнике и оболочке. */
-export function FileIcon({ kind, size = 32, className = '' }: { kind: FileIconKind; size?: number; className?: string }) {
-  if (kind === 'word') return <DocAppIcon size={size} className={className} />;
-  if (kind === 'excel') return <SheetAppIcon size={size} className={className} />;
-  if (kind === 'pdf') return <PdfAppIcon size={size} className={className} />;
-  if (kind === 'document') return <FileBadge file="Документ" size={size} className={className} />;
-  if (kind === 'folder') return <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" className={`shrink-0 ${className}`}>
-    <path d="M3 9a2.5 2.5 0 0 1 2.5-2.5h7l3 3H26a2.5 2.5 0 0 1 2.5 2.5v12a2.5 2.5 0 0 1-2.5 2.5h-21A2.5 2.5 0 0 1 2.5 24z" fill="#edbd52" stroke="#bd8a27" strokeWidth="1.2" />
-    <path d="M3 13h25l-2 10.5a2 2 0 0 1-2 1.6H5.2a2 2 0 0 1-2-2z" fill="#f4cf72" stroke="#d2a33e" strokeWidth=".8" />
-    <path d="M4 14h23" stroke="#ffebad" strokeWidth="1" />
-  </svg>;
-  if (kind === 'this-pc') return <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" className={`shrink-0 ${className}`}>
-    <rect x="4" y="5" width="24" height="17" rx="2.5" fill="#e9f1f7" stroke="#60788c" strokeWidth="1.4" />
-    <rect x="6.5" y="7.5" width="19" height="12" rx="1" fill="#b8d9ec" />
-    <path d="M16 22v3m-6 2h12m-10-2h8" fill="none" stroke="#60788c" strokeWidth="1.5" strokeLinecap="round" />
-    <path d="M8 10h16" stroke="#fff" strokeOpacity=".8" />
-  </svg>;
-  if (kind === 'bin') return <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" className={`shrink-0 ${className}`}>
-    <path d="M8 10h16l-1.3 17H9.3z" fill="#e8edf1" stroke="#718293" strokeWidth="1.2" />
-    <path d="M6 8h20m-13-3h6l1 3h-8z" fill="none" stroke="#718293" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M13 13v10m6-10v10" stroke="#9ba9b4" strokeWidth="1.2" strokeLinecap="round" />
-    <path d="M9.5 10.5h13" stroke="#fff" strokeOpacity=".8" />
-  </svg>;
-  const UnknownIcon = kind === 'unknown' ? FileQuestion : Shapes;
-  return <UnknownIcon size={size} strokeWidth={1.55} className={`shrink-0 text-slate-500 dark:text-slate-400 ${className}`} />;
-}
-
-/** App icons use the existing section glyphs, preserving Flux's established identity. */
-export function AppIcon({ path, size = 20, className = '' }: { path: string; size?: number; className?: string }) {
-  if (['/doc', '/office/doc', '/office-doc'].includes(path)) return <DocAppIcon size={size} className={className} />;
-  if (['/sheet', '/office/sheet', '/office-sheet'].includes(path)) return <SheetAppIcon size={size} className={className} />;
-  if (['/pdf', '/office/pdf', '/office-pdf'].includes(path)) return <PdfAppIcon size={size} className={className} />;
-  const Icon = SECTIONS.find((section) => section.path === path)?.icon as React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }> | undefined;
-  return Icon ? <Icon size={size} strokeWidth={1.65} className={`text-slate-600 dark:text-slate-300 ${className}`} /> : <Shapes size={size} strokeWidth={1.65} className={`text-slate-500 dark:text-slate-400 ${className}`} />;
-}
+export { FileIcon, type FileIconKind } from './SystemIcons';
+export {
+  AppIcon, APP_ICON_BY_PATH, type FluxAppIconProps,
+  HomeAppIcon, ProjectsAppIcon, RegistryAppIcon, EquipmentAppIcon, DirectoryAppIcon,
+  ManagementAppIcon, BuilderAppIcon, CatalogAppIcon, E3FluxAppIcon, ArchivesAppIcon,
+  ExplorerAppIcon, GuideAppIcon, TranslateAppIcon, BrowserAppIcon, CalendarAppIcon,
+  ChatAppIcon, MailAppIcon, FeedbackAppIcon, SettingsAppIcon, LogsAppIcon, UsersAppIcon,
+} from './AppIcons';
 
 /** Малые метки занимают разные нижние углы и не закрывают рисунок документа. */
 export function IconBadges({ children, flux = false, shared = false, size = 32, className = '' }: {

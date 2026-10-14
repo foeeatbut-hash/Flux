@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { KIND_RU } from '../../lib/insight';
 import FileBadge from '../ui/FileBadge';
+import { ICON_SIZE } from '../../lib/metrics';
 
 /**
  * Мелкие части панели связей: значок вида объекта, строка перехода, пустое
@@ -27,7 +28,7 @@ const KIND_TONE: Record<string, string> = {
 
 export function KindIcon({ kind, name, className = 'w-4 h-4' }: { kind: string; name?: string; className?: string }) {
   // Файл узнаётся по своему значку — тому же, что на столе и в Проводнике
-  if (kind === 'file' && name) return <FileBadge file={name} size={16} />;
+  if (kind === 'file' && name) return <FileBadge file={name} size={ICON_SIZE.row} />;
   const Icon = KIND_ICON[kind] || FileText;
   return <Icon className={`${className} ${KIND_TONE[kind] || 'text-slate-500 dark:text-slate-400'} shrink-0`} />;
 }

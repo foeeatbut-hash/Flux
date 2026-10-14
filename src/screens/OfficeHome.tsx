@@ -18,6 +18,7 @@ import { blankBytes, BLANK_NAME, type BlankKind } from '../lib/blankFiles';
 import { saveNewFile, editorHref } from '../lib/officeFiles';
 import { recentBadge } from '../lib/fileBadge';
 import FileBadge from '../components/ui/FileBadge';
+import { ICON_SIZE } from '../lib/metrics';
 import { Btn, Empty, Input, SectionHead, SectionTitle } from '../components/ui';
 import { countOf, type WordKey } from '../lib/plural';
 
@@ -89,7 +90,7 @@ export default function OfficeHome({ kind }: { kind: OfficeHomeKind }) {
   return (
     <div className="h-full flex flex-col min-h-0">
       <SectionHead
-        title={<span className="flex items-center gap-2"><FileBadge file={SAMPLE[kind]} kind={kind} size={20} />{TITLE[kind]}</span>}
+        title={<span className="flex items-center gap-2"><FileBadge file={SAMPLE[kind]} kind={kind} size={ICON_SIZE.title} />{TITLE[kind]}</span>}
         actions={kind !== 'pdf' && (
           <Btn tone="primary" onClick={create} disabled={busy} data-tour="office-new-btn">
             {kind === 'doc' ? 'Новый документ' : 'Новая таблица'}
@@ -102,7 +103,7 @@ export default function OfficeHome({ kind }: { kind: OfficeHomeKind }) {
             <SectionTitle>Недавние</SectionTitle>
             {recent.map((d) => (
               <button key={d.href} type="button" onClick={() => navigate(d.href)} className="fx-li w-full text-left">
-                <FileBadge file={d.title} kind={recentBadge(d)} size={18} />
+                <FileBadge file={d.title} kind={recentBadge(d)} size={ICON_SIZE.row} />
                 <span className="flex-1 min-w-0 truncate">{d.title}</span>
                 <span className="text-xs text-slate-400 shrink-0">{whenLabel(d.at)}</span>
               </button>
@@ -128,7 +129,7 @@ export default function OfficeHome({ kind }: { kind: OfficeHomeKind }) {
           {shown.map((f) => (
             <button key={f.id} type="button" onClick={() => navigate(openHref(f))} className="fx-li w-full text-left"
               title={f.folderName ? `${f.folderName} / ${f.name}` : f.name}>
-              <FileBadge file={f} size={18} />
+              <FileBadge file={f} size={ICON_SIZE.row} />
               <span className="flex-1 min-w-0 truncate">{f.name}</span>
               {f.folderName && <span className="text-xs text-slate-400 truncate max-w-[40%] shrink-0">{f.folderName}</span>}
             </button>

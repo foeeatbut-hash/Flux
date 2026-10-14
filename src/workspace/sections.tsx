@@ -11,8 +11,13 @@
 import React, { lazy } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { resolveSectionPath } from '../lib/sectionAliases';
-import { Home, FolderKanban, Tag, Fan, BookOpen, Briefcase, FolderOpen, MessagesSquare, Settings, ClipboardList, Users, LifeBuoy, Mail, MessageCircleQuestion, Languages, Globe, CalendarDays, MessageSquarePlus, Library, Blocks, Archive, Workflow } from 'lucide-react';
 import { DocAppIcon, SheetAppIcon, PdfAppIcon, NotesAppIcon } from '../components/ui/FileBadge';
+import {
+  HomeAppIcon, ProjectsAppIcon, RegistryAppIcon, EquipmentAppIcon, DirectoryAppIcon,
+  ManagementAppIcon, BuilderAppIcon, CatalogAppIcon, E3FluxAppIcon, ArchivesAppIcon,
+  ExplorerAppIcon, GuideAppIcon, TranslateAppIcon, BrowserAppIcon, CalendarAppIcon,
+  ChatAppIcon, MailAppIcon, FeedbackAppIcon, SettingsAppIcon, LogsAppIcon, UsersAppIcon,
+} from '../components/icons/AppIcons';
 
 const Dashboard = lazy(() => import('../screens/Dashboard'));
 const Explorer = lazy(() => import('../screens/Explorer'));
@@ -113,7 +118,7 @@ export interface SectionDef {
    */
   accessMode?: 'normal' | 'stealth';
   /** Значок раздела: тот же в Пуске, в заголовке окна и на панели задач */
-  icon?: React.ComponentType<{ className?: string }>;
+  icon?: React.ComponentType<{ className?: string; size?: number }>;
   /** Стоит на нижней панели всегда, даже когда не запущен */
   pinned?: boolean;
   /**
@@ -135,24 +140,24 @@ export interface SectionDef {
 }
 
 export const SECTIONS: SectionDef[] = [
-  { path: '/', title: 'Главная', icon: Home, scope: 'mixed', scroll: 'auto', pad: true, Component: Dashboard },
-  { path: '/projects', title: 'Проекты', icon: FolderKanban, scope: 'global', scroll: 'fixed', pad: false, Component: ProjectsManagement },
-  { path: '/registry', title: 'Теги', icon: Tag, scope: 'project', scroll: 'fixed', pad: false, pinned: true, Component: Registry },
-  { path: '/equipment', title: 'Оборудование', icon: Fan, scope: 'project', scroll: 'fixed', pad: false, pinned: true, Component: Equipment },
+  { path: '/', title: 'Главная', icon: HomeAppIcon, scope: 'mixed', scroll: 'auto', pad: true, Component: Dashboard },
+  { path: '/projects', title: 'Проекты', icon: ProjectsAppIcon, scope: 'global', scroll: 'fixed', pad: false, Component: ProjectsManagement },
+  { path: '/registry', title: 'Теги', icon: RegistryAppIcon, scope: 'project', scroll: 'fixed', pad: false, pinned: true, Component: Registry },
+  { path: '/equipment', title: 'Оборудование', icon: EquipmentAppIcon, scope: 'project', scroll: 'fixed', pad: false, pinned: true, Component: Equipment },
   { path: '/windows-file', title: 'Файл Windows', icon: DocAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: WindowsFileHost },
-  { path: '/directory', title: 'Справочник', icon: BookOpen, scope: 'project', scroll: 'fixed', pad: false, Component: DictionaryEditor },
-  { path: '/management', title: 'Менеджмент', icon: Briefcase, scope: 'project', scroll: 'fixed', pad: false, Component: ProcurementManagement },
+  { path: '/directory', title: 'Справочник', icon: DirectoryAppIcon, scope: 'project', scroll: 'fixed', pad: false, Component: DictionaryEditor },
+  { path: '/management', title: 'Менеджмент', icon: ManagementAppIcon, scope: 'project', scroll: 'fixed', pad: false, Component: ProcurementManagement },
   // Конструктор — подбор оборудования по Каталогу и бланки заказа. Путь не
   // «/constructor»: так назывался прежний редактор книг, и старые окна людей
   // по этому адресу уводятся в «Таблицу» (lib/sectionAliases)
-  { path: '/builder', title: 'Конструктор', icon: Blocks, scope: 'project', scroll: 'fixed', pad: true, multi: true, Component: BuilderScreen },
+  { path: '/builder', title: 'Конструктор', icon: BuilderAppIcon, scope: 'project', scroll: 'fixed', pad: true, multi: true, Component: BuilderScreen },
   // Каталог — справочник оборудования программы, а не проекта
-  { path: '/catalog', title: 'Каталог', icon: Library, scope: 'global', scroll: 'fixed', pad: true, Component: CatalogScreen },
+  { path: '/catalog', title: 'Каталог', icon: CatalogAppIcon, scope: 'global', scroll: 'fixed', pad: true, Component: CatalogScreen },
   // E3Flux — всё про E3.series: атрибуты проекта, справочник атрибутов, дальше
   // типовые решения и схема. Проектная область: таблица строится по проекту
-  { path: '/e3flux', title: 'E3Flux', icon: Workflow, scope: 'project', scroll: 'fixed', pad: false, Component: E3FluxScreen },
-  { path: '/archives', title: 'Архив', icon: Archive, scope: 'project', scroll: 'fixed', pad: false, fileOnly: true, Component: ArchivesScreen },
-  { path: '/explorer', title: 'Проводник', icon: FolderOpen, scope: 'global', scroll: 'fixed', pad: false, pinned: true, multi: true, Component: Explorer },
+  { path: '/e3flux', title: 'E3Flux', icon: E3FluxAppIcon, scope: 'project', scroll: 'fixed', pad: false, Component: E3FluxScreen },
+  { path: '/archives', title: 'Архив', icon: ArchivesAppIcon, scope: 'project', scroll: 'fixed', pad: false, fileOnly: true, Component: ArchivesScreen },
+  { path: '/explorer', title: 'Проводник', icon: ExplorerAppIcon, scope: 'global', scroll: 'fixed', pad: false, pinned: true, multi: true, Component: Explorer },
   // Редакторы остаются маршрутами для существующих файлов и создания новых,
   // но не дублируют файловые действия самостоятельными программами в Пуске.
   { path: '/sheet', title: 'Таблица', icon: SheetAppIcon, scope: 'project', scroll: 'fixed', pad: false, fileOnly: true, multi: true, Component: SheetEntry },
@@ -167,28 +172,28 @@ export const SECTIONS: SectionDef[] = [
   // (заменил старый «Помощник» и отдельное «Руководство»: один продукт вместо
   // двух оболочек над одними знаниями). Спросить на секунду по-прежнему можно
   // панелью (Ctrl+K), а подробно — рядом с ведомостью, окном Guide
-  { path: '/guide', title: 'Flux Guide', icon: BookOpen, scope: 'project', scroll: 'fixed', pad: false, Component: FluxGuide },
+  { path: '/guide', title: 'Flux Guide', icon: GuideAppIcon, scope: 'project', scroll: 'fixed', pad: false, Component: FluxGuide },
   // Переводчик — программа с окном по той же причине, что и помощник: перевод
   // идёт рядом с ведомостью, а не поверх неё. Область проектная: словарь и
   // память принадлежат проекту, у соседнего заказчика свои названия
-  { path: '/translate', title: 'Переводчик', icon: Languages, scope: 'project', scroll: 'fixed', pad: false, Component: TranslateScreen },
+  { path: '/translate', title: 'Переводчик', icon: TranslateAppIcon, scope: 'project', scroll: 'fixed', pad: false, Component: TranslateScreen },
   // Браузер — программа с окном и вкладками. Область общая: закладки живут
   // по проекту, но сам браузер от проекта не зависит, и переключение проекта
   // не должно закрывать открытую страницу
-  { path: '/browser', title: 'Браузер', icon: Globe, scope: 'global', scroll: 'fixed', pad: false, Component: BrowserScreen },
+  { path: '/browser', title: 'Браузер', icon: BrowserAppIcon, scope: 'global', scroll: 'fixed', pad: false, Component: BrowserScreen },
   // Календарь — общий: события живут по проектам, но человек смотрит в него
   // как в свой день целиком, а не как в часть проекта
-  { path: '/calendar', title: 'Календарь', icon: CalendarDays, scope: 'global', scroll: 'fixed', pad: false, Component: CalendarScreen },
+  { path: '/calendar', title: 'Календарь', icon: CalendarAppIcon, scope: 'global', scroll: 'fixed', pad: false, Component: CalendarScreen },
   { path: '/notes', title: 'Блокнот', icon: NotesAppIcon, scope: 'global', scroll: 'auto', pad: false, multi: true, Component: NotesEntry },
-  { path: '/chat', title: 'Мессенджер', icon: MessagesSquare, scope: 'global', scroll: 'fixed', pad: false, badge: 'chat', Component: ChatManagement },
+  { path: '/chat', title: 'Мессенджер', icon: ChatAppIcon, scope: 'global', scroll: 'fixed', pad: false, badge: 'chat', Component: ChatManagement },
   // Почта занимает всю высоту и прокручивает списки внутри — как Чат и Теги
-  { path: '/mail', title: 'Почта', icon: Mail, scope: 'global', scroll: 'fixed', pad: false, pinned: true, badge: 'mail', Component: MailScreen },
+  { path: '/mail', title: 'Почта', icon: MailAppIcon, scope: 'global', scroll: 'fixed', pad: false, pinned: true, badge: 'mail', Component: MailScreen },
   // Обращения — общий раздел: обращение живёт не в проекте, а в программе, и
   // после переключения проекта не должно пропадать из списка
-  { path: '/feedback', title: 'Замечания и предложения', icon: MessageSquarePlus, scope: 'global', scroll: 'fixed', pad: false, badge: 'feedback', feature: 'feedback.create', Component: FeedbackScreen },
-  { path: '/settings', title: 'Настройки', icon: Settings, scope: 'mixed', scroll: 'fixed', pad: false, Component: SettingsScreen },
-  { path: '/logs', title: 'Журнал', icon: ClipboardList, scope: 'global', scroll: 'fixed', pad: false, feature: 'log.view', Component: LogsManagement },
-  { path: '/users', title: 'Сотрудники', icon: Users, scope: 'global', scroll: 'fixed', pad: false, adminOnly: true, Component: UsersManagement },
+  { path: '/feedback', title: 'Замечания и предложения', icon: FeedbackAppIcon, scope: 'global', scroll: 'fixed', pad: false, badge: 'feedback', feature: 'feedback.create', Component: FeedbackScreen },
+  { path: '/settings', title: 'Настройки', icon: SettingsAppIcon, scope: 'mixed', scroll: 'fixed', pad: false, Component: SettingsScreen },
+  { path: '/logs', title: 'Журнал', icon: LogsAppIcon, scope: 'global', scroll: 'fixed', pad: false, feature: 'log.view', Component: LogsManagement },
+  { path: '/users', title: 'Сотрудники', icon: UsersAppIcon, scope: 'global', scroll: 'fixed', pad: false, adminOnly: true, Component: UsersManagement },
 ];
 
 const BY_PATH = new Map(SECTIONS.map((s) => [s.path, s]));

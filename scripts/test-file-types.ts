@@ -9,7 +9,7 @@
  */
 import {
   appsFor, openHref, hasChoice, isPdf, isOffice, FILE_APPS,
-  faceOf, dbTypeOf, typeLabel, legacyAdvice,
+  faceOf, dbTypeOf, typeLabel, legacyAdvice, canOpenInFlux,
 } from '../src/lib/fileTypes';
 
 let failed = 0;
@@ -115,6 +115,25 @@ console.log('Двойное нажатие всегда что-то делает
   check('старого Конструктора в «Открыть с помощью» нет',
     !appsFor({ id: 'x', name: 'Смета.xlsx' }).some((a) => a.id === 'office' || a.id === 'docs'));
   check('чертёж ПДФ — редактором PDF', appsFor({ id: 'x', name: 'АР.pdf' })[0].id === 'pdf');
+}
+
+console.log('Открывается ли во Flux (по нему рисуется «закрытый» значок)');
+{
+  const opens = ['a.docx', 'a.xlsx', 'a.xlsm', 'a.xls', 'a.csv', 'a.pdf', 'a.PDF', 'a.txt', 'a.log', 'a.md', 'a.json', 'a.xml',
+    'a.png', 'a.jpg', 'a.jpeg', 'a.gif', 'a.bmp', 'a.webp', 'a.svg', 'a.zip', 'a.rar', 'a.7z'];
+  const closed = ['a.doc', 'a.rtf', 'a.odt', 'a.ods', 'a.ppt', 'a.pptx', 'a.dwg', 'a.dxf', 'a.e3s', 'a.exe', 'a.msi', 'a.bat', 'a.lnk',
+    'a.mp4', 'a.mp3', 'a.dll', 'a.psd', 'a.tif', 'a.html', 'Без расширения'];
+  for (const name of opens) check(`${name} открывается во Flux`, canOpenInFlux(name));
+  for (const name of closed) check(`${name} не открывается во Flux`, !canOpenInFlux(name));
+  check('PDF без расширения, но с типом из базы, открывается', canOpenInFlux({ id: 'x', name: 'Чертёж', type: 'PDF' }));
+  // Ответ обязан совпадать с маршрутизацией: если первым пунктом «Открыть с помощью»
+  // стоит Проводник или Windows, а картинки и текста тут нет — Flux файл не открывает
+  for (const name of [...opens, ...closed]) {
+    const first = appsFor({ id: 'x', name })[0].id;
+    const previewable = faceOf(name) === 'image' || faceOf(name) === 'plain';
+    const routed = !(first === 'explorer' || first === 'windows') || previewable;
+    check(`${name}: canOpenInFlux совпадает с маршрутом «${first}»`, canOpenInFlux(name) === routed);
+  }
 }
 
 console.log('Список программ опрятен');

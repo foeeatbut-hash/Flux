@@ -11,11 +11,10 @@
  */
 import React from 'react';
 import { SECTIONS } from '../../workspace/sections';
-import { Shapes } from 'lucide-react';
 import FileBadge from '../ui/FileBadge';
 import { FILE_STATUSES, statusOf } from '../explorer/FileItems';
 import { isSystemKind, type DeskItem } from '../../lib/desktop';
-import { deskMetric, type DeskMetric } from '../../lib/metrics';
+import { DESK, deskMetric, type DeskMetric } from '../../lib/metrics';
 import { AppIcon, FileIcon, IconBadges } from '../icons/FluxIcons';
 
 function Glyph({ item, size }: { item: DeskItem; size: number }) {
@@ -82,9 +81,9 @@ export default function DeskIcon({
 >) {
   const st = statusOf(item.status);
   const showStatus = !isSystemKind(item.kind) && item.kind !== 'folder';
-  // Мелкие значки живут без строки ревизии: в клетку 60×68 она не встаёт, а
+  // Мелкие значки живут без строки ревизии: в клетку 64×76 она не встаёт, а
   // подпись важнее — без неё значок перестаёт быть значком документа
-  const showRevision = showStatus && metric.icon >= 32;
+  const showRevision = showStatus && metric.icon > DESK.small.icon;
   /**
    * Поле переименования само решает, чем кончилось: Enter — сохранить, Escape —
    * отменить. Без этой отметки уход фокуса, который случается сразу после

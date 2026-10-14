@@ -238,6 +238,26 @@ export const isExcelFile = (f: FileLike): boolean => /\.xls[xm]$/i.test(String(f
 export const isMarkdownFile = (f: FileLike): boolean => /\.(md|markdown)$/i.test(String(f.name || ''));
 
 /**
+ * Открывается ли файл внутри Flux — единственный ответ на этот вопрос.
+ *
+ * Открывается то, для чего `appsFor` называет свою программу или предпросмотр:
+ * архив, PDF, Word (.docx), Excel (.xlsx, .xlsm, .xls, .csv), заметка Markdown,
+ * картинка и простой текст. Всё остальное — старый .doc, чертёж САПР, видео,
+ * исполняемый файл, неизвестный формат — Flux только показывает в списке и
+ * отдаёт Windows. По этому ответу значок рисует «закрытый» лист (lib/fileBadge.ts):
+ * человек видит ещё до двойного нажатия, что файл откроется не здесь.
+ *
+ * Не дописывать сюда формат, которого у нас нет: значок обещал бы то, чего
+ * Flux не сделает (см. то же правило в начале файла).
+ */
+export function canOpenInFlux(f: FileLike | string): boolean {
+  const file: FileLike = typeof f === 'string' ? { id: '', name: f } : f;
+  if (isArchive(file) || isPdf(file) || isOffice(file) || isMarkdownFile(file)) return true;
+  const face = faceOf(file);
+  return face === 'image' || face === 'plain';
+}
+
+/**
  * Чем можно открыть этот файл. Первая программа — по двойному нажатию,
  * остальные предлагаются в «Открыть с помощью».
  */

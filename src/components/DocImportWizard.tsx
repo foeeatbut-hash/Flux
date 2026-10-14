@@ -13,6 +13,8 @@ import EquipmentImportPreview from './EquipmentImportPreview';
 import { DraftItem, DraftField, DraftResult, Confidence } from '../import/types';
 import CustomSelect from './CustomSelect';
 import ImportFileChooser from './ImportFileChooser';
+import FileBadge from './ui/FileBadge';
+import { ICON_SIZE } from '../lib/metrics';
 
 // Мастер импорта документов: PDF / Excel / Word / XML / вставка из буфера.
 // Распознавание полностью на клиенте; на сервер уходит только подтверждённый результат.
@@ -493,7 +495,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                     }`}
                   >
                     <div className="flex items-center gap-1.5">
-                      {j.fileName.toLowerCase().endsWith('.pdf') ? <FileText className="w-3.5 h-3.5 text-rose-500 shrink-0" /> : <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
+                      <FileBadge file={j.fileName} size={ICON_SIZE.row} />
                       <span className="font-semibold text-slate-800 dark:text-slate-300 truncate">{j.fileName}</span>
                     </div>
                     <div className="mt-1 flex items-center gap-1 text-2xs">

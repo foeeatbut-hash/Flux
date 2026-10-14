@@ -10,9 +10,12 @@
  */
 import React, { useState } from 'react';
 import {
-  Folder, File as FileIcon, ChevronRight, ChevronDown, Clock, Tag, Copy, Trash2,
+  Folder, ChevronRight, ChevronDown, Clock, Tag, Copy, Trash2,
 } from 'lucide-react';
 import { getFileIcon } from './FileItems';
+import { ExplorerAppIcon } from '../icons/FluxIcons';
+import { FileIcon } from '../icons/FluxIcons';
+import { ICON_SIZE } from '../../lib/metrics';
 import {
   SEC_SHARED, SEC_DISK, TRASH_ID, SMART_RECENT, SMART_UNTAGGED, SMART_DUPES,
 } from '../../lib/explorerSections';
@@ -43,7 +46,7 @@ export default function ExplorerSidebar({
           className={`flex items-center py-1.5 px-3 mx-2 rounded-lg cursor-pointer transition-colors text-slate-700 dark:text-slate-300 ${currentFolderId === null ? 'bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 font-medium' : 'hover:bg-slate-200/50 dark:hover:bg-slate-900'}`}
           onClick={() => onNavigate(null)}
         >
-          <FileIcon className="w-4 h-4 mr-2 text-slate-500 shrink-0" />
+          <ExplorerAppIcon size={16} className="mr-2" />
           <span className="text-sm">Проводник</span>
         </div>
         {sections.map(sec => (
@@ -170,7 +173,7 @@ const TreeFolder = ({ folder, allFolders, currentFolderId, onSelect, depth = 1, 
         >
           {children.length > 0 ? (expanded ? <ChevronDown className="w-3 h-3 text-slate-500" /> : <ChevronRight className="w-3 h-3 text-slate-500" />) : <span className="w-3 h-3" />}
         </div>
-        <Folder className={`w-4 h-4 mr-2 flex-shrink-0 ${isSelected ? 'text-amber-600 fill-amber-200' : 'text-amber-500 fill-amber-100'}`} />
+        <FileIcon kind="folder" size={ICON_SIZE.row} className="mr-2" />
         <span className="truncate text-xs select-none">{folder.name}</span>
       </div>
       {expanded && children.map((child: any) => (

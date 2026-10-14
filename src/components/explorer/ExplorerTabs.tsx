@@ -13,6 +13,8 @@ import React from 'react';
 import { Folder, X, Plus } from 'lucide-react';
 import { countOf } from '../../lib/plural';
 import { formatSize, statusOf } from './FileItems';
+import { FileIcon } from '../icons/FluxIcons';
+import { ICON_SIZE } from '../../lib/metrics';
 import {
   loadTabs, saveTabs, closeTab, openInTab, moveActive, activeOf, type ExpTab,
 } from '../../lib/explorerTabs';
@@ -43,7 +45,7 @@ export function ExplorerTabs({ tabs, activeId, onPick, onClose, onNew }: {
                         ? 'bg-white dark:bg-dark-bg text-slate-800 dark:text-slate-100 font-semibold'
                         : 'text-slate-500 dark:text-slate-400 hover:bg-white/60 dark:hover:bg-slate-850'}`}
         >
-          <Folder className="w-3 h-3 shrink-0 text-amber-500" />
+          <FileIcon kind="folder" size={ICON_SIZE.row} />
           <span className="truncate">{t.name}</span>
           {tabs.length > 1 && (
             <button

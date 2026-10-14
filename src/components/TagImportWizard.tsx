@@ -11,6 +11,8 @@ import { useToastStore } from '../store/toastStore';
 import { countOf } from '../lib/plural';
 import { FIELDS, FIELD_LABEL, detectField, FieldKey as SharedFieldKey } from '../capture/fields';
 import { useEscapeClose } from '../lib/useDismiss';
+import FileBadge from './ui/FileBadge';
+import { ICON_SIZE } from '../lib/metrics';
 
 // Поля и угадывание колонок — общий модуль: тем же словарём разбирает
 // таблицу захват с экрана (src/capture)
@@ -244,7 +246,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {excelFiles.map(f => (
                         <button type="button" key={f.id} disabled={parsing} onClick={() => handlePickFile(f.id)} className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 hover:border-emerald-400 dark:hover:border-emerald-600 hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 transition-colors text-left cursor-pointer disabled:opacity-50">
-                          <FileSpreadsheet className="w-5 h-5 text-emerald-600 shrink-0" />
+                          <FileBadge file={f.name} size={ICON_SIZE.row} />
                           <div className="min-w-0">
                             <div className="text-sm font-semibold text-slate-800 dark:text-white truncate">{f.name}</div>
                             {f.folder && <div className="text-xs text-slate-400 flex items-center gap-1 min-w-0"><FolderIcon className="w-3 h-3 shrink-0" /> <span className="flex-1 min-w-0 truncate">{f.folder}</span></div>}
