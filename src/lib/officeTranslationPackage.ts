@@ -1,7 +1,15 @@
 import JSZip from 'jszip';
 import { FLUX_PART, FLUX_PART_MAX_BYTES, putFluxPart, utf8Length } from '../../office/fluxPart';
 import type { OfficeTranslationRecord } from '../translate/placement';
-import type { OfficeTranslationMetadata } from '../components/office/TranslationBridgeContext';
+
+/** Метаданные пакета не зависят от React-панели: их читает и нативный процесс. */
+export interface OfficeTranslationMetadata {
+  baseHash: string;
+  records: OfficeTranslationRecord[];
+  bindings: Array<Record<string, unknown>>;
+  headerSchema: any;
+  displayLabels: Record<string, string>;
+}
 
 export interface OfficeTranslationDelta {
   records?: OfficeTranslationRecord[];
