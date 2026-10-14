@@ -274,6 +274,25 @@ export const PATCHES = [
       "    ;(window as any).__fluxSheets = { univerRef, lazyWorkbookRef }\n" +
       "    // a throwing construction",
   },
+  // ── Переводчик Таблицы (inject/translation-sheets-live.ts) ──
+  {
+    // Подключается рядом с совместной правкой: каналы flux:translation-*-request
+    // и окно window.__fluxTranslation для проверок
+    id: 'flux-translation-sheets',
+    file: 'apps/sheets/src/renderer/App.tsx',
+    find: "import './flux/sheets-collab'\n",
+    replace: "import './flux/sheets-collab'\n" +
+      "import './flux/translation-sheets-live'\n",
+  },
+  {
+    // «Новый файл»: копию книги сохраняют тем же путём, что «Сохранить как»;
+    // обработчик живёт в компоненте, поэтому наружу его отдаёт сам компонент
+    id: 'flux-translation-sheets-save',
+    file: 'apps/sheets/src/renderer/App.tsx',
+    find: "  handleSaveRef.current = handleSave\n",
+    replace: "  handleSaveRef.current = handleSave\n" +
+      "  ;(window as any).__fluxSheetsSave = (mode: 'save' | 'save-as', quiet?: boolean) => handleSaveRef.current(mode, quiet)\n",
+  },
   // ── Вкладка Flux в ленте Word и Таблицы (inject/flux-ribbon.tsx) ──
   // Раньше здесь была одна кнопка; теперь настоящая вкладка с группами
   // «Переводчик», «Данные», «Шаблоны», «Документ». Каждая кнопка шлёт окну Flux

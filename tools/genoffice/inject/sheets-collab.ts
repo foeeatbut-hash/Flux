@@ -293,6 +293,8 @@ function boundHeaderCells(wb: any): Array<{ anchorId: string; sheetName: string;
 
 /** Части привязанных ячеек, о которых редактору сказало окно Flux (схема, правка ячейки) */
 const knownHeaderParts = new Map<string, any[]>()
+// Переводчик (translation-sheets-live.ts) читает части шапки, чтобы вынуть подписи полей плашками
+;(window as any).__fluxHeaderParts = (anchorId: string): any[] | null => knownHeaderParts.get(anchorId) || null
 
 function protectFluxHeaderCells(): void {
   const runtime = hooks()?.univerRef.current
