@@ -13,10 +13,6 @@ import { makeDocxWithTable, makeXlsxWithBlankFormula, makeXlsxWithManualRow, log
 import { runNativeSheetCellActions } from './officeNativeCellActionsScenarios';
 import { runNativeWordCellActions } from './officeNativeWordCellActionsScenarios';
 import { runNativeTranslatorWord } from './officeNativeTranslatorWordScenarios';
-    await context.close();
-    return;
-  }
-
 import { runNativeTranslatorSheets } from './officeNativeTranslatorSheetsScenarios';
 
 void (async () => {
