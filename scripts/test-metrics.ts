@@ -31,7 +31,8 @@ const check = (name: string, cond: boolean, got?: unknown) => {
 console.log('Числа сходятся');
 {
   check('кнопка помещается в панель с воздухом', BAR_BTN < BAR_H && BAR_H - BAR_BTN >= 6, [BAR_BTN, BAR_H]);
-  check('значок меньше кнопки', BAR_ICON * 2 <= BAR_BTN, [BAR_ICON, BAR_BTN]);
+  // Значок 24 в кнопке 40, как у Windows 11: по 8 px воздуха с каждой стороны
+  check('значок меньше кнопки', BAR_ICON + 16 <= BAR_BTN, [BAR_ICON, BAR_BTN]);
   check('полоска «показать стол» уже кнопки', BAR_EDGE < BAR_BTN);
   check('панель не выше системной', BAR_H <= 48, BAR_H);
   check('плотная строка ниже обычной', ROW_H.dense < ROW_H.normal);
@@ -76,8 +77,9 @@ console.log('Сетка считает по выбранному размеру'
   const big = gridSize(area, DESK.large);
   const small = gridSize(area, DESK.small);
   check('мелкими помещается больше', small.cols * small.rows > big.cols * big.rows, [small, big]);
-  check('обычными на ноутбуке помещается не меньше 130 клеток',
-    gridSize(area, DESK.normal).cols * gridSize(area, DESK.normal).rows >= 130,
+  // Значок 48 в клетке 76×108 — клетка системного стола; на ней ноутбук держит 17×6
+  check('обычными на ноутбуке помещается не меньше 100 клеток',
+    gridSize(area, DESK.normal).cols * gridSize(area, DESK.normal).rows >= 100,
     gridSize(area, DESK.normal));
 
   // Одна клетка — один значок при любом размере, и ничего не уезжает за край

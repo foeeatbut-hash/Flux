@@ -15,6 +15,7 @@ import { getFileIcon, formatSize, StatusChip } from './FileItems';
 import { countOf } from '../../lib/plural';
 import { saveExplorerItem } from '../../lib/saveToWindows';
 import { useToastStore } from '../../store/toastStore';
+import { FileIcon } from '../icons/FluxIcons';
 
 interface PreviewPaneProps {
   selectedIds: Set<string>;
@@ -44,7 +45,7 @@ export default function PreviewPane({
           if (item.isFolder) {
             return (
                <div className="p-4 flex flex-col items-center mt-10">
-                 <Folder className="w-16 h-16 text-amber-500 fill-amber-200 mb-4" />
+                 <FileIcon kind="folder" size={96} className="mb-4" />
                  <h3 className="font-semibold text-slate-800 dark:text-dark-text-main text-center break-words w-full">{item.name}</h3>
                  <p className="text-xs text-slate-500 dark:text-dark-text-muted mt-2">Папка с файлами</p>
                </div>

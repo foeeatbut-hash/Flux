@@ -10,7 +10,7 @@
  */
 import React from 'react';
 import {
-  Folder, FolderOpen, FolderPlus, File as FileIcon, Grid3X3, Upload, RefreshCw, History, Languages,
+  Folder, FolderOpen, FolderPlus, Grid3X3, Upload, RefreshCw, History, Languages,
   Copy, ClipboardPaste, Scissors, Download, Tag, Shield, Info, Boxes, Edit2, Trash2, Link2, Archive,
 } from 'lucide-react';
 import { appsFor, type FileLike } from '../../lib/fileTypes';
@@ -108,7 +108,7 @@ export default function ExplorerMenu(p: ExplorerMenuProps) {
           <Item icon={<FolderPlus />} label="Папку" onClick={() => { p.createFolder(); p.onClose(); }} />
           <Item icon={<FileBadge file="Документ.docx" size={16} />} label="Документ" onClick={() => { p.createDoc('doc'); p.onClose(); }} />
           <Item icon={<FileBadge file="Таблица.xlsx" size={16} />} label="Таблицу" onClick={() => { p.createDoc('sheet'); p.onClose(); }} />
-          <Item icon={<FileIcon />} label="Текстовый файл (.txt)" onClick={() => { p.createTxt(); p.onClose(); }} />
+          <Item icon={<FileBadge file="Текст.txt" size={16} />} label="Текстовый файл (.txt)" onClick={() => { p.createTxt(); p.onClose(); }} />
           <Sep />
           <Item icon={<Upload />} label="Загрузить" onClick={() => { p.upload(); p.onClose(); }} />
           {p.hasClipboard && <Item icon={<Copy />} label="Вставить" onClick={() => { p.paste(); p.onClose(); }} />}

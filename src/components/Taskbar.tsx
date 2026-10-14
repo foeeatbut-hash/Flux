@@ -29,7 +29,7 @@ import { useMailStore } from '../store/mailStore';
 import { useWindowStore, openPaths, activeWindowPath, windowsOf } from '../store/windowStore';
 import { useDesktopStore } from '../store/desktopStore';
 import { buildTaskbar, clockLabel, deadlineLabel, badgeLabel, trayFit } from '../lib/taskbar';
-import { BAR_H, BAR_BTN, BAR_ICON, BAR_EDGE, CHIP_H, RUN_MARK } from '../lib/metrics';
+import { BAR_H, BAR_BTN, BAR_ICON, TRAY_ICON, BAR_EDGE, CHIP_H, RUN_MARK } from '../lib/metrics';
 import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import StartMenu from './StartMenu';
@@ -294,7 +294,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
         className={`flex items-center justify-center rounded-lg shrink-0 cursor-pointer transition-colors
                    text-emerald-700 dark:text-emerald-400 ${startOpen ? 'bg-slate-200/70 dark:bg-slate-800' : 'hover:bg-slate-200/60 dark:hover:bg-slate-800'}`}
       >
-        <LayoutGrid size={BAR_ICON + 2} className="shrink-0" />
+        <LayoutGrid size={BAR_ICON} className="shrink-0" />
       </button>
 
       <div className="w-1 shrink-0" />
@@ -351,11 +351,11 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
                  ней, и она же стоит на плитке Пуска */
               data-tour={`nav-${b.path}`}
               aria-current={b.active ? 'true' : undefined}
-              style={{ height: BAR_BTN }}
+              style={{ width: BAR_BTN, height: BAR_BTN }}
               /* Запущенная — метка снизу, активная — ещё и светлая подложка, как в
                  системной панели. Рамка вокруг каждой запущенной кнопки
                  превращала ряд значков в ряд карточек */
-              className={`relative w-9 rounded-lg shrink-0 cursor-pointer flex items-center justify-center
+              className={`relative rounded-lg shrink-0 cursor-pointer flex items-center justify-center
                           text-xs whitespace-nowrap transition-colors ${
                 b.active
                   ? 'bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-white font-medium'
@@ -368,7 +368,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
               {countOfWindows(b.path) > 1 && (
                 <span
                   style={{ height: CHIP_H, minWidth: CHIP_H }}
-                  className="shrink-0 px-1 rounded bg-slate-200/70 dark:bg-slate-700
+                  className="absolute bottom-0.5 right-0.5 px-1 rounded bg-slate-200/90 dark:bg-slate-700
                              text-2xs text-slate-500 dark:text-slate-300 tabular-nums
                              flex items-center justify-center" title="Окон этой программы">
                   {countOfWindows(b.path)}
@@ -377,7 +377,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
               {b.badge > 0 && (
                 <span
                   style={{ height: CHIP_H, minWidth: CHIP_H }}
-                  className="shrink-0 px-1.5 rounded-full bg-rose-600 text-white text-xs font-medium tabular-nums flex items-center justify-center">
+                  className="absolute -top-0.5 -right-0.5 px-1.5 rounded-full bg-rose-600 text-white text-xs font-medium tabular-nums flex items-center justify-center">
                   {badgeLabel(b.badge)}
                 </span>
               )}
@@ -478,7 +478,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
           onClick={() => void useDisplayStore.getState().setAllMonitors(!displayWorkspace.enabled)}
           style={{ width: BAR_BTN, height: BAR_BTN }}
           className={trayBtn(displayWorkspace.enabled)}>
-          <Monitor size={BAR_ICON + 1} />
+          <Monitor size={TRAY_ICON} />
         </button>}
 
         <button
@@ -489,7 +489,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
           style={{ width: BAR_BTN, height: BAR_BTN }}
           className={trayBtn(false)}
         >
-          <MessageCircleQuestion size={BAR_ICON + 2} />
+          <MessageCircleQuestion size={TRAY_ICON} />
         </button>
 
         {/* Обновление — как в системе: значок у часов светится, когда есть что
@@ -505,7 +505,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
             style={{ width: BAR_BTN, height: BAR_BTN }}
             className={trayBtn(false)}
           >
-            <ArrowUpCircle size={BAR_ICON + 2} className="text-emerald-600 dark:text-emerald-400" />
+            <ArrowUpCircle size={TRAY_ICON} className="text-emerald-600 dark:text-emerald-400" />
             <span aria-hidden
               className={`absolute top-1.5 right-2 w-2 h-2 rounded-full bg-emerald-500 ${
                 updateSeen ? '' : 'animate-ping'}`} />
@@ -523,7 +523,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
           style={{ width: BAR_BTN, height: BAR_BTN }}
           className={trayBtn(notifOpen)}
         >
-          {isQuiet(quiet) ? <BellOff size={BAR_ICON + 2} /> : <Bell size={BAR_ICON + 2} />}
+          {isQuiet(quiet) ? <BellOff size={TRAY_ICON} /> : <Bell size={TRAY_ICON} />}
           {notifUnread > 0 && (
             <span aria-hidden className={`absolute top-1.5 right-2 w-2 h-2 rounded-full ${chatUnread > 0 ? 'bg-emerald-500' : 'bg-rose-600'}`} />
           )}

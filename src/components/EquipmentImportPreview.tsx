@@ -9,6 +9,8 @@ import TagLinksPanel, { type TagLink, writtenAs } from './import/TagLinksPanel';
 import UnknownKinds from './import/UnknownKinds';
 import InSchemeNotice from './import/InSchemeNotice';
 import MatchPanel, { type MatchRow, type MissingRow, type SystemRow } from './import/MatchPanel';
+import FileBadge from './ui/FileBadge';
+import { ICON_SIZE } from '../lib/metrics';
 
 // ── Предпросмотр импорта оборудования (dry-run, Фаза 2 «Импорт бланков 2.0») ──
 // Показывает, ЧТО изменится в проекте, ДО записи: дерево систем/блоков с диффом,
@@ -311,7 +313,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
       <div className="fx-dialog w-full max-w-5xl h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Шапка */}
         <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
-          <FileSpreadsheet className="w-5 h-5 text-emerald-600 shrink-0" />
+          <FileBadge file={fileName || 'Таблица.xlsx'} size={ICON_SIZE.row} />
           <div className="min-w-0 flex-1">
             <div className="font-medium text-slate-800 dark:text-white truncate">{fileName || 'Загрузка…'}</div>
             <div className="text-xs text-slate-500">

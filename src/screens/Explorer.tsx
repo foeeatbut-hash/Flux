@@ -20,7 +20,7 @@ import { ROOT_NAME } from '../lib/explorerTabs';
 import { useInsightStore } from '../store/insightStore';
 import { useModalStore } from '../store/modalStore';
 import {
-  Folder, File as FileIcon, ChevronRight, Plus, Upload,
+  Folder, ChevronRight, Plus, Upload,
   Search, MoreVertical, Copy, Trash2, FolderPlus,
   ArrowLeft, ArrowRight, ArrowUp, Tag, PanelRight, LayoutGrid, List,
   Info, Boxes, X,
@@ -48,6 +48,7 @@ import {
   FileRowItem, FileCardItem,
 } from '../components/explorer/FileItems';
 import FileProperties from '../components/explorer/FileProperties';
+import { FileIcon } from '../components/icons/FluxIcons';
 
 
 import { useShallow } from 'zustand/react/shallow';
@@ -1382,10 +1383,10 @@ function ProjectExplorer() {
         {/* Современный компактный тулбар */}
         <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-850">
            {(window as any).electron?.windowsFiles && <button type="button" onClick={() => navigate('/explorer')} className="fx-btn fx-btn-sm" aria-label="Этот компьютер">
-             <Folder className="w-4 h-4" /> Этот компьютер
+             <FileIcon kind="this-pc" size={16} /> Этот компьютер
            </button>}
            <button type="button" onClick={() => navigate('/explorer?view=shared')} className="fx-btn fx-btn-sm" aria-label="Общий доступ">
-             <Folder className="w-4 h-4" /> Общий доступ
+             <FileIcon kind="folder" size={16} /> Общий доступ
            </button>
            <button type="button" onClick={createFolder} title="Новая папка"
              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-xs cursor-pointer">
@@ -1443,7 +1444,7 @@ function ProjectExplorer() {
           </div>
  
           <div className="flex-1 min-w-0 flex items-center bg-white dark:bg-dark-panel border border-slate-250 dark:border-dark-border px-2 py-1 rounded-md flex-wrap gap-1 hover:border-emerald-405 transition-colors">
-            <Folder className="w-4 h-4 shrink-0 text-amber-600 mr-1 @[560px]:mr-2" />
+            <FileIcon kind="folder" size={16} className="mr-1 @[560px]:mr-2" />
             {/* Корень называется «Проводник», а не именем проекта: файлы здесь
                 со всех проектов, и имя одного проекта в начале пути обещало
                 бы обратное. Чей файл — написано на самом файле. */}
@@ -1599,7 +1600,7 @@ function ProjectExplorer() {
                 <div className="flex flex-col divide-y divide-slate-100 dark:divide-dark-border">
                   {(trash?.folders || []).map((f: any) => (
                     <div key={f.id} className="flex items-center gap-3 py-2">
-                      <Folder className="w-4 h-4 text-amber-500 shrink-0" />
+                      <FileIcon kind="folder" size={16} />
                       <span className="text-sm font-medium flex-1 truncate">{f.name}</span>
                       <span className="text-2xs text-slate-400 shrink-0">папка · удалена {f.deletedAt ? format(new Date(f.deletedAt), 'dd.MM.yyyy HH:mm') : ''}</span>
                       <button type="button" onClick={() => restoreItem('folder', f.id, f.name)}
@@ -1962,7 +1963,7 @@ function ProjectExplorer() {
         <FileProperties
           item={propertiesModal.item}
           isFile={propertiesModal.isFile}
-          icon={getFileIcon(propertiesModal.item, 'w-6 h-6')}
+          icon={getFileIcon(propertiesModal.item, 'w-8 h-8')}
           userId={user?.id || null}
           onClose={() => setPropertiesModal(null)}
           onSaved={() => { setPropertiesModal(null); fetchData(); addToast('Свойства обновлены', 'success'); }}

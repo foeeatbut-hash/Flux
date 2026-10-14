@@ -27,7 +27,7 @@ import FileBadge from './ui/FileBadge';
 import { recentBadge } from '../lib/fileBadge';
 import { useRecentStore } from '../store/recentStore';
 import { visibleRecentDocs, whenLabel, kindName } from '../lib/recentDocs';
-import { BAR_H, START_W, START_COLS, TILE_BOX, TILE_ICON } from '../lib/metrics';
+import { BAR_H, START_W, START_COLS, TILE_BOX, TILE_ICON, FOOT_BTN, ICON_SIZE } from '../lib/metrics';
 import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { can } from '../lib/permissions';
@@ -312,7 +312,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
                   className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer text-left
                              hover:bg-slate-100 dark:hover:bg-slate-850 transition-colors"
                 >
-                  <FileBadge file={d.title} kind={recentBadge(d)} size={18} />
+                  <FileBadge file={d.title} kind={recentBadge(d)} size={ICON_SIZE.start} />
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm text-slate-700 dark:text-slate-300 truncate">{d.title}</span>
                     <span className="block text-2xs text-slate-400">{kindName(d.kind)} · {whenLabel(d.at)}</span>
@@ -351,7 +351,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
       <div className="flex items-center gap-3 px-4 py-3 border-t border-slate-200 dark:border-dark-border
                       bg-slate-50 dark:bg-dark-bg">
         <span
-          style={{ width: TILE_BOX, height: TILE_BOX }}
+          style={{ width: FOOT_BTN, height: FOOT_BTN }}
           className="rounded-full shrink-0 flex items-center justify-center text-2xs font-medium
                      bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
         >
@@ -371,7 +371,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
             обход разделов упёрся в это первым же шагом */}
         <button
           type="button" onClick={openHome} title="Главная — сводка по проекту"
-          style={{ width: TILE_BOX, height: TILE_BOX }}
+          style={{ width: FOOT_BTN, height: FOOT_BTN }}
           className="rounded-lg cursor-pointer flex items-center justify-center text-slate-500
                      hover:bg-slate-200 dark:hover:bg-slate-850 transition-colors"
         >
@@ -379,7 +379,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
         </button>
         <button
           type="button" onClick={toggleTheme} title={theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
-          style={{ width: TILE_BOX, height: TILE_BOX }}
+          style={{ width: FOOT_BTN, height: FOOT_BTN }}
           className="rounded-lg cursor-pointer flex items-center justify-center text-slate-500
                      hover:bg-slate-200 dark:hover:bg-slate-850 transition-colors"
         >
@@ -387,7 +387,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
         </button>
         <button
           type="button" onClick={() => go('/settings')} title="Параметры программы"
-          style={{ width: TILE_BOX, height: TILE_BOX }}
+          style={{ width: FOOT_BTN, height: FOOT_BTN }}
           className="rounded-lg cursor-pointer flex items-center justify-center text-slate-500
                      hover:bg-slate-200 dark:hover:bg-slate-850 transition-colors"
         >
@@ -395,7 +395,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
         </button>
         <button
           type="button" onClick={() => { onClose(); setUser(null); }} title="Выйти из учётной записи"
-          style={{ width: TILE_BOX, height: TILE_BOX }}
+          style={{ width: FOOT_BTN, height: FOOT_BTN }}
           className="rounded-lg cursor-pointer flex items-center justify-center text-slate-500
                      hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 transition-colors"
         >
@@ -406,7 +406,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
         {!!(window as any).electron?.windowControls && (
           <button
             type="button" onClick={() => (window as any).electron.windowControls.close()} title="Завершить работу"
-            style={{ width: TILE_BOX, height: TILE_BOX }}
+            style={{ width: FOOT_BTN, height: FOOT_BTN }}
             className="rounded-lg cursor-pointer flex items-center justify-center text-slate-500
                        hover:bg-rose-50 dark:hover:bg-rose-950/40 hover:text-rose-600 transition-colors"
           >

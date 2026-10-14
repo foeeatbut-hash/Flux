@@ -12,6 +12,7 @@ import React from 'react';
 import { useWindowStore } from '../store/windowStore';
 import { shareStyle, shareRect, type Share } from '../lib/layouts';
 import { sectionForPath } from '../workspace/sections';
+import { ICON_SIZE } from '../lib/metrics';
 
 export default function SnapAssist({ shares, skip, displayId, onClose }: {
   shares: Share[];
@@ -61,7 +62,7 @@ export default function SnapAssist({ shares, skip, displayId, onClose }: {
             className="w-44 p-2 rounded-lg cursor-pointer text-left bg-white dark:bg-slate-900
                        border border-slate-200 dark:border-slate-800 hover:border-emerald-500 shadow-sm">
             <span className="flex items-center gap-1.5">
-              {Icon && <Icon className="w-3.5 h-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />}
+              {Icon && <Icon size={ICON_SIZE.row} />}
               <span className="text-2xs font-semibold text-slate-700 dark:text-slate-300 truncate">
                 {titles[w.id] || def.title}
               </span>

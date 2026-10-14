@@ -28,13 +28,16 @@ console.log('Вид значка');
     ['Записка.docx', 'doc'], ['Бланк.xlsx', 'sheet'], ['Бланк с макросами.xlsm', 'sheet'],
     ['Выгрузка.csv', 'sheet'], ['АР-01.pdf', 'pdf'], ['Заметки.md', 'markdown'],
     ['readme.txt', 'text'], ['Фото.PNG', 'image'], ['Архив.zip', 'archive'],
-    ['План.dwg', 'cad'], ['Модель.ifc', 'cad'], ['Непонятное.bin', 'file'], ['Без расширения', 'file'],
+    ['План.dwg', 'cad'], ['Модель.ifc', 'cad'], ['Непонятное.bin', 'closed'], ['Без расширения', 'file'],
+    ['Схема.e3s', 'e3'], ['Данные.json', 'code'], ['Данные.xml', 'code'], ['Setup.exe', 'app'], ['Ярлык.lnk', 'shortcut'],
+    ['Видео.mp4', 'video'], ['Звук.wav', 'audio'], ['Доклад.pptx', 'slide'], ['Таблица.ods', 'sheet'],
   ];
   for (const [name, kind] of cases) check(`${name} → ${kind}`, badgeOf(name) === kind, badgeOf(name));
   check('заметка узнаётся по типу, а не по имени', badgeOf({ id: 'n', name: 'Список', type: 'NOTE' }) === 'note');
   check('у каждого вида свой цвет', new Set(Object.values(BADGE_COLOR)).size === Object.keys(BADGE_COLOR).length);
   check('подпись — само расширение', badgeLabel('Бланк.xlsm') === 'XLSM', badgeLabel('Бланк.xlsm'));
   check('длинное расширение не вылезает с полосы', badgeLabel('Модель.step').length <= 4);
+  check('формат без расширения подписан по умолчанию', badgeLabel('Таблица', 'sheet') === 'XLSX' && badgeLabel('Файл', 'closed') === '');
   check('у заметки подпись «ЗАМ»', badgeLabel({ id: 'n', name: 'Список', type: 'NOTE' }) === 'ЗАМ');
 }
 

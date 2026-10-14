@@ -28,7 +28,7 @@ import Taskbar from './Taskbar';
 import { useDisplayStore, workspaceAreas } from '../store/displayStore';
 import { displayAt, displayForRect, displaySnap, type DisplayRect } from '../../workspace/displays';
 import { shareRect } from '../lib/layouts';
-import { BAR_H } from '../lib/metrics';
+import { BAR_H, ICON_SIZE } from '../lib/metrics';
 import { Z } from '../lib/layers';
 
 /** Восемь краёв: четыре стороны и четыре угла */
@@ -163,7 +163,7 @@ function WindowFrame({
           : `h-[34px] shrink-0 flex items-center gap-2 px-2.5 select-none cursor-grab active:cursor-grabbing
                     border-b border-slate-200 dark:border-dark-border bg-white dark:bg-dark-bg`}
       >
-        {!claim && Icon && <Icon className={`w-4 h-4 shrink-0 ${isTop ? 'text-slate-500 dark:text-slate-300' : 'text-slate-300 dark:text-slate-500'}`} />}
+        {!claim && Icon && <Icon size={ICON_SIZE.title} className={`shrink-0 ${isTop ? '' : 'opacity-60'}`} />}
         {!claim && <span className={`flex-1 min-w-0 truncate text-xs font-medium ${isTop ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}
           title={title === def.title ? title : `${title} · ${def.title}`}>{title}</span>}
         {/* Место раздела: пустое и скрытое, пока слот не занят */}
