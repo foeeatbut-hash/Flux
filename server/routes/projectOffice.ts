@@ -204,7 +204,12 @@ export async function officeStateOfContent(bytes: Buffer, projectId: string) {
   const template = bindings?.template
     ? { templateId: bindings.template.templateId, ...(bindings.template.name ? { name: bindings.template.name } : {}), appliedAt: bindings.template.appliedAt, schema: { version: 1, anchors: toModel(bindings.template.anchors) } }
     : undefined;
-  return { baseHash: sha256(bytes), schema: { version: bindings?.schemaVersion || 1, anchors }, ...(template ? { template } : {}), rows: bindings?.rows || [], sourceRevision: await blockFingerprint(projectId, cleanQuery({ entity: 'element', columns: [] }), null) };
+  return {
+    baseHash: sha256(bytes), schema: { version: bindings?.schemaVersion || 1, anchors },
+    ...(template ? { template } : {}), rows: bindings?.rows || [],
+    translations: bindings?.translations || [], translationBindings: bindings?.translationBindings || [], displayLabels: bindings?.displayLabels || {},
+    sourceRevision: await blockFingerprint(projectId, cleanQuery({ entity: 'element', columns: [] }), null),
+  };
 }
 
 /** Новые байты пакета со схемой и строками из тела запроса; запись выбирает вызывающий. */
@@ -233,6 +238,9 @@ export async function rebindOfficeContent(before: Buffer, body: any) {
     anchors: packed,
     ...(template ? { template } : {}),
     rows,
+    translations: Array.isArray(body?.translations) ? body.translations.slice(-5000) : prior?.translations || [],
+    translationBindings: Array.isArray(body?.translationBindings) ? body.translationBindings.slice(-10000) : prior?.translationBindings || [],
+    displayLabels: body?.displayLabels && typeof body.displayLabels === 'object' && !Array.isArray(body.displayLabels) ? body.displayLabels : prior?.displayLabels || {},
   };
   return { bytes: await writeOfficeBindings(before, bindings), anchorCount: bindings.anchors.length };
 }

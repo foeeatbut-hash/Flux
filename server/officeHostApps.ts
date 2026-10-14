@@ -28,6 +28,8 @@ import { getPrisma } from './context.js';
 import { canReadFile } from './fileAccess.js';
 import { fileBytes } from './routes/fileChunks.js';
 import { writeOfficeFile, isCollaborativeFile, copyOfficeFile, onOfficeFluxPartWritten } from './routes/officeFiles.js';
+import { mergeOfficeTranslations } from './officeBindings.js';
+import { claimStagedOfficeTranslation } from './officeTranslationStaging.js';
 import { shareOf } from './fileSharing.js';
 import { sheetShared } from './officeSheetCollab.js';
 import { officeBus } from './officeBus.js';
@@ -178,12 +180,13 @@ export function setupOfficeHostApps(server: Server, socket: Socket, deps: HostAp
     finally { const path = s.copy?.path; s.copy = undefined; if (path) await rm(path, { force: true }).catch(() => {}); }
   });
 
-  socket.on('office:ipc', async ({ session, channel, args, auto, copyName }: { session: number; channel: string; args: unknown[]; auto?: boolean; copyName?: string }, ack?: (r: any) => void) => {
+  socket.on('office:ipc', async ({ session, channel, args, auto, copyName, translationToken }: { session: number; channel: string; args: unknown[]; auto?: boolean; copyName?: string; translationToken?: string }, ack?: (r: any) => void) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     const s = sessions.get(Number(session));
     if (!s || s.socketId !== socket.id) return reply({ error: 'Окно редактора не открыто' });
     const ch = String(channel || '');
     if (!ALLOWED[s.app](ch)) return reply({ error: 'Во Flux Office это отключено' });
+    let translationClaim: Awaited<ReturnType<typeof claimStagedOfficeTranslation>> = null;
     try {
       const currentUser = await deps.getAuthUser(s.userId);
       if (!(await canReadFile(getPrisma(), currentUser, s.fileId))) return reply({ error: 'Доступ к файлу отозван' });
@@ -193,14 +196,23 @@ export function setupOfficeHostApps(server: Server, socket: Socket, deps: HostAp
       const seqAtSave = s.collab && SAVES[s.app](ch) ? ((await officeBus.session(s.fileId))?.dataSeq ?? 0) : 0;
       const isSheetCopy = s.app === 'sheets' && ch === 'workbook:save' && (args?.[0] as any)?.mode === 'save-as';
       if (isSheetCopy && !copyName) return reply({ result: { canceled: true } });
+      if (translationToken) {
+        if (auto || !SAVES[s.app](ch)) return reply({ error: 'Подготовленные сведения перевода можно записать только явным сохранением файла.' });
+        const tokenBase = s.collab ? (await officeBus.session(s.fileId))?.savedSha || s.sha : s.sha;
+        translationClaim = await claimStagedOfficeTranslation(getPrisma(), translationToken, s.fileId, s.userId, tokenBase);
+        if (!translationClaim) return reply({ error: 'Подготовленные сведения перевода устарели, уже используются или уже сохранены. Перечитайте документ и повторите операцию.' });
+      }
       const copyTarget = isSheetCopy ? join(s.dir, `copy-${Date.now()}${/\.xlsm$/i.test(s.path) ? '.xlsm' : '.xlsx'}`) : undefined;
       const result = await host(s.app).invoke(Number(session), ch, Array.isArray(args) ? args : [], copyTarget);
       if (SAVES[s.app](ch) && result && result.ok !== false && (!result.canceled || result.fluxCopySaved) &&
           (isSheetCopy || (s.app === 'pdf' && s.copy && (args?.[0] as any)?.targetPath === s.copy.path))) {
         const target = copyTarget || s.copy!.path;
-        const made = await copyOfficeFile({ fileId: s.fileId, body: await readFile(target), name: copyName || s.copy!.name,
+        let copyBytes = await readFile(target);
+        if (translationClaim) copyBytes = await mergeOfficeTranslations(copyBytes, translationClaim.delta);
+        const made = await copyOfficeFile({ fileId: s.fileId, body: copyBytes, name: copyName || s.copy!.name,
           user: await deps.getAuthUser(s.userId) });
         if (isSheetCopy) {
+          await translationClaim?.finish(true); translationClaim = null;
           // Движок сохранил копию без смены сессии. «Отменено» оставляет
           // исходные правки в редакторе для обычного сохранения.
           return reply({ result: { canceled: true }, copy: made });
@@ -217,32 +229,39 @@ export function setupOfficeHostApps(server: Server, socket: Socket, deps: HostAp
         // окна при открытии (в отделе прежний держатель мог быть на другом сервере)
         const book = s.collab ? await officeBus.session(s.fileId) : null;
         const shared = !!book && book.key === s.key;
-        let w = await writeOfficeFile({ fileId: s.fileId, body: bytes, baseSha: shared ? book!.savedSha : s.sha, user, autosave: auto, sessionKey: s.key, shareEpoch: accessAtStart ? Number(accessAtStart.epoch) : undefined });
+        const baseSha = shared ? book!.savedSha : s.sha;
+        let w = await writeOfficeFile({ fileId: s.fileId, body: bytes, baseSha, user, autosave: auto, sessionKey: s.key, shareEpoch: accessAtStart ? Number(accessAtStart.epoch) : undefined, translationDelta: translationClaim?.delta });
         // Держатель успел смениться между «взял слово» и записью, и файл уже записал прежний. Содержимое
         // общее — в нём есть всё записанное, — поэтому сверяемся заново, но только если файл
         // менял именно сеанс (хеш совпал с записанным в базе), а не кто-то в обход него
-        if (w.status === 409 && shared && w.json?.currentSha256) {
+        if (w.status === 409 && shared && !translationClaim && w.json?.currentSha256) {
           const now = await officeBus.session(s.fileId);
           if (now && now.key === s.key && now.savedSha === w.json.currentSha256) {
-            w = await writeOfficeFile({ fileId: s.fileId, body: bytes, baseSha: now.savedSha, user, autosave: auto, sessionKey: s.key, shareEpoch: accessAtStart ? Number(accessAtStart.epoch) : undefined });
+            w = await writeOfficeFile({ fileId: s.fileId, body: bytes, baseSha: now.savedSha, user, autosave: auto, sessionKey: s.key, shareEpoch: accessAtStart ? Number(accessAtStart.epoch) : undefined, translationDelta: translationClaim?.delta });
           }
         }
         // Правку держит другой (список успел устареть): записывает он, а мы просим его
         if (w.status === 423 && shared) {
+          await translationClaim?.finish(false); translationClaim = null;
           await officeHub.requestSave(s.fileId, socket.id).catch(() => false);
           // «Отменено», а не ошибка: редактор не считает правки записанными и не пугает человека
           return reply({ result: { canceled: true } });
         }
         if (w.status !== 200) {
+          await translationClaim?.finish(false); translationClaim = null;
           return reply({ result: { ...(typeof result === 'object' ? result : {}), ok: false, error: String(w.json?.error || `сервер ответил ${w.status}`) } });
         }
+        await translationClaim?.finish(true); translationClaim = null;
         s.sha = w.json.sha256;
         if (shared) await sheetShared.markSaved(s.fileId, s.sha, seqAtSave);
         if (!w.json.unchanged) await officeHub.announceSaved(s.fileId, s.sha, socket.id).catch(() => undefined);
         socket.emit('office:saved-self', { fileId: s.fileId, session: Number(session), sha256: s.sha });
       }
+      await translationClaim?.finish(false);
+      translationClaim = null;
       reply({ result });
     } catch (err: any) {
+      await translationClaim?.finish(false);
       reply({ error: String(err?.message || err) });
     }
   });
