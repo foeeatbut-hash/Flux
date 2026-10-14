@@ -155,6 +155,8 @@ export type WindowsExplorerRequest =
   | { action: 'search'; ref: WindowsFileRef; requestId: string; query: string; filters?: WindowsSearchFilters; limits?: WindowsSearchLimits }
   | { action: 'searchCancel'; requestId: string }
   | { action: 'children'; ref: WindowsFileRef; peek?: boolean }
+  /** Ключи мест папок по сетевому пути (хеши, не пути): общие привязки к проекту. Локальные папки и черновики — null. */
+  | { action: 'locationKeys'; refs: WindowsFileRef[] }
   | { action: 'quickAccess' }
   | { action: 'quickAccessPin'; ref: WindowsFileRef; pinned: boolean }
   | { action: 'cloudRoots' }
@@ -174,6 +176,9 @@ export type WindowsExplorerRequest =
   | { action: 'viewStateGet'; keys: string[] }
   | { action: 'viewStateSet'; entries: Record<string, unknown> }
   | { action: 'viewStateDelete'; keys: string[] };
+
+/** Ответ locationKeys: цепочки ссылаются на таблицу ключей по номеру, общие родители не повторяются. */
+export interface WindowsLocationKeys { keys: string[]; chains: Array<number[] | null> }
 
 /** Событие потока поиска: страницы результатов приходят отдельно от ответа на команду. */
 export const WINDOWS_FILES_SEARCH = 'windows-files:search';

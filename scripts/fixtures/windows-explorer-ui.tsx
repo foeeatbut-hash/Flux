@@ -129,6 +129,16 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
       const found = sourceEntry(request.ref.relativePath);
       return found ? { ok: true, data: { sha256: 'a'.repeat(64), size: found.size } } : { ok: false, error: { code: 'NOT_FOUND', message: 'Объект не найден.' } };
     }
+    // Эмуляция сетевого ресурса: ключ места — hex от пути внутри корня; настоящий main отдаёт sha256 от UNC.
+    case 'locationKeys': {
+      const keyOf = (path: string) => Array.from(new TextEncoder().encode(`net:${path.toLowerCase()}`), (b) => b.toString(16).padStart(2, '0')).join('');
+      const keys: string[] = []; const chains = request.refs.map((ref) => {
+        const parts = ref.relativePath.split('/').filter(Boolean); const chain: number[] = [];
+        for (let length = parts.length; length >= 0; length--) { const key = keyOf(parts.slice(0, length).join('/')); let index = keys.indexOf(key); if (index < 0) { index = keys.length; keys.push(key); } chain.push(index); }
+        return chain;
+      });
+      return { ok: true, data: { keys, chains } };
+    }
     case 'stat': {
       const found = sourceEntry(request.ref.relativePath);
       return found ? { ok: true, data: found } : { ok: false, error: { code: 'NOT_FOUND', message: 'Объект не найден.' } };
@@ -221,7 +231,9 @@ useDisplayStore.setState({ workspace: { enabled: true, displays: [
 useDesktopStore.getState().pinApp('/registry');
 (window as any).fetch = async (url: string) => {
   const path = String(url);
-  const body = path.includes('/file-sharing/received') ? { files: [] }
+  // Общий журнал привязок: стенд управляется флагами страницы (__canManageBindings, __bindings).
+  const body = path.includes('/api/explorer/project-bindings') ? { revision: 0, canManage: (window as any).__canManageBindings !== false, bindings: (window as any).__bindings || [], undo: [] }
+    : path.includes('/file-sharing/received') ? { files: [] }
     : path.includes('/tags') ? { tags: [{ id: 'tag-1', identifier: 'AHU-01' }, { id: 'tag-2', identifier: 'P-01' }] }
       : { projects: [{ id: 'project-1', name: 'Проект 1' }, { id: 'project-2', name: 'Проект 2' }] };
   return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });

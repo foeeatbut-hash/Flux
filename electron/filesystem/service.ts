@@ -125,6 +125,8 @@ export class WindowsFilesService {
     return draft.publishedRef || { rootId: draft.parent.rootId, relativePath: joinRelative(draft.parent.relativePath, draft.name), draftId: draft.id };
   }
   /** Абсолютный путь по проверенному capability. Наружу из main не выходит. */
+  /** Путь подключённого корня — только для main (ключи мест папок); странице он не выдаётся. */
+  rootPathOf(rootId: string): string { return this.state.root(rootId).path; }
   async filename(ref: WindowsFileRef, missing = false): Promise<string> {
     if (!ref || typeof ref !== 'object') throw new WindowsFilesError('INVALID_REQUEST', 'Не указан файл.');
     if (ref.draftId) {

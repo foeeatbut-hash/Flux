@@ -17,6 +17,7 @@ import { NativeShellHost } from '../electron/nativeShellHost';
 import { NATIVE_SHELL_SCRIPT, NATIVE_SHELL_SOURCE } from '../electron/nativeShellSource';
 import { ShellCommands, type NativeShellCaller } from '../electron/filesystem/shellCommands';
 import { ExplorerBridge, EXPLORER_WRITE_ACTIONS, isExplorerAction } from '../electron/filesystem/explorerBridge';
+import { LocationKeys } from '../electron/filesystem/locationKeys';
 import { ViewStateStore } from '../electron/filesystem/viewState';
 import { OpaqueIds } from '../electron/filesystem/opaque';
 import { WindowsFilesService } from '../electron/filesystem/service';
@@ -299,7 +300,7 @@ process.stdin.on('end', () => process.exit(0));
     const events: WindowsSearchEvent[] = [];
     const viewState = await ViewStateStore.load(userData);
     const bridge = new ExplorerBridge({ service, shell, viewState, emitSearch: (_owner, event) => events.push(event) });
-    const actions = ['search', 'searchCancel', 'children', 'quickAccess', 'quickAccessPin', 'cloudRoots', 'systemProperties', 'resolveAddress', 'placeIcon', 'thumbnail', 'openWithList', 'openWith', 'shellMenu', 'shellMenuInvoke', 'shellMenuClose',
+    const actions = ['search', 'searchCancel', 'children', 'quickAccess', 'quickAccessPin', 'cloudRoots', 'systemProperties', 'resolveAddress', 'locationKeys', 'placeIcon', 'thumbnail', 'openWithList', 'openWith', 'shellMenu', 'shellMenuInvoke', 'shellMenuClose',
       'recycleBin', 'recycleBinRestore', 'recycleBinPurge', 'recycleBinEmpty', 'startDrag', 'importPaths', 'undoState', 'undo', 'redo', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete'];
     check(actions.every(isExplorerAction) && !isExplorerAction('write') && !isExplorerAction('nonsense'), 'Все команды Проводника известны ipc, а прежние и выдуманные — нет');
     for (const action of actions) {
@@ -325,6 +326,13 @@ process.stdin.on('end', () => process.exit(0));
     check(started.requestId === 'bridge-1' && events.some(event => event.done && event.requestId === 'bridge-1') && events.flatMap(event => event.hits).some(hit => hit.name === 'Файл.docx'), 'Поиск через мост: ответ сразу, страницы — событиями');
     check((await bridge.handle({ action: 'searchCancel', requestId: 'нет' }, 1) as { canceled: boolean }).canceled === false, 'Отмена несуществующего поиска — не ошибка');
     check(((await bridge.handle({ action: 'children', ref: R('Проект') }, 1)) as { folders: unknown[] }).folders.length === 2, 'Подпапки через мост');
+    // ключи мест для общих привязок: наружу только хеши; локальная папка (и любая вне Windows) ключа не получает
+    const localKeys = await bridge.handle({ action: 'locationKeys', refs: [R('Проект')] }, 1) as { keys: string[]; chains: Array<number[] | null> };
+    check(localKeys.chains.length === 1 && localKeys.chains[0] === null && localKeys.keys.length === 0 && !JSON.stringify(localKeys).includes(sandbox), 'locationKeys: локальная папка без ключа, путь в ответ не попадает');
+    const netBridge = new ExplorerBridge({ service, shell, viewState, emitSearch: () => undefined, locations: new LocationKeys({ rootPath: () => '\\\\SRV\\Share\\Projects', uncOfDrive: async () => null }) });
+    const netKeys = await netBridge.handle({ action: 'locationKeys', refs: [R('Проект/Файл.docx')] }, 1) as { keys: string[]; chains: Array<number[] | null> };
+    check(netKeys.chains[0]?.length === 4 && netKeys.keys.every(key => /^[0-9a-f]{64}$/u.test(key)) && !/srv|share|projects/iu.test(JSON.stringify(netKeys)), 'locationKeys: сетевая папка даёт цепочку хешей до корня ресурса без пути');
+    await rejects(() => bridge.handle({ action: 'locationKeys', refs: [] }, 1), 'INVALID_REQUEST', 'locationKeys: пустой список отклоняется');
     check(/^Создание/u.test(((await bridge.handle({ action: 'undoState' }, 1)) as { undo: { label: string } }).undo.label), 'Состояние отмены через мост: последнее действие названо');
     bridge.registerDrop(1, 'ticket-from-preload', [path.join(sandbox, 'x')]);
     await rejects(async () => bridge.registerDrop(1, 'x', ['относительный']), 'INVALID_REQUEST', 'Пути из preload проверяются так же, как любые');

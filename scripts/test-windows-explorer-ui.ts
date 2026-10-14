@@ -79,6 +79,29 @@ async function loadUntil(page: Page, count: number) {
     await page.getByRole('row', { name: /Проекты/ }).click({ button: 'right' });
     ok('Контекстное меню папки содержит явное действие привязки к проекту', await page.locator(MENU).getByRole('button', { name: 'Привязать к проекту', exact: true }).isVisible());
     await page.keyboard.press('Escape');
+    ok('Командная строка даёт управляющему кнопку привязки папки', await page.getByRole('button', { name: /Привязать папку/ }).isVisible());
+    ok('Пока в общем журнале нет привязок, мост не считает ключи мест (нет опросов сети при открытии папки)', await page.evaluate(() => !(window as any).__windowsFilesCalls.some((request: any) => request.action === 'locationKeys')));
+    // Сотрудник без права project.manage: привязки видит, но действий привязки в интерфейсе нет.
+    const guest = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+    await guest.addInitScript(() => { (window as any).__canManageBindings = false; });
+    await guest.goto(`${BASE}/scripts/fixtures/windows-explorer-ui.html`);
+    await guest.locator('[data-windows-explorer]').waitFor();
+    await guest.getByRole('row', { name: /Проекты/ }).click({ button: 'right' });
+    await guest.locator(MENU).getByRole('button', { name: 'Открыть', exact: true }).waitFor();
+    ok('Без права «Управление проектами» пункта «Привязать к проекту» в меню папки нет', await guest.locator(MENU).getByRole('button', { name: 'Привязать к проекту', exact: true }).count() === 0);
+    await guest.keyboard.press('Escape');
+    ok('Без права «Управление проектами» кнопки «Привязать папку» нет', await guest.getByRole('button', { name: /Привязать папку/ }).count() === 0);
+    await guest.close();
+    // Есть общая привязка: ключи считаются одним запросом на видимые строки, а не по запросу на строку.
+    const bound = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+    await bound.addInitScript((key: string) => { (window as any).__bindings = [{ id: 'b1', locationKey: key, projectId: 'project-2', label: 'Проекты', actorId: 'u1', at: '2026-10-14T00:00:00.000Z' }]; }, Buffer.from('net:проекты').toString('hex'));
+    await bound.goto(`${BASE}/scripts/fixtures/windows-explorer-ui.html`);
+    await bound.locator('[data-windows-explorer]').waitFor();
+    await bound.getByRole('row', { name: /Проекты/ }).waitFor();
+    await bound.waitForFunction(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'locationKeys'));
+    const keyCalls = await bound.evaluate(() => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'locationKeys').map((request: any) => request.refs.length));
+    ok('Ключи мест запрашиваются пачкой для списка, а не по одному на строку', keyCalls.length >= 1 && keyCalls.length <= 2 && keyCalls.every((count: number) => count > 1 && count <= 500));
+    await bound.close();
     await page.getByRole('button', { name: 'Новая вкладка' }).click();
     ok('Кнопка добавляет активную вкладку Проводника', await page.getByRole('tab').count() === 2 && await page.getByRole('tab').nth(1).getAttribute('aria-selected') === 'true');
     await page.getByRole('tab').first().click();

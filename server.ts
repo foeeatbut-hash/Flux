@@ -1111,7 +1111,7 @@ registerNotificationRoutes(app);
 
 // Проводник (папки, файлы, корзина) вынесен в server/routes/explorer.ts
 registerExplorerRoutes(app, { can: userCan });
-registerProjectFolderBindingRoutes(app);
+registerProjectFolderBindingRoutes(app, { mayManage: req => mayFeature(req, 'project.manage') });
 registerDesktopRoutes(app);
 registerInsightRoutes(app);
 registerGuideRoutes(app, { io });

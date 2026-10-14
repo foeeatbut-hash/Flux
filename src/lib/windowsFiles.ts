@@ -7,7 +7,7 @@ export type {
   WindowsSearchFilters, WindowsSearchLimits, WindowsSearchHit, WindowsSearchEvent, WindowsSearchStop, WindowsFolderNode,
   WindowsQuickAccessItem, WindowsQuickAccessList, WindowsCloudRoot, WindowsCloudRoots, WindowsThumbnail, WindowsOpenWithHandler,
   WindowsShellMenu, WindowsShellMenuItem, WindowsRecycleBin, WindowsRecycleItem, WindowsImportResult, WindowsImportCollision,
-  WindowsUndoState, WindowsUndoLabel, WindowsUndoResult, WindowsExplorerRequest,
+  WindowsUndoState, WindowsUndoLabel, WindowsUndoResult, WindowsExplorerRequest, WindowsLocationKeys,
 } from '../../filesystem/contracts';
 
 type WindowsFilesBridge = {
