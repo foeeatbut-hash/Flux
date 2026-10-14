@@ -74,7 +74,7 @@ async function call(method: string, path: string, opts: any = {}) {
 }
 
 void (async () => {
-  const unsupported = await call('POST', '/api/project-data/office/query', { body: { projectId: 'project-1', query: { entity: 'e3', columns: ['name'], filters: [], sort: [], limit: 10 } } });
+  const unsupported = await call('POST', '/api/project-data/office/query', { body: { projectId: 'project-1', query: { entity: 'unknown', columns: ['name'], filters: [], sort: [], limit: 10 } } });
   if (unsupported.statusCode !== 400) console.error('unsupported response', unsupported.statusCode, unsupported.body);
   assert.equal(unsupported.statusCode, 400);
   assert.match(unsupported.body.error, /не поддерживается/);

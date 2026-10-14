@@ -29,7 +29,7 @@ import {
 } from '../projectSlice.js';
 import { projectOfFile, resolveKeys, searchProject, signersOf, setSigner } from '../projectFields.js';
 import { fillDocxMarkers, listDocxMarkers, listDocxFields, listXlsxAnchors, updateDocxFields, updateXlsxFields, writeXlsxBlock, type FieldValue } from '../officeFields.js';
-import { registerProjectOfficeRoutes } from './projectOffice.js';
+import { officeSourceCatalog, registerProjectOfficeRoutes, requireProjectRead } from './projectOffice.js';
 import { registerProjectOfficeLocalRoutes } from './projectOfficeLocal.js';
 
 export interface ProjectDataDeps {
@@ -41,7 +41,9 @@ export interface ProjectDataDeps {
 async function catalog(req: Request, res: Response): Promise<any> {
   try {
     const projectId = await resolveProjectId(String(req.query.projectId || ''));
+    await requireProjectRead(req, projectId);
     const { tags, elements } = await loadProjectSlice(projectId);
+    const officeSources = await officeSourceCatalog(projectId);
 
     // Дерево параметров «группа → ключ» с заполненностью и единицами
     const paramMap = new Map<string, { group: string; key: string; unit: string; count: number; sample: string }>();
@@ -136,6 +138,8 @@ async function catalog(req: Request, res: Response): Promise<any> {
       metaKeys: Array.from(metaMap.entries()).map(([key, count]) => ({ path: `meta:${key}`, key, count })),
       aliases: aliasFields,
       similar: similarGroups, // группы «похожих» сырых параметров — предложить объединить
+      managementFields: officeSources.managementFields,
+      e3fluxFields: officeSources.e3fluxFields,
     });
   } catch (err: any) { sendError(res, err); }
 }
