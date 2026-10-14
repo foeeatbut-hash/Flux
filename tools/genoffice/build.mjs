@@ -159,6 +159,8 @@ async function buildOne(which, src) {
     cpSync(join(injectDir, 'translation-docs.ts'), join(src, 'apps/docs', 'src', 'renderer', 'flux', 'translation-docs.ts'));
   }
   if (which === 'sheets') {
+    // Подключение переводчика к Univer (translation-sheets.ts читают и модульные тесты в Node, поэтому Univer — отдельно)
+    cpSync(join(injectDir, 'translation-sheets-live.ts'), join(src, 'apps/sheets/src/renderer/flux', 'translation-sheets-live.ts'));
     // Главный процесс использует только узкое расширение Electron-заглушки;
     // обычные типы редактора остаются из установленного electron-пакета.
     const typesDir = join(src, 'apps/sheets/src/types');

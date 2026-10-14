@@ -13,6 +13,11 @@ import { makeDocxWithTable, makeXlsxWithBlankFormula, makeXlsxWithManualRow, log
 import { runNativeSheetCellActions } from './officeNativeCellActionsScenarios';
 import { runNativeWordCellActions } from './officeNativeWordCellActionsScenarios';
 import { runNativeTranslatorWord } from './officeNativeTranslatorWordScenarios';
+    await context.close();
+    return;
+  }
+
+import { runNativeTranslatorSheets } from './officeNativeTranslatorSheetsScenarios';
 
 void (async () => {
 type Fixture = { baseUrl: string; projectId: string; dataDir: string; admin: { symbol: string; password: string } };
@@ -353,6 +358,13 @@ try {
   // FLUX_NATIVE_ONLY=translator-word — переводчик Документа: события моста редактора без панели Flux
   if (process.env.FLUX_NATIVE_ONLY === 'translator-word') {
     await runNativeTranslatorWord({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
+    await context.close();
+    return;
+  }
+
+  // FLUX_NATIVE_ONLY=translator-sheets — переводчик Таблицы: сам создаёт свой файл
+  if (process.env.FLUX_NATIVE_ONLY === 'translator-sheets') {
+    await runNativeTranslatorSheets({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page });
     await context.close();
     return;
   }
