@@ -381,7 +381,9 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
         ...(Array.isArray(input.bindings) ? { bindings: input.bindings.slice(0, 10000) } : {}),
       };
       // Run the same package validators now, before issuing a one-use token.
-      await mergeOfficeTranslations(bytes, delta);
+      // Invalid client metadata is a bad request, not a server failure.
+      try { await mergeOfficeTranslations(bytes, delta); }
+      catch (error: any) { return res.status(400).json({ error: error?.message || String(error) }); }
       const token = await stageOfficeTranslation(prisma, { fileId, userId: user.id, baseSha: baseHash, delta });
       res.json({ ok: true, token, baseHash });
     } catch (err: any) { sendError(res, err); }
