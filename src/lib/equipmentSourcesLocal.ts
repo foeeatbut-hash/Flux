@@ -105,7 +105,19 @@ export function getEquipmentSourceBinding(projectId: string, sourceId: string, t
 }
 
 /** Меняет capability-пути выбранных источников одним localStorage commit. */
-export interface EquipmentSourceBindingSnapshot { storageKey: string; binding: LocalEquipmentSourceBinding }
+export interface EquipmentSourceBindingSnapshot { storageKey: string; userId: string; sourceId: string; binding: LocalEquipmentSourceBinding | null }
+
+export function captureEquipmentSourceBindings(projectId: string, rows: Array<{ sourceId: string; binding: LocalEquipmentSourceBinding }>): EquipmentSourceBindingSnapshot[] {
+  const userId = useStore.getState().user?.id;
+  if (!userId) throw new Error('Войдите в Flux, чтобы перепривязать локальные источники оборудования.');
+  if (!rows.length || rows.length > 250 || new Set(rows.map(row => row.sourceId)).size !== rows.length) throw new Error('Выбор источников пуст или содержит повторы.');
+  const all = readAllBindings();
+  return rows.map(({ sourceId, binding }) => {
+    if (binding.projectId !== projectId || binding.sourceId !== sourceId) throw new Error('Недостаточно данных для восстановления локальной привязки источника.');
+    const entry = Object.entries(all).find(([, value]) => value.projectId === projectId && value.sourceId === sourceId && (value.userId || userId) === userId);
+    return { storageKey: entry?.[0] || keyOf(binding, userId), userId, sourceId, binding: entry ? { ...entry[1] } : null };
+  });
+}
 
 export function planEquipmentSourceFolderRebind(rows: Array<{ sourceId: string; tagIdentifier?: string }>, folder: WindowsFileRef): Array<{ sourceId: string; folder: WindowsFileRef }> {
   if (!rows.length || rows.length > 250 || new Set(rows.map(row => row.sourceId)).size !== rows.length) throw new Error('Выбор источников пуст или содержит повторы.');
@@ -118,20 +130,25 @@ export function planEquipmentSourceFolderRebind(rows: Array<{ sourceId: string; 
   });
 }
 
-export function rebindEquipmentSourceFolders(projectId: string, changes: Array<{ sourceId: string; folder: WindowsFileRef }>): { before: EquipmentSourceBindingSnapshot[]; after: EquipmentSourceBindingSnapshot[] } {
+export function rebindEquipmentSourceFolders(projectId: string, changes: Array<{ sourceId: string; folder: WindowsFileRef; binding?: LocalEquipmentSourceBinding }>, expectedBefore: EquipmentSourceBindingSnapshot[]): { before: EquipmentSourceBindingSnapshot[]; after: EquipmentSourceBindingSnapshot[] } {
   const userId = useStore.getState().user?.id;
   if (!userId) throw new Error('Войдите в Flux, чтобы перепривязать локальные источники оборудования.');
   if (!changes.length || changes.length > 250 || new Set(changes.map(change => change.sourceId)).size !== changes.length) throw new Error('Выбор источников пуст или содержит повторы.');
+  if (expectedBefore.length !== changes.length || expectedBefore.some(snapshot => snapshot.userId !== userId)) throw new Error('Локальный пользователь или состав источников изменился после предварительного просмотра. Перепривязка отменена.');
   const all = readAllBindings();
   const before: EquipmentSourceBindingSnapshot[] = [];
   const after: EquipmentSourceBindingSnapshot[] = [];
-  for (const { sourceId, folder } of changes) {
+  for (const change of changes) {
+    const { sourceId, folder } = change;
     const entry = Object.entries(all).find(([, value]) => value.projectId === projectId && value.sourceId === sourceId && (value.userId || userId) === userId);
-    if (!entry) throw new Error('Локальная привязка одного из источников не найдена. Перепривяжите эту позицию отдельно.');
-    const [key, binding] = entry;
-    before.push({ storageKey: key, binding: { ...binding } });
-    const next = { ...binding, rootId: folder.rootId, relativePath: folder.relativePath.replaceAll('\\', '/') };
-    all[key] = next; after.push({ storageKey: key, binding: next });
+    const expected = expectedBefore.find(snapshot => snapshot.sourceId === sourceId);
+    if (!expected || expected.userId !== userId || (entry ? entry[0] !== expected.storageKey || JSON.stringify(entry[1]) !== JSON.stringify(expected.binding) : expected.binding !== null)) throw new Error('Локальную привязку изменили после предварительного просмотра. Перепривязка отменена, чтобы сохранить более новое решение.');
+    const binding = entry?.[1] || change.binding;
+    if (!binding || binding.projectId !== projectId || binding.sourceId !== sourceId) throw new Error('Недостаточно данных для восстановления локальной привязки источника.');
+    const key = expected.storageKey;
+    before.push({ storageKey: key, userId, sourceId, binding: entry ? { ...entry[1] } : null });
+    const next = { ...binding, userId, rootId: folder.rootId, relativePath: folder.relativePath.replaceAll('\\', '/') };
+    all[key] = next; after.push({ storageKey: key, userId, sourceId, binding: next });
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
   return { before, after };
@@ -142,13 +159,13 @@ export function restoreEquipmentSourceBindings(snapshot: EquipmentSourceBindingS
   const userId = useStore.getState().user?.id;
   if (!userId) throw new Error('Войдите в Flux, чтобы восстановить локальные источники оборудования.');
   const all = readAllBindings();
-  if (snapshot.length !== expectedCurrent.length) throw new Error('Снимок перепривязки неполон; откат отменён.');
+  if (snapshot.length !== expectedCurrent.length || snapshot.some(item => item.userId !== userId) || expectedCurrent.some(item => item.userId !== userId)) throw new Error('Снимок перепривязки неполон или пользователь изменился; откат отменён.');
   for (const saved of snapshot) {
     const current = all[saved.storageKey];
     const expected = expectedCurrent.find(item => item.storageKey === saved.storageKey)?.binding;
     if (!current || !expected || JSON.stringify(current) !== JSON.stringify(expected) || (current.userId || userId) !== userId) throw new Error('Локальную привязку изменили после перепривязки. Откат отменён, чтобы сохранить более новое решение.');
   }
-  for (const saved of snapshot) all[saved.storageKey] = { ...saved.binding, userId };
+  for (const saved of snapshot) { if (saved.binding) all[saved.storageKey] = { ...saved.binding, userId }; else delete all[saved.storageKey]; }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
 }
 
