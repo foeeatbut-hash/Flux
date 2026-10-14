@@ -119,6 +119,7 @@ const runUpdatesDialog = async () => {
     const colors = await Promise.all(['L23', 'L24', 'L26', 'L25'].map(async tag => [tag, await status(tag).evaluate(node => getComputedStyle(node).color)]));
     const colorMap = Object.fromEntries(colors);
     if (colorMap.L23 !== colorMap.L24 || colorMap.L26 === colorMap.L23 || colorMap.L25 === colorMap.L23 || colorMap.L26 === colorMap.L25) throw new Error(`${theme} status colors do not visually distinguish changed, unchanged, and error states: ${JSON.stringify(colorMap)}`);
+    if (theme === 'light') await page.screenshot({ path: '/tmp/flux-equipment-xml-updates-dialog-light.png', fullPage: true });
   }
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.screenshot({ path: '/tmp/flux-equipment-xml-updates-dialog-dark.png', fullPage: true });
@@ -238,5 +239,5 @@ try {
   await runUpdatesProjectSwitch();
   for (const width of [360, 1100]) for (const theme of ['light', 'dark']) await runUntaggedBindingAndRemap(width, theme);
   if (failures.length) throw new Error(failures.join('\n'));
-  console.log(JSON.stringify({ result: 'passed', previewBindingRevisionComparison: 'passed', tagSwitchRace: 'passed', geometries, screenshots: [360, 1100].flatMap(width => ['light', 'dark'].flatMap(theme => [`/tmp/flux-equipment-xml-source-preview-${width}-${theme}.png`, `/tmp/flux-equipment-xml-source-${width}-${theme}.png`])).concat(['/tmp/flux-equipment-xml-single-rebind-light-preview.png', '/tmp/flux-equipment-xml-single-rebind-dark-preview.png', '/tmp/flux-equipment-xml-updates-dialog-dark.png', '/tmp/flux-equipment-xml-updates-review-light.png', '/tmp/flux-equipment-xml-updates-project-switch-dark.png']) }, null, 2));
+  console.log(JSON.stringify({ result: 'passed', previewBindingRevisionComparison: 'passed', tagSwitchRace: 'passed', geometries, screenshots: [360, 1100].flatMap(width => ['light', 'dark'].flatMap(theme => [`/tmp/flux-equipment-xml-source-preview-${width}-${theme}.png`, `/tmp/flux-equipment-xml-source-${width}-${theme}.png`])).concat(['/tmp/flux-equipment-xml-single-rebind-light-preview.png', '/tmp/flux-equipment-xml-single-rebind-dark-preview.png', '/tmp/flux-equipment-xml-updates-dialog-light.png', '/tmp/flux-equipment-xml-updates-dialog-dark.png', '/tmp/flux-equipment-xml-updates-review-light.png', '/tmp/flux-equipment-xml-updates-project-switch-dark.png']) }, null, 2));
 } finally { await browser.close(); }
