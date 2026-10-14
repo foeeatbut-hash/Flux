@@ -39,6 +39,8 @@ import { placeOf } from '../files/tabsModel';
 import { isTypingTarget } from '../files/explorerKeys';
 import { orderedEntries, VIEW_LABELS, type FolderView } from '../files/viewModel';
 import { FONT_STACK, SIZE, X as T } from '../files/explorerTheme';
+import ProjectFolderBindingDialog from './ProjectFolderBindingDialog';
+import { resolveBoundProject, effectiveProjectIds, type ProjectFolderBinding } from '../../lib/projectFolderBindings';
 
 const bytes = (n: number) => n < 1024 ? `${n} Б` : n < 1048576 ? `${(n / 1024).toFixed(0)} КБ` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} МБ` : `${(n / 1073741824).toFixed(1)} ГБ`;
 
@@ -62,12 +64,40 @@ export default function WindowsExplorer() {
   const place = tabs.place;
   const ref = place.ref || null;
   const rootId = ref?.rootId || '';
+  const [bindingDialog, setBindingDialog] = React.useState<WindowsFileRef | null>(null);
+  const [bindingRefresh, setBindingRefresh] = React.useState(0);
+  const [projectBindings, setProjectBindings] = React.useState<ProjectFolderBinding[]>([]);
+  const deviceId = React.useMemo(() => {
+    const key = 'flux.explorer.device.v1';
+    let value = localStorage.getItem(key);
+    if (!value) { value = crypto.randomUUID(); localStorage.setItem(key, value); }
+    return value;
+  }, []);
   const root = [...catalog.roots, ...catalog.volumes.map((v) => v.root)].find((r) => r.id === rootId);
+  React.useEffect(() => {
+    let alive = true;
+    if (!rootId || !user?.id) { setProjectBindings([]); return; }
+    void fetch(`/api/explorer/project-bindings?${new URLSearchParams({ deviceId, rootId })}`).then(response => response.ok ? response.json() : null).then(async ledger => {
+      if (!alive || !ledger) return;
+      const checked = await Promise.all((ledger.bindings || []).map(async (binding: ProjectFolderBinding) => {
+        const answer = await windowsFilesRequest<WindowsFileEntry>({ action: 'stat', ref: { rootId: binding.rootId, relativePath: binding.relativePath } });
+        return answer.ok && answer.data.kind === 'directory' && answer.data.fileId === binding.canonicalFolderId ? binding : null;
+      }));
+      if (alive) setProjectBindings(checked.filter((binding): binding is ProjectFolderBinding => !!binding));
+    }).catch(() => { if (alive) setProjectBindings([]); });
+    return () => { alive = false; };
+  }, [rootId, user?.id, deviceId, bindingRefresh]);
   const folder = useFolder(ref, tabs.ready && loaded && !!ref && !!root?.available);
   const { view, setView } = useFolderView(folderKey(ref) || place.kind);
   const scopes = React.useMemo(() => searchScopes(place, catalog, quick.map((q) => q.ref)), [place, catalog, quick]);
   const search = useExplorerSearch(scopes, placeKey(place));
-  const entries = React.useMemo(() => orderedEntries((search.results.active ? search.results.hits : folder.entries).filter((entry) => view.hidden || !entry.hidden).map((entry) => entry.metadata?.projectIds.length ? { ...entry, projectNames: entry.metadata.projectIds.map((id) => projectNames[id] || 'Недоступный проект') } : entry), view), [search.results.active, search.results.hits, folder.entries, view, projectNames]);
+  const entries = React.useMemo(() => orderedEntries((search.results.active ? search.results.hits : folder.entries).filter((entry) => view.hidden || !entry.hidden).map((entry) => {
+    const manual = entry.metadata?.projectIds || [];
+    const inherited = manual.length || !entry.rootId && !rootId ? null : resolveBoundProject(projectBindings, { rootId: entry.rootId || rootId, canonicalFileId: entry.fileId, relativePath: entry.relativePath });
+    const projectIds = effectiveProjectIds(manual, inherited);
+    const metadata = entry.metadata || inherited ? { ...(entry.metadata || { fileId: entry.fileId, tags: [], revision: '', responsible: '', history: [] }), projectIds } : undefined;
+    return { ...entry, ...(metadata ? { metadata } : {}), ...(projectIds.length ? { projectNames: projectIds.map((id) => projectNames[id] || 'Недоступный проект') } : {}) };
+  }), view), [search.results.active, search.results.hits, folder.entries, view, projectNames, projectBindings, rootId]);
   const selection = useSelection(entries, `${placeKey(place)}:${search.results.active}`);
   const single = selection.selected.length === 1 ? selection.selected[0] : null;
   const operations = useExplorerOperations({ folder: ref, rootId, selected: selection.selected, reload: folder.reload });
@@ -233,7 +263,7 @@ export default function WindowsExplorer() {
     { label: 'Копировать', separated: true, onClick: () => void ops.copy(menuEntries) }, { label: 'Вырезать', onClick: () => void ops.cut(menuEntries) },
     { label: 'Переименовать', disabled: menuEntries.length !== 1, onClick: () => setRename({ entry: targetEntry, rootId, name: targetEntry.name }) },
     { label: 'Копировать как путь', onClick: () => { void command({ action: 'copyPath', refs: menuEntries.map((e) => entryRef(e, rootId)) }); } },
-    ...(targetEntry.kind === 'directory' ? [{ label: 'Открыть в новой вкладке', onClick: () => tabs.open(childPlace(place, targetEntry)) }, { label: 'Закрепить в быстром доступе', disabled: !!targetEntry.draftId, onClick: () => { void usePlacesStore.getState().pin(entryRef(targetEntry, rootId), true).then((result) => { if (!result.ok) toast(result.message || 'Не удалось закрепить папку', 'error'); }); } }] : []),
+    ...(targetEntry.kind === 'directory' ? [{ label: 'Привязать к проекту', separated: true, disabled: !!targetEntry.draftId || !root?.available, onClick: () => setBindingDialog(entryRef(targetEntry, rootId)) }, { label: 'Открыть в новой вкладке', onClick: () => tabs.open(childPlace(place, targetEntry)) }, { label: 'Закрепить в быстром доступе', disabled: !!targetEntry.draftId, onClick: () => { void usePlacesStore.getState().pin(entryRef(targetEntry, rootId), true).then((result) => { if (!result.ok) toast(result.message || 'Не удалось закрепить папку', 'error'); }); } }] : []),
     ...(targetEntry.storage === 'flux' ? [{ label: 'Опубликовать в Windows', onClick: () => operations.publish(targetEntry) }] : []),
     { label: 'Сжать в ZIP-файл', disabled: !ref || !!ref.draftId || menuEntries.some((e) => !!e.draftId), onClick: () => { if (ref) setArchive({ refs: menuEntries.map((e) => entryRef(e, rootId)), parent: { ...ref }, name: targetEntry.name.replace(/\.[^.]+$/u, '') + '.zip' }); } },
     { label: 'Удалить', danger: true, separated: true, onClick: () => void ops.trash(menuEntries) },
@@ -252,7 +282,7 @@ export default function WindowsExplorer() {
   return <div ref={screen} tabIndex={0} onKeyDown={onKeyDown} data-windows-explorer className={`@container flex h-full min-h-0 min-w-0 flex-col outline-none [color-scheme:light] dark:[color-scheme:dark] ${T.pane} ${T.text}`} style={{ fontFamily: FONT_STACK }}>
     {title}
     <AddressBar place={place} catalog={catalog} canBack={tabs.canBack} canForward={tabs.canForward} recent={tabs.recent} search={search} onBack={back} onForward={forward} onUp={up} onRefresh={refresh} onOpen={go} onJump={tabs.jump} focusAddressToken={addressToken} focusSearchToken={searchToken} />
-    <CommandBar view={view} onView={setView} selected={selection.selected.length} busy={busy} canPaste={!!ops.clip && canWrite} onCut={() => void ops.cut(selection.selected)} onCopy={() => void ops.copy(selection.selected)} onPaste={() => void ops.paste()} onRename={askRename} onDelete={() => void ops.trash(selection.selected)} onShare={single && user?.id && !root?.network ? () => setShare(single) : undefined} onUndo={operations.undoLast} onRedo={operations.redoLast} undo={operations.undo.undo?.label} redo={operations.undo.redo?.label} pane={pane} onPane={setPane} onProperties={() => { if (single) showProperties(single); }} />
+    <CommandBar view={view} onView={setView} selected={selection.selected.length} busy={busy} canPaste={!!ops.clip && canWrite} onCut={() => void ops.cut(selection.selected)} onCopy={() => void ops.copy(selection.selected)} onPaste={() => void ops.paste()} onRename={askRename} onDelete={() => void ops.trash(selection.selected)} onShare={single && user?.id && !root?.network ? () => setShare(single) : undefined} onUndo={operations.undoLast} onRedo={operations.redoLast} undo={operations.undo.undo?.label} redo={operations.undo.redo?.label} pane={pane} onPane={setPane} onProperties={() => { if (single) showProperties(single); }} onBindFolder={ref && root?.available ? () => setBindingDialog(ref) : undefined} />
     <div className="flex min-h-0 flex-1">
       <NavPane place={place} onOpen={go} onOpenInNewTab={(next) => tabs.open(next, false)} />
       <main ref={main} className="flex min-w-0 flex-1 flex-col" onDragOver={(e) => { if (canWrite) { e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; } }} onDrop={(e) => { if (ref) operations.drop(e); }} onContextMenu={(e) => { if (ref) { e.preventDefault(); setShellMenu(null); setContext({ x: e.clientX, y: e.clientY }); } }}>
@@ -269,6 +299,7 @@ export default function WindowsExplorer() {
     <footer data-explorer-status className={`flex h-6 shrink-0 items-center gap-3 px-3 text-xs bg-[#f3f3f3] dark:bg-[#1c1c1c] ${T.text}`}><span>Элементов: {ref || search.results.active ? entries.length : locations.length}{folder.nextOffset !== null && ref ? '+' : ''}</span>{selection.selected.length > 0 && <span>Выбрано: {selection.selected.length} · {bytes(selection.selected.reduce((n, e) => n + (e.kind === 'file' ? e.size : 0), 0))}</span>}{operations.progress && <span role="status">{operations.progress.label} {operations.progress.done}/{operations.progress.total}</span>}<span className="flex-1" /><button type="button" title="Таблица" aria-label="Таблица" onClick={() => setView({ ...view, layout: 'details' })}><List size={16} /></button><button type="button" title="Крупные значки" aria-label="Крупные значки" onClick={() => setView({ ...view, layout: 'large' })}><Grid2X2 size={16} /></button></footer>
     {context && <ContextMenu x={context.x} y={context.y} items={contextItems} onClose={() => { setContext(null); setShellMenu(null); }} />}
     {properties && <PropertiesWindow key={`${properties.rootId}:${properties.entry.fileId}`} {...properties} onClose={() => setProperties(null)} />}
+    {bindingDialog && <ProjectFolderBindingDialog folder={bindingDialog} title={bindingDialog.relativePath.split(/[\\/]/u).filter(Boolean).pop() || place.name} onClose={() => setBindingDialog(null)} onChanged={() => { setBindingRefresh(value => value + 1); void folder.reload(); }} />}
     {share && user?.id && <FileShareDialog actorId={user.id} source={entryRef(share, rootId)} name={share.name} onClose={() => setShare(null)} />}
 
     {handlers && single && <Dialog title="Открыть с помощью" onClose={() => setHandlers(null)}>{handlers.length ? handlers.map((handler) => <button className={`block w-full rounded p-3 text-left text-xs ${T.paneHover}`} key={handler.id} onClick={() => { void command({ action: 'openWith', ref: entryRef(single, rootId), handlerId: handler.id }); setHandlers(null); }}>{handler.name}</button>) : <p className="text-xs">Windows не сообщила подходящие приложения.</p>}</Dialog>}

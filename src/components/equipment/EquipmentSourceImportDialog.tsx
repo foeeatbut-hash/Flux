@@ -6,6 +6,7 @@ import {
   type EquipmentSourceImportPreview, type LocalEquipmentSourceBinding,
 } from '../../lib/equipmentSourcesLocal';
 import { windowsFilesRequest } from '../../lib/windowsFiles';
+import ImportFileChooser, { type ImportFileChooserHandle } from '../ImportFileChooser';
 
 type Category = { id: string; label: string };
 type ImportedSource = { sourceId: string; tagId: string; targetType: 'system'; systemId: string; elementId: string; revision: string; sha256: string; fileName: string; revisionOrder?: string[]; unitTag?: { identifier: string } };
@@ -16,6 +17,8 @@ const toMessage = (error: unknown) => error instanceof Error ? error.message : '
 
 /** Первичный XML импорт: неизменяемый снимок → серверный план → явное применение. */
 export default function EquipmentSourceImportDialog(props: { projectId: string; categories: Category[]; canManage: boolean; onClose: () => void; onImported: (result: { source: ImportedSource; tagIdentifier: string; category: string; baselineApplied: boolean }) => void }) {
+  const filePicker = useRef<ImportFileChooserHandle>(null);
+  const folderPicker = useRef<ImportFileChooserHandle>(null);
   const { projectId, categories, canManage, onClose, onImported } = props;
   const [category, setCategory] = useState(categories[0]?.id || '');
   const [file, setFile] = useState<Extract<EquipmentSourceImportPreview, { status: 'ready' }> | null>(null);
@@ -74,12 +77,13 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
     return { ...link, action: selected };
   });
 
-  const chooseFile = async () => {
+  const chooseFile = async (selected?: { ref: import('../../lib/windowsFiles').WindowsFileRef; name: string; sourceFolder?: import('../../lib/windowsFiles').WindowsFileRef; suggestedTag?: string }) => {
     if (!canManage) return;
+    if (!selected) { filePicker.current?.open(); return; }
     const operation = ++operationRef.current;
     setBusy(true); setError(''); setNotice(''); setPlan(null);
     try {
-      const result = await pickEquipmentSourceForImport();
+      const result = await pickEquipmentSourceForImport(windowsFilesRequest, selected);
       if (operation !== operationRef.current) return;
       if ('error' in result) throw new Error(result.error.message);
       if (result.data.status === 'canceled') return;
@@ -94,22 +98,21 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
       const uniqueNames = Array.from(new Set(names));
       clearReviewSelections();
       setXmlTagChoices(uniqueNames);
-      setFile(picked); setTagIdentifier(uniqueNames.length === 1 ? uniqueNames[0] : ''); setRevision(picked.revision); setFolderName(picked.sourceFolder.relativePath);
+      const suggestedTag = picked.suggestedTag && uniqueNames.includes(picked.suggestedTag) ? picked.suggestedTag : '';
+      setFile(picked); setTagIdentifier(suggestedTag || (uniqueNames.length === 1 ? uniqueNames[0] : '')); setRevision(picked.revision); setFolderName(picked.sourceFolder.relativePath);
     } catch (reason) { if (operation === operationRef.current) setError(toMessage(reason)); }
     finally { if (operation === operationRef.current) setBusy(false); }
   };
 
-  const changeFolder = async () => {
+  const changeFolder = async (selectedFolder?: import('../../lib/windowsFiles').WindowsFileRef) => {
     if (!canManage || !file) return;
+    if (!selectedFolder) { folderPicker.current?.open(); return; }
     const operation = ++operationRef.current;
     setBusy(true); setError('');
     try {
-      const picked = await pickEquipmentSourceFolder();
       if (operation !== operationRef.current) return;
-      if ('error' in picked) throw new Error(picked.error.message);
-      if (!picked.data) return;
       const sourceFile = file.selectedFile.ref;
-      const folder = picked.data;
+      const folder = selectedFolder;
       const prefix = folder.relativePath ? `${folder.relativePath.replace(/\/$/u, '')}/` : '';
       if (sourceFile.rootId !== folder.rootId || !sourceFile.relativePath.startsWith(prefix)) throw new Error('Выбранный XML не находится внутри указанной папки.');
       if (!sourceFile.relativePath.slice(prefix.length).includes('/')) throw new Error('Папка источника должна содержать подпапки ревизий. Выберите родительскую папку XML.');
@@ -174,6 +177,9 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
   const close = () => { if (!busy) onClose(); };
   const folderLabel = [rootName, folderName].filter(Boolean).join(' · ') || 'Выбранная папка';
   return (
+    <>
+    <ImportFileChooser ref={filePicker} accept=".xml" label="Выбрать XML" trigger={() => null} onFiles={() => {}} onWindowsFile={(ref, entry, context) => { void chooseFile({ ref, name: entry.name, ...context }); }} />
+    <ImportFileChooser ref={folderPicker} selectFolder label="Выбрать папку XML" trigger={() => null} onFiles={() => {}} onWindowsFolder={ref => { void changeFolder(ref); }} />
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/40 p-3" role="dialog" aria-modal="true" aria-labelledby="equipment-source-import-title">
       <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md dark:border-slate-700 dark:bg-slate-950">
         <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800"><div><h2 id="equipment-source-import-title" className="text-sm font-semibold">Загрузить оборудование из XML</h2><p className="text-xs text-slate-500 dark:text-slate-400">Сначала проверьте план; данные проекта изменятся только после подтверждения.</p></div><button type="button" onClick={close} disabled={busy} aria-label="Закрыть" className="rounded p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-900"><X className="h-4 w-4" /></button></header>
@@ -218,5 +224,6 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
         </footer>
       </div>
     </div>
+    </>
   );
 }
