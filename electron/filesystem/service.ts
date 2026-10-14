@@ -281,20 +281,28 @@ export class WindowsFilesService {
     const root = this.state.root(ref.rootId);
     return { root: { id: root.id, name: root.name, kind: root.kind, available: true, network }, relativePath: ref.relativePath, entries, unreadableCount, nextOffset: offset + limit < candidates.length ? offset + limit : null, truncated: names.length >= MAX_LIST };
   }
+  /** Предел ожидания одного lstat при догрузке сетевой папки; поле, а не константа — чтобы проверка не ждала секундами. */
+  hydrateItemMs = 10_000;
+  private withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('Сеть не ответила вовремя.'), { code: 'ETIMEDOUT' })), ms); timer.unref?.(); });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  }
   private async hydrateNetworkBatch(ref: WindowsFileRef, entries: WindowsFileEntry[], cache: { hydrated: Map<string, WindowsFileEntry> }) {
     for (let start = 0; start < entries.length; start += 32) {
       const rows = await Promise.all(entries.slice(start, start + 32).map(async provisional => {
         const filename = path.join(this.state.root(ref.rootId).path, ...provisional.relativePath.split('/'));
         try {
-          const stat = await fs.lstat(filename, { bigint: true });
+          // Зависший lstat на сетевом диске не должен навсегда оставлять ключ в hydrating.
+          const stat = await this.withTimeout(fs.lstat(filename, { bigint: true }), this.hydrateItemMs);
           const canonicalId = this.identityFromStat(filename, stat);
           const uiKey = provisional.uiKey || provisional.fileId;
           this.state.data.identity[uiKey] = canonicalId;
           const metadata = this.state.data.metadata[canonicalId];
-          return { filename, entry: { ...provisional, fileId: canonicalId, uiKey, ...(metadata ? { metadata: { ...metadata, history: [] } } : {}), kind: stat.isSymbolicLink() ? 'link' as const : stat.isDirectory() ? 'directory' as const : stat.isFile() ? 'file' as const : 'other' as const, size: Number(stat.size), modifiedAt: stat.mtime.toISOString(), createdAt: stat.birthtime.toISOString(), linked: stat.isSymbolicLink(), hidden: process.platform !== 'win32' && path.basename(filename).startsWith('.'), detailsPending: false } };
+          return { filename, transient: false, entry: { ...provisional, fileId: canonicalId, uiKey, ...(metadata ? { metadata: { ...metadata, history: [] } } : {}), kind: stat.isSymbolicLink() ? 'link' as const : stat.isDirectory() ? 'directory' as const : stat.isFile() ? 'file' as const : 'other' as const, size: Number(stat.size), modifiedAt: stat.mtime.toISOString(), createdAt: stat.birthtime.toISOString(), linked: stat.isSymbolicLink(), hidden: process.platform !== 'win32' && path.basename(filename).startsWith('.'), detailsPending: false } };
         } catch (error: any) {
-          if (['ENOENT', 'EACCES', 'EPERM'].includes(error?.code)) return { filename: '', entry: { ...provisional, detailsPending: false } };
-          return null;
+          // Любая ошибка (в том числе таймаут и сетевые коды) закрывает строку без сведений: иначе она вечно «ожидает».
+          return { filename: '', transient: !['ENOENT', 'EACCES', 'EPERM'].includes(error?.code), entry: { ...provisional, detailsPending: false } };
         }
       }));
       const good = rows.filter((row): row is NonNullable<typeof row> => row !== null);
@@ -304,7 +312,8 @@ export class WindowsFilesService {
         physical.forEach((row, index) => { if (typeof details[index]?.hidden === 'boolean') row.entry.hidden = details[index].hidden; });
       }
       const hydrated = good.map(row => row.entry);
-      for (const entry of hydrated) cache.hydrated.set(entry.name, entry);
+      // Временный отказ (таймаут, сеть) в кэш не кладём: следующее чтение папки попробует ещё раз.
+      for (const row of good) if (!row.transient) cache.hydrated.set(row.entry.name, row.entry);
       await this.state.save().catch(() => undefined);
       if (hydrated.length) this.deps.onChanged?.({ rootId: ref.rootId, relativePath: ref.relativePath, entries: hydrated });
     }

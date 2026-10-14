@@ -57,7 +57,7 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
   let shellCommands: ShellCommands;
   const service = await WindowsFilesService.create({
     userData: app.getPath('userData'),
-    fileDetails: process.platform === 'win32' ? async paths => await detailHost.call('file-info', { paths }) as { hidden: boolean }[] : undefined,
+    fileDetails: process.platform === 'win32' ? async paths => await nativeHost.call('file-info', { paths }) as { hidden: boolean }[] : undefined,
     knownFolders: { desktop: app.getPath('desktop'), documents: app.getPath('documents'), downloads: app.getPath('downloads') },
     trashItem: filename => shell.trashItem(filename),
     showItemInFolder: filename => shell.showItemInFolder(filename),
@@ -89,6 +89,12 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
   const publicDesktop = await windowsPublicDesktopFolder();
   if (publicDesktop) await service.addRoot(publicDesktop, 'Общий рабочий стол').catch(() => undefined);
   ipcMain.handle(WINDOWS_FILES_CHANNEL, async (event, request: WindowsFilesRequest): Promise<WindowsFilesResponse> => {
+    // Отмена регистрируется до первого await: cancel может прийти, пока идёт проверка прав, и не должен потеряться.
+    const cancelId = (request as any)?.__cancelId;
+    const cancellable = request?.action === 'systemProperties' || request?.action === 'thumbnail';
+    const requestKey = typeof cancelId === 'string' && /^[0-9a-f-]{36}$/iu.test(cancelId) ? `${event.sender.id}:${cancelId}` : '';
+    const controller = cancellable && requestKey ? new AbortController() : undefined;
+    if (controller) detailRequests.set(requestKey, controller);
     try {
       if (!options.isTrusted(event) || !await options.mayRead(event)) throw new WindowsFilesError('UNAUTHORIZED', 'Войдите в Flux для работы с файлами этого компьютера.');
       if (!request || typeof request !== 'object' || typeof request.action !== 'string') throw new WindowsFilesError('INVALID_REQUEST', 'Некорректная команда проводника.');
@@ -100,13 +106,8 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
           for (const [key, controller] of detailRequests) if (key.startsWith(`${event.sender.id}:`)) { controller.abort(); detailRequests.delete(key); }
         });
       }
-      const cancelId = (request as any).__cancelId;
-      const cancellable = ['systemProperties'].includes(request.action) || request.action === 'thumbnail';
-      const requestKey = typeof cancelId === 'string' && /^[0-9a-f-]{36}$/iu.test(cancelId) ? `${event.sender.id}:${cancelId}` : '';
-      const controller = cancellable && requestKey ? new AbortController() : undefined;
-      if (controller) detailRequests.set(requestKey, controller);
       let data: unknown;
-      try { switch (request.action) {
+      { switch (request.action) {
         case 'roots': data = await service.roots(); break;
         case 'volumes': {
           const volumes = await enumerateWindowsVolumes();
@@ -246,8 +247,9 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
           data = await explorer.handle(request, event.sender.id, controller?.signal);
       }
       return { ok: true, data };
-      } finally { if (controller && detailRequests.get(requestKey) === controller) detailRequests.delete(requestKey); }
+      }
     } catch (error) { return windowsFilesFailure(error); }
+    finally { if (controller && detailRequests.get(requestKey) === controller) detailRequests.delete(requestKey); }
   });
   app.once('before-quit', () => { service.close(); nativeHost.close(); detailHost.close(); });
   return service;

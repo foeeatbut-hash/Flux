@@ -15,6 +15,7 @@ import { classifyAll } from '../../../equipment/classes';
 import { dataService } from '../../services/dataService';
 import { useRealTimeSync } from '../SocketProvider';
 import { belongsToProject } from '../../lib/coalescedRefresh';
+import { fetchFileMetadata } from '../../services/fileMetadataCache';
 
 export interface ProjectField {
   key: string;
@@ -374,8 +375,7 @@ export default function FluxPanel(props: FluxPanelProps) {
     if (props.fileName) { setResolvedFileName(props.fileName); return; }
     if (!props.fileId) return;
     let live = true;
-    fetch(`/api/office/files/${encodeURIComponent(props.fileId)}/meta`)
-      .then(failResponse)
+    fetchFileMetadata(props.fileId)
       .then((meta) => { if (live) setResolvedFileName(String(meta.name || 'Документ')); })
       .catch(() => { if (live) setResolvedFileName('Документ'); });
     return () => { live = false; };

@@ -46,6 +46,20 @@ async function main() {
     assert.ok(refreshed.entries.every(entry => !entry.detailsPending), 'cached hydrated entries are reused');
     assert.equal(refreshed.entries.find(entry => entry.name === 'alpha.txt')?.fileId, canonicalId);
     console.log('✓ names-first network listing returns before slow properties and reuses canonical aliases');
+    // Сбой и зависание lstat закрывают строку без сведений и освобождают ключ; в кэш такая строка не попадает.
+    const failing = path.join(sandbox, 'failing'); await fs.mkdir(failing); await fs.writeFile(path.join(failing, 'boom.txt'), 'x'); await fs.writeFile(path.join(failing, 'hang.txt'), 'y');
+    const failingRoot = await service.addRoot(failing, 'Сбои'); patches.length = 0; (service as any).hydrateItemMs = 100;
+    const realLstat = fs.lstat; (fs as any).lstat = (target: any, ...rest: any[]) => /boom\.txt$/u.test(String(target)) ? Promise.reject(Object.assign(new Error('io'), { code: 'EIO' })) : /hang\.txt$/u.test(String(target)) ? new Promise(() => undefined) : (realLstat as any)(target, ...rest);
+    try {
+      const failingList = await service.list({ rootId: failingRoot.id, relativePath: '' });
+      assert.ok(failingList.entries.every(entry => entry.detailsPending));
+      await waitFor(() => patches.flatMap(patch => patch.entries).length === 2 && (service as any).hydrating.size === 0);
+      assert.ok(patches.flatMap(patch => patch.entries).every((entry: any) => entry.detailsPending === false), 'a failed or hung lstat closes the row without details');
+      const again = await service.list({ rootId: failingRoot.id, relativePath: '' });
+      assert.ok(again.entries.every(entry => entry.detailsPending), 'temporary failures are not cached: the next read retries');
+      await waitFor(() => (service as any).hydrating.size === 0);
+    } finally { (fs as any).lstat = realLstat; }
+    console.log('✓ failed and hung lstat do not leave rows pending or hydrating keys set');
   } finally { service.close(); await fs.rm(sandbox, { recursive: true, force: true }); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

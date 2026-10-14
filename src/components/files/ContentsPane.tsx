@@ -208,7 +208,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
   const [containerHeight, setContainerHeight] = useState(500);
   const [columnMenu, setColumnMenu] = useState<{ x: number; y: number } | null>(null);
   const [rubberband, setRubberband] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
-  const rubberStart = useRef<{ x: number; y: number } | null>(null);
+  const rubberStart = useRef<{ x: number; y: number; additive: boolean } | null>(null);
   const resize = useRef<{ column: FolderColumn; x: number; width: number } | null>(null);
   const typeahead = useRef('');
   const typeaheadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -316,7 +316,8 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
     if (event.button !== 0 || (event.target as HTMLElement).closest('[data-entry-key], [data-column-header], [data-pane-control]')) return;
     const box = event.currentTarget.getBoundingClientRect();
     const start = { x: event.clientX - box.left, y: event.clientY - box.top + event.currentTarget.scrollTop };
-    rubberStart.current = start;
+    // Ctrl/Shift в начале рамки: выделение дополняется, а не заменяется, как в Проводнике Windows.
+    rubberStart.current = { ...start, additive: event.ctrlKey || event.metaKey || event.shiftKey };
     event.currentTarget.setPointerCapture(event.pointerId);
     setRubberband({ x: start.x, y: start.y, width: 0, height: 0 });
   };
@@ -345,10 +346,10 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
       return rect.width > 0 && rect.height > 0 && left <= selectionBox.right && left + rect.width >= selectionBox.left && top <= selectionBox.bottom && top + rect.height >= selectionBox.top;
     });
     if (rubberband && (rubberband.width > 3 || rubberband.height > 3)) {
-      selection.clear();
+      if (!start.additive) selection.clear();
       const byId = new Map(shownEntries.map((entry) => [entryKey(entry), entry]));
-      for (const hit of hits) { const entry = byId.get(hit.dataset.entryKey || ''); if (entry) selection.click(entry, { ctrl: true }); }
-    } else selection.clear();
+      for (const hit of hits) { const entry = byId.get(hit.dataset.entryKey || ''); if (entry && !(start.additive && selection.isSelected(entry))) selection.click(entry, { ctrl: true }); }
+    } else if (!start.additive) selection.clear();
     rubberStart.current = null; setRubberband(null);
   };
 

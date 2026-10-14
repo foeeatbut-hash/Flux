@@ -8,9 +8,10 @@ export function createFileMetadataCache<T>(now: () => number = Date.now, ttlMs =
   const cache = new Map<string, { at: number; promise: Promise<T> }>();
   const key = (fileId: string, actor: Identity) => [actor.server, actor.actor, actor.project, actor.session, fileId].join('\0');
   return {
-    get(fileId: string, actor: Identity, load: () => Promise<T>): Promise<T> {
+    /** `maxAgeMs` строже общего срока: опрос изменений и проверка перед выпуском не должны видеть устаревший ответ. */
+    get(fileId: string, actor: Identity, load: () => Promise<T>, maxAgeMs?: number): Promise<T> {
       const id = key(fileId, actor), current = cache.get(id);
-      if (current && now() - current.at < ttlMs) return current.promise;
+      if (current && now() - current.at < Math.min(ttlMs, maxAgeMs ?? ttlMs)) return current.promise;
       const promise = load().catch((error) => { cache.delete(id); throw error; });
       cache.set(id, { at: now(), promise });
       if (cache.size > 512) cache.delete(cache.keys().next().value!);
@@ -29,7 +30,8 @@ function identity(): Identity {
   const state = useStore.getState();
   return { server: SERVER_BASE_URL || (typeof location === 'undefined' ? '' : location.origin), actor: state.user?.id || '', project: state.activeProject?.id || '', session: getAuthSessionKey() };
 }
-export function fetchFileMetadata(fileId: string): Promise<FileMetadataResponse> {
+/** `maxAgeMs: 0` — всегда с сервера (и обновить кэш); у опроса — меньше его периода, чтобы изменение не пропадало. */
+export function fetchFileMetadata(fileId: string, options: { maxAgeMs?: number } = {}): Promise<FileMetadataResponse> {
   const id = String(fileId || '');
   if (!id) return Promise.reject(new Error('Файл не выбран.'));
   return cache.get(id, identity(), async () => {
@@ -37,7 +39,7 @@ export function fetchFileMetadata(fileId: string): Promise<FileMetadataResponse>
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(String(data?.error || `сервер ответил ${response.status}`));
     return data as FileMetadataResponse;
-  });
+  }, options.maxAgeMs);
 }
 export function invalidateFileMetadata(fileId?: string) { cache.invalidate(fileId); }
 if (typeof window !== 'undefined') window.addEventListener('flux:session-changed', () => cache.invalidate());

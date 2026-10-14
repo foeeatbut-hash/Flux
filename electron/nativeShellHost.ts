@@ -11,7 +11,7 @@ export interface NativeHostOptions {
   platform?: string;
   startupMs?: number; requestMs?: number; idleMs?: number;
 }
-interface Pending { id: number; line: string; timeoutMs: number; resolve: (value: unknown) => void; reject: (error: unknown) => void; signal?: AbortSignal; abort?: () => void }
+interface Pending { id: number; line: string; timeoutMs: number; resolve: (value: unknown) => void; reject: (error: unknown) => void; signal?: AbortSignal; abort?: () => void; cancelled?: boolean }
 
 const MAX_LINE = 32 * 1024 * 1024;
 
@@ -91,9 +91,12 @@ export class NativeShellHost {
       return;
     }
     if (this.current?.request === request) {
-      clearTimeout(this.current.timer); this.current = null; this.busy = false; this.finish(request);
+      // Обычная отмена уже отправленного запроса процесс не убивает: убийство PowerShell стоит повторной
+      // компиляции помощника (секунды), а прокрутка папки отменяет десятки миниатюр подряд. Вызывающему
+      // отказ приходит сразу, помощник доделывает работу, ответ отбрасывается (см. onLine); если он
+      // завис, его всё равно перезапустит таймаут запроса.
+      request.cancelled = true; this.finish(request);
       request.reject(new WindowsFilesError('NATIVE_CANCELLED', 'Запрос устарел и отменён.'));
-      this.kill(); this.pump();
     }
   }
 
@@ -151,6 +154,7 @@ export class NativeShellHost {
     if (!current || message?.id !== current.request.id) return; // ответ на уже отменённый запрос
     clearTimeout(current.timer); this.current = null; this.busy = false;
     this.finish(current.request);
+    if (current.request.cancelled) { this.afterRequest(); return; } // вызывающий уже получил отказ: результат не нужен
     if (message.ok === true) current.request.resolve(message.data);
     else {
       const code = typeof message.code === 'string' && /^[A-Z_]{1,40}$/u.test(message.code) ? message.code : 'HELPER_FAILED';

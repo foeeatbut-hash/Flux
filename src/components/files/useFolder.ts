@@ -38,6 +38,8 @@ export function useFolder(ref: WindowsFileRef | null, enabled: boolean) {
   const key = folderKey(ref);
   const hadListing = useRef(false);
   const refRef = useRef(ref); refRef.current = ref;
+  // Догруженные сетевые строки: событие может прийти раньше, чем ответ list лёг в состояние, и без запоминания пропало бы.
+  const hydrated = useRef(new Map<string, WindowsFileEntry>());
 
   /**
    * Прочитать папку сначала до позиции `until` (null — до конца). Позиция, а не
@@ -87,7 +89,7 @@ export function useFolder(ref: WindowsFileRef | null, enabled: boolean) {
 
   // Другая папка — список с нуля: чужие объекты не должны мелькать в новой
   useEffect(() => {
-    request.current++; savedScroll.current = null;
+    request.current++; savedScroll.current = null; hydrated.current = new Map();
     setListing(null); setError(''); setLoading(false);
     if (ref && enabled) void load('fresh');
   }, [key, enabled, load]);
@@ -106,6 +108,7 @@ export function useFolder(ref: WindowsFileRef | null, enabled: boolean) {
     const stop = onWindowsFilesChanged((change) => {
       if (!changeTouches(watched, change)) return;
       if (change.entries?.length) {
+        for (const entry of change.entries) if (!entry.detailsPending) hydrated.current.set(entry.relativePath, entry);
         setListing((current) => {
           if (!current) return current;
           const updates = new Map(change.entries!.map((entry) => [entry.relativePath, entry]));
@@ -115,6 +118,13 @@ export function useFolder(ref: WindowsFileRef | null, enabled: boolean) {
     });
     return () => { stop(); void windowsFilesRequest({ action: 'unwatch', ref: watched }); };
   }, [key, enabled, load]);
+
+  // Список, пришедший после события догрузки, ещё содержит «ожидающие» строки: подставляем уже известные данные.
+  useEffect(() => {
+    if (!listing || !hydrated.current.size) return;
+    if (!listing.entries.some((entry) => entry.detailsPending && hydrated.current.has(entry.relativePath))) return;
+    setListing((current) => current && { ...current, entries: current.entries.map((entry) => (entry.detailsPending && hydrated.current.get(entry.relativePath)) || entry) });
+  }, [listing]);
 
   const loadAll = useCallback(async () => {
     const folder = refRef.current; if (!folder) return;

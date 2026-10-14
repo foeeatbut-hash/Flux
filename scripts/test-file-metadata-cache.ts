@@ -17,6 +17,12 @@ async function main() {
   cache.invalidate(); assert.equal(cache.size, 0, 'session invalidation clears the cache');
   await assert.rejects(cache.get('broken', identity, async () => { throw new Error('offline'); }));
   assert.equal(await cache.get('broken', identity, load), 'value-8', 'failed requests are not cached');
+  cache.invalidate(); loads = 100; now = 5000;
+  assert.equal(await cache.get('poll', identity, load), 'value-101');
+  now += 40; assert.equal(await cache.get('poll', identity, load, 50), 'value-101', 'a fresh enough answer is shared with the poller');
+  now += 20; assert.equal(await cache.get('poll', identity, load, 50), 'value-102', 'a poller with a short maxAge does not see an older answer');
+  assert.equal(await cache.get('poll', identity, load, 0), 'value-103', 'maxAge 0 always asks the server and refreshes the cache');
+  assert.equal(await cache.get('poll', identity, load), 'value-103', 'the refreshed answer serves ordinary readers');
   console.log('✓ metadata cache deduplicates and isolates server, actor, project, and session');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

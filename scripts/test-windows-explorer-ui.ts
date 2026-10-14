@@ -414,6 +414,13 @@ async function loadUntil(page: Page, count: number) {
     await page.mouse.up();
     const marqueeSelected = await selectedRows();
     ok('Рамка на пустом месте выделяет пересечённые строки Проводника', marqueeSelected > 0 && marqueeSelected <= projectEntryCount);
+    await page.keyboard.down('Control');
+    await page.mouse.move(projectPaneBox.x + projectPaneBox.width - 4, projectPaneBox.y + projectPaneBox.height - 6);
+    await page.mouse.down();
+    await page.mouse.move(projectPaneBox.x + projectPaneBox.width - 24, projectPaneBox.y + projectPaneBox.height - 6, { steps: 4 });
+    await page.mouse.up();
+    await page.keyboard.up('Control');
+    ok('Рамка с Ctrl дополняет выделение Проводника, а не заменяет его', await selectedRows() === marqueeSelected);
     await page.locator('[data-windows-explorer]').focus();
     await page.keyboard.press('Control+A');
     ok('Ctrl+A выделяет все объекты открытой папки Проводника', await selectedRows() === projectEntryCount);
@@ -663,11 +670,19 @@ async function loadUntil(page: Page, count: number) {
     const desktopFile = page.locator('[data-desktop-item]').first();
     const desktopFileBox = await desktopFile.boundingBox();
     if (!desktopFileBox) throw new Error('Не нашёлся файл для рамочного выделения рабочего стола');
-    await page.mouse.move(desktopFileBox.x + desktopFileBox.width + 20, desktopFileBox.y + desktopFileBox.height + 20);
+    // Старт рамки — пустое место справа от файла: ниже и правее лежит значок оболочки (<button>), на нём рамка не начинается.
+    const emptyStart = { x: desktopFileBox.x + desktopFileBox.width + 20, y: desktopFileBox.y + desktopFileBox.height / 2 };
+    await page.mouse.move(emptyStart.x, emptyStart.y);
     await page.mouse.down();
     await page.mouse.move(desktopFileBox.x + desktopFileBox.width / 2, desktopFileBox.y + desktopFileBox.height / 2, { steps: 5 });
     await page.mouse.up();
     ok('Рамка на рабочем столе выделяет пересечённый файл', await desktopFile.getAttribute('aria-selected') === 'true');
+    await page.mouse.click(emptyStart.x, emptyStart.y);
+    ok('Простой щелчок по пустому месту рабочего стола снимает выделение', await desktopFile.getAttribute('aria-selected') !== 'true');
+    await page.mouse.move(shellBox!.x + shellBox!.width / 2, shellBox!.y + shellBox!.height / 2);
+    await page.mouse.down();
+    ok('Нажатие на значок оболочки не запускает рамку и не перехватывает указатель', await page.evaluate(() => !document.querySelector('section[aria-label="Рабочий стол Windows"] [class*="border-[#0067c0]"]')));
+    await page.mouse.up();
     await page.locator('section[aria-label="Рабочий стол Windows"] > div.relative').focus();
     await page.keyboard.press('Control+A');
     ok('Ctrl+A выделяет все значки рабочего стола Windows', await page.locator('[data-desktop-item][aria-selected="true"]').count() === await page.locator('[data-desktop-item]').count());

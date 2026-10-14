@@ -12,7 +12,9 @@ export type {
 
 type WindowsFilesBridge = {
   getIcon?: (ref: WindowsFileRef) => Promise<string | null>;
-  invoke: (request: WindowsFilesRequest, signal?: AbortSignal) => Promise<WindowsFilesResponse>;
+  /** Отмена передаётся данными (cancelId): AbortSignal через contextBridge не проходит. */
+  invoke: (request: WindowsFilesRequest, options?: { cancelId?: string }) => Promise<WindowsFilesResponse>;
+  cancel?: (cancelId: string) => void;
   onChanged: (callback: (change: import('../../filesystem/contracts').WindowsFilesChanged) => void) => () => void;
   /** Старые сборки моста этих двух методов не имеют: вызов обязан пережить их отсутствие. */
   onSearch?: (callback: (event: import('../../filesystem/contracts').WindowsSearchEvent) => void) => () => void;
@@ -23,12 +25,30 @@ function bridge(): WindowsFilesBridge | null {
   return typeof window !== 'undefined' ? (window as Window & { electron?: { windowsFiles?: WindowsFilesBridge } }).electron?.windowsFiles || null : null;
 }
 
+/** Идентификатор отмены: crypto.randomUUID есть только в защищённом контексте, поэтому запасной путь через getRandomValues. */
+function newCancelId(): string {
+  const c = globalThis.crypto;
+  if (typeof c?.randomUUID === 'function') return c.randomUUID();
+  const b = c.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
 /** Браузерный запуск не выдаёт фиктивный список: действия требуют нативного Проводника. */
 export async function windowsFilesRequest<T = unknown>(request: WindowsFilesRequest, options: { signal?: AbortSignal } = {}): Promise<WindowsFilesResponse<T>> {
   const api = bridge();
   if (!api) return { ok: false, error: { code: 'PORTABLE', message: 'Папки компьютера доступны в установленной версии Flux. В браузере открыт архив документов проекта.' } };
-  try { return await api.invoke(request, options.signal) as WindowsFilesResponse<T>; }
+  const signal = options.signal;
+  // Через мост едет только cloneable-данные: сам сигнал остаётся в странице и превращается в cancel(id).
+  const cancelId = signal && api.cancel ? newCancelId() : undefined;
+  const abort = () => { if (cancelId) { try { api.cancel?.(cancelId); } catch { /* отмена не должна ломать вызов */ } } };
+  try {
+    if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, { once: true });
+    return await (cancelId ? api.invoke(request, { cancelId }) : api.invoke(request)) as WindowsFilesResponse<T>;
+  }
   catch { return { ok: false, error: { code: 'BRIDGE_UNAVAILABLE', message: 'Связь с Проводником прервалась. Обновите окно и повторите действие.' } }; }
+  finally { signal?.removeEventListener('abort', abort); }
 }
 
 export function onWindowsFilesChanged(callback: (change: import('../../filesystem/contracts').WindowsFilesChanged) => void): () => void {
