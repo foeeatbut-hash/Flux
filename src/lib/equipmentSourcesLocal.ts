@@ -187,12 +187,18 @@ function readAllBindings(): Record<string, LocalEquipmentSourceBinding> {
 }
 
 /** Окно Windows возвращает только capability-ссылки; абсолютные пути остаются в Electron main. */
-export async function pickEquipmentSource(tagIdentifier?: string, request: EquipmentSourceRequest = windowsFilesRequest): Promise<WindowsFilesResponse<EquipmentSourcePreview>> {
+export async function pickEquipmentSource(tagIdentifier?: string, request: EquipmentSourceRequest = windowsFilesRequest, selected?: { ref: WindowsFileRef; name: string; sourceFolder?: WindowsFileRef; suggestedTag?: string }): Promise<WindowsFilesResponse<EquipmentSourcePreview>> {
   const adapter = bridgeAdapter(request);
-  const picked = await request<WindowsEquipmentSourcePick>({ action: 'pickEquipmentSource' });
-  if ('error' in picked) return { ok: false, error: picked.error };
-  if (!('selectedFile' in picked.data)) return { ok: true, data: { status: 'canceled' } };
-  const { selectedFile, sourceFolder, suggestedTag } = picked.data;
+  let selectedFile: { ref: WindowsFileRef; name: string };
+  let sourceFolder: WindowsFileRef;
+  let suggestedTag: string | undefined;
+  if (selected) { selectedFile = { ref: selected.ref, name: selected.name }; sourceFolder = selected.sourceFolder || sourceFolderFor(selected.ref); suggestedTag = selected.suggestedTag; }
+  else {
+    const picked = await request<WindowsEquipmentSourcePick>({ action: 'pickEquipmentSource' });
+    if ('error' in picked) return { ok: false, error: picked.error };
+    if (!('selectedFile' in picked.data)) return { ok: true, data: { status: 'canceled' } };
+    selectedFile = picked.data.selectedFile; sourceFolder = picked.data.sourceFolder; suggestedTag = picked.data.suggestedTag;
+  }
   const bytes = await readStable(adapter, selectedFile.ref);
   if ('error' in bytes) return { ok: true, data: { status: isUnstableReadError(bytes.error.code) ? 'unstable' : 'source-unavailable', message: bytes.error.message } };
   const selectedRule = tagIdentifier ? inferEquipmentSourceFilenameRule(selectedFile.name, tagIdentifier) : (/\.xml$/iu.test(selectedFile.name) ? { kind: 'selected-name' as const, fileName: selectedFile.name } : null);
@@ -211,12 +217,18 @@ export async function pickEquipmentSource(tagIdentifier?: string, request: Equip
  * Первичный импорт не знает целевой тег заранее: отдаём только проверенный локальный снимок,
  * а серверный preview должен подтвердить структуру и точную привязку перед сохранением.
  */
-export async function pickEquipmentSourceForImport(request: EquipmentSourceRequest = windowsFilesRequest): Promise<WindowsFilesResponse<EquipmentSourceImportPreview>> {
+export async function pickEquipmentSourceForImport(request: EquipmentSourceRequest = windowsFilesRequest, selected?: { ref: WindowsFileRef; name: string; sourceFolder?: WindowsFileRef; suggestedTag?: string }): Promise<WindowsFilesResponse<EquipmentSourceImportPreview>> {
   const adapter = bridgeAdapter(request);
-  const picked = await request<WindowsEquipmentSourcePick>({ action: 'pickEquipmentSource' });
-  if ('error' in picked) return { ok: false, error: picked.error };
-  if (!('selectedFile' in picked.data)) return { ok: true, data: { status: 'canceled' } };
-  const { selectedFile, sourceFolder, suggestedTag } = picked.data;
+  let selectedFile: { ref: WindowsFileRef; name: string };
+  let sourceFolder: WindowsFileRef;
+  let suggestedTag: string | undefined;
+  if (selected) { selectedFile = { ref: selected.ref, name: selected.name }; sourceFolder = selected.sourceFolder || sourceFolderFor(selected.ref); suggestedTag = selected.suggestedTag; }
+  else {
+    const picked = await request<WindowsEquipmentSourcePick>({ action: 'pickEquipmentSource' });
+    if ('error' in picked) return { ok: false, error: picked.error };
+    if (!('selectedFile' in picked.data)) return { ok: true, data: { status: 'canceled' } };
+    selectedFile = picked.data.selectedFile; sourceFolder = picked.data.sourceFolder; suggestedTag = picked.data.suggestedTag;
+  }
   const snapshot = await readStable(adapter, selectedFile.ref);
   if ('error' in snapshot) return { ok: true, data: { status: isUnstableReadError(snapshot.error.code) ? 'unstable' : 'source-unavailable', message: snapshot.error.message } };
   const text = decodeXml(snapshot.data.base64, snapshot.data.size);
@@ -233,6 +245,13 @@ export async function pickEquipmentSourceFolder(request: EquipmentSourceRequest 
   const picked = await request<WindowsEquipmentSourceFolderPick>({ action: 'pickEquipmentSourceFolder' });
   if ('error' in picked) return { ok: false, error: picked.error };
   return { ok: true, data: 'folder' in picked.data ? picked.data.folder : null };
+}
+
+function sourceFolderFor(file: WindowsFileRef): WindowsFileRef {
+  const parts = file.relativePath.replace(/\\/gu, '/').split('/').filter(Boolean);
+  const parent = parts.slice(0, -1);
+  if (parent.length && (/^[A-Z]$/iu.test(parent[parent.length - 1]) || /^\d{1,20}$/u.test(parent[parent.length - 1]))) parent.pop();
+  return { rootId: file.rootId, relativePath: parent.join('/') };
 }
 
 export async function scanEquipmentSource(

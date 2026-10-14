@@ -40,6 +40,10 @@ export type WindowsFilesRequest =
   | { action: 'openRecycleBin' }
   | { action: 'draftTrash' }
   | { action: 'pickImport'; extensions?: string[]; multiple?: boolean }
+  | { action: 'pickImportRefs'; extensions?: string[]; multiple?: boolean }
+  | { action: 'prepareImportRefs'; refs: WindowsFileRef[] }
+  | { action: 'readImportRef'; ticket: string; offset: number; length: number }
+  | { action: 'releaseImportRefs'; tickets: string[] }
   | { action: 'pickEquipmentSource' }
   | { action: 'pickEquipmentSourceFolder' }
   | { action: 'restoreDraft'; ref: WindowsFileRef }
@@ -73,6 +77,9 @@ export type WindowsFilesRequest =
   | WindowsExplorerRequest;
 export type WindowsFilesResponse<T = unknown> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };
 export interface ImportedFileBytes { name: string; size: number; base64: string }
+export interface ImportedFileRef { ticket: string; name: string; size: number; lastModified: number }
+export const WINDOWS_IMPORT_READ_BYTES = 1024 * 1024;
+export const WINDOWS_IMPORT_REFS_PER_PICK = 128;
 export const WINDOWS_FILES_CHANNEL = 'windows-files:invoke';
 export const WINDOWS_FILES_CHANGED = 'windows-files:changed';
 

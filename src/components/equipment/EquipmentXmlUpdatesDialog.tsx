@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { captureEquipmentSourceBindings, getEquipmentSourceBinding, pickEquipmentSourceFolder, planEquipmentSourceFolderRebind, rebindEquipmentSourceFolders, restoreEquipmentSourceBindings } from '../../lib/equipmentSourcesLocal';
+import { captureEquipmentSourceBindings, getEquipmentSourceBinding, planEquipmentSourceFolderRebind, rebindEquipmentSourceFolders, restoreEquipmentSourceBindings } from '../../lib/equipmentSourcesLocal';
 import type { LocalEquipmentSourceBinding } from '../../lib/equipmentSourcesLocal';
 import type { WindowsFileRef } from '../../lib/windowsFiles';
 import EquipmentXmlSourcePanel from './EquipmentXmlSourcePanel';
+import ImportFileChooser, { type ImportFileChooserHandle } from '../ImportFileChooser';
 
 type Candidate = { id: string; revision: string; status: string; changes?: unknown[]; structuralCount?: number; updatedAt: string };
 type Source = { sourceId: string; projectId?: string; tagId?: string; tagIdentifier?: string; xmlTargetIdentity?: LocalEquipmentSourceBinding['xmlTargetIdentity']; elementId: string; targetType: 'system' | 'component'; systemId?: string; revisionOrder?: string[]; selectedRule?: LocalEquipmentSourceBinding['selectedRule']; updatedAt: string; lastImportedRevision?: string | null; latestCandidate?: Candidate | null };
@@ -24,6 +25,7 @@ export default function EquipmentXmlUpdatesDialog(props: { projectId: string; ca
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
   const [reviewSourceIds, setReviewSourceIds] = useState<string[]>([]);
   const busyRef = useRef(false);
+  const folderPicker = useRef<ImportFileChooserHandle>(null);
   const loadGenerationRef = useRef(0);
   const activeProjectRef = useRef(projectId);
   activeProjectRef.current = projectId;
@@ -42,24 +44,23 @@ export default function EquipmentXmlUpdatesDialog(props: { projectId: string; ca
   };
   useEffect(() => { loadGenerationRef.current += 1; setSources([]); setSelected([]); setFolder(null); setFolderPlan([]); setFolderSnapshot([]); setUndo(null); setReviewIndex(null); setReviewSourceIds([]); setMessage(''); void load().catch(error => setMessage(error.message)); return () => { loadGenerationRef.current += 1; }; }, [projectId]);
 
-  const chooseFolder = async () => {
+  const chooseFolder = async (selectedFolder?: WindowsFileRef) => {
     if (busyRef.current || loadedProjectId !== projectId) return;
+    if (!selectedFolder) { folderPicker.current?.open(); return; }
     const requestProjectId = projectId;
     const requestSourceIds = [...selected];
     busyRef.current = true; setBusy(true); setMessage('');
     try {
-      const result = await pickEquipmentSourceFolder();
-      if ('error' in result) throw new Error(result.error.message);
-      if (!result.data || activeProjectRef.current !== requestProjectId || requestProjectId !== projectId) return;
+      if (activeProjectRef.current !== requestProjectId || requestProjectId !== projectId) return;
       const selectedRows = sources.filter(row => requestSourceIds.includes(row.sourceId) && row.projectId === requestProjectId);
       if (!selectedRows.length || selectedRows.length !== requestSourceIds.length) throw new Error('Список источников изменился при выборе папки. Обновите список и повторите действие.');
-      const plan = planEquipmentSourceFolderRebind(selectedRows, result.data).map(item => {
+      const plan = planEquipmentSourceFolderRebind(selectedRows, selectedFolder).map(item => {
         const row = selectedRows.find(source => source.sourceId === item.sourceId)!;
         const binding = getEquipmentSourceBinding(projectId, row.sourceId, row.tagId, row.elementId) || { sourceId: row.sourceId, projectId, ...(row.tagId ? { tagId: row.tagId } : {}), ...(row.tagIdentifier ? { tagIdentifier: row.tagIdentifier } : {}), ...(row.xmlTargetIdentity ? { xmlTargetIdentity: row.xmlTargetIdentity } : {}), elementId: row.elementId, targetType: row.targetType, ...(row.systemId ? { systemId: row.systemId } : {}), rootId: item.folder.rootId, relativePath: item.folder.relativePath, revisionOrder: row.revisionOrder || ['A','B','C'], ...(row.selectedRule ? { selectedRule: row.selectedRule } : {}) };
         return { ...item, binding };
       });
       setFolderSnapshot(captureEquipmentSourceBindings(projectId, plan.map(item => ({ sourceId: item.sourceId, binding: item.binding! }))));
-      setFolder(result.data);
+      setFolder(selectedFolder);
       setFolderPlan(plan);
     } catch (error: any) { setMessage(error?.message || 'Не удалось выбрать папку XML.'); }
     finally { busyRef.current = false; setBusy(false); }
@@ -109,6 +110,7 @@ export default function EquipmentXmlUpdatesDialog(props: { projectId: string; ca
   const colorFor = (row: Source) => row.latestCandidate?.status === 'partial' ? 'text-amber-700 dark:text-amber-300' : row.latestCandidate?.status === 'pending' ? (changeCount(row) ? 'text-amber-700 dark:text-amber-300' : 'text-sky-700 dark:text-sky-300') : row.latestCandidate?.status === 'stale' || ['source-unavailable', 'ambiguous', 'invalid', 'unstable'].includes(localStatus(row)?.status || '') ? 'text-rose-700 dark:text-rose-300' : 'text-slate-500 dark:text-slate-400';
 
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <ImportFileChooser ref={folderPicker} selectFolder label="Выбрать папку источника XML" trigger={() => null} onFiles={() => {}} onWindowsFolder={ref => { void chooseFolder(ref); }} />
     <section role="dialog" aria-modal="true" aria-labelledby="equipment-xml-updates-title" className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-950">
       <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800"><div><h2 id="equipment-xml-updates-title" className="text-sm font-semibold">Обновления XML · на проверку: {pendingCount}</h2><p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Показаны все источники проекта. Счётчик показывает число источников, ожидающих решения инженера.</p></div><button type="button" onClick={onClose} disabled={busy} className="rounded px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-900">Закрыть</button></header>
       <div className="min-h-0 flex-1 overflow-auto p-4"><div className="mb-3 flex flex-wrap items-center gap-2">{canManage && <><button type="button" className="rounded border border-slate-300 px-2.5 py-1.5 text-xs hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-900" onClick={() => setSelected(selected.length === sources.length ? [] : sources.map(row => row.sourceId))} disabled={!sources.length}>Выбрать все</button><button type="button" className="rounded border border-slate-300 px-2.5 py-1.5 text-xs hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-900" onClick={() => void chooseFolder()} disabled={busy || !selected.length}>Перепривязать папку XML{selected.length > 1 ? ` · ${selected.length}` : ''}</button><button type="button" className="rounded border border-slate-300 px-2.5 py-1.5 text-xs hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-900" onClick={() => { const candidates = sources.filter(row => isPending(row.latestCandidate?.status)); const ids = selected.length ? candidates.filter(row => selected.includes(row.sourceId)).map(row => row.sourceId) : candidates.map(row => row.sourceId); setReviewSourceIds(ids); setReviewIndex(ids.length ? 0 : null); }} disabled={!pendingCount}>Рассмотреть обновления</button>{undo && <button type="button" className="rounded border border-amber-400 px-2.5 py-1.5 text-xs text-amber-800 dark:text-amber-300" onClick={undoRebind}>Отменить перепривязку</button>}</>}{busy && <span className="text-xs text-slate-500">Сохраняю…</span>}</div>

@@ -1,11 +1,10 @@
 import { SectionHead, Btn } from '../components/ui';
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import SymbolsEditor from '../components/SymbolsEditor';
 import { useStore } from "../store/store";
 import { motion } from "motion/react";
 import CustomSelect from "../components/CustomSelect";
 import {
-  Upload,
   Plus,
   Edit2,
   Trash2,
@@ -19,6 +18,7 @@ import * as xlsx from "xlsx";
 import { countOf } from '../lib/plural';
 import { useModalStore } from '../store/modalStore';
 import { getOrderedItems } from '../lib/dictOrder';
+import ImportFileChooser from '../components/ImportFileChooser';
 import { useTagDict } from '../components/dictionary/useTagDict';
 import TagDictPanel from '../components/dictionary/TagDictPanel';
 import { useMarkingDict } from '../components/dictionary/useMarkingDict';
@@ -61,7 +61,6 @@ export default function DictionaryEditor() {
   // Preset state variables (mapped to Filter Categories & Variants)
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (activeProject) {
@@ -262,8 +261,8 @@ export default function DictionaryEditor() {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileUpload = async (files: File[]) => {
+    const file = files[0];
     if (!file || !activeProject) return;
 
     try {
@@ -309,7 +308,6 @@ export default function DictionaryEditor() {
         "success",
       );
       await fetchDictionaries();
-      if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (err: any) {
       console.error(err);
       addToast("Ошибка при обработке Excel файла", "error");
@@ -442,8 +440,7 @@ export default function DictionaryEditor() {
     >
       <SectionHead title="Справочник"
         actions={<>
-          <input type="file" accept=".xlsx, .xls, .csv" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
-          <Btn tone="primary" onClick={() => fileInputRef.current?.click()}><Upload />Загрузить базу из Excel</Btn>
+          <ImportFileChooser accept=".xlsx,.xls,.csv" label="Загрузить базу из Excel" className="fx-btn fx-btn-primary" onFiles={handleFileUpload} />
         </>} />
 
       <div className="flex-1 min-h-0 flex flex-col @[820px]:flex-row text-left w-full">

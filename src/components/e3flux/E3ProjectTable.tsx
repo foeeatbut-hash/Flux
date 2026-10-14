@@ -6,7 +6,7 @@
  * принимает заполненную обратно (данные КИП ложатся в характеристики позиций). Строки те же, что у выгрузки оборудования (buildExportSources).
  */
 import React from 'react';
-import { Download, Upload, Undo2 } from 'lucide-react';
+import { Download, Undo2 } from 'lucide-react';
 import { e3Columns, type E3AttributeBook } from '../../../e3/attributes';
 import { attributeWorkbookBytes, buildAttributeSheets, isFluxColumn, isMissingCell, type E3SheetMode } from '../../../e3/attributeWorkbook';
 import { classById, classOrder } from '../../../equipment/classes';
@@ -17,6 +17,7 @@ import { fileName } from '../../lib/exchange';
 import { onE3Changed } from '../../lib/e3Changed';
 import { count } from '../../lib/plural';
 import { Btn, Empty, Field, Seg, Select, Toolbar } from '../ui';
+import ImportFileChooser from '../ImportFileChooser';
 import { useJump, type JumpProps } from './e3Jump';
 import E3UploadDialog, { applyUploadRequest, forgetUpload, lastUpload, planUploadRequest, rememberUpload, undoUpload, type UploadPreview } from './E3AttributeUpload';
 
@@ -50,7 +51,6 @@ export default function E3ProjectTable({ projectId, projectName, onOpenBook, say
   const [busy, setBusy] = React.useState(false);
   const [uploadError, setUploadError] = React.useState('');
   const [undoable, setUndoable] = React.useState(() => lastUpload(projectId));
-  const fileRef = React.useRef<HTMLInputElement>(null);
   // Позиция, на которую привёл переход из «Нет данных»: строка выделена и прокручена в видимое
   const [hot, setHot] = React.useState('');
   const hotRef = React.useRef<HTMLTableRowElement>(null);
@@ -171,9 +171,8 @@ export default function E3ProjectTable({ projectId, projectName, onOpenBook, say
             {missing > 0 && ` · без данных: ${count(missing, 'ячейка', 'ячейки', 'ячеек')}`}
           </span>
           <div className="ml-auto flex items-center gap-2">
-            <input ref={fileRef} type="file" accept=".xlsx,.xlsm,.xls" hidden aria-label="Заполненная книга атрибутов" onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ''; }} />
             {undoable && <Btn tone="ghost" disabled={busy} onClick={() => void undo()} title="Вернуть значения КИП, как они были до последней загрузки книги"><Undo2 className="w-3.5 h-3.5" /> Отменить загрузку</Btn>}
-            <Btn disabled={busy} onClick={() => fileRef.current?.click()} title="Принять заполненную книгу: значения КИП лягут в характеристики позиций"><Upload className="w-3.5 h-3.5" /> Загрузить Excel</Btn>
+            <ImportFileChooser accept=".xlsx,.xlsm,.xls" disabled={busy} className="fx-btn" label="Загрузить Excel" onFiles={files => { if (files[0]) void pick(files[0]); }} />
             <Btn tone="primary" disabled={!table.rows.length || !columns.length} onClick={save}><Download className="w-3.5 h-3.5" /> Скачать Excel</Btn>
           </div>
         </Toolbar>

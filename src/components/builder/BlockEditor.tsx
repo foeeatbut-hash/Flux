@@ -11,6 +11,7 @@ import type { Block, BlankTemplate, TableColumn, FieldPair, SpecRow, TableSource
 import { FIELD_CATALOG } from '../../../catalog/blank/data';
 import { FILTER_NAMES } from '../../../catalog/blank/expr';
 import { Btn, Field, Input, Select, SectionTitle } from '../catalog/ui';
+import ImportFileChooser from '../ImportFileChooser';
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -98,13 +99,12 @@ export function BlockEditor({ block, onChange, assets, onAsset }: {
   );
 
   if (b.type === 'title') {
-    const upload = (key: 'logo' | 'logoRight') => (e: React.ChangeEvent<HTMLInputElement>) => {
-      const f = e.target.files?.[0];
+    const upload = (key: 'logo' | 'logoRight') => (files: File[]) => {
+      const f = files[0];
       if (!f) return;
       const r = new FileReader();
       r.onload = () => { const id = `${key}-${uid()}`; onAsset(id, String(r.result)); onChange({ ...b, [key]: id }); };
       r.readAsDataURL(f);
-      e.target.value = '';
     };
     return (
       <div className="flex flex-col gap-2">
@@ -115,7 +115,7 @@ export function BlockEditor({ block, onChange, assets, onAsset }: {
             <Field key={k} label={k === 'logo' ? 'Логотип слева' : 'Логотип справа'}>
               <span className="flex items-center gap-1">
                 {b[k] && assets[b[k]!] ? <img src={assets[b[k]!]} alt="" className="h-7 max-w-[80px] object-contain border border-slate-200 dark:border-slate-700 rounded" /> : <ImageIcon className="w-4 h-4 text-slate-400" />}
-                <label className="text-2xs text-emerald-700 dark:text-emerald-400 cursor-pointer hover:underline">выбрать<input type="file" accept="image/png,image/jpeg" className="hidden" onChange={upload(k)} /></label>
+                <ImportFileChooser accept=".png,.jpg,.jpeg" className="text-2xs text-emerald-700 dark:text-emerald-400 cursor-pointer hover:underline" label="выбрать" onFiles={upload(k)} />
                 {b[k] && <button type="button" className="text-2xs text-slate-400 hover:text-rose-600 cursor-pointer" onClick={() => onChange({ ...b, [k]: undefined })}>убрать</button>}
               </span>
             </Field>

@@ -183,7 +183,7 @@ export default function SettingsScreen() {
 
       {/* Содержимое категории */}
       <div className="flex-1 min-w-0 overflow-y-auto px-4 @[700px]:px-8 py-4">
-        {displayedSection === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} addToast={addToast} />}
+        {displayedSection === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} addToast={addToast} user={user} />}
         {displayedSection === 'signature' && <SignatureSection />}
         {displayedSection === 'roles' && <RolesSection user={user} addToast={addToast} />}
         {displayedSection === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}

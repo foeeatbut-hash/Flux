@@ -9,6 +9,7 @@ import {
 } from '../../services/mailService';
 import { useEscapeClose } from '../../lib/useDismiss';
 import { useToastStore } from '../../store/toastStore';
+import ImportFileChooser from '../ImportFileChooser';
 
 /**
  * Подписи сотрудника.
@@ -42,7 +43,6 @@ export default function MailSignatures({ accounts, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const editorRef = useRef<HTMLDivElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   useEscapeClose(true, () => { if (!busy) onClose(); });
 
@@ -259,18 +259,7 @@ export default function MailSignatures({ accounts, onClose }: Props) {
                       />
                     </label>
                     <span className="mx-1 w-px h-4 bg-slate-300 dark:bg-slate-700" />
-                    <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className={btn}>
-                      <ImageIcon className="w-3.5 h-3.5" /> Загрузить картинку
-                    </button>
-                    <input
-                      ref={fileRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml"
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        e.target.value = '';
-                        if (f) void upload(f);
-                      }}
-                    />
+                    <ImportFileChooser accept=".png,.jpg,.jpeg,.gif,.webp,.svg" disabled={busy} className={btn} label="Загрузить картинку" onFiles={files => { if (files[0]) void upload(files[0]); }} />
                   </div>
 
                   <div

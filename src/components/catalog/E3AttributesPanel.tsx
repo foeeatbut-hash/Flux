@@ -7,7 +7,7 @@
  * атрибуту: так устаревшая версия (чужая правка) не затирает соседние строки.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Upload, Undo2 } from 'lucide-react';
+import { Undo2 } from 'lucide-react';
 import type { E3Attribute, E3AttributeBook, E3Plan } from '../../../e3/attributes';
 import { e3AttributesService as svc, E3VersionError, type E3ItemPatch } from '../../services/e3AttributesService';
 import { useToastStore } from '../../store/toastStore';
@@ -19,6 +19,7 @@ import E3AttributeDialog from './E3AttributeDialog';
 import E3ImportDialog, { readAttributeFile } from './E3AttributesImport';
 import { CONFLICT_TITLES, classesText, sourceText } from './e3AttributeText';
 import { onE3Changed } from '../../lib/e3Changed';
+import ImportFileChooser from '../ImportFileChooser';
 
 const attrs = (n: number) => count(n, 'атрибут', 'атрибута', 'атрибутов');
 // Серверный текст 409 кончается словом «Обновите»: окно само перечитывает справочник, так что говорит, что уже сделано
@@ -44,7 +45,6 @@ export default function E3AttributesPanel({ rights, jump }: { rights: { edit: bo
   const [imp, setImp] = useState<{ items: E3Attribute[]; issues: string[]; plan: E3Plan } | null>(null);
   const formOpen = useRef(false);
   formOpen.current = !!editing || !!imp;
-  const fileRef = useRef<HTMLInputElement>(null);
   // Переход ведёт в «По типам»: вид переключаем здесь, а тип и атрибут открывает сам вид
   const byClassJump = jump?.jump?.section === 'byClass' ? jump.jump : null;
   useEffect(() => { if (byClassJump) setMode('byClass'); }, [byClassJump]);
@@ -149,9 +149,8 @@ export default function E3AttributesPanel({ rights, jump }: { rights: { edit: bo
       options={[{ value: 'list', label: 'Список' }, { value: 'byClass', label: 'По типам', hint: 'Откуда Flux берёт значение атрибута для каждого типа оборудования' }]} />
   );
   const upload = rights.import && <>
-    <input ref={fileRef} type="file" accept=".xlsx,.xlsm,.xls" hidden aria-label="Файл списка атрибутов" onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ''; }} />
     <Btn onClick={() => void undoImport()} tone="ghost" disabled={busy || !items.length}><Undo2 className="w-3.5 h-3.5" /> Отменить последнюю загрузку</Btn>
-    <Btn tone="primary" onClick={() => fileRef.current?.click()} disabled={busy}><Upload className="w-3.5 h-3.5" /> Загрузить из Excel</Btn>
+    <ImportFileChooser accept=".xlsx,.xlsm,.xls" disabled={busy} className="fx-btn fx-btn-primary" label="Загрузить из Excel" onFiles={files => { if (files[0]) void pick(files[0]); }} />
   </>;
 
   return (

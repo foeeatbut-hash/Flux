@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, FolderOpen, Link2, RefreshCw, Unlink, Upload } from 'lucide-react';
 import { windowsFilesRequest } from '../../lib/windowsFiles';
+import ImportFileChooser, { type ImportFileChooserHandle } from '../ImportFileChooser';
 import type { EquipmentXmlTargetIdentity } from '../../../equipment/sourceXml';
 import {
   captureEquipmentSourceBindings, getEquipmentSourceBinding, pickEquipmentSource, pickEquipmentSourceFolder, planEquipmentSourceFolderRebind, rebindEquipmentSourceFolders, restoreEquipmentSourceBindings, removeEquipmentSourceBinding,
@@ -24,6 +25,10 @@ const isOpen = (status: string) => status === 'pending' || status === 'partial';
 
 /** Путь и capability Проводника остаются локальными; сервер хранит только привязку и результаты сверки. */
 export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?: { id: string; identifier: string }; elementId: string; targetType: 'system' | 'component'; systemId?: string; canManage: boolean; onChanged?: () => void }) {
+  const initialFilePicker = useRef<ImportFileChooserHandle>(null);
+  const rebindFilePicker = useRef<ImportFileChooserHandle>(null);
+  const folderPicker = useRef<ImportFileChooserHandle>(null);
+  const folderPickAction = useRef<'preview' | 'binding'>('preview');
   const { projectId, tag, elementId, targetType, systemId, canManage, onChanged } = props;
   const [source, setSource] = useState<SourceDto | null>(null);
   const [binding, setBinding] = useState<LocalEquipmentSourceBinding | null>(null);
@@ -112,11 +117,12 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
     });
   }, [binding?.rootId, preview?.sourceFolder.rootId]);
 
-  const chooseInitialFile = async () => {
+  const chooseInitialFile = async (selected?: { ref: import('../../lib/windowsFiles').WindowsFileRef; name: string; sourceFolder?: import('../../lib/windowsFiles').WindowsFileRef; suggestedTag?: string }) => {
     if (!canManage) return;
+    if (!selected) { initialFilePicker.current?.open(); return; }
     setBusy(true); setMessage(''); setPreview(null);
     try {
-      const picked = await pickEquipmentSource(tag?.identifier);
+      const picked = await pickEquipmentSource(tag?.identifier, windowsFilesRequest, selected);
       if ('error' in picked) throw new Error(picked.error.message);
       const value = picked.data as EquipmentSourcePreview;
       if (value.status === 'ready') {
@@ -135,15 +141,14 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
     finally { setBusy(false); }
   };
 
-  const changePreviewFolder = async () => {
+  const changePreviewFolder = async (selectedFolder?: import('../../lib/windowsFiles').WindowsFileRef) => {
     if (!canManage) return;
+    if (!selectedFolder) { folderPickAction.current = 'preview'; folderPicker.current?.open(); return; }
     setBusy(true);
     try {
-      const picked = await pickEquipmentSourceFolder();
-      if ('error' in picked) throw new Error(picked.error.message);
-      if (picked.data && preview) {
+      if (preview) {
         const fileRef = preview.selectedFile.ref;
-        const folderRef = picked.data;
+        const folderRef = selectedFolder;
         const prefix = folderRef.relativePath ? `${folderRef.relativePath.replace(/\/$/u, '')}/` : '';
         if (fileRef.rootId !== folderRef.rootId || !fileRef.relativePath.startsWith(prefix)) {
           setMessage('Выбранный XML не находится внутри указанной папки. Выберите папку-родитель этого файла.');
@@ -178,22 +183,21 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
     finally { setBusy(false); }
   };
 
-  const rebindFolder = async () => {
+  const rebindFolder = async (selectedFolder?: import('../../lib/windowsFiles').WindowsFileRef) => {
     if (!canManage || busyRef.current) return;
+    if (!selectedFolder) { folderPickAction.current = 'binding'; folderPicker.current?.open(); return; }
     const requestContext = panelContextRef.current;
     const requestSourceId = source?.sourceId;
     if (!source || source.projectId !== projectId) return;
     busyRef.current = true;
     setBusy(true); setMessage('');
     try {
-      const picked = await pickEquipmentSourceFolder();
-      if ('error' in picked) throw new Error(picked.error.message);
-      if (!picked.data || panelContextRef.current !== requestContext || latestRef.current.source?.sourceId !== requestSourceId) return;
-      const planned = planEquipmentSourceFolderRebind([{ sourceId: source.sourceId, tagIdentifier: tag?.identifier }], picked.data);
-      const seed: LocalEquipmentSourceBinding = binding || { sourceId: source.sourceId, projectId, ...(source.tagId ? { tagId: source.tagId } : {}), ...(tag?.identifier ? { tagIdentifier: tag.identifier } : {}), ...(source.xmlTargetIdentity ? { xmlTargetIdentity: source.xmlTargetIdentity } : {}), elementId, targetType, ...(systemId ? { systemId } : {}), rootId: picked.data.rootId, relativePath: picked.data.relativePath, revisionOrder: source.revisionOrder || ['A','B','C','D','E'], selectedRule: source.selectedRule };
+      if (panelContextRef.current !== requestContext || latestRef.current.source?.sourceId !== requestSourceId) return;
+      const planned = planEquipmentSourceFolderRebind([{ sourceId: source.sourceId, tagIdentifier: tag?.identifier }], selectedFolder);
+      const seed: LocalEquipmentSourceBinding = binding || { sourceId: source.sourceId, projectId, ...(source.tagId ? { tagId: source.tagId } : {}), ...(tag?.identifier ? { tagIdentifier: tag.identifier } : {}), ...(source.xmlTargetIdentity ? { xmlTargetIdentity: source.xmlTargetIdentity } : {}), elementId, targetType, ...(systemId ? { systemId } : {}), rootId: selectedFolder.rootId, relativePath: selectedFolder.relativePath, revisionOrder: source.revisionOrder || ['A','B','C','D','E'], selectedRule: source.selectedRule };
       const plan = planned.map(item => ({ ...item, binding: seed }));
       const expectedBefore = captureEquipmentSourceBindings(projectId, [{ sourceId: source.sourceId, binding: seed }]);
-      setFolderPreview({ contextKey: requestContext, sourceId: source.sourceId, folder: picked.data, plan, expectedBefore });
+      setFolderPreview({ contextKey: requestContext, sourceId: source.sourceId, folder: selectedFolder, plan, expectedBefore });
     } catch (error: any) { setMessage(error?.message || 'Не удалось выбрать папку'); }
     finally { busyRef.current = false; setBusy(false); }
   };
@@ -219,12 +223,13 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
     if ('error' in response) setMessage(response.error.message);
   };
 
-  const rebindFile = async () => {
+  const rebindFile = async (selected?: { ref: import('../../lib/windowsFiles').WindowsFileRef; name: string; sourceFolder?: import('../../lib/windowsFiles').WindowsFileRef; suggestedTag?: string }) => {
     if (!canManage) return;
     if (!source) return;
+    if (!selected) { rebindFilePicker.current?.open(); return; }
     setBusy(true); setMessage('');
     try {
-      const picked = await pickEquipmentSource(tag?.identifier);
+      const picked = await pickEquipmentSource(tag?.identifier, windowsFilesRequest, selected);
       if ('error' in picked) throw new Error(picked.error.message);
       const value = picked.data as EquipmentSourcePreview;
       if (value.status !== 'ready') { if (value.status !== 'canceled') setMessage(value.message); return; }
@@ -443,6 +448,10 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
   const folderLabel = [sourceRootName, folderRelativePath].filter(Boolean).join(' · ') || 'Выбранная папка';
   const activeScanChoice = scanChoices.find(item => `${item.revision}:${item.fileName}` === scanChoiceId);
   return (
+    <>
+    <ImportFileChooser ref={initialFilePicker} accept=".xml" label="Выбрать XML" trigger={() => null} onFiles={() => {}} onWindowsFile={(ref, entry, context) => { void chooseInitialFile({ ref, name: entry.name, ...context }); }} />
+    <ImportFileChooser ref={rebindFilePicker} accept=".xml" label="Выбрать XML" trigger={() => null} onFiles={() => {}} onWindowsFile={(ref, entry, context) => { void rebindFile({ ref, name: entry.name, ...context }); }} />
+    <ImportFileChooser ref={folderPicker} selectFolder label="Выбрать папку источника" trigger={() => null} onFiles={() => {}} onWindowsFolder={ref => { if (folderPickAction.current === 'preview') void changePreviewFolder(ref); else void rebindFolder(ref); }} />
     <section className="shrink-0 border-b border-slate-200 bg-slate-50/70 px-3 py-2 text-xs dark:border-slate-800 dark:bg-slate-950/30">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <Link2 className="h-3.5 w-3.5 shrink-0 text-slate-500" />
@@ -525,5 +534,6 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
         </div>}
       </div>}
     </section>
+    </>
   );
 }

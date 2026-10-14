@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import ImportFileChooser, { type ImportFileChooserHandle } from '../components/ImportFileChooser';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import ChatSidebar, { ChatIndexRow, HistorySearchResult, MessengerSection, ChatFilter } from '../components/chat/ChatSidebar';
@@ -289,7 +290,7 @@ export default function ChatManagement() {
   const [showScrollDown, setShowScrollDown] = useState(false);
   const scrollToBottom = () => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   const lastMessageIdRef = useRef<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<ImportFileChooserHandle>(null);
 
   // Initial loading
   useEffect(() => {
@@ -484,10 +485,7 @@ export default function ChatManagement() {
   const peerOnline = !!activePeer && onlineIds.includes(activePeer.id);
   const peerSeen = activePeer ? (lastSeenMap[activePeer.id] ?? null) : null;
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const handleFileChange = async (file: File) => {
     try {
       addToast('Загрузка файла во вложение...', 'info');
       const reader = new FileReader();
@@ -512,9 +510,6 @@ export default function ChatManagement() {
       addToast('Не удалось обработать файл', 'error');
     }
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
   };
 
   const activeConversationKey = activeType === 'DIRECT' ? activeReceiverId : activeGroupId;
@@ -1323,17 +1318,12 @@ export default function ChatManagement() {
 
               {/* Controls bar layout */}
               <div className="flex items-center gap-2">
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  onChange={handleFileChange} 
-                  className="hidden" 
-                />
+                <ImportFileChooser ref={fileInputRef} label="Прикрепить файл" onFiles={files => { if (files[0]) void handleFileChange(files[0]); }} trigger={() => null} />
                 
                 {/* 1. File Upload */}
                 <button
                   type="button"
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => fileInputRef.current?.open()}
                   className="fx-ibtn"
                   title="Прикрепить файл чертежа"
                 >

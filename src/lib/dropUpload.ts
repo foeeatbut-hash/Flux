@@ -10,6 +10,9 @@
  * результат — и разошлись они настолько, что стол не принимал файлы вовсе.
  */
 import { planDrop, typeOf, dropResult } from './dropFiles';
+import { windowsFilesRequest } from './windowsFiles';
+import type { ImportedFileRef } from '../../filesystem/contracts';
+import { WINDOWS_IMPORT_READ_BYTES } from '../../filesystem/contracts';
 
 export interface UploadTarget {
   /** Папка Проводника; null — корень раздела */
@@ -54,7 +57,11 @@ export async function chunkBytes(): Promise<number> {
  * его не знает никто — и это нормально: выгрузка тогда просто не подставит
  * папку, а спросит.
  */
-export function originOf(file: File): string {
+export type UploadFile = File | ImportedFileRef;
+const isImportRef = (file: UploadFile): file is ImportedFileRef => 'ticket' in file;
+
+export function originOf(file: UploadFile): string {
+  if (isImportRef(file)) return '';
   try {
     const e = (window as any).electron;
     return e?.pathOfFile ? String(e.pathOfFile(file) || '') : '';
@@ -64,8 +71,14 @@ export function originOf(file: File): string {
 }
 
 /** Кусок файла в base64. Читаем срез, а не файл целиком: он может не влезть */
-const sliceBase64 = (file: File, from: number, to: number): Promise<string | null> =>
-  new Promise((resolve) => {
+const sliceBase64 = async (file: UploadFile, from: number, to: number): Promise<string | null> => {
+  if (isImportRef(file)) {
+    if (to - from > WINDOWS_IMPORT_READ_BYTES) return null;
+    const response = await windowsFilesRequest<{ base64: string; offset: number; size: number }>({ action: 'readImportRef', ticket: file.ticket, offset: from, length: to - from });
+    if (!response.ok || response.data.offset !== from || response.data.size !== file.size) return null;
+    return response.data.base64;
+  }
+  return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const raw = String(e.target?.result || '');
@@ -74,6 +87,7 @@ const sliceBase64 = (file: File, from: number, to: number): Promise<string | nul
     reader.onerror = () => resolve(null);
     reader.readAsDataURL(file.slice(from, to));
   });
+};
 
 /**
  * Отправить содержимое кусками. Возвращает пустую строку, если всё дошло, или
@@ -85,7 +99,7 @@ const sliceBase64 = (file: File, from: number, to: number): Promise<string | nul
  */
 async function sendContent(
   fileId: string,
-  file: File,
+  file: UploadFile,
   piece: number,
   onBytes?: (done: number) => void,
 ): Promise<string> {
@@ -130,13 +144,18 @@ async function sendContent(
  * книги на четыреста мегабайт не говорит ничего.
  */
 export async function uploadDropped(
-  files: File[],
+  files: UploadFile[],
   target: UploadTarget,
   taken: Iterable<string> = [],
   onProgress?: (done: number, total: number) => void,
 ): Promise<UploadOutcome> {
   const plan = planDrop(files, taken);
-  const piece = await chunkBytes();
+  const configuredPiece = await chunkBytes();
+  // Capability reads are deliberately bounded even when the server accepts a
+  // larger upload chunk. Keep the normal File path at its existing limit.
+  const piece = files.some(isImportRef)
+    ? Math.min(configuredPiece, WINDOWS_IMPORT_READ_BYTES)
+    : configuredPiece;
   const failed: string[] = [];
   let ok = 0;
 
@@ -183,6 +202,9 @@ export async function uploadDropped(
     sentBytes = before + (file.size || 0);
     tell();
   }
+
+  const tickets = files.filter(isImportRef).map(file => file.ticket);
+  if (tickets.length) await windowsFilesRequest({ action: 'releaseImportRefs', tickets });
 
   return { ok, refused: plan.refused, failed, said: dropResult(ok, plan.refused, failed) };
 }

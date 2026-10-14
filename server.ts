@@ -65,6 +65,7 @@ import { registerEntityIdMigrationRoutes } from './server/routes/entityIdMigrati
 import { registerImportDictRoutes } from './server/routes/importDict.js';
 import { registerEquipmentDraftRoutes } from './server/routes/equipmentDraft.js';
 import { registerExplorerRoutes } from './server/routes/explorer.js';
+import { registerProjectFolderBindingRoutes } from './server/routes/projectFolderBindings.js';
 import { registerFileSharingRoutes } from './server/routes/fileSharing.js';
 import { registerDesktopRoutes } from './server/routes/desktop.js';
 import { registerMailRoutes } from './server/routes/mail.js';
@@ -1110,6 +1111,7 @@ registerNotificationRoutes(app);
 
 // Проводник (папки, файлы, корзина) вынесен в server/routes/explorer.ts
 registerExplorerRoutes(app, { can: userCan });
+registerProjectFolderBindingRoutes(app);
 registerDesktopRoutes(app);
 registerInsightRoutes(app);
 registerGuideRoutes(app, { io });

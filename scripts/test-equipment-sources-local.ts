@@ -74,6 +74,19 @@ async function main() {
     assert.equal(preview.data.base64, Buffer.from(xml('Л23')).toString('base64'));
   }
   assert.equal(readCount, 2, 'проверка выбора читает два одинаковых снимка файла');
+  let nativePickerCalls = 0;
+  const pickerRefRequest: EquipmentSourceRequest = async <T,>(request: any) => {
+    if (request.action === 'pickEquipmentSource') { nativePickerCalls++; return { ok: false, error: { code: 'UNEXPECTED', message: 'native picker must not open' } } as WindowsFilesResponse<T>; }
+    if (request.action === 'read') {
+      const content = Buffer.from(xml('Л23'));
+      return { ok: true, data: { name: 'Л23.xml', size: content.length, modifiedAt: '2026-01-01T00:00:00.000Z', sha256: 'f'.repeat(64), base64: content.toString('base64') } as T };
+    }
+    return { ok: false, error: { code: 'INVALID_ACTION', message: 'неожиданная команда' } };
+  };
+  const refPreview = await pickEquipmentSource('Л23', pickerRefRequest, { ref: { rootId: root.rootId, relativePath: 'Equipment/L23/A/Л23.xml' }, name: 'Л23.xml' });
+  assert.equal(refPreview.ok && refPreview.data.status, 'ready', 'selected Flux capability is analyzed through the same XML path');
+  if (refPreview.ok && refPreview.data.status === 'ready') assert.deepEqual(refPreview.data.sourceFolder, root, 'single-letter revision parent resolves to the same source folder');
+  assert.equal(nativePickerCalls, 0, 'Flux selection does not reopen the platform picker');
   const untaggedPreview = await pickEquipmentSource(undefined, pickerRequest);
   assert.equal(untaggedPreview.ok && untaggedPreview.data.status, 'ready', 'XML для позиции без тега выбирается без угадывания тега');
   if (untaggedPreview.ok && untaggedPreview.data.status === 'ready') assert.deepEqual(untaggedPreview.data.selectedRule, { kind: 'selected-name', fileName: 'Л23.xml' }, 'привязка без тега закрепляет явно выбранное имя файла');
