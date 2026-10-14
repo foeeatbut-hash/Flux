@@ -216,9 +216,14 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       const rows = await prisma.equipmentXmlSource.findMany({ where: { projectId, deletedAt: null }, orderBy: { createdAt: 'asc' } });
       const tags = await prisma.tag.findMany({ where: { id: { in: rows.map((row: any) => row.tagId).filter(Boolean) }, projectId } });
       const byId = new Map(tags.map((tag: any) => [tag.id, tag]));
-      const recentCandidates = rows.length ? await prisma.equipmentXmlCandidate.findMany({ where: { sourceId: { in: rows.map((row: any) => row.id) } }, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], select: { id: true, sourceId: true, revision: true, fileName: true, status: true, changes: true, decisions: true, expectedVersions: true, parsedSpecs: true, updatedAt: true } }) : [];
+      // Список опрашивается часто: тяжёлые поля (changes/decisions/parsedSpecs) читаем только у последней
+      // версии каждого источника, а по остальным берём лишь пары id/sourceId для определения «последней».
+      const candidateKeys = rows.length ? await prisma.equipmentXmlCandidate.findMany({ where: { sourceId: { in: rows.map((row: any) => row.id) } }, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], select: { id: true, sourceId: true } }) : [];
+      const latestIds = new Map<string, string>();
+      for (const key of candidateKeys) if (!latestIds.has(key.sourceId)) latestIds.set(key.sourceId, key.id);
+      const recentCandidates = latestIds.size ? await prisma.equipmentXmlCandidate.findMany({ where: { id: { in: [...latestIds.values()] } }, select: { id: true, sourceId: true, revision: true, fileName: true, status: true, changes: true, decisions: true, expectedVersions: true, parsedSpecs: true, updatedAt: true } }) : [];
       const latest = new Map<string, any>();
-      for (const candidate of recentCandidates) if (!latest.has(candidate.sourceId)) latest.set(candidate.sourceId, { id: candidate.id, revision: candidate.revision, fileName: candidate.fileName, status: candidate.status, changes: parseJson(candidate.changes, []), structuralCount: parseJson(candidate.parsedSpecs, {}).structuralActions?.length || 0, decisions: parseJson(candidate.decisions, {}), expectedVersions: parseJson(candidate.expectedVersions, {}), updatedAt: candidate.updatedAt });
+      for (const candidate of recentCandidates) latest.set(candidate.sourceId, { id: candidate.id, revision: candidate.revision, fileName: candidate.fileName, status: candidate.status, changes: parseJson(candidate.changes, []), structuralCount: parseJson(candidate.parsedSpecs, {}).structuralActions?.length || 0, decisions: parseJson(candidate.decisions, {}), expectedVersions: parseJson(candidate.expectedVersions, {}), updatedAt: candidate.updatedAt });
       const targetElementIds = [...new Set([...latest.values()].flatMap(candidate => Object.keys(candidate.expectedVersions || {})))];
       const targetElements = targetElementIds.length ? await prisma.componentElement.findMany({ where: { id: { in: targetElementIds } }, include: { tags: true } }) : [];
       const targetTags = new Map(targetElements.map((element: any) => [element.id, (element.tags || []).map((tag: any) => tag.id)]));

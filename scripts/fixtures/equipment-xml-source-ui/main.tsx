@@ -57,6 +57,8 @@ const originalFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
   if (init?.method && ['POST', 'PUT', 'DELETE'].includes(init.method.toUpperCase())) (window as any).__fixtureWrites.push(init.method.toUpperCase());
   const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
+  // Настройка «системное окно выбора файла»: без неё ImportFileChooser открывает компактный выбор Flux вместо замоканного нативного.
+  if (url.endsWith('/api/settings/explorer_file_picker')) return new Response(JSON.stringify({ user: JSON.stringify({ system: true }) }), { status: 200 });
   if (url.endsWith('/equipment/projects/project-fixture/sources') && !init?.method) {
     sourceReads += 1;
     if (raceMode && sourceReads === 1) await new Promise(resolve => setTimeout(resolve, 500));

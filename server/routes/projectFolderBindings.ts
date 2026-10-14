@@ -8,6 +8,7 @@ import { isSafeBindingPath, normalizedBindingPath, validateBinding, type Project
 const KEY_PREFIX = 'explorer_project_bindings:';
 const MAX_BINDINGS = 500;
 const MAX_UNDO = 20;
+const MAX_LEDGER_BYTES = 256_000;
 const EMPTY = (): ProjectFolderBindingLedger => ({ revision: 0, bindings: [], undo: [] });
 
 function scopeKey(deviceId: string, rootId: string): string {
@@ -95,8 +96,15 @@ export function registerProjectFolderBindingRoutes(app: Express): void {
       const history = current.undo.slice();
       history.push({ id: randomUUID(), beforeRevision: current.revision, afterRevision: nextRevision, before: current.bindings.slice(), after: nextBindings.slice() });
       const next: ProjectFolderBindingLedger = { revision: nextRevision, bindings: nextBindings, undo: history.slice(-MAX_UNDO) };
-      const value = JSON.stringify(next);
-      if (Buffer.byteLength(value, 'utf8') > 256_000) return res.status(413).json({ error: 'Журнал привязок превышает допустимый размер' });
+      // Каждая запись отмены хранит полные копии привязок до и после, поэтому журнал растёт быстрее самих привязок.
+      // Ограничение должно урезать историю отмены (старые записи), а не блокировать сохранение привязок: иначе при
+      // большом числе привязок любой следующий запрос, включая удаление и отмену, навсегда получал бы 413.
+      let value = JSON.stringify(next);
+      while (Buffer.byteLength(value, 'utf8') > MAX_LEDGER_BYTES && next.undo.length > 0) {
+        next.undo.shift();
+        value = JSON.stringify(next);
+      }
+      if (Buffer.byteLength(value, 'utf8') > MAX_LEDGER_BYTES) return res.status(413).json({ error: 'Журнал привязок превышает допустимый размер' });
 
       // Условное обновление сравнивает полное старое значение: пара окон не сможет затереть друг другу привязки.
       if (stored) {

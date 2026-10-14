@@ -82,6 +82,31 @@ const checks: Array<[string, () => Promise<void>]> = [
     const result = await call('POST', 'u1', {}, { ...scope, expectedRevision: 5, operation: { kind: 'remove', bindingId: 'b1' } });
     assert.equal(result.status, 409); assert.equal(JSON.parse(settings.values().next().value.value).bindings.length, 1);
   }],
+  ['keeps saving, removing and undoing at the 500 binding limit by trimming old undo entries', async () => {
+    const big = { deviceId: 'device-1', rootId: 'root-big' };
+    let revision = 0;
+    let last: any;
+    for (let i = 0; i < 500; i += 1) {
+      last = await call('POST', 'u1', {}, { ...big, expectedRevision: revision, operation: { kind: 'upsert', binding: { id: `big-${i}`, canonicalFolderId: `folder-${i}`, relativePath: `Engineering/Section ${String(i).padStart(3, '0')}/${'Long folder name '.repeat(6)}`, projectId: 'p1' } } });
+      assert.equal(last.status, 200, `upsert ${i}`);
+      revision = last.payload.revision;
+    }
+    assert.equal(last.payload.bindings.length, 500);
+    const over = await call('POST', 'u1', {}, { ...big, expectedRevision: revision, operation: { kind: 'upsert', binding: { id: 'big-over', canonicalFolderId: 'folder-over', relativePath: 'Over', projectId: 'p1' } } });
+    assert.equal(over.status, 413);
+    const removed = await call('POST', 'u1', {}, { ...big, expectedRevision: revision, operation: { kind: 'remove', bindingId: 'big-0' } });
+    assert.equal(removed.status, 200); assert.equal(removed.payload.bindings.length, 499);
+    revision = removed.payload.revision;
+    const moved = await call('POST', 'u1', {}, { ...big, expectedRevision: revision, operation: { kind: 'upsert', binding: { id: 'big-1', canonicalFolderId: 'folder-1', relativePath: 'Moved/Folder', projectId: 'p1' } } });
+    assert.equal(moved.status, 200); revision = moved.payload.revision;
+    const storedKey = [...settings.values()].find(row => JSON.parse(row.value).revision === revision)!;
+    assert.ok(Buffer.byteLength(storedKey.value, 'utf8') <= 256_000);
+    assert.equal(JSON.parse(storedKey.value).bindings.length, 499);
+    if (moved.payload.undo.length) {
+      const undone = await call('POST', 'u1', {}, { ...big, expectedRevision: revision, operation: { kind: 'undo', undoId: moved.payload.undo.at(-1).id } });
+      assert.equal(undone.status, 200); assert.equal(undone.payload.bindings.length, 499);
+    }
+  }],
   ['scopes the persistent ledger by authenticated actor', async () => {
     const result = await call('GET', 'u2', scope);
     assert.equal(result.status, 200); assert.equal(result.payload.revision, 0); assert.deepEqual(result.payload.bindings, []);
