@@ -24,7 +24,7 @@ export interface SelectionState {
 }
 
 export const EMPTY_SELECTION: SelectionState = { ids: [], names: {}, anchor: null, focus: null };
-export const entryKey = (entry: WindowsFileEntry) => entry.fileId;
+export const entryKey = (entry: WindowsFileEntry) => entry.uiKey || entry.fileId;
 
 const pack = (entries: WindowsFileEntry[], ids: string[], anchor: string | null, focus: string | null): SelectionState => {
   const names: Record<string, string> = {};

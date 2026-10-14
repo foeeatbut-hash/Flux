@@ -5,7 +5,7 @@ import { getPrisma, resolveProjectId, sendError } from '../context.js';
 import { isPrivilegedUser } from '../accessPolicy.js';
 import { canReadFile, canWriteFile } from '../fileAccess.js';
 import { canSeeProject } from './members.js';
-import { cleanQuery, runQuery, blockFingerprint, projectFingerprint, loadProjectSlice, loadProjectAliases } from '../projectSlice.js';
+import { applyFilter, cleanQuery, runQuery, blockFingerprint, projectFingerprint, loadProjectSlice, loadProjectAliases } from '../projectSlice.js';
 import { fileBytes } from './fileChunks.js';
 import { projectOfFile } from '../projectFields.js';
 import { OFFICE_TEMPLATE_KEY, OFFICE_TEMPLATE_PINS_KEY, cleanOfficeTemplate, parseOfficeTemplates, type OfficeHeaderTemplate } from '../officeTemplates.js';
@@ -13,6 +13,8 @@ import { readOfficeBindings, writeOfficeBindings, type OfficePackageBindings, ty
 import { writeOfficeFile } from './officeFiles.js';
 import { resolveOfficeUnit } from '../officeData.js';
 import { mutateOfficeSettingArray } from '../officeTemplateStore.js';
+import { officeSourceCatalog, queryOfficeSource, sourceFields } from '../officeSources.js';
+import { isPlainNumber, parseRuNumber } from '../normalize.js';
 import { canApplyOfficePlan, officeEntityId, planOfficeFill, type OfficeEntityRow, type OfficeHeaderSchema } from '../../src/lib/officeModel.js';
 
 const sha256 = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
@@ -74,6 +76,49 @@ async function writePins(userId: string, change: (current: string[]) => string[]
 
 async function rowsFor(projectId: string, queryBody: any): Promise<{ rows: OfficeEntityRow[]; sourceRevision: string; total: number }> {
   const requestedEntity = queryBody?.entity;
+  if (requestedEntity === 'management' || requestedEntity === 'e3flux') {
+    const sourceId = requestedEntity as 'management' | 'e3flux';
+    const data = await queryOfficeSource(projectId, sourceId);
+    if (queryBody?.sourceRevision && queryBody.sourceRevision !== data.revision) throw Object.assign(new Error('Источник изменился'), { status: 409, sourceRevision: data.revision });
+    const columns = Array.isArray(queryBody?.columns) ? queryBody.columns.map(String).slice(0, 200) : [];
+    const filters = Array.isArray(queryBody?.filters) ? queryBody.filters.filter((filter: any) => filter && filter.field).slice(0, 100) : [];
+    const sort = (Array.isArray(queryBody?.sort) ? queryBody.sort : queryBody?.sort ? [queryBody.sort] : []).filter((item: any) => item?.field).slice(0, 20);
+    const catalog = await officeSourceCatalog(projectId);
+    const allowedFields = new Set(sourceFields(sourceId, catalog).map((field) => field.path));
+    const invalidField = [...columns, ...filters.map((filter: any) => String(filter.field)), ...sort.map((item: any) => String(item.field))].find((field) => !allowedFields.has(field));
+    if (invalidField) throw Object.assign(new Error(`Поле источника не найдено: ${invalidField}`), { status: 400 });
+    const excluded = new Set(Array.isArray(queryBody?.excludedEntityIds) ? queryBody.excludedEntityIds.map(String) : []);
+    const types = Array.isArray(queryBody?.types) ? queryBody.types.map(String) : [];
+    const filtered = data.rows.filter((row) => !excluded.has(row.entityId) && (!types.length || types.includes(row.entityType)) && filters.every((filter: any) => {
+      const op = ({ equals: 'eq', notEquals: 'neq', notEmpty: 'nempty' } as Record<string, string>)[String(filter.op)] || String(filter.op || 'contains');
+      const value = String(row.values[String(filter.field)] ?? '');
+      const numeric = (input: unknown) => {
+        return isPlainNumber(input) ? parseRuNumber(input) : null;
+      };
+      if (op === 'gte' || op === 'lte') {
+        const left = numeric(value), right = numeric(filter.value);
+        return left != null && right != null && (op === 'gte' ? left >= right : left <= right);
+      }
+      return applyFilter(value, op, filter.value);
+    }));
+    const collator = new Intl.Collator('ru', { numeric: true, sensitivity: 'base' });
+    if (sort.length) filtered.sort((a, b) => {
+      for (const item of sort) {
+        const left = a.values[String(item.field)], right = b.values[String(item.field)];
+        const order = typeof left === 'number' && typeof right === 'number' ? left - right : collator.compare(String(left ?? ''), String(right ?? ''));
+        if (order) return String(item.dir || 'asc').toLowerCase() === 'desc' ? -order : order;
+      }
+      return a.entityId.localeCompare(b.entityId);
+    });
+    const total = filtered.length;
+    const limit = Math.min(Math.max(Number(queryBody?.limit) || 50000, 1), 50000);
+    const rows = filtered.slice(0, limit).map((row) => ({
+      entityId: row.entityId, entityType: row.entityType, sourceId: row.sourceId,
+      tag: row.values['tag.identifier'] == null ? undefined : String(row.values['tag.identifier']),
+      values: Object.fromEntries(columns.map((column) => [column, { value: row.values[column] ?? null, revision: data.revision }])),
+    }));
+    return { rows, sourceRevision: data.revision, total };
+  }
   if (requestedEntity && requestedEntity !== 'tag' && requestedEntity !== 'element') {
     throw Object.assign(new Error(`Источник «${String(requestedEntity)}» не поддерживается в текущем API Office`), { status: 400 });
   }
@@ -104,6 +149,8 @@ export async function requireProjectRead(req: Request, projectId: string): Promi
   const actor = (req as any).authUser;
   if (!actor?.id || !(await canSeeProject(actor.id, projectId, isPrivilegedUser(actor)))) throw Object.assign(new Error('Проект не найден'), { status: 404 });
 }
+
+export { officeSourceCatalog };
 
 function schemaFromBody(value: any): OfficeHeaderSchema {
   const template = cleanOfficeTemplate({ name: 'Предпросмотр', schema: value }, '');

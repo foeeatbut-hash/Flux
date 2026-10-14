@@ -3,6 +3,9 @@ import { Btn, Empty } from '../ui';
 import { windowsFilesRequest, type WindowsFileRef, type WindowsRecycleBin, type WindowsRecycleItem } from '../../lib/windowsFiles';
 import { restoreTrashedDraft } from './fileOps';
 import type { BridgeRequest } from './createEntry';
+import FileBadge from '../ui/FileBadge';
+import { FileIcon } from '../icons/FluxIcons';
+import { ICON_SIZE } from '../../lib/metrics';
 
 type TrashedDraft = { ref: WindowsFileRef; name: string; fileId: string };
 
@@ -92,6 +95,7 @@ export default function RecyclePane({ onChanged, request = windowsFilesRequest }
       {!bin.supported ? <div className="rounded border p-3"><p>{bin.message || 'Список корзины Windows недоступен.'}</p>{bin.fallback === 'openRecycleBin' && <Btn className="mt-2" onClick={() => void openWindowsBin()}>Открыть корзину Windows</Btn>}</div>
         : bin.items.length === 0 ? <Empty title="Корзина Windows пуста" /> : <ul className="divide-y rounded border">{bin.items.map((item) => <li key={item.id} className="flex items-center gap-3 p-2">
           <input type="checkbox" checked={selected.includes(item.id)} onChange={() => toggle(item)} aria-label={`Выбрать ${item.name}`} />
+          {item.kind === 'directory' ? <FileIcon kind="folder" size={ICON_SIZE.row} /> : <FileBadge file={item.name} size={ICON_SIZE.row} />}
           <span className="min-w-0 flex-1"><span className="block truncate">{item.name}</span><small className="text-slate-500">{item.location}{item.deletedAt ? ` · ${new Date(item.deletedAt).toLocaleString()}` : ''}</small></span>
           <Btn onClick={() => void perform('recycleBinRestore', [item.id])} disabled={busy}>Восстановить</Btn><Btn tone="danger" onClick={() => { if (window.confirm(`Безвозвратно удалить «${item.name}»?`)) void perform('recycleBinPurge', [item.id]); }} disabled={busy}>Удалить</Btn>
         </li>)}</ul>}

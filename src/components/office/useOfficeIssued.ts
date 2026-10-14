@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { fetchFileMetadata } from '../../services/fileMetadataCache';
 
 /** Другой участник может выпустить открытый файл: сверяем статус и переводим редактор в просмотр. */
 export function useOfficeIssued(fileId: string) {
@@ -9,9 +10,8 @@ export function useOfficeIssued(fileId: string) {
     const read = async () => {
       if (!fileId) return;
       try {
-        const response = await fetch(`/api/office/files/${encodeURIComponent(fileId)}/meta`);
-        if (!response.ok) return;
-        const value = await response.json();
+        // Срок кэша меньше периода опроса (5 с): общий ответ с соседними читателями, но выпуск виден со следующего опроса.
+        const value = await fetchFileMetadata(fileId, { maxAgeMs: 4000 });
         if (!cancelled) setState((previous) => previous.fileId === fileId && previous.issued === (value.issued === true) ? previous : { fileId, issued: value.issued === true });
       } catch { /* Временный сбой сети не снимает уже известную заморозку. */ }
     };

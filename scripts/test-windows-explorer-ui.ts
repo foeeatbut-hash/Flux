@@ -56,6 +56,12 @@ async function loadUntil(page: Page, count: number) {
     page.on('console', (message) => { if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`); });
     await page.goto(`${BASE}/scripts/fixtures/windows-explorer-ui.html`);
     await page.locator('[data-windows-explorer]').waitFor();
+    ok('Архив старых файлов находится в панели Проводника без отдельного раздела на главной', await page.getByRole('treeitem', { name: 'Архив Flux' }).count() === 1 && await page.getByRole('button', { name: 'Документы проекта', exact: true }).count() === 0);
+    await page.getByRole('treeitem', { name: 'Архив Flux' }).click();
+    await page.getByTestId('route').filter({ hasText: 'projectFiles=1' }).waitFor();
+    ok('Переход в архив оставляет старый просмотр FileNode доступным без преобразования', (await page.getByTestId('route').textContent())?.includes('projectFiles=1') === true);
+    await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path='));
+    await page.locator('[data-windows-explorer]').waitFor();
     await page.getByRole('row', { name: /Проекты/ }).waitFor();
     ok('Браузерный стенд помечен как эмуляция моста, а не проверка настоящей Windows', await page.evaluate(() => (window as any).__fixtureKind === 'emulated-windows-files-bridge'));
     ok('Навигация показывает подключённую папку fixture', await page.getByRole('treeitem', { name: /Проекты/ }).isVisible());
@@ -70,6 +76,32 @@ async function loadUntil(page: Page, count: number) {
     ok('Дополнительные параметры передают выбор в имитированный shell bridge', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenu' && request.extended === true)));
     await page.locator(MENU).getByRole('button', { name: 'Проверить пункт оболочки' }).click();
     ok('Выбор пункта меню передаётся имитированному shell bridge', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenuInvoke')));
+    await page.getByRole('row', { name: /Проекты/ }).click({ button: 'right' });
+    ok('Контекстное меню папки содержит явное действие привязки к проекту', await page.locator(MENU).getByRole('button', { name: 'Привязать к проекту', exact: true }).isVisible());
+    await page.keyboard.press('Escape');
+    ok('Командная строка даёт управляющему кнопку привязки папки', await page.getByRole('button', { name: /Привязать папку/ }).isVisible());
+    ok('Пока в общем журнале нет привязок, мост не считает ключи мест (нет опросов сети при открытии папки)', await page.evaluate(() => !(window as any).__windowsFilesCalls.some((request: any) => request.action === 'locationKeys')));
+    // Сотрудник без права project.manage: привязки видит, но действий привязки в интерфейсе нет.
+    const guest = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+    await guest.addInitScript(() => { (window as any).__canManageBindings = false; });
+    await guest.goto(`${BASE}/scripts/fixtures/windows-explorer-ui.html`);
+    await guest.locator('[data-windows-explorer]').waitFor();
+    await guest.getByRole('row', { name: /Проекты/ }).click({ button: 'right' });
+    await guest.locator(MENU).getByRole('button', { name: 'Открыть', exact: true }).waitFor();
+    ok('Без права «Управление проектами» пункта «Привязать к проекту» в меню папки нет', await guest.locator(MENU).getByRole('button', { name: 'Привязать к проекту', exact: true }).count() === 0);
+    await guest.keyboard.press('Escape');
+    ok('Без права «Управление проектами» кнопки «Привязать папку» нет', await guest.getByRole('button', { name: /Привязать папку/ }).count() === 0);
+    await guest.close();
+    // Есть общая привязка: ключи считаются одним запросом на видимые строки, а не по запросу на строку.
+    const bound = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+    await bound.addInitScript((key: string) => { (window as any).__bindings = [{ id: 'b1', locationKey: key, projectId: 'project-2', label: 'Проекты', actorId: 'u1', at: '2026-10-14T00:00:00.000Z' }]; }, Buffer.from('net:проекты').toString('hex'));
+    await bound.goto(`${BASE}/scripts/fixtures/windows-explorer-ui.html`);
+    await bound.locator('[data-windows-explorer]').waitFor();
+    await bound.getByRole('row', { name: /Проекты/ }).waitFor();
+    await bound.waitForFunction(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'locationKeys'));
+    const keyCalls = await bound.evaluate(() => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'locationKeys').map((request: any) => request.refs.length));
+    ok('Ключи мест запрашиваются пачкой для списка, а не по одному на строку', keyCalls.length >= 1 && keyCalls.length <= 2 && keyCalls.every((count: number) => count > 1 && count <= 500));
+    await bound.close();
     await page.getByRole('button', { name: 'Новая вкладка' }).click();
     ok('Кнопка добавляет активную вкладку Проводника', await page.getByRole('tab').count() === 2 && await page.getByRole('tab').nth(1).getAttribute('aria-selected') === 'true');
     await page.getByRole('tab').first().click();
@@ -130,8 +162,11 @@ async function loadUntil(page: Page, count: number) {
     ok('Сохранённый адрес «Файлы Windows» открывает ту же программу', await page.getByRole('row', { name: /Инструкция\.docx/ }).isVisible());
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path='));
     await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
-    await page.getByRole('row', { name: /Проекты/ }).locator('img[src^="data:image/png;"]').waitFor();
-    ok('Папка использует PNG, возвращённый тестовым мостом', await page.getByRole('row', { name: /Проекты/ }).locator('img').evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0));
+    // Значки Проводника рисует Flux: картинка, которую отдаёт мост (getIcon), в строке не показывается
+    const folderRow = page.getByRole('row', { name: /Проекты/ });
+    await folderRow.locator('svg').first().waitFor();
+    ok('Папка рисуется значком Flux 16 точек, а не PNG из моста', await folderRow.locator('img').count() === 0 && await folderRow.locator('svg').first().evaluate((element) => { const box = element.getBoundingClientRect(); return Math.round(box.width) === 16 && Math.round(box.height) === 16; }));
+    ok('Файл рисуется листом Flux по расширению: .docx — документ, .bin — закрытый лист', await page.getByRole('row', { name: /Инструкция\.docx/ }).locator('svg[data-kind="doc"]').count() === 1 && await page.getByRole('row', { name: /Архив\.bin/ }).locator('svg[data-kind="closed"]').count() === 1);
 
     await page.getByRole('row', { name: /Проекты/ }).dblclick();
     await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
@@ -393,6 +428,28 @@ async function loadUntil(page: Page, count: number) {
     ok('Смена папки сбрасывает выделение', await selectedRows() === 0);
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path=Проекты'));
     await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
+    const projectPane = page.locator('[data-windows-explorer] main .overflow-auto').first();
+    const projectRow = page.locator('[data-windows-explorer] main [data-entry-key]').first();
+    const projectPaneBox = await projectPane.boundingBox();
+    const projectRowBox = await projectRow.boundingBox();
+    if (!projectPaneBox || !projectRowBox) throw new Error('Не нашлась область списка для рамочного выделения');
+    const projectEntryCount = await page.locator('[data-windows-explorer] main [data-entry-key]').count();
+    await page.mouse.move(projectPaneBox.x + projectPaneBox.width - 4, projectPaneBox.y + projectPaneBox.height - 6);
+    await page.mouse.down();
+    await page.mouse.move(projectRowBox.x + projectRowBox.width / 2, projectRowBox.y + projectRowBox.height / 2, { steps: 5 });
+    await page.mouse.up();
+    const marqueeSelected = await selectedRows();
+    ok('Рамка на пустом месте выделяет пересечённые строки Проводника', marqueeSelected > 0 && marqueeSelected <= projectEntryCount);
+    await page.keyboard.down('Control');
+    await page.mouse.move(projectPaneBox.x + projectPaneBox.width - 4, projectPaneBox.y + projectPaneBox.height - 6);
+    await page.mouse.down();
+    await page.mouse.move(projectPaneBox.x + projectPaneBox.width - 24, projectPaneBox.y + projectPaneBox.height - 6, { steps: 4 });
+    await page.mouse.up();
+    await page.keyboard.up('Control');
+    ok('Рамка с Ctrl дополняет выделение Проводника, а не заменяет его', await selectedRows() === marqueeSelected);
+    await page.locator('[data-windows-explorer]').focus();
+    await page.keyboard.press('Control+A');
+    ok('Ctrl+A выделяет все объекты открытой папки Проводника', await selectedRows() === projectEntryCount);
     }
 
     // --- Горячие клавиши: таблица explorerKeys читается здесь же, клавиша без сценария роняет набор
@@ -632,6 +689,36 @@ async function loadUntil(page: Page, count: number) {
     const shellIcon = page.getByRole('button', { name: 'Системная папка' });
     const shellBox = await shellIcon.boundingBox();
     ok('Стенд размещает ответные значки по координатам тестового снимка', !!shellBox && Math.abs(shellBox.x - 80) < 5 && Math.abs(shellBox.y - 100) < 5);
+    await page.evaluate(async () => {
+      await (window as any).electron.windowsFiles.invoke({ action: 'createDraft', parent: { rootId: 'desktop-id', relativePath: '' }, name: 'Выбор рабочего стола.txt' });
+      (window as any).__emitChanged('desktop-id', '');
+    });
+    const desktopFile = page.locator('[data-desktop-item]').first();
+    const desktopFileBox = await desktopFile.boundingBox();
+    if (!desktopFileBox) throw new Error('Не нашёлся файл для рамочного выделения рабочего стола');
+    // Старт рамки — пустое место справа от файла: ниже и правее лежит значок оболочки (<button>), на нём рамка не начинается.
+    const emptyStart = { x: desktopFileBox.x + desktopFileBox.width + 20, y: desktopFileBox.y + desktopFileBox.height / 2 };
+    await page.mouse.move(emptyStart.x, emptyStart.y);
+    await page.mouse.down();
+    await page.mouse.move(desktopFileBox.x + desktopFileBox.width / 2, desktopFileBox.y + desktopFileBox.height / 2, { steps: 5 });
+    await page.mouse.up();
+    ok('Рамка на рабочем столе выделяет пересечённый файл', await desktopFile.getAttribute('aria-selected') === 'true');
+    await page.mouse.click(emptyStart.x, emptyStart.y);
+    ok('Простой щелчок по пустому месту рабочего стола снимает выделение', await desktopFile.getAttribute('aria-selected') !== 'true');
+    await page.mouse.move(shellBox!.x + shellBox!.width / 2, shellBox!.y + shellBox!.height / 2);
+    await page.mouse.down();
+    ok('Нажатие на значок оболочки не запускает рамку и не перехватывает указатель', await page.evaluate(() => !document.querySelector('section[aria-label="Рабочий стол Windows"] [class*="border-[#0067c0]"]')));
+    await page.mouse.up();
+    await page.locator('section[aria-label="Рабочий стол Windows"] > div.relative').focus();
+    await page.keyboard.press('Control+A');
+    ok('Ctrl+A выделяет все значки рабочего стола Windows', await page.locator('[data-desktop-item][aria-selected="true"]').count() === await page.locator('[data-desktop-item]').count());
+    const desktopItemCountBeforeFailure = await page.locator('[data-desktop-item]').count();
+    await page.evaluate(() => (window as any).__setExplorerListFault('desktop-refresh-denied'));
+    await desktopArea.click({ button: 'right', position: { x: 500, y: 500 } });
+    await page.locator('[data-context-menu]').getByRole('button', { name: 'Обновить', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: 'Не удалось' }).waitFor({ timeout: 5000 }).catch(() => undefined);
+    ok('Ошибка обновления сохраняет уже показанные значки рабочего стола', desktopItemCountBeforeFailure > 0 && await page.locator('[data-desktop-item]').count() === desktopItemCountBeforeFailure);
+    await page.evaluate(() => (window as any).__setExplorerListFault('none'));
     await page.screenshot({ path: '/tmp/flux-desktop-light.png' });
     await page.evaluate(() => document.documentElement.classList.add('dark'));
     await page.screenshot({ path: '/tmp/flux-desktop-dark.png' });

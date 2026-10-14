@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowDownToLine, GitCompareArrows, History, LoaderCircle, LockKeyhole, RotateCcw } from 'lucide-react';
 import { Btn } from '../ui';
+import { fetchFileMetadata, invalidateFileMetadata } from '../../services/fileMetadataCache';
 
 type Revision = {
   id: string; fileId: string; parentRevisionId: string | null; revision: number; status: 'ISSUED' | 'DRAFT';
@@ -65,12 +66,14 @@ export default function FluxRevisionPanel({ fileId, fileName, readOnly = false, 
     setBusy(true); setError(''); setNotice('');
     try {
       if (beforeIssue && !(await beforeIssue())) return;
-      const meta = await responseJson(await fetch(`/api/office/files/${encodeURIComponent(fileId)}/meta`));
+      // sha исходника уходит в выпуск как предохранитель от устаревшей версии — кэш здесь не допустим.
+      const meta = await fetchFileMetadata(fileId, { maxAgeMs: 0 });
       const data = await responseJson(await fetch(`/api/office/revisions/${encodeURIComponent(fileId)}/issue`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourceSha: meta.sha256 }),
       }));
       setNotice(data.unchanged ? 'Эта ревизия уже выпущена.' : `${titleOf(data.revision)} сохранена и защищена от изменений.`);
+      invalidateFileMetadata(fileId);
       onIssued?.(fileId, data.revision.id);
       await load();
     } catch (cause: any) { setError(String(cause?.message || cause)); }

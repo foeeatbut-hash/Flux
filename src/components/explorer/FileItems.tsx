@@ -8,30 +8,26 @@
  */
 import React from 'react';
 import { format } from 'date-fns';
-import { Folder, Boxes, HardDrive } from 'lucide-react';
-import { SEC_SHARED, SEC_DISK } from '../../lib/explorerSections';
+import { Boxes } from 'lucide-react';
+import { SEC_DISK } from '../../lib/explorerSections';
 import FileBadge from '../ui/FileBadge';
+import { FileIcon } from '../icons/FluxIcons';
+import { resolveIconSize } from '../icons/resolveSize';
 
-/** Размер значка из классов Tailwind: w-4 → 16, w-5 → 20, w-12 → 48 */
-const sizeOf = (cls: string): number => {
-  const m = /\bw-(\d+)\b/.exec(cls);
-  return m ? Number(m[1]) * 4 : 20;
-};
+/** Размер значка из классов Tailwind: w-4 → 16, w-12 → 48 (icons/resolveSize.ts) */
+const sizeOf = (cls: string): number => resolveIconSize(undefined, cls);
 
 export const getFileIcon = (item: any, classNameStr: string) => {
-  if (item.isSection) {
-    // Диск — не папка: он не в проекте и его нельзя переименовать. Значок
-    // должен это показывать, иначе три одинаковые папки в дереве неразличимы
-    if (item.id === SEC_DISK) return <HardDrive className={`${classNameStr} text-slate-500 dark:text-slate-400`} />;
-    return item.id === SEC_SHARED
-      ? <Folder className={`${classNameStr} text-emerald-600 fill-emerald-200`} />
-      : <Folder className={`${classNameStr} text-sky-600 fill-sky-200`} />;
-  }
-  if (item.isFolder && item.system) return <Folder className={`${classNameStr} text-emerald-600 fill-emerald-100`} />;
-  if (item.isFolder) return <Folder className={`${classNameStr} text-amber-500 fill-amber-200`} />;
+  const size = sizeOf(classNameStr);
+  const rest = classNameStr.replace(/\b[wh]-\d+\b/g, '');
+  // Диск — не папка: он не в проекте и его нельзя переименовать, значок это
+  // показывает. Остальные разделы и папки — одна папка, как в Проводнике
+  // Windows: раньше их красили в три цвета lucide, а различает их имя
+  if (item.isSection && item.id === SEC_DISK) return <FileIcon kind="drive" size={size} className={rest} />;
+  if (item.isSection || item.isFolder) return <FileIcon kind="folder" size={size} className={rest} />;
   // Вид файла — значок Flux Office (lib/fileBadge.ts), один на всю программу:
   // стол, Проводник, Пуск и окно показывают файл одинаково
-  return <FileBadge file={{ id: item.id, name: item.name, type: item.type }} size={sizeOf(classNameStr)} className={classNameStr.replace(/\b[wh]-\d+\b/g, '')} />;
+  return <FileBadge file={{ id: item.id, name: item.name, type: item.type }} size={size} className={rest} />;
 };
 
 export const formatSize = (bytes: number) => {
@@ -116,7 +112,7 @@ export const FileRowItem = React.memo(({
     >
       <td className="flux-cell flex items-center gap-2">
         <div className="relative shrink-0">
-           {getFileIcon(item, "w-5 h-5")}
+           {getFileIcon(item, "w-4 h-4")}
            {!item.isFolder && item.statusCode && (
               <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-dark-bg ${statusOf(item.statusCode).dot}`} title={statusOf(item.statusCode).label} />
            )}
@@ -235,7 +231,7 @@ export const FileCardItem = React.memo(({
     >
        <div className="w-16 h-16 flex items-center justify-center relative select-none">
          {item.isFolder ? (
-           <Folder className="w-16 h-16 text-amber-500 fill-amber-200 shrink-0" />
+           <FileIcon kind="folder" size={64} />
          ) : isImage && item.content ? (
            <img src={item.content} alt={item.name} className="max-w-full max-h-full object-cover rounded shadow-xs border border-slate-200" referrerPolicy="no-referrer" />
          ) : (

@@ -23,6 +23,7 @@ import FeedbackPreview from './FeedbackPreview';
 import ScreenshotEditor from './ScreenshotEditor';
 import { canCaptureWindow, captureRegion, captureWindow, imageFromPaste } from '../../feedback/capture';
 import RegionPicker from './RegionPicker';
+import ImportFileChooser from '../ImportFileChooser';
 
 interface Props {
   userId: string;
@@ -133,19 +134,6 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
 
   const set = (patch: Partial<Fields>) => setFields((prev) => ({ ...prev, ...patch }));
   const bug = fields.type === 'BUG' || fields.type === 'PERFORMANCE';
-
-  const pick = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.onchange = () => {
-      for (const file of Array.from(input.files || [])) {
-        const refused = composer.addFile(file);
-        if (refused) setComplaint(refused);
-      }
-    };
-    input.click();
-  };
 
   /**
    * Снимок своего окна.
@@ -342,11 +330,12 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
                     </div>
                   ))}
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={pick}
-                      className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800
-                                 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
-                      Приложить файл…
-                    </button>
+                    <ImportFileChooser multiple className="fx-btn fx-btn-quiet" label="Приложить файл…" onFiles={files => {
+                      for (const file of files) {
+                        const refused = composer.addFile(file);
+                        if (refused) setComplaint(refused);
+                      }
+                    }} />
                     {canCaptureWindow() && (
                       <button type="button" onClick={() => { setComplaint(''); setPicking(true); }}
                         className="px-3 py-1.5 rounded-lg flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900

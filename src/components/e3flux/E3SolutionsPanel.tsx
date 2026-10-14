@@ -6,7 +6,7 @@
  * правка не затирает соседние строки.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, FileText, Plus, Undo2, Upload } from 'lucide-react';
+import { Download, FileText, Plus, Undo2 } from 'lucide-react';
 import { solutionNames, solutionNamesFile, solutionWorkbookBytes } from '../../../e3/solutionWorkbook';
 import type { E3Solution, E3SolutionPlan } from '../../../e3/solutionTypes';
 import { e3SolutionsService as svc, E3SolutionVersionError, type E3SolutionPatch } from '../../services/e3SolutionsService';
@@ -14,6 +14,7 @@ import { useToastStore } from '../../store/toastStore';
 import { fileName } from '../../lib/exchange';
 import { count } from '../../lib/plural';
 import { Btn, Chip, Empty, FilterSeg, Input, SectionHead, Select, Toolbar } from '../ui';
+import ImportFileChooser from '../ImportFileChooser';
 import { confirmAsk } from '../catalog/ui';
 import E3SolutionDialog from './E3SolutionDialog';
 import E3SolutionsImport, { readSolutionFile, type ParsedFile } from './E3SolutionsImport';
@@ -34,7 +35,6 @@ export default function E3SolutionsPanel({ state, rights, jump }: { state: Solut
   const [editing, setEditing] = useState<string | null>(null); // '' — новое решение
   const [dialogError, setDialogError] = useState('');
   const [imp, setImp] = useState<{ file: ParsedFile; plan: E3SolutionPlan } | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   useJump(jump, ['solutions'], (j) => { setDialogError(''); setEditing(j.id ?? null); }, !!state.book);
   const items = book?.solutions || [];
@@ -124,12 +124,11 @@ export default function E3SolutionsPanel({ state, rights, jump }: { state: Solut
 
   const editingSolution: E3Solution | null = editing ? items.find((s) => s.id === editing) || null : null;
   const actions = <>
-    <input ref={fileRef} type="file" accept=".xlsx,.xlsm,.xls" hidden aria-label="Файл классификатора типовых решений" onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ''; }} />
     <Btn tone="ghost" onClick={download} disabled={!live.length} title="Каталог в Excel того же вида, что файл классификатора, плюс столбцы признаков"><Download className="w-3.5 h-3.5" /> Скачать Excel</Btn>
     {rights.edit && <Btn tone="ghost" onClick={() => { setDialogError(''); setEditing(''); }} disabled={busy || !book} title="Добавить типовое решение вручную"><Plus className="w-3.5 h-3.5" /> Добавить</Btn>}
     {rights.import && <>
       <Btn tone="ghost" onClick={() => void undoImport()} disabled={busy || !items.length} title="Вернуть каталог к состоянию до последней загрузки файла"><Undo2 className="w-3.5 h-3.5" /> Отменить загрузку</Btn>
-      <Btn tone="primary" onClick={() => fileRef.current?.click()} disabled={busy || !book}><Upload className="w-3.5 h-3.5" /> Загрузить из Excel</Btn>
+      <ImportFileChooser accept=".xlsx,.xlsm,.xls" disabled={busy || !book} className="fx-btn fx-btn-primary" label="Загрузить из Excel" onFiles={files => { if (files[0]) void pick(files[0]); }} />
     </>}
   </>;
 

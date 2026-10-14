@@ -96,11 +96,12 @@ export function groupLabel(entry: WindowsFileEntry, group: FolderGroup): string 
 }
 
 export type ContentsRow = { kind: 'group'; key: string; label: string } | { kind: 'entry'; key: string; entry: WindowsFileEntry };
+const contentsEntryKey = (entry: WindowsFileEntry) => entry.uiKey || entry.fileId;
 
 /** Строки панели используют тот же порядок, что и клавиатурное перемещение. */
 export function contentsRows(entries: WindowsFileEntry[], view: FolderView): ContentsRow[] {
   const ordered = orderedEntries(entries, view);
-  if (view.group === 'none') return ordered.map((entry) => ({ kind: 'entry', key: entry.fileId, entry }));
+  if (view.group === 'none') return ordered.map((entry) => ({ kind: 'entry', key: contentsEntryKey(entry), entry }));
   const rows: ContentsRow[] = [];
   let previous = '';
   for (const entry of ordered) {
@@ -110,7 +111,7 @@ export function contentsRows(entries: WindowsFileEntry[], view: FolderView): Con
       rows.push({ kind: 'group', key: `group:${groupKey}:${rows.length}`, label: groupKey });
       previous = groupKey;
     }
-    rows.push({ kind: 'entry', key: entry.fileId, entry });
+    rows.push({ kind: 'entry', key: contentsEntryKey(entry), entry });
   }
   return rows;
 }

@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import ContextMenu, { type MenuItem } from '../ContextMenu';
 import { ArrowUpDown, Folder,
-  Monitor, MoreVertical, Palette, RefreshCw, Rows3, Shapes, Trash2, ExternalLink } from 'lucide-react';
+  Monitor, MoreVertical, Palette, RefreshCw, Rows3, Trash2, ExternalLink } from 'lucide-react';
 import { useModalStore } from '../../store/modalStore';
 import { useToastStore } from '../../store/toastStore';
 import type { ShellDesktopSnapshot, ShellDesktopItem, ShellDesktopBridge } from '../../../filesystem/shellDesktop';
@@ -13,17 +13,19 @@ import {
   fileRefHref, folderRefHref, onWindowsFilesChanged, windowsFilesRequest,
   type WindowsFileEntry, type WindowsFileRef, type WindowsRoot,
 } from '../../lib/windowsFiles';
-import { NativeWindowsFileIcon } from '../explorer/WindowsFileIcon';
+import WindowsFileIcon, { ShellItemIcon } from '../explorer/WindowsFileIcon';
+import { DESK, ICON_SIZE } from '../../lib/metrics';
 import { useCreatePanel } from '../files/CreatePanel';
 import { isCreated } from '../files/createEntry';
+import { entryKey } from '../files/useSelection';
+import { mergeDesktopEntries, replaceDesktopEntries } from './desktopEntries';
+import { desktopClickSelection, desktopMarqueeSelection, desktopSelectAll } from './desktopSelection';
 
 type Cell = { col: number; row: number };
 type DesktopItem =
   | { id: string; kind: 'file'; entry: WindowsFileEntry }
   | { id: string; kind: 'shell'; item: ShellDesktopItem };
 const LAYOUT_PREFIX = 'flux_windows_desktop_cells_v1:';
-const CELL_WIDTH = 104;
-const CELL_HEIGHT = 100;
 const ROOT_REF = (rootId: string): WindowsFileRef => ({ rootId, relativePath: '' });
 const shellBridge = () => (window as any).electron?.desktopShell as ShellDesktopBridge | undefined;
 
@@ -87,14 +89,18 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const [cells, setCells] = React.useState<Record<string, Cell>>({});
   const [area, setArea] = React.useState({ width: 900, height: 600 });
   const [areaOffset, setAreaOffset] = React.useState({ x: 0, y: 0 });
-  const [selected, setSelected] = React.useState<string | null>(null);
+  const [selected, setSelected] = React.useState<string[]>([]);
+  const [selectionAnchor, setSelectionAnchor] = React.useState<string | null>(null);
+  const [rubberband, setRubberband] = React.useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
   const [menu, setMenu] = React.useState<{ x: number; y: number; itemId: string | null } | null>(null);
   const [sortBy, setSortBy] = React.useState<'name' | 'type' | 'modified'>('name');
   const [iconScale, setIconScale] = React.useState<'small' | 'medium' | 'large'>('medium');
   const [shareEntry, setShareEntry] = React.useState<WindowsFileEntry | null>(null);
+  const entriesRef = React.useRef(entries); entriesRef.current = entries;
   const dragged = React.useRef<string | null>(null);
+  const rubberStart = React.useRef<{ x: number; y: number; ctrl: boolean; shift: boolean } | null>(null);
   const refreshEpoch = React.useRef(0);
   const refreshFlight = React.useRef<{ pending: boolean; rootId?: string; promise: Promise<void> } | null>(null);
 
@@ -105,7 +111,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
       refreshEpoch.current++;
       return refreshFlight.current.promise;
     }
-    setLoading(true);
+    if (!entriesRef.current.length) setLoading(true);
     setError('');
     const flight: { pending: boolean; rootId?: string; epoch: number; promise: Promise<void> } = { pending: false, rootId, epoch: ++refreshEpoch.current, promise: Promise.resolve() };
     flight.promise = (async () => {
@@ -129,7 +135,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
         if (refreshEpoch.current !== flight.epoch) return;
         setRoot(desktop);
         if (rootId !== desktop.id) setCells(readCells(desktop.id));
-        setEntries(allEntries);
+        setEntries((previous) => replaceDesktopEntries(previous, allEntries));
       } catch (cause: any) {
         if (refreshEpoch.current === flight.epoch) setError(cause?.message || 'Не удалось обновить Рабочий стол Windows.');
       } finally {
@@ -162,7 +168,9 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
     const ref = ROOT_REF(root.id);
     void windowsFilesRequest({ action: 'watch', ref });
     const off = onWindowsFilesChanged((change) => {
-      if (alive && change.rootId === root.id) void refresh(root.id);
+      if (!alive || change.rootId !== root.id) return;
+      if (change.entries?.length) setEntries((previous) => mergeDesktopEntries(previous, change.entries!));
+      else if (change.rescan) void refresh(root.id);
     });
     return () => { alive = false; off(); void windowsFilesRequest({ action: 'unwatch', ref }); };
   }, [root?.id, refresh]);
@@ -189,7 +197,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const shellReady = !!screenOrigin && shellDesktop?.status === 'ready' && !!shellDesktop.view?.iconsVisible;
   const nativeIconsHidden = shellDesktop?.status === 'ready' && !!screenOrigin && !shellDesktop.view?.iconsVisible;
   const fluxEntries = shellReady || nativeIconsHidden ? entries.filter((entry) => entry.storage === 'flux') : entries;
-  const fileItems: Extract<DesktopItem, { kind: 'file' }>[] = sortWindowsDesktopEntries(fluxEntries, sortBy).map((entry) => ({ id: entry.fileId, kind: 'file', entry }));
+  const fileItems: Extract<DesktopItem, { kind: 'file' }>[] = sortWindowsDesktopEntries(fluxEntries, sortBy).map((entry) => ({ id: entryKey(entry), kind: 'file', entry }));
   // Старые ярлыки приложений остаются файлами Windows на диске, но не
   // захламляют зеркальный стол: запуск программы теперь живёт в Пуске/задачах.
   const shellItems: Extract<DesktopItem, { kind: 'shell' }>[] = shellReady
@@ -263,18 +271,23 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
     const ok = await openConfirm(fromFlux ? 'Удалить черновик Flux?' : `Переместить ${noun} в Корзину Windows?`, fromFlux ? `Черновик «${entry.name}» будет удалён из локального списка Flux.` : `«${entry.name}» будет отправлен в системную корзину.`, { confirmLabel: fromFlux ? 'Удалить' : 'В Корзину', tone: 'danger' });
     if (!ok) return;
     const result = await invoke({ action: 'trash', ref: entryRef(root.id, entry) });
-    if (result) { setSelected(null); await refresh(root.id); addToast(fromFlux ? 'Черновик удалён' : `${entry.kind === 'directory' ? 'Папка' : 'Файл'} перемещён в Корзину Windows`, 'success'); }
+    if (result) { setSelected([]); await refresh(root.id); addToast(fromFlux ? 'Черновик удалён' : `${entry.kind === 'directory' ? 'Папка' : 'Файл'} перемещён в Корзину Windows`, 'success'); }
     setMenu(null);
   };
 
   const contextMenu = (event: React.MouseEvent, itemId: string | null) => {
     event.preventDefault(); event.stopPropagation();
-    if (itemId) setSelected(itemId);
+    if (itemId) { setSelected([itemId]); setSelectionAnchor(itemId); }
     setMenu({ x: event.clientX, y: event.clientY, itemId });
   };
   const current = contextualItems.find((item) => item.id === menu?.itemId);
   const select = (event: React.MouseEvent, item: DesktopItem) => {
-    setSelected((old) => event.ctrlKey || event.metaKey ? old === item.id ? null : item.id : item.id);
+    const result = desktopClickSelection({ ids: selected, anchor: selectionAnchor }, items.map((candidate) => candidate.id), item.id, { ctrl: event.ctrlKey || event.metaKey, shift: event.shiftKey });
+    setSelected(result.ids); setSelectionAnchor(result.anchor);
+  };
+  const onDesktopKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') { event.preventDefault(); const result = desktopSelectAll(items.map((item) => item.id)); setSelected(result.ids); setSelectionAnchor(result.anchor); }
+    else if (event.key === 'Escape') { setSelected([]); setSelectionAnchor(null); }
   };
   const arrange = (by: 'name' | 'type' | 'modified') => {
     setSortBy(by);
@@ -284,18 +297,20 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   };
 
   const contents = items.length === 0 && shellItems.length === 0 && !loading && !error;
-  const cellSize = iconScale === 'small' ? { width: 88, height: 84, icon: 24 } : iconScale === 'large' ? { width: 120, height: 116, icon: 44 } : { width: CELL_WIDTH, height: CELL_HEIGHT, icon: 32 };
+  // Те же три размера, что у рабочего стола Flux (lib/metrics.ts): значок 32 / 48 / 96
+  const metric = iconScale === 'small' ? DESK.small : iconScale === 'large' ? DESK.large : DESK.normal;
+  const cellSize = { width: metric.w, height: metric.h, icon: metric.icon };
   const columns = Math.max(1, Math.floor((area.width - 24) / cellSize.width));
-  const positions = React.useMemo(() => layoutWindowsDesktop(items.map((item) => item.id), cells, columns), [items.map((item) => item.id).join('|'), cells, columns]);
+  const positions = React.useMemo(() => layoutWindowsDesktop(items.map((item) => item.kind === 'file' ? item.entry.fileId : item.id), cells, columns), [items.map((item) => item.kind === 'file' ? item.entry.fileId : item.id).join('|'), cells, columns]);
   const filesHiddenByShell = nativeIconsHidden && fluxEntries.length === 0;
 
   return (
-    <section className="relative h-full min-h-0 w-full overflow-hidden bg-slate-100 text-slate-800 dark:bg-dark-bg dark:text-slate-100" aria-label="Рабочий стол Windows">
+    <section tabIndex={0} onKeyDown={onDesktopKeyDown} className="relative h-full min-h-0 w-full overflow-hidden bg-slate-100 text-slate-800 dark:bg-dark-bg dark:text-slate-100 outline-none" aria-label="Рабочий стол Windows">
       {error && <div role="status" className="absolute left-3 top-3 z-10 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">{error}</div>}
       {screenOrigin && shellDesktop?.status !== 'ready' && shellDesktop && <div role="status" className="pointer-events-none absolute bottom-3 left-3 z-[2] rounded-md border border-slate-300/70 bg-white/80 px-2.5 py-1.5 text-xs text-slate-600 shadow-sm backdrop-blur dark:border-dark-border dark:bg-dark-surface/80 dark:text-slate-300">Расположение Windows недоступно. Отображаются файлы.</div>}
       {loading && <div className="absolute left-4 top-3 z-10 text-sm text-slate-500 dark:text-slate-400">Читаем Рабочий стол Windows…</div>}
       <div className="relative h-full min-h-0 w-full">
-      <div ref={areaRef} className="absolute inset-0 overflow-hidden" onContextMenu={(event) => contextMenu(event, null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; const rect = areaRef.current?.getBoundingClientRect(); if (!id || !rect) return; const col = Math.min(columns - 1, Math.max(0, Math.floor((event.clientX - rect.left) / cellSize.width))); const row = Math.max(0, Math.floor((event.clientY - rect.top) / cellSize.height)); const occupied = Object.entries(positions).find(([otherId, at]) => otherId !== id && at.col === col && at.row === row)?.[0]; const patch: Record<string, Cell> = { [id]: { col, row } }; if (occupied) patch[occupied] = positions[id] || { col: 0, row: 0 }; placeCells(patch); }}>
+      <div ref={areaRef} tabIndex={0} className="absolute inset-0 overflow-hidden select-none outline-none" onPointerDown={(event) => { if (event.button !== 0 || (event.target as HTMLElement).closest('button,[data-desktop-item]')) return; event.currentTarget.focus(); const rect = areaRef.current?.getBoundingClientRect(); if (!rect) return; const x = event.clientX - rect.left, y = event.clientY - rect.top; rubberStart.current = { x, y, ctrl: event.ctrlKey || event.metaKey, shift: event.shiftKey }; setRubberband({ left: x, top: y, width: 0, height: 0 }); event.currentTarget.setPointerCapture(event.pointerId); }} onPointerMove={(event) => { const start = rubberStart.current; const rect = areaRef.current?.getBoundingClientRect(); if (!start || !rect) return; const x = event.clientX - rect.left, y = event.clientY - rect.top; setRubberband({ left: Math.min(x, start.x), top: Math.min(y, start.y), width: Math.abs(x - start.x), height: Math.abs(y - start.y) }); }} onPointerUp={(event) => { const start = rubberStart.current; const rect = areaRef.current?.getBoundingClientRect(); rubberStart.current = null; setRubberband(null); if (!start || !rect) return; const box = { left: Math.min(event.clientX - rect.left, start.x), top: Math.min(event.clientY - rect.top, start.y), right: Math.max(event.clientX - rect.left, start.x), bottom: Math.max(event.clientY - rect.top, start.y) }; const tiny = box.right - box.left < 3 && box.bottom - box.top < 3; /* простой щелчок по пустому месту — рамка без попаданий: снимает выделение, а с Ctrl/Shift оставляет его */ const hits = tiny ? [] : [...(areaRef.current?.querySelectorAll<HTMLElement>('[data-desktop-item]') || [])].filter((element) => { const r = element.getBoundingClientRect(); const x = r.left - rect.left, y = r.top - rect.top; return x < box.right && x + r.width > box.left && y < box.bottom && y + r.height > box.top; }).map((element) => element.dataset.desktopItem!).filter(Boolean); const result = desktopMarqueeSelection({ ids: selected, anchor: selectionAnchor }, hits, { ctrl: start.ctrl, shift: start.shift }); setSelected(result.ids); setSelectionAnchor(result.anchor); }} onContextMenu={(event) => contextMenu(event, null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; const rect = areaRef.current?.getBoundingClientRect(); if (!id || !rect) return; const col = Math.min(columns - 1, Math.max(0, Math.floor((event.clientX - rect.left) / cellSize.width))); const row = Math.max(0, Math.floor((event.clientY - rect.top) / cellSize.height)); const occupied = Object.entries(positions).find(([otherId, at]) => otherId !== id && at.col === col && at.row === row)?.[0]; const patch: Record<string, Cell> = { [id]: { col, row } }; if (occupied) patch[occupied] = positions[id] || { col: 0, row: 0 }; placeCells(patch); }}>
         {!error && !loading && contents && !filesHiddenByShell && <div className="absolute inset-0 grid place-items-center px-6 text-center text-sm text-slate-500 dark:text-slate-400">На Рабочем столе Windows пока пусто. Создайте папку или документ.</div>}
         {shellItems.map((desktopItem) => {
           const left = desktopItem.item.position.x - screenOrigin!.x - areaOffset.x;
@@ -303,25 +318,26 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
           return <button key={desktopItem.id} type="button" aria-label={desktopItem.item.name} title={desktopItem.item.name}
             onDoubleClick={() => openItem(desktopItem)} onContextMenu={(event) => contextMenu(event, desktopItem.id)}
             className="absolute z-[1] flex flex-col items-center gap-1 rounded-md p-1 text-center text-xs hover:bg-sky-100/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 dark:hover:bg-sky-900/40"
-            style={{ left, top, width: Math.max(60, desktopItem.item.cell?.width || 96), minHeight: (desktopItem.item.icon?.height || 32) + 40 }}>
-            {desktopItem.item.fileRef ? <NativeWindowsFileIcon entry={{ fileId: desktopItem.item.id, name: desktopItem.item.name, relativePath: desktopItem.item.fileRef.relativePath, kind: desktopItem.item.kind === 'directory' ? 'directory' : 'file', modifiedAt: '', size: 0, storage: 'windows' } as WindowsFileEntry} fileRef={desktopItem.item.fileRef} size={shellDesktop?.view?.iconSize || 32} /> : desktopItem.item.icon ? <img src={desktopItem.item.icon.dataUrl} alt="" draggable={false} style={{ width: desktopItem.item.icon.width, height: desktopItem.item.icon.height, objectFit: 'contain' }} /> : <Shapes size={shellDesktop?.view?.iconSize || 32} />}
+            style={{ left, top, width: Math.max(60, desktopItem.item.cell?.width || 96), minHeight: (shellDesktop?.view?.iconSize || ICON_SIZE.desktop) + 40 }}>
+            <ShellItemIcon item={desktopItem.item} size={shellDesktop?.view?.iconSize || ICON_SIZE.desktop} />
             <span className="line-clamp-2 break-words leading-4 [text-shadow:0_1px_2px_white] dark:[text-shadow:0_1px_2px_black]">{desktopItem.item.name}</span>
           </button>;
         })}
-        {!error && !loading && items.length > 0 && (
+        {items.length > 0 && (
           <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columns}, ${cellSize.width}px)`, gridAutoRows: `${cellSize.height}px` }}>
             {items.map((item) => {
-              const cell = positions[item.id] || { col: 0, row: 0 };
+              const cell = positions[item.entry.fileId] || { col: 0, row: 0 };
               const title = fileTitle(item.entry.name);
-              const isSelected = selected === item.id;
-              return <div key={item.id} role="button" tabIndex={0} draggable onClick={(event) => select(event, item)} onDoubleClick={() => openItem(item)} onContextMenu={(event) => contextMenu(event, item.id)} onKeyDown={(event) => { if (event.key === 'Enter') openItem(item); if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) contextMenu(event as any, item.id); }} onDragStart={(event) => { dragged.current = item.id; event.dataTransfer.setData('text/plain', item.id); event.dataTransfer.effectAllowed = 'move'; }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; if (!id || id === item.id) return; const from = positions[id]; const to = positions[item.id]; if (from && to) placeCells({ [id]: to, [item.id]: from }); }} className={`group flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${isSelected ? 'bg-sky-100 ring-1 ring-sky-400 dark:bg-sky-950/50 dark:ring-sky-700' : 'hover:bg-slate-200/70 dark:hover:bg-dark-surface/70'}`} style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}>
-                <NativeWindowsFileIcon entry={item.entry} fileRef={entryRef(root!.id, item.entry)} size={cellSize.icon} />
+              const isSelected = selected.includes(item.id);
+              return <div key={item.id} data-desktop-item={item.id} role="button" aria-selected={isSelected} tabIndex={0} draggable onClick={(event) => select(event, item)} onDoubleClick={() => openItem(item)} onContextMenu={(event) => contextMenu(event, item.id)} onKeyDown={(event) => { if (event.key === 'Enter') openItem(item); if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) contextMenu(event as any, item.id); }} onDragStart={(event) => { dragged.current = item.entry.fileId; event.dataTransfer.setData('text/plain', item.entry.fileId); event.dataTransfer.effectAllowed = 'move'; }} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); const id = dragged.current || event.dataTransfer.getData('text/plain'); dragged.current = null; if (!id || id === item.entry.fileId) return; const from = positions[id]; const to = positions[item.entry.fileId]; if (from && to) placeCells({ [id]: to, [item.entry.fileId]: from }); }} className={`group flex min-w-0 flex-col items-center gap-1 rounded-lg px-1 py-2 text-center outline-none focus-visible:ring-2 focus-visible:ring-sky-500 ${isSelected ? 'bg-sky-100 ring-1 ring-sky-400 dark:bg-sky-950/50 dark:ring-sky-700' : 'hover:bg-slate-200/70 dark:hover:bg-dark-surface/70'}`} style={{ gridColumn: cell.col + 1, gridRow: cell.row + 1 }}>
+                <WindowsFileIcon entry={item.entry} size={cellSize.icon} />
                 <span className="line-clamp-2 w-full break-words text-xs leading-4" title={item.entry.name}>{title}</span>
                 {item.entry.draftId && <span className="text-xs text-slate-500 dark:text-slate-400">Черновик Flux</span>}
               </div>;
             })}
           </div>
         )}
+        {rubberband && <div aria-hidden className="pointer-events-none absolute z-20 border border-[#0067c0] bg-[#0067c0]/15" style={rubberband} />}
       </div>
       </div>
 

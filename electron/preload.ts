@@ -83,7 +83,13 @@ contextBridge.exposeInMainWorld('electron', {
       const result = await ipcRenderer.invoke('windows-files:invoke', { action: 'icon', ref });
       return result?.ok === true && typeof result.data === 'string' ? result.data : null;
     },
-    invoke: (request: unknown) => ipcRenderer.invoke('windows-files:invoke', request),
+    // Через contextBridge AbortSignal приходит обычным объектом без addEventListener,
+    // поэтому отмена — это только данные: страница сама заводит cancelId и зовёт cancel(cancelId).
+    invoke: (request: unknown, options?: { cancelId?: unknown }) => {
+      const cancelId = typeof options?.cancelId === 'string' ? options.cancelId : undefined;
+      return ipcRenderer.invoke('windows-files:invoke', cancelId && request && typeof request === 'object' ? { ...(request as object), __cancelId: cancelId } : request);
+    },
+    cancel: (cancelId: unknown) => { if (typeof cancelId === 'string') ipcRenderer.send('windows-files:cancel', cancelId); },
     onChanged: (callback: (change: unknown) => void) => {
       const listener = (_event: unknown, change: unknown) => callback(change);
       ipcRenderer.on('windows-files:changed', listener);

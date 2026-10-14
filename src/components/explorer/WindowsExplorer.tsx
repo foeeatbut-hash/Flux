@@ -18,8 +18,10 @@ import ExplorerTabs from '../files/ExplorerTabs';
 import AddressBar from '../files/AddressBar';
 import NavPane from '../files/NavPane';
 import PlaceIcon from '../files/PlaceIcon';
+import { ICON_SIZE } from '../../lib/metrics';
 import CommandBar from '../files/CommandBar';
 import ContentsPane from '../files/ContentsPane';
+import { entryKey } from '../files/useSelection';
 import SelectionPane from '../files/SelectionPane';
 import RecyclePane from '../files/RecyclePane';
 import { useExplorerTabs } from '../files/useExplorerTabs';
@@ -38,6 +40,9 @@ import { placeOf } from '../files/tabsModel';
 import { isTypingTarget } from '../files/explorerKeys';
 import { orderedEntries, VIEW_LABELS, type FolderView } from '../files/viewModel';
 import { FONT_STACK, SIZE, X as T } from '../files/explorerTheme';
+import ProjectFolderBindingDialog from './ProjectFolderBindingDialog';
+import { resolveBoundProject, effectiveProjectIds } from '../../lib/projectFolderBindings';
+import { useBindingLedger, useLocationChains } from './useProjectFolderBindings';
 
 const bytes = (n: number) => n < 1024 ? `${n} Б` : n < 1048576 ? `${(n / 1024).toFixed(0)} КБ` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} МБ` : `${(n / 1073741824).toFixed(1)} ГБ`;
 
@@ -61,12 +66,40 @@ export default function WindowsExplorer() {
   const place = tabs.place;
   const ref = place.ref || null;
   const rootId = ref?.rootId || '';
+  const [bindingDialog, setBindingDialog] = React.useState<WindowsFileRef | null>(null);
+  const [lastBindingUndo, setLastBindingUndo] = React.useState<{ undoId: string; afterRevision: number; actorId: string } | null>(null);
+  // Журнал привязок общий для всех: здесь нет ни устройства, ни корня. Менять его может лишь управляющий проектами.
+  const { bindings: projectBindings, canManage: canManageBindings, refresh: refreshBindings } = useBindingLedger(user?.id);
   const root = [...catalog.roots, ...catalog.volumes.map((v) => v.root)].find((r) => r.id === rootId);
+  React.useEffect(() => { setLastBindingUndo(null); }, [user?.id]);
+  const undoFolderBinding = async () => {
+    const undo = lastBindingUndo;
+    if (!undo || !user?.id || undo.actorId !== user.id) return;
+    const response = await fetch('/api/explorer/project-bindings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedRevision: undo.afterRevision, operation: { kind: 'undo', undoId: undo.undoId } }) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) { toast(body.error || 'Отмена не выполнена: история изменений привязки обновилась.', 'error'); setLastBindingUndo(null); return; }
+    setLastBindingUndo(body.undo?.length ? { ...undo, undoId: body.undo.at(-1).id, afterRevision: body.revision } : null);
+    refreshBindings();
+    void folder.reload();
+  };
   const folder = useFolder(ref, tabs.ready && loaded && !!ref && !!root?.available);
   const { view, setView } = useFolderView(folderKey(ref) || place.kind);
   const scopes = React.useMemo(() => searchScopes(place, catalog, quick.map((q) => q.ref)), [place, catalog, quick]);
   const search = useExplorerSearch(scopes, placeKey(place));
-  const entries = React.useMemo(() => orderedEntries((search.results.active ? search.results.hits : folder.entries).filter((entry) => view.hidden || !entry.hidden).map((entry) => entry.metadata?.projectIds.length ? { ...entry, projectNames: entry.metadata.projectIds.map((id) => projectNames[id] || 'Недоступный проект') } : entry), view), [search.results.active, search.results.hits, folder.entries, view, projectNames]);
+  const shownRows = search.results.active ? search.results.hits : folder.entries;
+  // Ключи мест нужны, только если в журнале есть привязки; без них мост не вызывается.
+  const chainRefs = React.useMemo(() => projectBindings.length ? shownRows.map((entry) => entryRef(entry, rootId)) : [], [shownRows, projectBindings.length, rootId]);
+  const { chainOf, version: chainVersion } = useLocationChains(chainRefs, projectBindings.length > 0);
+  const entries = React.useMemo(() => orderedEntries(shownRows.filter((entry) => view.hidden || !entry.hidden).map((entry) => {
+    const manual = entry.metadata?.projectIds || [];
+    const inherited = manual.length || !entry.rootId && !rootId ? null : resolveBoundProject(projectBindings, chainOf(entryRef(entry, rootId)));
+    const projectIds = effectiveProjectIds(manual, inherited);
+    const metadata = entry.metadata || inherited ? { ...(entry.metadata || { fileId: entry.fileId, tags: [], revision: '', responsible: '', history: [] }), projectIds } : undefined;
+    // Сохраняем ссылку на строку без проектных метаданных: при обновлении списка
+    // это не запускает повторное раскрытие выбранной строки и не двигает прокрутку.
+    if (!metadata && !projectIds.length) return entry;
+    return { ...entry, ...(metadata ? { metadata } : {}), ...(projectIds.length ? { projectNames: projectIds.map((id) => projectNames[id] || 'Недоступный проект') } : {}) };
+  }), view), [shownRows, view, projectNames, projectBindings, chainOf, chainVersion, rootId]);
   const selection = useSelection(entries, `${placeKey(place)}:${search.results.active}`);
   const single = selection.selected.length === 1 ? selection.selected[0] : null;
   const operations = useExplorerOperations({ folder: ref, rootId, selected: selection.selected, reload: folder.reload });
@@ -138,7 +171,8 @@ export default function WindowsExplorer() {
     if (!loaded || !place.ref || place.trail[0]?.name !== 'Папка') return;
     tabs.go(placeForRef(place.ref, catalog));
   }, [loaded, catalog]);
-  React.useEffect(() => { revealEntry(folder.scrollRef.current, selection.focused?.fileId || null); }, [selection.focused?.fileId]);
+  const focusedEntryKey = selection.focused ? entryKey(selection.focused) : null;
+  React.useEffect(() => { revealEntry(folder.scrollRef.current, focusedEntryKey); }, [focusedEntryKey]);
   // Ссылка и активная вкладка описывают одно место. Собственный переход не создаёт вторую запись истории.
   const ownUrl = React.useRef('');
   React.useEffect(() => {
@@ -232,7 +266,7 @@ export default function WindowsExplorer() {
     { label: 'Копировать', separated: true, onClick: () => void ops.copy(menuEntries) }, { label: 'Вырезать', onClick: () => void ops.cut(menuEntries) },
     { label: 'Переименовать', disabled: menuEntries.length !== 1, onClick: () => setRename({ entry: targetEntry, rootId, name: targetEntry.name }) },
     { label: 'Копировать как путь', onClick: () => { void command({ action: 'copyPath', refs: menuEntries.map((e) => entryRef(e, rootId)) }); } },
-    ...(targetEntry.kind === 'directory' ? [{ label: 'Открыть в новой вкладке', onClick: () => tabs.open(childPlace(place, targetEntry)) }, { label: 'Закрепить в быстром доступе', disabled: !!targetEntry.draftId, onClick: () => { void usePlacesStore.getState().pin(entryRef(targetEntry, rootId), true).then((result) => { if (!result.ok) toast(result.message || 'Не удалось закрепить папку', 'error'); }); } }] : []),
+    ...(targetEntry.kind === 'directory' ? [...(canManageBindings ? [{ label: 'Привязать к проекту', separated: true, disabled: !!targetEntry.draftId || !root?.available, onClick: () => setBindingDialog(entryRef(targetEntry, rootId)) }] : []), { label: 'Открыть в новой вкладке', onClick: () => tabs.open(childPlace(place, targetEntry)) }, { label: 'Закрепить в быстром доступе', disabled: !!targetEntry.draftId, onClick: () => { void usePlacesStore.getState().pin(entryRef(targetEntry, rootId), true).then((result) => { if (!result.ok) toast(result.message || 'Не удалось закрепить папку', 'error'); }); } }] : []),
     ...(targetEntry.storage === 'flux' ? [{ label: 'Опубликовать в Windows', onClick: () => operations.publish(targetEntry) }] : []),
     { label: 'Сжать в ZIP-файл', disabled: !ref || !!ref.draftId || menuEntries.some((e) => !!e.draftId), onClick: () => { if (ref) setArchive({ refs: menuEntries.map((e) => entryRef(e, rootId)), parent: { ...ref }, name: targetEntry.name.replace(/\.[^.]+$/u, '') + '.zip' }); } },
     { label: 'Удалить', danger: true, separated: true, onClick: () => void ops.trash(menuEntries) },
@@ -251,7 +285,8 @@ export default function WindowsExplorer() {
   return <div ref={screen} tabIndex={0} onKeyDown={onKeyDown} data-windows-explorer className={`@container flex h-full min-h-0 min-w-0 flex-col outline-none [color-scheme:light] dark:[color-scheme:dark] ${T.pane} ${T.text}`} style={{ fontFamily: FONT_STACK }}>
     {title}
     <AddressBar place={place} catalog={catalog} canBack={tabs.canBack} canForward={tabs.canForward} recent={tabs.recent} search={search} onBack={back} onForward={forward} onUp={up} onRefresh={refresh} onOpen={go} onJump={tabs.jump} focusAddressToken={addressToken} focusSearchToken={searchToken} />
-    <CommandBar view={view} onView={setView} selected={selection.selected.length} busy={busy} canPaste={!!ops.clip && canWrite} onCut={() => void ops.cut(selection.selected)} onCopy={() => void ops.copy(selection.selected)} onPaste={() => void ops.paste()} onRename={askRename} onDelete={() => void ops.trash(selection.selected)} onShare={single && user?.id && !root?.network ? () => setShare(single) : undefined} onUndo={operations.undoLast} onRedo={operations.redoLast} undo={operations.undo.undo?.label} redo={operations.undo.redo?.label} pane={pane} onPane={setPane} onProperties={() => { if (single) showProperties(single); }} />
+    <CommandBar view={view} onView={setView} selected={selection.selected.length} busy={busy} canPaste={!!ops.clip && canWrite} onCut={() => void ops.cut(selection.selected)} onCopy={() => void ops.copy(selection.selected)} onPaste={() => void ops.paste()} onRename={askRename} onDelete={() => void ops.trash(selection.selected)} onShare={single && user?.id && !root?.network ? () => setShare(single) : undefined} onUndo={operations.undoLast} onRedo={operations.redoLast} undo={operations.undo.undo?.label} redo={operations.undo.redo?.label} pane={pane} onPane={setPane} onProperties={() => { if (single) showProperties(single); }} onBindFolder={canManageBindings && ref && root?.available ? () => setBindingDialog(ref) : undefined} />
+    {lastBindingUndo && user?.id === lastBindingUndo.actorId && <button type="button" className="mx-3 my-1 self-start text-xs text-sky-700 underline dark:text-sky-300" onClick={() => void undoFolderBinding()}>Отменить последнее изменение привязки папки</button>}
     <div className="flex min-h-0 flex-1">
       <NavPane place={place} onOpen={go} onOpenInNewTab={(next) => tabs.open(next, false)} />
       <main ref={main} className="flex min-w-0 flex-1 flex-col" onDragOver={(e) => { if (canWrite) { e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; } }} onDrop={(e) => { if (ref) operations.drop(e); }} onContextMenu={(e) => { if (ref) { e.preventDefault(); setShellMenu(null); setContext({ x: e.clientX, y: e.clientY }); } }}>
@@ -261,13 +296,14 @@ export default function WindowsExplorer() {
         {recycle ? <RecyclePane onChanged={refresh} /> : search.results.active || ref ? <>
           {search.results.active && <p role="status" className={`px-4 py-2 text-xs ${T.muted}`}>{search.results.status === 'running' ? 'Поиск…' : 'Результаты поиска'} · найдено: {entries.length}{search.results.reason && search.results.reason !== 'complete' ? ` · ${search.results.reason === 'canceled' ? 'остановлен' : 'достигнуто ограничение поиска'}` : ''}</p>}
           {!root?.available && ref ? <p className={`p-4 text-xs ${T.muted}`}>Папка недоступна. Проверьте подключение и обновите список.</p> : !entries.length ? <p className={`p-4 text-xs ${T.muted}`}>{folder.loading || !tabs.ready ? 'Открываю папку…' : folder.error ? 'Список папки недоступен.' : search.results.active ? 'Файлы не найдены.' : folder.listing?.unreadableCount ? 'Нет доступных для показа объектов.' : 'Эта папка пуста.'}</p> : <ContentsPane entries={entries} rootId={rootId} selection={selection} view={view} onViewChange={setView} editing={rename ? { fileId: rename.entry.fileId, value: rename.name, onChange: (name) => setRename({ ...rename, name }), onCommit: () => void commitRename(), onCancel: () => setRename(null) } : undefined} onOpen={openEntry} onContext={(e, entry) => { e.preventDefault(); e.stopPropagation(); selection.context(entry); setShellMenu(null); setContext({ x: e.clientX, y: e.clientY, entry }); }} onDragStart={beginDrag} onDrop={(event, entry) => operations.drop(event, entryRef(entry, rootId))} scrollRef={folder.scrollRef} loadMore={() => void folder.loadMore()} hasMore={!search.results.active && folder.nextOffset !== null} busy={folder.loading} />}
-        </> : place.kind === 'home' ? <div className="flex-1 overflow-auto p-5 text-xs"><h2 className="mb-4 text-sm">Быстрый доступ</h2><div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">{(quick.length ? quick : catalog.roots.map((r) => ({ name: r.name, ref: { rootId: r.id, relativePath: '' }, pinned: false }))).map((item) => <button key={`${item.ref.rootId}:${item.ref.relativePath}`} type="button" onDoubleClick={() => go(placeForRef(item.ref, catalog))} onClick={() => go(placeForRef(item.ref, catalog))} className={`flex items-center gap-2 rounded p-3 text-left ${T.paneHover}`}>{item.name}</button>)}</div>{sharedSources.length > 0 && <button className="mt-6" onClick={() => navigate('/explorer?view=shared')}>Общий доступ · {sharedSources.length}</button>}<div className="mt-6 flex gap-4"><button onClick={() => setRecycle(true)}>Корзина</button><button onClick={() => navigate('/explorer?projectFiles=1')}>Документы проекта</button></div></div> : <div className="flex-1 overflow-auto px-3 py-2"><h2 className="mb-3 text-sm">{computer ? 'Устройства и диски' : 'Сетевые расположения'}</h2><div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">{locations.map((v) => <button key={v.id} type="button" disabled={!v.root.available} onDoubleClick={() => go(placeForRoot(v.root.id, catalog))} onClick={() => go(placeForRoot(v.root.id, catalog))} className={`flex min-w-0 items-center gap-3 rounded p-2 text-left text-xs ${T.paneHover} disabled:opacity-40`}><PlaceIcon kind="folder" name={v.name} fileRef={{ rootId: v.root.id, relativePath: '' }} size={40} /><span className="min-w-0 flex-1"><span className="block truncate">{v.name}</span>{v.size != null && v.free != null && <><span className="my-1 block h-3 border border-[#a0a0a0] bg-[#e5e5e5] dark:bg-[#e5e5e5]"><span className={`block h-full ${v.free / v.size < .1 ? 'bg-[#c42b1c] dark:bg-[#ff4343]' : 'bg-[#0078d4] dark:bg-[#0078d4]'}`} style={{ width: `${Math.min(100, Math.max(0, (v.size - v.free) / v.size * 100))}%` }} /></span><span className={`block ${T.muted}`}>{bytes(v.free)} свободно из {bytes(v.size)}</span></>}</span></button>)}</div>{place.kind === 'network' && catalog.roots.filter((r) => r.network).map((r) => <button key={r.id} onClick={() => go(placeForRoot(r.id, catalog))} className={`m-2 rounded p-3 text-xs ${T.paneHover}`}>{r.name}</button>)}</div>}
+        </> : place.kind === 'home' ? <div className="flex-1 overflow-auto p-5 text-xs"><h2 className="mb-4 text-sm">Быстрый доступ</h2><div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">{(quick.length ? quick : catalog.roots.map((r) => ({ name: r.name, ref: { rootId: r.id, relativePath: '' }, pinned: false }))).map((item) => <button key={`${item.ref.rootId}:${item.ref.relativePath}`} type="button" onDoubleClick={() => go(placeForRef(item.ref, catalog))} onClick={() => go(placeForRef(item.ref, catalog))} className={`flex items-center gap-2 rounded p-3 text-left ${T.paneHover}`}>{item.name}</button>)}</div>{sharedSources.length > 0 && <button className="mt-6" onClick={() => navigate('/explorer?view=shared')}>Общий доступ · {sharedSources.length}</button>}<div className="mt-6 flex gap-4"><button onClick={() => setRecycle(true)}>Корзина</button></div></div> : <div className="flex-1 overflow-auto px-3 py-2"><h2 className="mb-3 text-sm">{computer ? 'Устройства и диски' : 'Сетевые расположения'}</h2><div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">{locations.map((v) => <button key={v.id} type="button" disabled={!v.root.available} onDoubleClick={() => go(placeForRoot(v.root.id, catalog))} onClick={() => go(placeForRoot(v.root.id, catalog))} className={`flex min-w-0 items-center gap-3 rounded p-2 text-left text-xs ${T.paneHover} disabled:opacity-40`}><PlaceIcon kind="folder" name={v.name} fileRef={{ rootId: v.root.id, relativePath: '' }} glyph="drive" size={ICON_SIZE.medium} /><span className="min-w-0 flex-1"><span className="block truncate">{v.name}</span>{v.size != null && v.free != null && <><span className="my-1 block h-3 border border-[#a0a0a0] bg-[#e5e5e5] dark:bg-[#e5e5e5]"><span className={`block h-full ${v.free / v.size < .1 ? 'bg-[#c42b1c] dark:bg-[#ff4343]' : 'bg-[#0078d4] dark:bg-[#0078d4]'}`} style={{ width: `${Math.min(100, Math.max(0, (v.size - v.free) / v.size * 100))}%` }} /></span><span className={`block ${T.muted}`}>{bytes(v.free)} свободно из {bytes(v.size)}</span></>}</span></button>)}</div>{place.kind === 'network' && catalog.roots.filter((r) => r.network).map((r) => <button key={r.id} onClick={() => go(placeForRoot(r.id, catalog))} className={`m-2 rounded p-3 text-xs ${T.paneHover}`}>{r.name}</button>)}</div>}
       </main>
       {pane !== 'none' && !recycle && <SelectionPane entries={selection.selected} rootId={single?.rootId || rootId} mode={pane} onProperties={showProperties} />}
     </div>
     <footer data-explorer-status className={`flex h-6 shrink-0 items-center gap-3 px-3 text-xs bg-[#f3f3f3] dark:bg-[#1c1c1c] ${T.text}`}><span>Элементов: {ref || search.results.active ? entries.length : locations.length}{folder.nextOffset !== null && ref ? '+' : ''}</span>{selection.selected.length > 0 && <span>Выбрано: {selection.selected.length} · {bytes(selection.selected.reduce((n, e) => n + (e.kind === 'file' ? e.size : 0), 0))}</span>}{operations.progress && <span role="status">{operations.progress.label} {operations.progress.done}/{operations.progress.total}</span>}<span className="flex-1" /><button type="button" title="Таблица" aria-label="Таблица" onClick={() => setView({ ...view, layout: 'details' })}><List size={16} /></button><button type="button" title="Крупные значки" aria-label="Крупные значки" onClick={() => setView({ ...view, layout: 'large' })}><Grid2X2 size={16} /></button></footer>
     {context && <ContextMenu x={context.x} y={context.y} items={contextItems} onClose={() => { setContext(null); setShellMenu(null); }} />}
     {properties && <PropertiesWindow key={`${properties.rootId}:${properties.entry.fileId}`} {...properties} onClose={() => setProperties(null)} />}
+    {bindingDialog && <ProjectFolderBindingDialog folder={bindingDialog} title={bindingDialog.relativePath.split(/[\\/]/u).filter(Boolean).pop() || place.name} onClose={() => setBindingDialog(null)} onChanged={(undo) => { setLastBindingUndo(undo ? { ...undo, actorId: user?.id || '' } : null); refreshBindings(); void folder.reload(); }} />}
     {share && user?.id && <FileShareDialog actorId={user.id} source={entryRef(share, rootId)} name={share.name} onClose={() => setShare(null)} />}
 
     {handlers && single && <Dialog title="Открыть с помощью" onClose={() => setHandlers(null)}>{handlers.length ? handlers.map((handler) => <button className={`block w-full rounded p-3 text-left text-xs ${T.paneHover}`} key={handler.id} onClick={() => { void command({ action: 'openWith', ref: entryRef(single, rootId), handlerId: handler.id }); setHandlers(null); }}>{handler.name}</button>) : <p className="text-xs">Windows не сообщила подходящие приложения.</p>}</Dialog>}

@@ -20,6 +20,12 @@ const nested: WindowsFileEntry[] = [
   { name: 'Заметка.txt', relativePath: 'Проекты/Заметка.txt', storage: 'windows', kind: 'file', fileId: 'file-4', size: 6, modifiedAt: '2026-09-22T09:00:00.000Z', linked: false },
   { name: 'Архив', relativePath: 'Проекты/Архив', storage: 'windows', kind: 'directory', fileId: 'folder-2', size: 0, modifiedAt: '2026-09-18T09:00:00.000Z', linked: false },
 ];
+// ?mix=1 — на столе и в «Проекты» лежат файлы разных форматов: так снимают значки (scripts/shoot-icons-stand.ts)
+if (new URLSearchParams(location.search).get('mix')) {
+  const mixed = ['Договор.docx', 'Смета.xlsx', 'Чертёж АР-01.pdf', 'Схема щита.dwg', 'Проект.e3s', 'Заметки.md', 'Фото узла.png', 'Архив.zip', 'Данные.json',
+    'Доклад.pptx', 'Обзор.mp4', 'Setup.exe', 'Ярлык.lnk', 'Ведомость.csv', 'Старый.doc', 'Модель.sldprt', 'Библиотека.dll', 'Журнал.log', 'Запись.wav'];
+  entries.splice(1, entries.length, ...mixed.map((name, index): WindowsFileEntry => ({ name, relativePath: name, storage: 'windows', kind: 'file', fileId: `mix-${index}`, size: 1500 * (index + 1), modifiedAt: `2026-09-${String(10 + index).padStart(2, '0')}T09:00:00.000Z`, linked: false })));
+}
 const diskRoot: WindowsRoot = { id: 'disk-c', name: 'Локальный диск (C:)', kind: 'custom', available: true };
 const volumes: WindowsVolume[] = [{ id: 'volume-c', name: 'Локальный диск (C:)', kind: 'fixed', size: 256 * 1024 ** 3, free: 128 * 1024 ** 3, root: diskRoot }];
 const metadata: WindowsFileMetadata = { fileId: 'file-3', tags: ['AHU-01'], projectIds: ['project-1'], revision: 'A', responsible: 'Иванов', history: [{ at: '2026-09-22T09:00:00.000Z', action: 'save', relativePath: 'Проекты/Отчёт.xlsx' }] };
@@ -38,7 +44,17 @@ const searchEvents: import('../../filesystem/contracts').WindowsSearchEvent[] = 
 let draftSequence = 0;
 // Большая папка: 450 файлов, список отдаётся страницами по offset/limit, как настоящий мост
 const BIG = 'Большая';
-const bigEntries: WindowsFileEntry[] = Array.from({ length: 450 }, (_, index) => ({ name: `Файл ${String(index + 1).padStart(3, '0')}.txt`, relativePath: `${BIG}/Файл ${String(index + 1).padStart(3, '0')}.txt`, storage: 'windows', kind: 'file', fileId: `big-${index + 1}`, size: 100 + index, modifiedAt: '2026-09-10T09:00:00.000Z', linked: false }));
+const bigEntries: WindowsFileEntry[] = Array.from({ length: 450 }, (_, index) => ({ name: `Файл ${String(index + 1).padStart(3, '0')}.txt`, relativePath: `${BIG}/Файл ${String(index + 1).padStart(3, '0')}.txt`, storage: 'windows', kind: 'file', fileId: `big-${index + 1}`, size: 100 + index, modifiedAt: '2026-09-10T09:00:00.000Z', linked: false, ...(index === 149 ? { metadata: { ...metadata, fileId: 'big-150' } } : {}) }));
+/** Снимок-заглушка для миниатюры: небо, холм, солнце */
+function photoThumbnail(): string {
+  const canvas = document.createElement('canvas'); canvas.width = 96; canvas.height = 96;
+  const context = canvas.getContext('2d')!;
+  const sky = context.createLinearGradient(0, 0, 0, 96); sky.addColorStop(0, '#5aa9e6'); sky.addColorStop(1, '#cfe8f7');
+  context.fillStyle = sky; context.fillRect(0, 0, 96, 96);
+  context.fillStyle = '#f6c945'; context.beginPath(); context.arc(70, 26, 11, 0, Math.PI * 2); context.fill();
+  context.fillStyle = '#4c9a5b'; context.beginPath(); context.ellipse(36, 100, 70, 38, 0, Math.PI, 0); context.fill();
+  return canvas.toDataURL('image/png');
+}
 const parentOf = (path: string) => path.split('/').slice(0, -1).join('/');
 const sourceEntry = (relativePath: string) => [...entries, ...nested, ...bigEntries, ...created, ...drafts].find((item) => item.relativePath === relativePath);
 const draftChildren = new Map<string, WindowsFileEntry[]>();
@@ -46,7 +62,7 @@ let delayedMetadataPath = '';
 let failedMetadataPath = '';
 let delayedListPath = '';
 let delayedSearchMs = 0;
-let listFault: 'none' | 'root-denied' | 'refresh-denied' | 'partial' = 'none';
+let listFault: 'none' | 'root-denied' | 'refresh-denied' | 'desktop-refresh-denied' | 'partial' = 'none';
 (window as any).__setExplorerListFault = (fault: typeof listFault) => { listFault = fault; };
 
 function childPath(ref: WindowsFileRef): WindowsFileEntry[] {
@@ -113,6 +129,9 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
     case 'searchCancel': canceledSearches.add(request.requestId); return { ok: true, data: {} };
     case 'children': return { ok: true, data: childFolders(request.ref, request.peek === true) };
     case 'list': {
+      if (listFault === 'desktop-refresh-denied' && request.ref.rootId === 'desktop-id') {
+        return { ok: false, error: { code: 'EPERM', message: 'Windows запретила доступ к этому объекту.' } };
+      }
       if ((listFault === 'root-denied' || listFault === 'refresh-denied') && request.ref.relativePath === '') {
         return { ok: false, error: { code: 'EPERM', message: 'Windows запретила доступ к этому объекту.' } };
       }
@@ -126,11 +145,24 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
       const found = sourceEntry(request.ref.relativePath);
       return found ? { ok: true, data: { sha256: 'a'.repeat(64), size: found.size } } : { ok: false, error: { code: 'NOT_FOUND', message: 'Объект не найден.' } };
     }
+    // Эмуляция сетевого ресурса: ключ места — hex от пути внутри корня; настоящий main отдаёт sha256 от UNC.
+    case 'locationKeys': {
+      const keyOf = (path: string) => Array.from(new TextEncoder().encode(`net:${path.toLowerCase()}`), (b) => b.toString(16).padStart(2, '0')).join('');
+      const keys: string[] = []; const chains = request.refs.map((ref) => {
+        const parts = ref.relativePath.split('/').filter(Boolean); const chain: number[] = [];
+        for (let length = parts.length; length >= 0; length--) { const key = keyOf(parts.slice(0, length).join('/')); let index = keys.indexOf(key); if (index < 0) { index = keys.length; keys.push(key); } chain.push(index); }
+        return chain;
+      });
+      return { ok: true, data: { keys, chains } };
+    }
     case 'stat': {
       const found = sourceEntry(request.ref.relativePath);
       return found ? { ok: true, data: found } : { ok: false, error: { code: 'NOT_FOUND', message: 'Объект не найден.' } };
     }
-    case 'thumbnail': return { ok: true, data: { dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/Fv8AAAAASUVORK5CYII=', width: 1, height: 1, thumbnail: false } };
+    // thumbnailOnly — как у настоящего моста: у файла без содержимого-картинки миниатюры нет (null), значок типа не отдаётся
+    case 'thumbnail': return request.thumbnailOnly && !/\.(png|jpe?g|gif|bmp|webp)$/i.test(request.ref.relativePath)
+      ? { ok: true, data: null }
+      : { ok: true, data: { dataUrl: photoThumbnail(), width: 96, height: 96, thumbnail: request.thumbnailOnly === true } };
     case 'read': return { ok: true, data: { name: request.ref.relativePath, base64: 'eA==', sha256: 'a'.repeat(64) } };
     case 'createDraft': {
       const id = ++draftSequence;
@@ -218,7 +250,9 @@ useDisplayStore.setState({ workspace: { enabled: true, displays: [
 useDesktopStore.getState().pinApp('/registry');
 (window as any).fetch = async (url: string) => {
   const path = String(url);
-  const body = path.includes('/file-sharing/received') ? { files: [] }
+  // Общий журнал привязок: стенд управляется флагами страницы (__canManageBindings, __bindings).
+  const body = path.includes('/api/explorer/project-bindings') ? { revision: 0, canManage: (window as any).__canManageBindings !== false, bindings: (window as any).__bindings || [], undo: [] }
+    : path.includes('/file-sharing/received') ? { files: [] }
     : path.includes('/tags') ? { tags: [{ id: 'tag-1', identifier: 'AHU-01' }, { id: 'tag-2', identifier: 'P-01' }] }
       : { projects: [{ id: 'project-1', name: 'Проект 1' }, { id: 'project-2', name: 'Проект 2' }] };
   return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });

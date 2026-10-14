@@ -13,6 +13,7 @@ import { ShellCommands } from './shellCommands';
 import { ExplorerBridge, EXPLORER_WRITE_ACTIONS, isExplorerAction, undoGroup } from './explorerBridge';
 import { ViewStateStore } from './viewState';
 import { resolveEquipmentSourceFolder, resolveEquipmentSourceSelection } from './equipmentSourcePicker';
+import { ImportRefStore } from './importRefs';
 
 export interface WindowsFilesIpcOptions {
   isTrusted: (event: IpcMainInvokeEvent) => boolean;
@@ -22,7 +23,7 @@ export interface WindowsFilesIpcOptions {
 const WRITE_ACTIONS = new Set(['write', 'publish', 'createDraft', 'createDraftFolder', 'publishDraft', 'publishDraftTree', 'restoreDraft', 'mkdir', 'rename', 'copy', 'move', 'trash', 'permanentDelete', 'replaceCopy', 'archive', 'purgeDraft', 'setMetadata', ...EXPLORER_WRITE_ACTIONS]);
 const ERROR_MESSAGES: Record<string, string> = {
   EACCES: 'Windows не разрешает доступ к файлу. Проверьте права папки.',
-  EPERM: 'Windows запретила доступ к файлу или папке. Проверьте права доступа.',
+  EPERM: 'Windows защищает этот системный файл. Flux не будет автоматически повторять запрос; откройте другой объект или проверьте права доступа.',
   EBUSY: 'Файл открыт другой программой. Закройте его и повторите действие.',
   ENOSPC: 'На диске недостаточно свободного места. Черновик в Flux сохранён.',
   ENOENT: 'Файл или папка недоступны. Обновите список или проверьте подключение диска.',
@@ -42,9 +43,17 @@ export function windowsFilesFailure(error: any): WindowsFilesResponse {
 }
 export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): Promise<WindowsFilesService> {
   const activeSenders = new Set<number>();
+  const importRefs = new ImportRefStore();
   const icons = new Map<string, { at: number; value: Promise<string | null> }>();
   // Нативный помощник поднимается при первом обращении и сам засыпает; до этого он ничего не стоит.
   const nativeHost = new NativeShellHost();
+  const detailHost = new NativeShellHost({ requestMs: 20_000 });
+  const detailRequests = new Map<string, AbortController>();
+  ipcMain.on('windows-files:cancel', (event: IpcMainEvent, requestId: unknown) => {
+    if (typeof requestId !== 'string' || !/^[0-9a-f-]{36}$/iu.test(requestId)) return;
+    try { if (!options.isTrusted(event as unknown as IpcMainInvokeEvent)) return; } catch { return; }
+    detailRequests.get(`${event.sender.id}:${requestId}`)?.abort();
+  });
   let shellCommands: ShellCommands;
   const service = await WindowsFilesService.create({
     userData: app.getPath('userData'),
@@ -62,11 +71,12 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
       target.startDrag({ file: files[0], files, icon: icon.isEmpty() ? nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/lX8AAAAASUVORK5CYII=') : icon });
     },
     onChanged: change => {
+      icons.clear();
       // События несут лишь capability и относительный путь; содержимое повторно читается с проверкой сессии.
       for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed() && activeSenders.has(window.webContents.id)) window.webContents.send(WINDOWS_FILES_CHANGED, change);
     },
   });
-  shellCommands = new ShellCommands(service, nativeHost);
+  shellCommands = new ShellCommands(service, nativeHost, {}, detailHost);
   const viewState = await ViewStateStore.load(app.getPath('userData'));
   const explorer = new ExplorerBridge({ service, shell: shellCommands, viewState,
     // Страница поиска уходит только окну, которое его запустило и ещё живо.
@@ -79,16 +89,25 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
   const publicDesktop = await windowsPublicDesktopFolder();
   if (publicDesktop) await service.addRoot(publicDesktop, 'Общий рабочий стол').catch(() => undefined);
   ipcMain.handle(WINDOWS_FILES_CHANNEL, async (event, request: WindowsFilesRequest): Promise<WindowsFilesResponse> => {
+    // Отмена регистрируется до первого await: cancel может прийти, пока идёт проверка прав, и не должен потеряться.
+    const cancelId = (request as any)?.__cancelId;
+    const cancellable = request?.action === 'systemProperties' || request?.action === 'thumbnail';
+    const requestKey = typeof cancelId === 'string' && /^[0-9a-f-]{36}$/iu.test(cancelId) ? `${event.sender.id}:${cancelId}` : '';
+    const controller = cancellable && requestKey ? new AbortController() : undefined;
+    if (controller) detailRequests.set(requestKey, controller);
     try {
       if (!options.isTrusted(event) || !await options.mayRead(event)) throw new WindowsFilesError('UNAUTHORIZED', 'Войдите в Flux для работы с файлами этого компьютера.');
       if (!request || typeof request !== 'object' || typeof request.action !== 'string') throw new WindowsFilesError('INVALID_REQUEST', 'Некорректная команда проводника.');
       if (WRITE_ACTIONS.has(request.action) && !await options.mayWrite(event)) throw new WindowsFilesError('READ_ONLY', 'Изменение файлов недоступно: проверьте права и лицензию Flux.');
       if (!activeSenders.has(event.sender.id)) {
         activeSenders.add(event.sender.id);
-        event.sender.once('destroyed', () => { activeSenders.delete(event.sender.id); service.closeOwner(event.sender.id); explorer.closeOwner(event.sender.id); });
+          event.sender.once('destroyed', () => {
+          activeSenders.delete(event.sender.id); service.closeOwner(event.sender.id); explorer.closeOwner(event.sender.id); importRefs.closeOwner(event.sender.id);
+          for (const [key, controller] of detailRequests) if (key.startsWith(`${event.sender.id}:`)) { controller.abort(); detailRequests.delete(key); }
+        });
       }
       let data: unknown;
-      switch (request.action) {
+      { switch (request.action) {
         case 'roots': data = await service.roots(); break;
         case 'volumes': {
           const volumes = await enumerateWindowsVolumes();
@@ -137,6 +156,20 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
           data = { canceled: false, files };
           break;
         }
+        case 'pickImportRefs': {
+          const requested = Array.isArray(request.extensions) ? request.extensions : [];
+          const extensions = [...new Set(requested.map(value => String(value).toLowerCase().replace(/^\./u, '')).filter(value => /^[a-z0-9][a-z0-9_-]{0,15}$/u.test(value)))].slice(0, 20);
+          const filters = extensions.length ? [{ name: `Файлы для импорта (${extensions.map(ext => `.${ext}`).join(', ')})`, extensions }, { name: 'Все файлы', extensions: ['*'] }] : [{ name: 'Все файлы', extensions: ['*'] }];
+          const window = BrowserWindow.fromWebContents(event.sender);
+          const config = { title: 'Выберите файл для импорта', buttonLabel: 'Выбрать', properties: request.multiple ? ['openFile', 'multiSelections'] as ('openFile' | 'multiSelections')[] : ['openFile'] as ('openFile')[], filters };
+          const result = window ? await dialog.showOpenDialog(window, config) : await dialog.showOpenDialog(config);
+          if (result.canceled) { data = { canceled: true, files: [] }; break; }
+          data = { canceled: false, files: await importRefs.registerPaths(event.sender.id, result.filePaths) };
+          break;
+        }
+        case 'prepareImportRefs': data = { files: await importRefs.registerRefs(event.sender.id, service, request.refs) }; break;
+        case 'readImportRef': data = await importRefs.read(event.sender.id, request.ticket, request.offset, request.length); break;
+        case 'releaseImportRefs': importRefs.release(event.sender.id, request.tickets); data = { released: true }; break;
         case 'pickEquipmentSource': {
           const window = BrowserWindow.fromWebContents(event.sender);
           const config = { title: 'Выберите XML-источник оборудования', buttonLabel: 'Выбрать', properties: ['openFile'] as ('openFile')[], filters: [{ name: 'XML', extensions: ['xml'] }] };
@@ -167,12 +200,15 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
         case 'icon': {
           const filename = await service.iconPath(request.ref);
           if (!filename) { data = null; break; }
-          let cached = icons.get(filename);
+          const stat = await fs.stat(filename).catch(() => null);
+          if (!stat) { data = null; break; }
+          const iconKey = `${filename}\0${stat.mtimeMs}\0${stat.size}`;
+          let cached = icons.get(iconKey);
           if (!cached || Date.now() - cached.at > 60000) {
             if (icons.size >= 512) icons.delete(icons.keys().next().value!);
             cached = { at: Date.now(), value: app.getFileIcon(filename, { size: 'large' })
               .then(icon => icon.isEmpty() ? null : icon.toDataURL()).catch(() => null) };
-            icons.set(filename, cached);
+            icons.set(iconKey, cached);
           }
           data = await cached.value;
           break;
@@ -208,11 +244,13 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
         case 'unwatch': data = await service.unwatch(request.ref, event.sender.id); break;
         default:
           if (!isExplorerAction(request.action)) throw new WindowsFilesError('INVALID_ACTION', 'Команда проводника неизвестна.');
-          data = await explorer.handle(request, event.sender.id);
+          data = await explorer.handle(request, event.sender.id, controller?.signal);
       }
       return { ok: true, data };
+      }
     } catch (error) { return windowsFilesFailure(error); }
+    finally { if (controller && detailRequests.get(requestKey) === controller) detailRequests.delete(requestKey); }
   });
-  app.once('before-quit', () => { service.close(); nativeHost.close(); });
+  app.once('before-quit', () => { service.close(); nativeHost.close(); detailHost.close(); });
   return service;
 }

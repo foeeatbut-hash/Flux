@@ -4,10 +4,10 @@ import ContextMenu from '../ContextMenu';
 import { X as T } from './explorerTheme';
 import { VIEW_LABELS, type FolderView } from './viewModel';
 
-export default function CommandBar({ view, onView, selected, busy, canPaste, onCut, onCopy, onPaste, onRename, onDelete, onShare, onUndo, onRedo, undo, redo, pane, onPane, onProperties }: {
+export default function CommandBar({ view, onView, selected, busy, canPaste, onCut, onCopy, onPaste, onRename, onDelete, onShare, onUndo, onRedo, undo, redo, pane, onPane, onProperties, onBindFolder }: {
   view: FolderView; onView: (view: FolderView) => void; selected: number; busy: boolean; canPaste: boolean;
   onCut: () => void; onCopy: () => void; onPaste: () => void; onRename: () => void; onDelete: () => void; onShare?: () => void;
-  onUndo: () => void; onRedo: () => void; undo?: string; redo?: string; pane: 'none' | 'details' | 'preview'; onPane: (pane: 'none' | 'details' | 'preview') => void; onProperties: () => void;
+  onUndo: () => void; onRedo: () => void; undo?: string; redo?: string; pane: 'none' | 'details' | 'preview'; onPane: (pane: 'none' | 'details' | 'preview') => void; onProperties: () => void; onBindFolder?: () => void;
 }) {
   const [menu, setMenu] = React.useState<{ kind: 'sort' | 'view' | 'more'; x: number; y: number } | null>(null);
   const toggle = (kind: 'sort' | 'view' | 'more', event: React.MouseEvent<HTMLButtonElement>) => { const r = event.currentTarget.getBoundingClientRect(); setMenu({ kind, x: r.left, y: r.bottom }); };
@@ -21,6 +21,7 @@ export default function CommandBar({ view, onView, selected, busy, canPaste, onC
       <span className={`mx-2 h-6 border-l ${T.line}`} />
       <button type="button" onClick={(e) => toggle('sort', e)} className={`flex h-8 shrink-0 items-center gap-2 rounded px-2 text-xs ${T.iconButton}`}><ArrowDownUp size={16} strokeWidth={1.3} />Сортировать<ChevronDown size={10} /></button>
       <button type="button" onClick={(e) => toggle('view', e)} className={`flex h-8 shrink-0 items-center gap-2 rounded px-2 text-xs ${T.iconButton}`}><Eye size={16} strokeWidth={1.3} />Просмотреть<ChevronDown size={10} /></button>
+      {onBindFolder && <button type="button" onClick={onBindFolder} disabled={busy} className={`flex h-8 shrink-0 items-center gap-2 rounded px-2 text-xs ${T.iconButton} disabled:opacity-35`}>Привязать папку</button>}
       <span className={`mx-2 h-6 border-l ${T.line}`} /><button type="button" aria-label="Дополнительно" onClick={(e) => toggle('more', e)} className={`h-8 w-10 shrink-0 rounded flex items-center justify-center ${T.iconButton}`}><MoreHorizontal size={20} /></button>
     </div>
     <button type="button" aria-pressed={pane === 'details'} onClick={() => onPane(pane === 'details' ? 'none' : 'details')} className={`flex h-8 items-center gap-2 rounded px-2 text-xs ${T.iconButton}`}><Info size={16} strokeWidth={1.3} />Сведения</button>

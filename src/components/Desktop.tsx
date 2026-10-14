@@ -39,7 +39,8 @@ import { appsFor, openHref } from '../lib/fileTypes';
 import { blankBytes, BLANK_NAME, type BlankKind } from '../lib/blankFiles';
 import { saveNewFile, editorHref } from '../lib/officeFiles';
 import FileBadge from './ui/FileBadge';
-import { filesFrom, carriesFiles, uploadDropped } from '../lib/dropUpload';
+import { filesFrom, carriesFiles, uploadDropped, type UploadFile } from '../lib/dropUpload';
+import ImportFileChooser, { type ImportFileChooserHandle } from './ImportFileChooser';
 import { dropLabel, heavyOnes, MB } from '../lib/dropFiles';
 import { saveFileNode, openInWindowsSaid } from '../lib/saveToWindows';
 import ContextMenu, { MenuItem } from './ContextMenu';
@@ -83,7 +84,7 @@ function ProjectDesktop() {
   const [carry, setCarry] = React.useState('');
   /** Сколько файлов уже легло: перенос книги на 20 МБ — дело не мгновенное */
   const [taking, setTaking] = React.useState<{ done: number; total: number } | null>(null);
-  const pickRef = React.useRef<HTMLInputElement>(null);
+  const pickRef = React.useRef<ImportFileChooserHandle>(null);
   /** Раскрытая папка: полотно поверх стола, а не окно */
   const [folder, setFolder] = React.useState<string | null>(null);
   // Начатый перенос средствами браузера отменяет перенос указателем: иначе
@@ -358,8 +359,8 @@ function ProjectDesktop() {
       icon: <FolderPlus className="w-3.5 h-3.5" />,
       items: [
         { label: 'Папку', icon: <FolderPlus className="w-3.5 h-3.5" />, onClick: () => create('folder', canPersonal ? 'PERSONAL' : 'SHARED') },
-        { label: 'Документ', icon: <FileBadge file="Документ.docx" size={14} />, onClick: () => create('doc', canPersonal ? 'PERSONAL' : 'SHARED') },
-        { label: 'Таблицу', icon: <FileBadge file="Таблица.xlsx" size={14} />, onClick: () => create('sheet', canPersonal ? 'PERSONAL' : 'SHARED') },
+        { label: 'Документ', icon: <FileBadge file="Документ.docx" size={16} />, onClick: () => create('doc', canPersonal ? 'PERSONAL' : 'SHARED') },
+        { label: 'Таблицу', icon: <FileBadge file="Таблица.xlsx" size={16} />, onClick: () => create('sheet', canPersonal ? 'PERSONAL' : 'SHARED') },
         { label: 'Заметку', icon: <StickyNote className="w-3.5 h-3.5" />, onClick: () => create('NOTE', 'PERSONAL') },
         { label: 'Таблицу на общем столе', separated: true, icon: <Users className="w-3.5 h-3.5" />, onClick: () => create('sheet', 'SHARED') },
       ],
@@ -370,7 +371,7 @@ function ProjectDesktop() {
       // невозможно
       label: 'Добавить файл…',
       icon: <ArrowDownToLine className="w-3.5 h-3.5" />,
-      onClick: () => pickRef.current?.click(),
+      onClick: () => pickRef.current?.open(),
     },
     {
       label: 'Вид',
@@ -424,7 +425,7 @@ function ProjectDesktop() {
    * src/lib/dropFiles.ts, отправка — в dropUpload.ts. Здесь только стол:
    * место значка и то, что человек видит, пока файл едет.
    */
-  const takeFiles = async (files: File[], cell: { col: number; row: number } | null) => {
+  const takeFiles = async (files: UploadFile[], cell: { col: number; row: number } | null) => {
     // Предела на размер нет, но полгигабайта лягут в общую базу и в резервную
     // копию: спрашиваем один раз, а не отказываем
     const heavy = heavyOnes(files);
@@ -541,18 +542,7 @@ function ProjectDesktop() {
 
   return (
     <>
-    {/* Выбор файла: у стола его не было вовсе — только перенос мышью */}
-    <input
-      ref={pickRef}
-      type="file"
-      multiple
-      className="hidden"
-      onChange={(e) => {
-        const picked = Array.from(e.target.files || []);
-        e.target.value = '';
-        if (picked.length) void takeFiles(picked, null);
-      }}
-    />
+    <ImportFileChooser ref={pickRef} multiple trigger={() => null} onFiles={(files) => { if (files.length) void takeFiles(files, null); }} onImportRefs={(files) => { if (files.length) void takeFiles(files, null); }} />
     <div
       ref={ref}
       onPointerDown={asList ? undefined : startBand}

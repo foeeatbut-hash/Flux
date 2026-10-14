@@ -4,6 +4,8 @@ import { XMLValidator } from 'fast-xml-parser';
 import { parseEquipmentXML } from '../server/equipmentParser.js';
 import { applyEquipmentSourceDecisions, diffEquipmentSource, sourceDecisionStatus } from '../server/equipmentSourceReview.js';
 import { decodeVerifiedSource, groupsForTarget } from '../server/routes/equipmentXmlSources.js';
+import { compareEquipmentRevisionNames, isEquipmentRevisionName, planEquipmentSourceFolderRebind } from '../src/lib/equipmentSourcesLocal.js';
+import { resolveEquipmentSourceSelection } from '../electron/filesystem/equipmentSourcePicker.js';
 
 let checks = 0;
 function check(name: string, actual: unknown, expected: unknown): void {
@@ -13,6 +15,10 @@ function check(name: string, actual: unknown, expected: unknown): void {
 }
 
 const xml = `<project><system name="Л23"><group title="Параметры"><param name="Расход" value="1,2" unit="м³/с"/><param name="Мощность" value="1200" unit="Вт"/></group><monoblock name="М1"><block name="FAN-1"><group title="Двигатель"><param name="Ток" value="2" unit="А"/></group></block></monoblock></system></project>`;
+check('папки ревизий по умолчанию распознают буквы и числа, а C1 — только по настройке', ['A', 'B', 'C', '1', '2', '3', '10'].every(value => isEquipmentRevisionName(value)) && !isEquipmentRevisionName('Backups') && !isEquipmentRevisionName('C1') && isEquipmentRevisionName('C1', ['A', 'B', 'C', 'C1']), true);
+check('числовые ревизии идут в натуральном порядке 1, 2, 3, 10', ['10', '3', '1', '2'].sort(compareEquipmentRevisionNames), ['1', '2', '3', '10']);
+check('настроенная ревизия C1 сохраняет заданный порядок', ['D', 'C1', 'C'].sort((a, b) => compareEquipmentRevisionNames(a, b, ['A', 'B', 'C', 'C1', 'D'])), ['C', 'C1', 'D']);
+check('одна перепривязка выбирает точную папку, массовая — подпапки тегов от общего корня', [planEquipmentSourceFolderRebind([{ sourceId: 'one', tagIdentifier: 'FAN-1' }], { rootId: 'root', relativePath: 'eq/FAN-1' })[0].folder.relativePath, planEquipmentSourceFolderRebind([{ sourceId: 'one', tagIdentifier: 'FAN-1' }, { sourceId: 'two', tagIdentifier: 'AHU-2' }], { rootId: 'root', relativePath: 'new-eq' }).map(item => item.folder.relativePath)], ['eq/FAN-1', ['new-eq/FAN-1', 'new-eq/AHU-2']]);
 const bytes = Buffer.from(xml, 'utf8');
 const sha256 = createHash('sha256').update(bytes).digest('hex');
 const verified = decodeVerifiedSource({ base64: bytes.toString('base64'), sha256, size: bytes.length });
@@ -72,4 +78,9 @@ assert.throws(() => diffEquipmentSource('{broken', proposed, null), /повре�
 checks++; console.log('✓ повреждённые сохранённые характеристики блокируют источник, а не считаются пустыми');
 check('повторный разбор одинаковой ревизии даёт тот же список отличий', diffEquipmentSource(current, proposed, null).map(c => c.id), changes.map(c => c.id));
 
-console.log(`\n${checks} проверок пройдено, 0 провалено`);
+async function testPicker(): Promise<void> {
+  const picker = await resolveEquipmentSourceSelection({ refForShellPath: async () => null, addRoot: async (filename: string, name?: string) => { check('пикер выдаёт только basename выбранной папки как предложенный тег', [filename, name], ['/equipment/FAN-1', 'FAN-1']); return { id: 'xml-root' }; } }, '/equipment/FAN-1/10/FAN-1.xml');
+  check('пикер распознаёт числовую ревизию родителя и не возвращает путь ОС', picker.suggestedTag, 'FAN-1');
+  check('пикер возвращает capability-ссылки без абсолютного пути', JSON.stringify(picker).includes('/equipment/FAN-1'), false);
+}
+void testPicker().then(() => console.log(`\n${checks} проверок пройдено, 0 провалено`)).catch(error => { console.error(error); process.exitCode = 1; });

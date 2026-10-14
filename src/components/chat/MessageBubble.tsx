@@ -6,6 +6,8 @@ import {
 import type { GroupMark } from './grouping';
 import { timeOf } from './grouping';
 import { parseGuideMessage } from './guideMessage';
+import FileBadge from '../ui/FileBadge';
+import { ICON_SIZE } from '../../lib/metrics';
 
 /**
  * Сообщение в переписке.
@@ -253,7 +255,7 @@ export default function MessageBubble({
                   }`}
                 >
                   <span className="flex items-center gap-2 min-w-0">
-                    <FileIcon className={`w-3.5 h-3.5 shrink-0 ${isMe ? 'text-white' : 'text-emerald-650 dark:text-emerald-400'}`} />
+                    <FileBadge file={f.fileName} size={ICON_SIZE.row} />
                     <span className="min-w-0">
                       <span className={`block text-2xs font-semibold truncate ${isMe ? 'text-white' : 'text-slate-850 dark:text-slate-150'}`}>
                         {f.fileName}

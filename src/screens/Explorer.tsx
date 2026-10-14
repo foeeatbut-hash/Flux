@@ -20,7 +20,7 @@ import { ROOT_NAME } from '../lib/explorerTabs';
 import { useInsightStore } from '../store/insightStore';
 import { useModalStore } from '../store/modalStore';
 import {
-  Folder, File as FileIcon, ChevronRight, Plus, Upload,
+  Folder, ChevronRight, Plus, Upload,
   Search, MoreVertical, Copy, Trash2, FolderPlus,
   ArrowLeft, ArrowRight, ArrowUp, Tag, PanelRight, LayoutGrid, List,
   Info, Boxes, X,
@@ -34,7 +34,9 @@ import { openInProject, useProjectNames } from '../lib/projectScope';
 import { useWindowTitle } from '../lib/paneTitle';
 import WindowsExplorer from '../components/explorer/WindowsExplorer';
 import SharedFilesFolder from '../components/explorer/SharedFilesFolder';
-import { uploadDropped } from '../lib/dropUpload';
+import { uploadDropped, type UploadFile } from '../lib/dropUpload';
+import { windowsFilesRequest } from '../lib/windowsFiles';
+import ImportFileChooser, { type ImportFileChooserHandle } from '../components/ImportFileChooser';
 import { heavyOnes, MB } from '../lib/dropFiles';
 import { saveExplorerItem, openInWindowsSaid } from '../lib/saveToWindows';
 import {
@@ -46,6 +48,7 @@ import {
   FileRowItem, FileCardItem,
 } from '../components/explorer/FileItems';
 import FileProperties from '../components/explorer/FileProperties';
+import { FileIcon } from '../components/icons/FluxIcons';
 
 
 import { useShallow } from 'zustand/react/shallow';
@@ -237,7 +240,7 @@ function ProjectExplorer() {
   
   const [assignTagModal, setAssignTagModal] = useState<{ fileId: string, mainTags: string[], additionalTags: string[] } | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<ImportFileChooserHandle>(null);
   const mainPaneRef = useRef<HTMLDivElement>(null);
 
   // Synchronizing state references for memory-safe and efficient hotkey event listener
@@ -633,9 +636,14 @@ function ProjectExplorer() {
     return await response.json();
   };
 
-  const uploadFiles = async (files: FileList | File[], targetFolderId: string | null = currentFolderId) => {
+  const uploadFiles = async (files: FileList | UploadFile[], targetFolderId: string | null = currentFolderId) => {
+    const releaseRefs = async () => {
+      const tickets = Array.from(files).filter((file): file is Extract<UploadFile, { ticket: string }> => 'ticket' in file).map(file => file.ticket);
+      if (tickets.length) await windowsFilesRequest({ action: 'releaseImportRefs', tickets });
+    };
     if (!targetFolderId) {
       addToast('Откройте раздел «Общий» или «Личный», чтобы загрузить файлы.', 'error');
+      await releaseRefs();
       return;
     }
     // У диска корень настоящий — файл ложится в него, а не «без папки»
@@ -651,7 +659,7 @@ function ProjectExplorer() {
       `${heavy.map((f) => f.name).join(', ')} — это ${MB(heavy.reduce((n, f) => n + f.size, 0))}. `
       + 'Он ляжет в общую базу и попадёт в резервную копию, а перенос займёт время. Продолжить?',
       { confirmLabel: 'Загрузить' },
-    )) return;
+    )) { await releaseRefs(); return; }
 
     // Имена, уже занятые в целевой папке: по ним считается «Смета (2).xlsx»
     const existingNames = (realFolderId === null
@@ -679,10 +687,7 @@ function ProjectExplorer() {
     fetchData();
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files.length > 0) uploadFiles(event.target.files);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
+  const handleFileUpload = (files: File[]) => { if (files.length) void uploadFiles(files); };
 
   const createEmptyFile = async (name: string, type: string, defaultContent: string) => {
      if (!currentFolderId) {
@@ -1378,20 +1383,20 @@ function ProjectExplorer() {
         {/* Современный компактный тулбар */}
         <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-slate-200 dark:border-slate-850">
            {(window as any).electron?.windowsFiles && <button type="button" onClick={() => navigate('/explorer')} className="fx-btn fx-btn-sm" aria-label="Этот компьютер">
-             <Folder className="w-4 h-4" /> Этот компьютер
+             <FileIcon kind="this-pc" size={16} /> Этот компьютер
            </button>}
            <button type="button" onClick={() => navigate('/explorer?view=shared')} className="fx-btn fx-btn-sm" aria-label="Общий доступ">
-             <Folder className="w-4 h-4" /> Общий доступ
+             <FileIcon kind="folder" size={16} /> Общий доступ
            </button>
            <button type="button" onClick={createFolder} title="Новая папка"
              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-750 shadow-xs cursor-pointer">
               <FolderPlus className="w-4 h-4 text-amber-500" /> Новая папка
            </button>
-           <button type="button" data-tour="explorer-upload-btn" onClick={() => fileInputRef.current?.click()} title="Загрузить файлы"
+           <button type="button" data-tour="explorer-upload-btn" onClick={() => fileInputRef.current?.open()} title="Загрузить файлы"
              className="fx-btn fx-btn-primary fx-btn-sm">
               <Upload className="w-4 h-4" /> Загрузить
            </button>
-           <input type="file" ref={fileInputRef} className="hidden" multiple onChange={handleFileUpload} />
+           <ImportFileChooser ref={fileInputRef} multiple label="Загрузить файлы" trigger={() => null} onFiles={handleFileUpload} onImportRefs={files => { void uploadFiles(files); }} />
 
            {selectedFileCount > 0 && (
              <>
@@ -1439,7 +1444,7 @@ function ProjectExplorer() {
           </div>
  
           <div className="flex-1 min-w-0 flex items-center bg-white dark:bg-dark-panel border border-slate-250 dark:border-dark-border px-2 py-1 rounded-md flex-wrap gap-1 hover:border-emerald-405 transition-colors">
-            <Folder className="w-4 h-4 shrink-0 text-amber-600 mr-1 @[560px]:mr-2" />
+            <FileIcon kind="folder" size={16} className="mr-1 @[560px]:mr-2" />
             {/* Корень называется «Проводник», а не именем проекта: файлы здесь
                 со всех проектов, и имя одного проекта в начале пути обещало
                 бы обратное. Чей файл — написано на самом файле. */}
@@ -1595,7 +1600,7 @@ function ProjectExplorer() {
                 <div className="flex flex-col divide-y divide-slate-100 dark:divide-dark-border">
                   {(trash?.folders || []).map((f: any) => (
                     <div key={f.id} className="flex items-center gap-3 py-2">
-                      <Folder className="w-4 h-4 text-amber-500 shrink-0" />
+                      <FileIcon kind="folder" size={16} />
                       <span className="text-sm font-medium flex-1 truncate">{f.name}</span>
                       <span className="text-2xs text-slate-400 shrink-0">папка · удалена {f.deletedAt ? format(new Date(f.deletedAt), 'dd.MM.yyyy HH:mm') : ''}</span>
                       <button type="button" onClick={() => restoreItem('folder', f.id, f.name)}
@@ -1701,7 +1706,7 @@ function ProjectExplorer() {
                              {!searchQuery && !isSmartId(currentFolderId) && (
                                <>
                                  <div className="flex items-center gap-2 pt-3">
-                                   <button type="button" onClick={() => fileInputRef.current?.click()}
+                                   <button type="button" onClick={() => fileInputRef.current?.open()}
                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-ui cursor-pointer">
                                      <Upload className="w-3.5 h-3.5" /> Загрузить файлы
                                    </button>
@@ -1902,7 +1907,7 @@ function ProjectExplorer() {
           createFolder={createFolder}
           createDoc={createOfficeFile}
           createTxt={() => createEmptyFile('Новый документ.txt', 'TXT', '')}
-          upload={() => fileInputRef.current?.click()}
+          upload={() => fileInputRef.current?.open()}
           paste={handlePaste}
           toEquipment={openImportPicker}
           attachVdr={setVdrAttachFileId}
@@ -1958,7 +1963,7 @@ function ProjectExplorer() {
         <FileProperties
           item={propertiesModal.item}
           isFile={propertiesModal.isFile}
-          icon={getFileIcon(propertiesModal.item, 'w-6 h-6')}
+          icon={getFileIcon(propertiesModal.item, 'w-8 h-8')}
           userId={user?.id || null}
           onClose={() => setPropertiesModal(null)}
           onSaved={() => { setPropertiesModal(null); fetchData(); addToast('Свойства обновлены', 'success'); }}

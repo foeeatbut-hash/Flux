@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Папка Flux — вариант «Лаконичный»</title>
+  <desc id="desc">Плоская знакомая жёлтая папка с метками виртуального объекта Flux и общего доступа.</desc>
+  <path d="M8 18a4 4 0 0 1 4-4h13l5 5h22a4 4 0 0 1 4 4v20a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4Z" fill="#f2c14e" stroke="#bd821f" stroke-width="1.5"/>
+  <path d="M8 25h48v18a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4Z" fill="#ffd86d"/>
+  <path d="M10 27h44" stroke="#fff0b8" stroke-width="1.5" stroke-linecap="round"/>
+  <circle cx="15" cy="49" r="8" fill="#16834a" stroke="#fff" stroke-width="2"/>
+  <text x="15" y="52" fill="#fff" font-family="Arial, sans-serif" font-size="9" font-weight="700" text-anchor="middle">F</text>
+  <circle cx="49" cy="49" r="8" fill="#fff" stroke="#65766c" stroke-width="1.5"/>
+  <g fill="#52635a">
+    <circle cx="46" cy="46.5" r="1.8"/><circle cx="52" cy="46.5" r="1.8"/>
+    <path d="M42.8 53c0-2.4 1.2-3.8 3.2-3.8s3.2 1.4 3.2 3.8Zm6 0c0-2.4 1.2-3.8 3.2-3.8s3.2 1.4 3.2 3.8Z"/>
+  </g>
+</svg>

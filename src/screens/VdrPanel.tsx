@@ -4,10 +4,11 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import {
-  FileSpreadsheet, Plus, Upload, Download, RefreshCw, Trash2, FileText, ArrowUpCircle,
+  FileSpreadsheet, Plus, Download, RefreshCw, Trash2, FileText, ArrowUpCircle,
   CheckCircle2, AlertTriangle, Send, Loader2, X, Search, Settings2, Tag as TagIcon, History, Languages,
 } from 'lucide-react';
 import { countOf } from '../lib/plural';
+import ImportFileChooser from '../components/ImportFileChooser';
 import { editorHref } from '../lib/officeFiles';
 import { useModalStore } from '../store/modalStore';
 import { useTranslateStore } from '../store/translateStore';
@@ -319,10 +320,7 @@ export default function VdrPanel() {
           <span className="text-slate-400">Реестров нет — создайте или импортируйте Excel-ВДР</span>
         )}
         <span className="ml-auto" />
-        <label className={`fx-btn fx-btn-quiet cursor-pointer ${importing ? 'opacity-60 pointer-events-none' : ''}`}>
-          {importing ? <Loader2 className="animate-spin" /> : <Upload />} Импорт
-          <input type="file" accept=".xlsx,.xls,.xlsm" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) importXlsx(f); e.target.value = ''; }} />
-        </label>
+        <ImportFileChooser accept=".xlsx,.xls,.xlsm" disabled={importing} className={`fx-btn fx-btn-quiet ${importing ? 'opacity-60' : ''}`} label={importing ? 'Импорт…' : 'Импорт'} onFiles={files => { if (files[0]) void importXlsx(files[0]); }} />
         {register && (
           <>
             <Btn tone="ghost" onClick={registerRevisionUp} title="Новая ревизия самого ВДР (запись в Учёт ревизий)"><ArrowUpCircle />Рев. ВДР</Btn>

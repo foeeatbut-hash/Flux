@@ -8,6 +8,8 @@ import { DropTickets, importDropped } from './importPaths';
 import { planPublication } from './publishing';
 import { undoLast, redoLast } from './undo';
 import type { ShellCommands } from './shellCommands';
+import { LocationKeys, MAX_LOCATION_REFS } from './locationKeys';
+import { mappedDriveUnc } from './network';
 
 /**
  * Команды Проводника Windows 11 поверх службы файлов. ipc.ts передаёт сюда всё,
@@ -23,7 +25,7 @@ export const EXPLORER_WRITE_ACTIONS: ReadonlySet<string> = new Set([
   'startDrag', 'importPaths', 'undo', 'redo',
 ]);
 const READ_ACTIONS = new Set(['search', 'searchCancel', 'children', 'quickAccess', 'cloudRoots', 'thumbnail', 'openWithList', 'openWith', 'shellMenu', 'shellMenuClose',
-  'recycleBin', 'systemProperties', 'resolveAddress', 'placeIcon', 'undoState', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete']);
+  'recycleBin', 'systemProperties', 'resolveAddress', 'locationKeys', 'placeIcon', 'undoState', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete']);
 export const isExplorerAction = (action: string) => READ_ACTIONS.has(action) || EXPLORER_WRITE_ACTIONS.has(action);
 
 export interface ExplorerBridgeDeps {
@@ -32,6 +34,8 @@ export interface ExplorerBridgeDeps {
   viewState: ViewStateStore;
   /** Доставка страницы поиска в окно owner. */
   emitSearch: (owner: number, event: WindowsSearchEvent) => void;
+  /** Ключи мест папок; по умолчанию — настоящий перевод сетевых дисков в UNC (только Windows). */
+  locations?: LocationKeys;
 }
 
 const ref = (value: unknown): WindowsFileRef => {
@@ -52,13 +56,16 @@ const group = (value: unknown): string | undefined => {
 export class ExplorerBridge {
   readonly search = new SearchRegistry();
   readonly drops = new DropTickets();
-  constructor(private deps: ExplorerBridgeDeps) {}
+  private readonly locations: LocationKeys;
+  constructor(private deps: ExplorerBridgeDeps) {
+    this.locations = deps.locations || new LocationKeys({ rootPath: id => deps.service.rootPathOf(id), uncOfDrive: mappedDriveUnc });
+  }
 
   /** preload → main: пути брошенных файлов. Вызывается только из канала, закрытого для страницы. */
   registerDrop(owner: number, ticket: unknown, paths: unknown) { this.drops.register(owner, ticket, paths); }
   closeOwner(owner: number) { this.search.closeOwner(owner); this.drops.closeOwner(owner); this.deps.shell.closeOwner(owner); }
 
-  async handle(request: WindowsFilesRequest, owner: number): Promise<unknown> {
+  async handle(request: WindowsFilesRequest, owner: number, signal?: AbortSignal): Promise<unknown> {
     const { service, shell, viewState } = this.deps;
     const r = request as any;
     switch (request.action) {
@@ -68,10 +75,11 @@ export class ExplorerBridge {
       case 'quickAccess': return shell.quickAccess();
       case 'quickAccessPin': return shell.pin(ref(r.ref), r.pinned);
       case 'cloudRoots': return shell.cloudRoots();
-      case 'systemProperties': return shell.fileProperties(ref(r.ref));
+      case 'systemProperties': return shell.fileProperties(ref(r.ref), signal);
       case 'resolveAddress': return service.resolveAddress(r.text);
+      case 'locationKeys': return this.locations.resolve(Array.isArray(r.refs) && r.refs.length <= MAX_LOCATION_REFS ? r.refs.map(ref) : []);
       case 'placeIcon': return shell.placeIcon(r.place, r.size);
-      case 'thumbnail': return shell.thumbnail(ref(r.ref), r.size, r.thumbnailOnly === true);
+      case 'thumbnail': return shell.thumbnail(ref(r.ref), r.size, r.thumbnailOnly === true, signal);
       case 'openWithList': return shell.openWithList(owner, ref(r.ref));
       case 'openWith': return shell.openWith(owner, ref(r.ref), r.handlerId);
       case 'shellMenu': return shell.shellMenu(owner, refs(r.refs), r.extended === true);

@@ -30,8 +30,8 @@ export interface NavRow {
   quick: boolean;
   /** Папка-черновик: видна только во Flux, помечается */
   flux: boolean;
-  /** Значок облачного корня, который отдал Windows; у остальных — значок по ссылке */
-  icon: string | null;
+  /** Облако и диск рисуются своим знаком; остальные места — папкой или знаком вида (PlaceIcon) */
+  glyph: 'cloud' | 'drive' | null;
   selected: boolean;
 }
 
@@ -58,7 +58,7 @@ export function buildRows(input: {
 }): NavRow[] {
   const { catalog, kids, expanded, current } = input;
   const rows: NavRow[] = [];
-  const base = { expandable: false, expanded: false, loading: false, pinned: false, quick: false, flux: false, icon: null, selected: false };
+  const base = { expandable: false, expanded: false, loading: false, pinned: false, quick: false, flux: false, glyph: null, selected: false };
   const sep = (key: string) => rows.push({ ...base, key, kind: 'sep', depth: 0, label: '' });
 
   // Подсвечивается первая подходящая строка: папка из Быстрого доступа не горит дважды — и в нём, и в дереве
@@ -84,14 +84,14 @@ export function buildRows(input: {
   sep('sep-tree');
 
   /** Ветвь с папками: свои дети читаются с диска лениво и лежат в `kids` */
-  const folderBranch = (key: string, label: string, place: Place, depth: number, icon: string | null = null, flux = false, hasChildren?: boolean) => {
+  const folderBranch = (key: string, label: string, place: Place, depth: number, glyph: NavRow['glyph'] = null, flux = false, hasChildren?: boolean) => {
     const open = expanded.has(key);
     const state = kids[key];
     const known = state?.status === 'done';
     const expandable = known ? state.folders.length > 0 : hasChildren !== false;
     rows.push({
       ...base, key, kind: 'row', depth, label, place, ref: place.ref, expandable, expanded: open && expandable,
-      loading: open && state?.status === 'loading', icon, flux, selected: mark(place),
+      loading: open && state?.status === 'loading', glyph, flux, selected: mark(place),
     });
     if (open && known) {
       for (const folder of state.folders) {
@@ -101,17 +101,17 @@ export function buildRows(input: {
     }
   };
 
-  for (const cloud of catalog.cloud) folderBranch(refKey({ rootId: cloud.root.id, relativePath: '' }), cloud.name, placeForRoot(cloud.root.id, catalog), 0, cloud.icon);
+  for (const cloud of catalog.cloud) folderBranch(refKey({ rootId: cloud.root.id, relativePath: '' }), cloud.name, placeForRoot(cloud.root.id, catalog), 0, 'cloud');
 
   const computerOpen = expanded.has('computer');
   const disks = computerPlaces(catalog);
   rows.push({ ...base, key: 'computer', kind: 'row', depth: 0, label: COMPUTER.name, place: COMPUTER, expandable: disks.length > 0, expanded: computerOpen && disks.length > 0, selected: mark(COMPUTER) });
-  if (computerOpen) for (const disk of disks) folderBranch(refKey(disk.ref!), disk.name, disk, 1);
+  if (computerOpen) for (const disk of disks) folderBranch(refKey(disk.ref!), disk.name, disk, 1, 'drive');
 
   const shared = networkPlaces(catalog);
   const networkOpen = expanded.has('network');
   rows.push({ ...base, key: 'network', kind: 'row', depth: 0, label: NETWORK.name, place: NETWORK, expandable: shared.length > 0, expanded: networkOpen && shared.length > 0, selected: mark(NETWORK) });
-  if (networkOpen) for (const item of shared) folderBranch(refKey(item.ref!), item.name, item, 1);
+  if (networkOpen) for (const item of shared) folderBranch(refKey(item.ref!), item.name, item, 1, 'drive');
 
   return rows;
 }

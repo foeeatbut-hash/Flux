@@ -45,7 +45,7 @@ export function PriorityDialog({ alternatives, positions, picks, busy, onSave, o
   });
   return <Dialog title="Приоритет объединения" width="max-w-lg" scrollBody busy={busy} onClose={onClose}
     footer={<><Btn disabled={busy} onClick={onClose}>Отмена</Btn><Btn tone="primary" disabled={busy} onClick={() => onSave(order, chosen)}>Сохранить</Btn></>}>
-    <div className="space-y-4 text-xs text-slate-700 dark:text-slate-200">
+    <div className="space-y-4 text-xs text-slate-700 dark:text-slate-300">
       <section aria-label="Порядок параметров" className="space-y-1">
         <h4 className="font-semibold text-slate-800 dark:text-dark-text-main">Если у позиции заполнены оба параметра, берётся первый</h4>
         <ol className="space-y-1">

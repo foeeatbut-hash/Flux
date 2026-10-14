@@ -144,6 +144,8 @@ const SERVER_OWNED: RegExp[] = [
   /^office_/i, /^constructor_param_aliases$/, /^veza_kind_map$/, /^import_(dictionary|symbols)$/,
   /^equip_categories$/, /^insight_muted$/,
   /^employee_import_batch:/i,
+  // Общий журнал привязок папок Проводника: у него свой маршрут с правом project.manage и CAS.
+  /^explorer_project_bindings:/i,
 ];
 
 export const isTrustKey = (key: string): boolean => TRUST_KEYS.some((re) => re.test(key));

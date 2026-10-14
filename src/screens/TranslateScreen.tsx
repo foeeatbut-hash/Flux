@@ -11,6 +11,7 @@
  * документ.
  */
 import React from 'react';
+import ImportFileChooser, { type ImportFileChooserHandle } from '../components/ImportFileChooser';
 import { useRibbonFold } from '../components/ribbon/useRibbonFold';
 import { Languages } from 'lucide-react';
 import RibbonBar from '../components/ribbon/RibbonBar';
@@ -52,7 +53,7 @@ export default function TranslateScreen() {
   // Свёрнутая лента помнится между документами и программами семьи
   const [folded, setFolded] = useRibbonFold();
   const [adding, setAdding] = React.useState(false);
-  const fileRef = React.useRef<HTMLInputElement>(null);
+  const fileRef = React.useRef<ImportFileChooserHandle>(null);
 
   React.useEffect(() => { if (activeProject?.id) store.load(activeProject.id); }, [activeProject?.id]);
 
@@ -222,7 +223,7 @@ export default function TranslateScreen() {
       case 'tr.termAdd': setMode('terms'); setAdding(true); break;
       case 'tr.memory': setMode('memory'); break;
       case 'tr.tmxOut': tmxOut(); break;
-      case 'tr.tmxIn': fileRef.current?.click(); break;
+      case 'tr.tmxIn': fileRef.current?.open(); break;
       case 'tr.seed': seed(); break;
       case 'tr.vdrFill':
         useWindowStore.getState().open('/management');
@@ -305,8 +306,7 @@ export default function TranslateScreen() {
         )}
       </div>
 
-      <input ref={fileRef} type="file" accept=".tmx,.txt,.tsv,.xml" className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) tmxIn(f); e.target.value = ''; }} />
+      <ImportFileChooser ref={fileRef} accept=".tmx,.txt,.tsv,.xml" label="Импортировать память" onFiles={files => { if (files[0]) void tmxIn(files[0]); }} trigger={() => null} />
     </div>
   );
 }

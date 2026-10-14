@@ -2,6 +2,8 @@ import React from 'react';
 import { Avatar } from '../ui';
 import { File, Link as LinkIcon, Paperclip, Radio, Users, X } from 'lucide-react';
 import type { ChatAttachment, ChatGroup, ChatUser } from '../../store/chatStore';
+import FileBadge from '../ui/FileBadge';
+import { ICON_SIZE } from '../../lib/metrics';
 
 export type ChatInfoTab = 'overview' | 'files' | 'tags' | 'members';
 
@@ -165,7 +167,7 @@ function FilesTab({ conversationId, conversationType, onOpenFile, formatBytes }:
     <h3 className="mb-2 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300"><Paperclip className="w-4 h-4" />Файлы ({total})</h3>
     <input type="search" aria-label="Поиск файлов" placeholder="Найти файл" value={query} onChange={(event) => setQuery(event.target.value)} className="fx-input mb-2 w-full" />
     {loading && items.length === 0 ? <p className="text-xs text-slate-500 dark:text-slate-400">Загрузка файлов…</p> : error && !items.length ? <p className="text-xs text-rose-700 dark:text-rose-300">{error}</p> : visible.length ? visible.map((file) => <button key={file.id} type="button" onClick={() => onOpenFile(file.filePath)} className="fx-li w-full text-left">
-      <File className="w-4 h-4 shrink-0" /><span className="min-w-0 flex-1 truncate">{file.fileName}</span><span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{formatBytes(file.fileSize)}</span>
+      <FileBadge file={file.fileName} size={ICON_SIZE.row} /><span className="min-w-0 flex-1 truncate">{file.fileName}</span><span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{formatBytes(file.fileSize)}</span>
     </button>) : <p className="text-xs text-slate-500 dark:text-slate-400">Файлы не найдены.</p>}
     {offset < total && <button type="button" disabled={loading} onClick={() => void loadMore()} className="fx-btn fx-btn-sm mt-2 w-full justify-center">{loading ? 'Загрузка…' : 'Ещё файлы'}</button>}
     {error && items.length > 0 && <p className="mt-2 text-xs text-rose-700 dark:text-rose-300">{error}</p>}

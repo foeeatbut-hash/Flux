@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../store/store';
+import { fetchFileMetadata } from '../services/fileMetadataCache';
 
 /** Проект документа закреплён за файлом и не меняется при переключении рабочего стола. */
 export function useFileProject(fileId: string): string {
@@ -8,7 +9,7 @@ export function useFileProject(fileId: string): string {
   useEffect(() => {
     let live = true;
     setContext({ fileId, projectId: active });
-    if (fileId) void fetch(`/api/office/files/${encodeURIComponent(fileId)}/meta`).then(r => r.ok ? r.json() : null).then(meta => {
+    if (fileId) void fetchFileMetadata(fileId).then(meta => {
       if (live && meta?.projectId) setContext({ fileId, projectId: meta.projectId });
     }).catch(() => undefined);
     return () => { live = false; };
