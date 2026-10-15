@@ -227,17 +227,27 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   const nativeEditor = formula.editor.locator('table tr').first().locator('td,th').nth(0);
   const nativeToken = nativeEditor.locator('[data-instr-field*="flux:"]');
   await nativeToken.first().waitFor();
-  // Фокус в редакторе: выделение, заданное из страницы, без фокуса не принимает набор
+  // Выделяем префикс через позицию ProseMirror: DOM-диапазон рядом с защищённой меткой
+  // может оставить исходный заголовок на месте.
   await nativeEditor.click({ position: { x: 6, y: 6 } });
   await nativeEditor.evaluate((cell: HTMLElement) => {
-    const field = cell.querySelector('[data-instr-field*="flux:"]');
-    if (!field) return;
-    // Исходная подпись ячейки «Drive Power» выделена и заменяется набранным «=», метка остаётся
-    const range = document.createRange(); range.setStart(field.closest('p') || field.parentNode!, 0); range.setEndBefore(field);
-    const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
+    const editor = (window as any).__fluxCtxRef?.current?.editor;
+    if (!editor) return;
+    let fieldFrom: number | undefined;
+    let prefixFrom: number | undefined;
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (node.isText && node.marks.some((mark: any) => mark.type.name === 'instrField') && fieldFrom === undefined) {
+        fieldFrom = pos;
+        const paragraphStart = editor.state.doc.resolve(pos).start();
+        prefixFrom = paragraphStart;
+      }
+    });
+    if (fieldFrom === undefined || prefixFrom === undefined) return;
+    editor.commands.setTextSelection({ from: prefixFrom, to: fieldFrom });
+    editor.view.focus();
   });
   await page().keyboard.type('=');
-  check('Word cell takes a leading equals sign typed directly before the protected field mark', await waitFor(async () => (await nativeEditor.innerText()).startsWith('=') && await nativeToken.count() === 1), { text: await nativeEditor.innerText(), tokens: await nativeToken.count() });
+  check('Word native typing replaces the unmarked source prefix with an equals sign and keeps the protected field', await waitFor(async () => (await nativeEditor.innerText()).startsWith('=') && !(await nativeEditor.innerText()).includes('Drive Power') && await nativeToken.count() === 1), { text: await nativeEditor.innerText(), tokens: await nativeToken.count() });
   const stateBeforeInsert = (await api('GET', `/api/project-data/files/${formula.fileId}/office-state`)).json;
   const anchorId = stateBeforeInsert?.schema?.anchors?.find((anchor: any) => anchor.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey === 'param:@DrivePower'))?.id;
   // Метка встаёт в позицию курсора: ставим его в конец текста ячейки и открываем диалог оттуда

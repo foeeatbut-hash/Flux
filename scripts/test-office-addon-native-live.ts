@@ -4,7 +4,7 @@
  * Run only after Office bridge freeze and editor rebuild:
  * `FLUX_OFFICE_NATIVE_READY=1 node --import tsx scripts/test-office-addon-native-live.ts /tmp/.../fixture.json`
  */
-import { chmod, readFile, stat } from 'node:fs/promises';
+import { chmod, readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
@@ -94,6 +94,31 @@ const waitFor = async (probe: () => Promise<boolean>, timeout = 15000) => {
   return probe();
 };
 let browserErrors: string[] = [];
+let browserErrorEvents: any[] = [];
+let browserErrorLogWrite: Promise<void> = Promise.resolve();
+let contextSequence = 0;
+let pageSequence = 0;
+let currentContextSequence = 0;
+let currentOfficeRoute = '(not navigated)';
+const pageOfficeRoutes = new WeakMap<object, string>();
+const contextOfficeRoutes = new WeakMap<object, string>();
+const browserErrorLogPath = '/tmp/flux-office-native-errors.json';
+const persistBrowserErrorEvents = async () => {
+  browserErrorLogWrite = browserErrorLogWrite.then(() => writeFile(browserErrorLogPath, `${JSON.stringify({ events: browserErrorEvents }, null, 2)}\n`));
+  await browserErrorLogWrite;
+};
+const recordBrowserEvent = (kind: string, target: any, detail?: unknown, contextId?: number, pageId?: number) => {
+  const capturedRoute = target && pageOfficeRoutes.get(target)
+    || (() => { try { return target?.context?.() ? contextOfficeRoutes.get(target.context()) : undefined; } catch { return undefined; } })()
+    || (target && contextOfficeRoutes.get(target))
+    || currentOfficeRoute;
+  browserErrorEvents.push({
+    timestamp: new Date().toISOString(), kind, contextSequence: contextId ?? null, pageSequence: pageId ?? null,
+    pageUrl: (() => { try { return target?.url?.() || null; } catch { return null; } })(),
+    officeRoute: capturedRoute, detail,
+  });
+  browserErrorLogWrite = browserErrorLogWrite.then(() => writeFile(browserErrorLogPath, `${JSON.stringify({ events: browserErrorEvents }, null, 2)}\n`));
+};
 const openPanel = async (page: any, title: string) => {
   const frame = page.frameLocator(`iframe[title="${title}"]`);
   try {
@@ -128,10 +153,15 @@ const ribbonCommand = async (page: any, command: string) => {
   await editor.evaluate((name: string) => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel', command: name }, location.origin), command);
 };
 const navigateOffice = async (page: any, route: string) => {
+  currentOfficeRoute = route;
+  pageOfficeRoutes.set(page, route);
+  try { contextOfficeRoutes.set(page.context(), route); } catch { /* detached pages have no current context */ }
   const url = `${BASE}/#${route}`;
+  recordBrowserEvent('office-navigation-start', page, { route, requestedUrl: url }, currentContextSequence);
   // Use a fresh app page/context for each editor so the window manager consumes
   // exactly one initial hash and never restores duplicate office windows.
   await page.goto(url, { waitUntil: 'domcontentloaded' });
+  recordBrowserEvent('office-navigation-complete', page, { route }, currentContextSequence);
 };
 const waitForSheetFile = async (frame: any) => {
   return waitFor(async () => frame.locator('body').evaluate(() => {
@@ -309,21 +339,42 @@ try {
   ]);
   if (!publicDocs.equals(distDocs) || !publicSheets.equals(distSheets)) throw new Error('Served dist/ editors differ from rebuilt public/ assets; run npm build after GenOffice rebuild');
   browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
+  browserErrors = [];
+  browserErrorEvents = [];
+  browserErrorLogWrite = Promise.resolve();
+  await writeFile(browserErrorLogPath, '{"events":[]}\n');
   let context: any = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  const watchContext = (targetContext: any) => {
+    const id = ++contextSequence;
+    contextOfficeRoutes.set(targetContext, currentOfficeRoute);
+    recordBrowserEvent('context-created', null, undefined, id);
+    targetContext.on('close', () => recordBrowserEvent('context-closed', null, undefined, id));
+    return id;
+  };
+  currentContextSequence = watchContext(context);
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
   page = await context.newPage();
   const outside: string[] = [];
-  browserErrors = [];
   const monitorPage = async (target: any) => {
+    const contextId = currentContextSequence;
+    const pageId = ++pageSequence;
+    if (!pageOfficeRoutes.has(target)) pageOfficeRoutes.set(target, contextOfficeRoutes.get(context) || currentOfficeRoute);
+    recordBrowserEvent('page-created', target, undefined, contextId, pageId);
+    target.on('close', () => recordBrowserEvent('page-closed', target, undefined, contextId, pageId));
     await target.addInitScript(`window.__fluxPlanReplies = []; window.addEventListener('message', (event) => {
       if (event.origin !== location.origin) return;
       const data = event.data || {};
       if (data.payload && data.payload.channel === 'flux:office-plan-applied') window.__fluxPlanReplies.push(data.payload.args[0]);
     });`);
-    target.on('console', (message: any) => { if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`.slice(0, 500)); });
-    target.on('pageerror', (error: any) => browserErrors.push(`pageerror: ${error?.stack || error?.message || error}`.slice(0, 1000)));
-    target.on('requestfailed', (request: any) => browserErrors.push(`requestfailed: ${request.url()} ${request.failure()?.errorText || ''}`.slice(0, 500)));
-    target.on('response', async (response: any) => { if (response.status() >= 400) { browserErrors.push(`http-${response.status()}: ${response.url()}`.slice(0, 500)); if (response.url().includes('/office-state')) console.error('OFFICE_STATE_SAVE_FAILURE', JSON.stringify({ status: response.status(), request: response.request().postData(), response: await response.text().catch(() => '') })); } });
+    target.on('console', (message: any) => { if (message.type() === 'error') { browserErrors.push(`console: ${message.text()}`.slice(0, 500)); recordBrowserEvent('console-error', target, { text: message.text(), location: message.location?.() }, contextId, pageId); } });
+    target.on('pageerror', (error: any) => {
+      const frames = (() => { try { return target.frames().map((frame: any) => ({ url: frame.url() })); } catch { return []; } })();
+      const stack = String(error?.stack || error?.message || error);
+      browserErrors.push(`pageerror: ${stack}`.slice(0, 1000));
+      recordBrowserEvent('pageerror', target, { name: error?.name, message: error?.message, stack, frames }, contextId, pageId);
+    });
+    target.on('requestfailed', (request: any) => { const detail = { url: request.url(), failure: request.failure()?.errorText || '' }; browserErrors.push(`requestfailed: ${detail.url} ${detail.failure}`.slice(0, 500)); recordBrowserEvent('requestfailed', target, detail, contextId, pageId); });
+    target.on('response', async (response: any) => { if (response.status() >= 400) { const detail = { status: response.status(), url: response.url() }; browserErrors.push(`http-${detail.status}: ${detail.url}`.slice(0, 500)); recordBrowserEvent('http-error', target, detail, contextId, pageId); if (response.url().includes('/office-state')) console.error('OFFICE_STATE_SAVE_FAILURE', JSON.stringify({ status: response.status(), request: response.request().postData(), response: await response.text().catch(() => '') })); } });
     target.on('request', (request: any) => {
       const url = String(request.url());
       if (!url.startsWith(BASE) && !url.startsWith('blob:') && !url.startsWith('data:') && !url.startsWith('ws://127.0.0.1') && !url.startsWith('ws://localhost')) outside.push(url);
@@ -332,7 +383,9 @@ try {
   await monitorPage(page);
   const resetPage = async (dark = false) => {
     await context.close().catch(() => {});
+    await persistBrowserErrorEvents();
     context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+    currentContextSequence = watchContext(context);
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
     page = await context.newPage();
     await monitorPage(page);
@@ -946,13 +999,27 @@ try {
   const darkFrame = await openPanel(page, 'Flux Office — Таблица');
   const darkMetrics = await capture(page, darkFrame, 'sheets-dark');
   check('dark theme uses a dark actual add-on surface', darkMetrics.background !== 'rgb(255, 255, 255)' && darkMetrics.background !== 'rgba(0, 0, 0, 0)');
+  check('dark Excel editor loaded the actual workbook before cell activation', await waitForSheetFile(darkFrame));
+  await clickSheetGrid(darkFrame);
+  check('dark native A1 range is loaded before editing', await loadSheetAddress(darkFrame, 'A1'));
   await darkFrame.locator('input.univer-box-border').first().fill('A1');
   await darkFrame.locator('input.univer-box-border').first().press('Enter');
-  await darkFrame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
+  const darkCellPoint = await darkFrame.locator('body').evaluate(() => {
+    const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
+    const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
+    const canvas = document.querySelector('canvas[id^="univer-sheet-main-canvas_"]') as HTMLCanvasElement | null;
+    const cell = sheet?.getRange('A1')?.getCellRect?.();
+    const bounds = canvas?.getBoundingClientRect();
+    return canvas && cell && bounds ? { x: (Number(cell.left) + Number(cell.width) / 2) * bounds.width / canvas.width, y: (Number(cell.top) + Number(cell.height) / 2) * bounds.height / canvas.height } : null;
+  });
+  if (!darkCellPoint) throw new Error('Could not locate dark native grid cell A1');
+  await darkFrame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().click({ position: darkCellPoint, timeout: 10000 });
   await page.keyboard.type('=+DARK_GEOMETRY_CHECK');
   const darkTokenOverlay = darkFrame.locator('#flux-sheet-token-overlay');
   const darkOverlayOpened = await darkTokenOverlay.waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
-  const darkTokenGeometry = darkOverlayOpened ? await darkTokenOverlay.evaluate((root) => {
+  check('typing into the natively activated dark A1 cell opens the protected-token editor', darkOverlayOpened);
+  if (!darkOverlayOpened) throw new Error('Typing into dark native A1 did not open the protected-token editor');
+  const darkTokenGeometry = await darkTokenOverlay.evaluate((root) => {
     const host = root.querySelector('.flux-sheet-token-edit') as HTMLElement;
     const chip = root.querySelector('.flux-sheet-token-chip') as HTMLElement;
     const save = root.querySelector('button[data-action="save"]') as HTMLElement;
@@ -960,7 +1027,7 @@ try {
     const chipRect = chip.getBoundingClientRect();
     const saveRect = save.getBoundingClientRect();
     return { theme: (root as HTMLElement).dataset.theme, chipRight: chipRect.right, hostRight: hostRect.right, saveLeft: saveRect.left, text: host.innerText };
-  }) : null;
+  });
   check('dark narrow A1 parameter chip and typed formula suffix stay inside the host, clear of Done', !!darkTokenGeometry && darkTokenGeometry.theme === 'dark' && darkTokenGeometry.chipRight <= darkTokenGeometry.hostRight + 1 && darkTokenGeometry.hostRight <= darkTokenGeometry.saveLeft + 1 && darkTokenGeometry.text.endsWith('=+DARK_GEOMETRY_CHECK'), darkTokenGeometry);
   await page.screenshot({ path: '/tmp/office-addon-native-sheets-chip-dark.png', fullPage: true });
   if (darkOverlayOpened) await page.keyboard.press('Escape');
@@ -1075,6 +1142,7 @@ try {
   check('native Office add-on scenario completed', false, String(error?.stack || error));
 } finally {
   if (browser) await browser.close().catch(() => {});
+  await persistBrowserErrorEvents().catch((error) => console.error('NATIVE_ERROR_ARTIFACT_WRITE_FAILURE', String(error)));
   for (const id of created) await api('DELETE', `/api/files/${encodeURIComponent(id)}`).catch(() => {});
   if (folderId) await api('DELETE', `/api/folders/${encodeURIComponent(folderId)}`).catch(() => {});
 }
