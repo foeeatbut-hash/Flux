@@ -104,7 +104,7 @@ try {
     if (state === 'block') {
       const selectedPanel = page.getByTestId('equipment-selected-comp-2');
       const catalogDetails = selectedPanel.getByTestId('equipment-catalog-details');
-      await catalogDetails.locator('summary').click();
+      await catalogDetails.locator(':scope > summary').click();
       await selectedPanel.getByText('Источник параметров', { exact: true }).waitFor();
       await selectedPanel.getByText('ГЕРМИК-С-1220', { exact: false }).first().waitFor();
       await selectedPanel.getByText(/XML и каталог расходятся в 1 параметрах/).click();
@@ -120,7 +120,7 @@ try {
         await page.screenshot({ path: shot, scale: 'css', animations: 'disabled' });
         screenshots.push({ state: 'catalog-open', width, theme, path: shot, bytes: (await fs.stat(shot)).size });
       }
-      await catalogDetails.locator('summary').click();
+      await catalogDetails.locator(':scope > summary').click();
       assert.equal(await catalogDetails.evaluate(el => el.open), false, 'catalog details should be closed in standard panel screenshots');
     }
     const shot = path.join('/tmp', `equipment-panel-${state}-${width}-${theme}.png`);
