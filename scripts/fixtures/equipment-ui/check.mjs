@@ -109,7 +109,8 @@ try {
   const noteHeading = unitPane.getByRole('heading', { name: 'Примечание к установке', exact: true });
   const noteToggle = noteHeading.locator('xpath=..');
   if (await noteToggle.getAttribute('aria-expanded') !== 'true') await noteToggle.click();
-  const longNote = unitPane.getByText(/Длинный текст характеристики занимает всю ширину/u);
+  const noteSection = noteHeading.locator('xpath=ancestor::section[1]');
+  const longNote = noteSection.getByText(/Длинный текст характеристики занимает всю ширину/u);
   await longNote.waitFor();
   await page.setViewportSize({ width: 720, height: 1000 });
   for (const theme of ['light', 'dark']) {
