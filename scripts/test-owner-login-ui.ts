@@ -110,7 +110,7 @@ async function run() {
       });
       assert.ok(metrics.width > 0 && metrics.height > 0, 'форма имеет размеры в обеих темах');
       geometry.push(metrics);
-      await page.screenshot({ path: path.join(output, `owner-login-${dark ? 'dark' : 'light'}.png`) });
+      await page.screenshot({ path: path.join(output, `owner-login-${dark ? 'dark' : 'light'}.png`), animations: 'disabled' });
     }
     assert.notEqual(geometry[0].borderTopColor, geometry[1].borderTopColor, 'рамка входа различает светлую и тёмную темы');
     await page.evaluate(() => (window as any).__unmountOwnerLogin());
