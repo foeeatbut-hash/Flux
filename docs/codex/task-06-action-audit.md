@@ -106,7 +106,7 @@
 
 - `test-icons-shell-ui`, `test-explorer-operation-ui`, `test-explorer-contents-ui`, `test-explorer-folder-errors-ui`, `test-explorer-nav-ui` и `test-explorer-shell-ui` запускались после успешного старта Vite на `http://127.0.0.1:5173`, но Chromium не стартовал: в среде отсутствуют `/opt/pw-browsers/chromium-1194/chrome-linux/chrome` и `/usr/bin/chromium`. Поэтому UI-проверки не выполнены. `test-windows-explorer-ui` ранее также завершился из-за отсутствия Chromium; повторно не запускался.
 - `test-explorer-open-live` остановился на проверке credentials: не заданы `FLUX_USER`/`FLUX_PASS`; live API действия не выполнялись.
-- Сборка sandbox/preload harness реального Electron прошла по результату руководителя, но runtime не запускался: `xvfb-run`/`Xvfb` отсутствуют, `$DISPLAY` пустой. Настоящий Electron runtime остаётся pending.
+- Локальная попытка запустить Electron harness была остановлена до assertions из-за отсутствующего X server (`xvfb-run`/`Xvfb` нет, `$DISPLAY` пустой). В PR 115 CI на SHA `9d86ecccebf0a1610b51333daf86ed71192c6219` реальный Windows шаг `Реальный Electron preload и файловый IPC на временной папке` и шаг Explorer на настоящей NTFS/Windows Shell завершились успешно.
 - PowerShell/native shell menu, системные свойства, quick access, Windows Recycle Bin и реальные Windows open/reveal/ZIP операции ожидают Windows CI. Fake host/IPC и временная файловая система не подтверждают поведение Windows API.
 
 ## Обязательные границы доказательства
