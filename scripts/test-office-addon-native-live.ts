@@ -1022,10 +1022,38 @@ try {
     return canvas && cell && bounds ? { x: (Number(cell.left) + Number(cell.width) / 2) * bounds.width / canvas.width, y: (Number(cell.top) + Number(cell.height) / 2) * bounds.height / canvas.height } : null;
   });
   if (!darkCellPoint) throw new Error('Could not locate dark native grid cell A1');
+  await darkFrame.locator('body').evaluate(() => {
+    const events: any[] = [];
+    const win = window as any;
+    win.__fluxDarkNativeEditProbe = events;
+    document.addEventListener('keydown', (event) => {
+      if (events.length >= 20) return;
+      const target = event.target as HTMLElement | null;
+      const describe = (node: Element | null) => node && { tag: node.tagName, id: (node as HTMLElement).id, className: String((node as HTMLElement).className || '').slice(0, 160) };
+      events.push({ kind: 'keydown', at: Date.now(), key: event.key, target: describe(target), active: describe(document.activeElement), defaultPrevented: event.defaultPrevented });
+    }, true);
+    const api = win.__fluxSheets?.univerRef?.current?.univerAPI;
+    const eventType = api?.Event?.BeforeSheetEditStart;
+    if (api && eventType !== undefined) api.addEvent(eventType, (params: any) => { if (events.length < 20) events.push({ kind: 'BeforeSheetEditStart', at: Date.now(), row: params?.row, column: params?.column, sheet: params?.worksheet?.getSheetName?.(), cancel: params?.cancel }); });
+  });
+  const darkHostReadiness = async () => ({ capturedAt: new Date().toISOString(), panelText: await page.getByRole('complementary', { name: 'Flux Office' }).innerText().catch(() => ''), presenceText: await page.locator('body').innerText().then((text: string) => text.split('\n').filter((line: string) => /Подключение к (общему документу|серверу)|Правите вместе|Только просмотр|Документ открыт только для просмотра|Правка свободна|Открываю свежую версию/.test(line)).slice(0, 12)).catch(() => []) });
   await darkFrame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().click({ position: darkCellPoint, timeout: 10000 });
+  const darkReadinessBeforeKey = await darkHostReadiness();
   await page.keyboard.type('=+DARK_GEOMETRY_CHECK');
   const darkTokenOverlay = darkFrame.locator('#flux-sheet-token-overlay');
   const darkOverlayOpened = await darkTokenOverlay.waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+  if (!darkOverlayOpened) {
+    const darkProbe = await darkFrame.locator('body').evaluate(() => {
+      const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
+      const workbook = api?.getActiveWorkbook?.();
+      const sheet = workbook?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
+      const active = sheet?.getActiveRange?.();
+      return { url: location.href, activeElement: document.activeElement ? { tag: document.activeElement.tagName, id: (document.activeElement as HTMLElement).id, className: String((document.activeElement as HTMLElement).className || '').slice(0, 160) } : null, activeAddress: active?.getA1Notation?.() || null, cellA1: sheet?.getRange('A1')?.getValues?.()?.[0]?.[0] ?? null, overlayPresent: !!document.querySelector('#flux-sheet-token-overlay'), probeEvents: (window as any).__fluxDarkNativeEditProbe || [] };
+    }).catch((error: unknown) => ({ error: String(error) }));
+    const screenshot = '/tmp/office-addon-native-sheets-dark-edit-failure.png';
+    await page.screenshot({ path: screenshot, fullPage: true }).catch(() => {});
+    console.error('NATIVE_DARK_EDIT_DIAGNOSTIC', JSON.stringify({ darkReadinessBeforeKey, darkReadinessAfterWait: await darkHostReadiness(), darkProbe, screenshot }));
+  }
   check('typing into the natively activated dark A1 cell opens the protected-token editor', darkOverlayOpened);
   if (!darkOverlayOpened) throw new Error('Typing into dark native A1 did not open the protected-token editor');
   const darkTokenGeometry = await darkTokenOverlay.evaluate((root) => {
