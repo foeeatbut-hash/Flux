@@ -36,8 +36,8 @@ export function createSheetsTokenOverlay(
     const style = document.createElement('style')
     style.id = 'flux-sheet-token-style'
     style.textContent = `
-#flux-sheet-token-overlay{position:fixed;z-index:1200;display:flex;align-items:center;gap:5px;box-sizing:border-box;min-height:34px;padding:4px 6px;border:1px solid #94a3b8;border-radius:7px;background:#fff;color:#0f172a;box-shadow:0 8px 24px #0f172a33;font:13px/1.35 system-ui,sans-serif}
-#flux-sheet-token-overlay .flux-sheet-token-edit{display:block;flex:1;min-width:0;min-height:24px;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+#flux-sheet-token-overlay{position:fixed;z-index:1200;display:flex;flex-wrap:wrap;align-items:center;gap:5px;box-sizing:border-box;max-width:calc(100vw - 16px);min-height:34px;padding:4px 6px;border:1px solid #94a3b8;border-radius:7px;background:#fff;color:#0f172a;box-shadow:0 8px 24px #0f172a33;font:13px/1.35 system-ui,sans-serif}
+#flux-sheet-token-overlay .flux-sheet-token-edit{display:block;flex:1 1 150px;min-width:min(150px,100%);min-height:24px;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
 /* Чип живёт внутри flex-редактора; не даём ему занимать место кнопок при узкой ячейке. */
 #flux-sheet-token-overlay .flux-sheet-token-chip{max-inline-size:100%;max-width:100%;min-width:0;box-sizing:border-box}
 #flux-sheet-token-overlay button{flex:none;border:0;border-radius:5px;padding:4px 7px;background:#f1f5f9;color:#334155;font:inherit;cursor:pointer}
@@ -215,17 +215,21 @@ export function createSheetsTokenOverlay(
       const bounds = canvas.getBoundingClientRect()
       const scaleX = canvas.width > 0 ? bounds.width / canvas.width : 1
       const scaleY = canvas.height > 0 ? bounds.height / canvas.height : 1
-      const width = Math.max(180, Math.min(520, Number(cell.width) * scaleX))
+      // Не даём узкой ячейке сжать поле до столбца букв; при малом окне кнопки переносятся.
+      const availableWidth = Math.max(0, window.innerWidth - 16)
+      const minimumWidth = Math.min(320, availableWidth)
+      const width = Math.min(520, availableWidth, Math.max(minimumWidth, Number(cell.width) * scaleX))
       const cellLeft = bounds.left + Number(cell.left) * scaleX
       const cellTop = bounds.top + Number(cell.top) * scaleY
       const cellRight = cellLeft + Number(cell.width) * scaleX
       const cellBottom = cellTop + Number(cell.height) * scaleY
       active.root.hidden = cellRight <= 0 || cellLeft >= window.innerWidth || cellBottom <= 0 || cellTop >= window.innerHeight
       const left = Math.max(8, Math.min(window.innerWidth - width - 8, cellLeft))
-      const top = Math.max(8, Math.min(window.innerHeight - 54, cellTop))
       active.root.style.left = `${left}px`
-      active.root.style.top = `${top}px`
       active.root.style.width = `${width}px`
+      const overlayHeight = active.root.offsetHeight || 54
+      const top = Math.max(8, Math.min(Math.max(8, window.innerHeight - overlayHeight - 8), cellTop))
+      active.root.style.top = `${top}px`
     } catch { /* виртуальная ячейка может исчезнуть при смене листа */ }
   }
 

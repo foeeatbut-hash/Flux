@@ -799,9 +799,19 @@ try {
     const hostRect = host.getBoundingClientRect();
     const chipRect = chip.getBoundingClientRect();
     const saveRect = save.getBoundingClientRect();
-    return { chipRight: chipRect.right, hostRight: hostRect.right, saveLeft: saveRect.left, text: host.innerText };
+    const suffix = host.innerText.slice(host.innerText.lastIndexOf('=+'));
+    const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = []; let text = ''; let current: Node | null;
+    while ((current = walker.nextNode())) { nodes.push(current as Text); text += current.textContent || ''; }
+    const start = text.lastIndexOf(suffix), tops: number[] = []; let offset = 0;
+    for (const node of nodes) {
+      const length = node.textContent?.length || 0, from = Math.max(0, start - offset), to = Math.min(length, start + suffix.length - offset);
+      if (to > from) { const range = document.createRange(); range.setStart(node, from); range.setEnd(node, to); tops.push(...Array.from(range.getClientRects()).map(rect => Math.round(rect.top))); }
+      offset += length;
+    }
+    return { chipRight: chipRect.right, hostRight: hostRect.right, hostWidth: hostRect.width, saveLeft: saveRect.left, text: host.innerText, suffix, suffixLines: new Set(tops).size, viewportWidth: window.innerWidth };
   }) : null;
-  check('narrow A1 parameter chip and typed formula suffix stay inside the host, clear of Done', !!tokenOverlayGeometry && tokenOverlayGeometry.chipRight <= tokenOverlayGeometry.hostRight + 1 && tokenOverlayGeometry.hostRight <= tokenOverlayGeometry.saveLeft + 1 && tokenOverlayGeometry.text.endsWith('=+FORBIDDEN_HEADER'), tokenOverlayGeometry);
+  check('narrow A1 parameter chip and typed formula suffix stay inside the host, clear of Done', !!tokenOverlayGeometry && tokenOverlayGeometry.chipRight <= tokenOverlayGeometry.hostRight + 1 && tokenOverlayGeometry.hostRight <= tokenOverlayGeometry.saveLeft + 1 && tokenOverlayGeometry.text.endsWith('=+FORBIDDEN_HEADER') && (tokenOverlayGeometry.viewportWidth < 320 || tokenOverlayGeometry.hostWidth >= 150) && tokenOverlayGeometry.suffixLines <= 3, tokenOverlayGeometry);
   await page.screenshot({ path: '/tmp/office-addon-native-sheets-chip-light.png', fullPage: true });
   await page.keyboard.press('Escape');
   await sheets.locator('#flux-sheet-token-overlay').waitFor({ state: 'detached', timeout: 10000 }).catch(() => undefined);
@@ -986,7 +996,6 @@ try {
   check('formula refusal keeps exactly the original entity-to-A2 row identity', formulaAfter?.rows?.length === 1 && formulaAfter.rows[0].entityId === formulaEntity?.entityId && formulaAfter.rows[0].cells?.[formulaAnchor?.id] === 'A2', formulaAfter?.rows);
 
   await runNativeSheetCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page });
-  await runNativeWordCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
 
   // Theme screenshot is a second actual editor session; does not alter the workbook.
   await resetPage(true);
@@ -1026,12 +1035,23 @@ try {
     const hostRect = host.getBoundingClientRect();
     const chipRect = chip.getBoundingClientRect();
     const saveRect = save.getBoundingClientRect();
-    return { theme: (root as HTMLElement).dataset.theme, chipRight: chipRect.right, hostRight: hostRect.right, saveLeft: saveRect.left, text: host.innerText };
+    const suffix = host.innerText.slice(host.innerText.lastIndexOf('=+'));
+    const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = []; let text = ''; let current: Node | null;
+    while ((current = walker.nextNode())) { nodes.push(current as Text); text += current.textContent || ''; }
+    const start = text.lastIndexOf(suffix), tops: number[] = []; let offset = 0;
+    for (const node of nodes) {
+      const length = node.textContent?.length || 0, from = Math.max(0, start - offset), to = Math.min(length, start + suffix.length - offset);
+      if (to > from) { const range = document.createRange(); range.setStart(node, from); range.setEnd(node, to); tops.push(...Array.from(range.getClientRects()).map(rect => Math.round(rect.top))); }
+      offset += length;
+    }
+    return { theme: (root as HTMLElement).dataset.theme, chipRight: chipRect.right, hostRight: hostRect.right, hostWidth: hostRect.width, saveLeft: saveRect.left, text: host.innerText, suffix, suffixLines: new Set(tops).size, viewportWidth: window.innerWidth };
   });
-  check('dark narrow A1 parameter chip and typed formula suffix stay inside the host, clear of Done', !!darkTokenGeometry && darkTokenGeometry.theme === 'dark' && darkTokenGeometry.chipRight <= darkTokenGeometry.hostRight + 1 && darkTokenGeometry.hostRight <= darkTokenGeometry.saveLeft + 1 && darkTokenGeometry.text.endsWith('=+DARK_GEOMETRY_CHECK'), darkTokenGeometry);
+  check('dark narrow A1 parameter chip and typed formula suffix stay inside the host, clear of Done', !!darkTokenGeometry && darkTokenGeometry.theme === 'dark' && darkTokenGeometry.chipRight <= darkTokenGeometry.hostRight + 1 && darkTokenGeometry.hostRight <= darkTokenGeometry.saveLeft + 1 && darkTokenGeometry.text.endsWith('=+DARK_GEOMETRY_CHECK') && (darkTokenGeometry.viewportWidth < 320 || darkTokenGeometry.hostWidth >= 150) && darkTokenGeometry.suffixLines <= 3, darkTokenGeometry);
   await page.screenshot({ path: '/tmp/office-addon-native-sheets-chip-dark.png', fullPage: true });
   if (darkOverlayOpened) await page.keyboard.press('Escape');
   await context.close();
+  await runNativeWordCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
 
   console.log('\n4. Issued Office revision is immutable and draft is an exact copy');
   const beforeIssue = await raw('GET', `/api/files/${encodeURIComponent(docxId)}/raw`);
