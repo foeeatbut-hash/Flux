@@ -42,6 +42,7 @@ try {
   assert(refreshIndex > firstCommitIndex, 'wizard refreshes the binding ledger after the first commit and observes revision 42');
   await page.evaluate(() => (window).__wizardLoadSecondDocument());
   await page.getByText('doc-b.csv', { exact: true }).waitFor({ timeout: 30000 });
+  await page.getByRole('button', { name: /doc-b\.csv/ }).click();
   await page.getByRole('button', { name: /Проверить и импортировать 1 позиц\./ }).click();
   await page.getByRole('button', { name: 'Импортировать 1', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
   const apply = page.getByRole('button', { name: 'Импортировать 1', exact: true });
