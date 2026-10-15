@@ -584,17 +584,17 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
         } : {})}
       >
         {/* Шапка */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center">
+        <div className="flex flex-wrap items-center justify-between gap-y-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="w-8 h-8 shrink-0 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center">
               <ScanLine className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
             </div>
             <div>
               <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Импорт из документов</h2>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-56">
+          <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+            <div className="min-w-0 flex-1 sm:w-56 sm:flex-none">
               <CustomSelect
                 value={category}
                 onChange={setCategory}
@@ -602,7 +602,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                 placeholder="Категория оборудования"
               />
             </div>
-            <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 cursor-pointer" title="Закрыть (Esc)">
+            <button type="button" onClick={onClose} className="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 cursor-pointer" title="Закрыть (Esc)">
               <X className="w-4 h-4" />
             </button>
           </div>

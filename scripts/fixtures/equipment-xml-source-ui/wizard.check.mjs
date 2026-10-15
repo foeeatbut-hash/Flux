@@ -45,9 +45,16 @@ try {
         const buttonRect = footerButton?.getBoundingClientRect();
         const dialogRect = dialog.getBoundingClientRect();
         const footerRect = footerButton?.parentElement?.getBoundingClientRect();
+        const overflowing = Array.from(dialog.querySelectorAll('*')).flatMap(element => {
+          const rect = element.getBoundingClientRect();
+          return rect.right > dialogRect.right + 1 || rect.left < dialogRect.left - 1
+            ? [{ tag: element.tagName, className: typeof element.className === 'string' ? element.className : '', left: rect.left, right: rect.right, width: rect.width }]
+            : [];
+        }).slice(0, 12);
         return {
           dialogWidth: dialog.clientWidth,
           dialogScrollWidth: dialog.scrollWidth,
+          overflowing,
           workspaceWidth: workspace?.clientWidth || 0,
           workspaceScrollWidth: workspace?.scrollWidth || 0,
           mainWidth: main?.getBoundingClientRect().width || 0,
