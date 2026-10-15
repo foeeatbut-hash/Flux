@@ -225,7 +225,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
       if (!awaitingFieldReload.current) setRefreshingFields(false);
     }
   }, [flowProjectId, flux.refreshFields, closeSession, setDirtyState, toast]);
-  const cellActions = useFluxCellActions({ fileId: file.fileId, projectId: flowProjectId, readOnly: !ready,
+  const cellActions = useFluxCellActions({ fileId: file.fileId, projectId: flowProjectId, readOnly: !ready || refreshingFields,
     requestState: flux.requestState, updateSchema: flux.updateSchema, insertBinding: flux.insertBinding, isInlineEditing: () => flux.inlineEditingRef.current,
     requestNative: async (operation, payload) => {
       const result = await editorLink.native(operation, payload);
@@ -382,10 +382,10 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   return <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
     {error && <div role="alert" className="shrink-0 border-b border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-300">{error} Правки остаются в редакторе. Используйте «Сохранить как», чтобы создать отдельную копию.</div>}
     <div ref={editorArea} className="relative flex min-h-0 min-w-0 flex-1" aria-busy={refreshingFields}>
-      <iframe key={editorGeneration} ref={frame} inert={refreshingFields} src={`genoffice/${app}/index.html`} title={`Flux Office - ${app === 'docs' ? 'Документ' : app === 'pdf' ? 'PDF' : 'Таблица'}`} onLoad={() => { frameLoadCount.current++; logLifecycle('frame-load'); }} onError={() => logLifecycle('frame-error', { outcome: 'error' })} className="min-h-0 min-w-0 flex-1 border-0" />
-      {refreshingFields && <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/75 text-sm font-medium text-slate-700 dark:bg-slate-950/75 dark:text-slate-200" role="status">Сохраняем файл и обновляем поля…</div>}
+      <iframe key={editorGeneration} ref={frame} inert={refreshingFields} src={`genoffice/${app}/index.html`} title={`Flux Office — ${app === 'docs' ? 'Документ' : app === 'pdf' ? 'PDF' : 'Таблица'}`} onLoad={() => { frameLoadCount.current++; logLifecycle('frame-load'); }} onError={() => logLifecycle('frame-error', { outcome: 'error' })} className="min-h-0 min-w-0 flex-1 border-0" />
+      {refreshingFields && <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/75 text-sm font-medium text-slate-700 dark:bg-slate-950/75 dark:text-slate-300" role="status">Сохраняем файл и обновляем поля…</div>}
       {panelOpen && app !== 'pdf' && <FluxOfficePanel fileId="" localSource={flux.source} projectId={flowProjectId} onProjectChange={setPickedProjectId} fileName={file.name} editorKind={app}
-        readOnly={!ready} schemaWriteAvailable={ready} activeAnchor={flux.activeAnchor} isInlineEditing={() => flux.inlineEditingRef.current}
+        readOnly={!ready || refreshingFields} schemaWriteAvailable={ready && !refreshingFields} activeAnchor={flux.activeAnchor} isInlineEditing={() => flux.inlineEditingRef.current}
         requestState={flux.requestState} insertBinding={flux.insertBinding} applyWrites={flux.applyWrites} updateSchema={flux.updateSchema}
         command={ribbon.command} onInsertTable={insertTable} onInsertText={app === 'docs' ? insertText : undefined} onInsertField={insertProjectField} onUpdateFields={refreshProjectFields} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />}
       {cellActions.dialog}
