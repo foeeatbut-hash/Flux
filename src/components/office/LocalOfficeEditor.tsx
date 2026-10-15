@@ -11,6 +11,7 @@ import { useFluxCellActions } from './useFluxCellActions';
 import { queueOfficeReply } from './officeReplyQueue';
 import { carryFluxPart } from '../../../office/fluxPart';
 import { openEditorTag } from '../../lib/editorTag';
+import { sheetName, cellValue } from '../../../office/fieldKeys';
 import { useStore } from '../../store/store';
 import { usePaneId } from '../../lib/paneTitle';
 import { guardClose } from '../../lib/closeGuard';
@@ -335,6 +336,17 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     const result = await ask('insertText', 'flux:text-inserted', text);
     if (!result?.ok) toast(result?.error || 'Редактор не готов — текст не вставлен', 'error');
   };
+  const insertProjectField = async (field: { key: string; title: string; value: string }) => {
+    if (app === 'docs') {
+      const result = await ask('insertText', 'flux:text-inserted', `{{${field.key}}}`);
+      if (!result?.ok) toast(result?.error || 'Поле не вставлено: установите курсор в документ.', 'error');
+      else toast(`Поле «${field.title}» вставлено. Обновите поля, чтобы подставить значение.`, 'success');
+      return;
+    }
+    const result = await command('flux:insert-field', { name: sheetName(field.key), value: cellValue(field.value === '-' ? '' : field.value) });
+    if (!result?.ok) toast(result?.error || 'Поле не вставлено: выберите ячейку.', 'error');
+    else toast(`Поле «${field.title}» вставлено в ${result.cell}.`, 'success');
+  };
   return <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
     {error && <div role="alert" className="shrink-0 border-b border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-300">{error} Правки остаются в редакторе. Используйте «Сохранить как», чтобы создать отдельную копию.</div>}
     <div ref={editorArea} className="relative flex min-h-0 min-w-0 flex-1">
@@ -342,7 +354,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
       {panelOpen && app !== 'pdf' && <FluxOfficePanel fileId="" localSource={flux.source} projectId={flowProjectId} onProjectChange={setPickedProjectId} fileName={file.name} editorKind={app}
         readOnly={!ready} schemaWriteAvailable={ready} activeAnchor={flux.activeAnchor} isInlineEditing={() => flux.inlineEditingRef.current}
         requestState={flux.requestState} insertBinding={flux.insertBinding} applyWrites={flux.applyWrites} updateSchema={flux.updateSchema}
-        command={ribbon.command} onInsertTable={insertTable} onInsertText={app === 'docs' ? insertText : undefined} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />}
+        command={ribbon.command} onInsertTable={insertTable} onInsertText={app === 'docs' ? insertText : undefined} onInsertField={insertProjectField} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />}
       {cellActions.dialog}
       {panelOpen && app === 'pdf' && <div className={`flex min-h-0 shrink-0 ${overlayPanel ? 'absolute bottom-0 right-0 top-0 z-20' : ''}`} style={{ width: visiblePanelWidth + 4 }}>
         <div role="separator" aria-label="Изменить ширину панели Flux" aria-orientation="vertical" tabIndex={0} className="w-1 shrink-0 cursor-col-resize touch-none bg-slate-200 hover:bg-sky-500 focus:bg-sky-500 dark:bg-slate-700" onPointerDown={event => {

@@ -263,16 +263,25 @@ async function main() {
   if (process.argv.includes('--office-addon-native')) {
     await assertNativeOfficeAssets();
     const fixturePath = await writeFixtureMetadata(users, projectId, systemId);
-    const office = spawn(process.execPath, ['--import', 'tsx', 'scripts/test-office-addon-native-live.ts', fixturePath], {
+    const office = process.env.FLUX_NATIVE_ONLY === 'local-panel' ? null : spawn(process.execPath, ['--import', 'tsx', 'scripts/test-office-addon-native-live.ts', fixturePath], {
       cwd,
       env: { ...process.env, FLUX_OFFICE_NATIVE_READY: '1' },
       stdio: 'inherit',
     });
-    const [code] = await once(office, 'exit');
+    const [code] = office ? await once(office, 'exit') : [0];
+    let explorerCode = 0;
+    if (code === 0 && (!process.env.FLUX_NATIVE_ONLY || process.env.FLUX_NATIVE_ONLY === 'local-panel')) {
+      const explorer = spawn(process.execPath, ['--import', 'tsx', 'scripts/test-office-explorer-live.ts', fixturePath], {
+        cwd,
+        env: { ...process.env, FLUX_OFFICE_NATIVE_READY: '1' },
+        stdio: 'inherit',
+      });
+      [explorerCode] = await once(explorer, 'exit');
+    }
     await stop();
     db?.close();
     await rm(dataDir, { recursive: true, force: true });
-    process.exitCode = typeof code === 'number' ? code : 1;
+    process.exitCode = typeof code === 'number' && code === 0 ? explorerCode : (typeof code === 'number' ? code : 1);
     return;
   }
 

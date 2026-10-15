@@ -116,7 +116,6 @@ void (async () => {
     await page.getByText('Открывается локальный редактор…').waitFor({ state: 'detached', timeout: 90000 });
     // Панель открывает настоящая вкладка Flux ленты редактора: «Оборудование» — источник по умолчанию
     await frame.getByRole('button', { name: 'Flux', exact: true }).click();
-    await ribbonClick(frame, 'source-equipment');
     await panel().waitFor({ timeout: 15000 });
     return frame;
   };
@@ -157,15 +156,13 @@ void (async () => {
     })));
     check(`${label}: группы ленты — Переводчик, Данные, Шаблоны, Документ`, JSON.stringify(groups.map((g: any) => g.name)) === JSON.stringify(['Переводчик', 'Данные', 'Шаблоны', 'Документ']), groups.map((g: any) => g.name));
     const labels = groups.flatMap((g: any) => g.buttons.map((b: any) => b.label));
-    check(`${label}: кнопки ленты по ТЗ §3 и §13`, JSON.stringify(labels) === JSON.stringify(['Переводчик', 'Английская версия', 'Поля проекта', 'Оборудование', 'Теги', 'Менеджмент', 'E3Flux', 'Шаблоны', 'Закреплённые', 'Сохранить как', 'Обновить шаблон', 'Обновить данные', 'Выпустить', 'Исходная шапка', 'Выгрузить']), labels);
+    check(`${label}: кнопки ленты по ТЗ §3 и §13`, JSON.stringify(labels) === JSON.stringify(['Переводчик', 'Английская версия', 'Поля проекта', 'Шаблоны', 'Закреплённые', 'Сохранить как', 'Обновить шаблон', 'Обновить данные', 'Выпустить', 'Исходная шапка', 'Выгрузить']), labels);
     const byId = Object.fromEntries(groups.flatMap((g: any) => g.buttons).map((b: any) => [b.id, b]));
-    check(`${label}: Менеджмент и E3Flux серые с подписью «Скоро»`, byId['source-management']?.disabled && byId['source-management']?.soon && byId['source-e3']?.disabled && byId['source-e3']?.soon, [byId['source-management'], byId['source-e3']]);
     check(`${label}: «Исходная шапка» неактивна без шаблона, подсказка «У файла нет шаблона»`, byId['reset-header']?.disabled === true && (await ribbonButton(frame, 'reset-header').getAttribute('title')) === 'У файла нет шаблона');
     check(`${label}: «Поля проекта» и «Английская версия» для файла Проводника неактивны`, byId['project-fields']?.disabled === true && byId['english']?.disabled === true, [byId['project-fields'], byId['english']]);
     check(`${label}: «Выпустить» для файла Проводника неактивна`, byId['issue']?.disabled === true);
     check(`${label}: на ленте нет строки операторов`, (await frame.locator('[data-flux-command]').count()) === labels.length);
     await shot('ribbon');
-    await ribbonClick(frame, 'source-equipment');
     await panel().waitFor({ timeout: 15000 });
   };
   const dialog = (name: string) => page.getByRole('dialog', { name });
@@ -210,7 +207,6 @@ void (async () => {
   /** «Вставить все» и выгрузка XLSX / CSV из выборки (перенос возможностей старой панели) */
   const insertAndExport = async (frame: any, label: string, where: () => Promise<void>, inserted: () => Promise<boolean>) => {
     await where();
-    await ribbonClick(frame, 'source-equipment');
     await panel().getByRole('button', { name: /1\. Выборка/ }).click();
     await panel().getByRole('button', { name: 'Обновить выборку' }).click();
     await panel().getByRole('grid', { name: 'Предпросмотр выборки' }).getByText(/FAN_HIGH/).first().waitFor({ timeout: 30000 });

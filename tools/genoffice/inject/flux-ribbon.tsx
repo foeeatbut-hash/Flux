@@ -94,10 +94,6 @@ const GROUPS: Group[] = [
   ] },
   { label: 'Данные', commands: [
     { id: 'project-fields', label: 'Поля проекта', tip: 'Метки {{ключ}} в документе и «Обновить поля»' },
-    { id: 'source-equipment', label: 'Оборудование', tip: 'Данные оборудования проекта' },
-    { id: 'source-tags', label: 'Теги', tip: 'Теги проекта' },
-    { id: 'source-management', label: 'Менеджмент', tip: 'Скоро', soon: true },
-    { id: 'source-e3', label: 'E3Flux', tip: 'Скоро', soon: true },
   ] },
   { label: 'Шаблоны', commands: [
     { id: 'templates', label: 'Шаблоны', tip: 'Библиотека шаблонов шапки' },

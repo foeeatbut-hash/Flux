@@ -19,6 +19,7 @@ import type { HeaderSchemaSyncOptions } from './officeNativeSchema';
 import { dataService } from '../../services/dataService';
 import { fieldsFromCatalog, officeDataApi, toProjectQuery, type OfficeAppliedTemplate, type OfficeFileSource, type OfficeLocalSource, type OfficeAnchorRow, type OfficeField, type OfficeFillPlan, type OfficeQuery, type OfficeQueryResult, type OfficeState, type OfficeTemplate } from './fluxData';
 import type { OfficeBinding, OfficeHeaderAnchor } from '../../lib/officeModel';
+import { OfficeRequestGeneration, previewWithRevisionRecovery, queryWithRevisionRecovery } from './officeRevisionRecovery';
 
 type Tab = 'selection' | 'fields' | 'update';
 type View = 'data' | 'translator' | 'project-fields';
@@ -104,6 +105,7 @@ export default function FluxOfficePanel(props: Props) {
   /** Шаблон, который открыли, но ещё не сохранили в файл: при сохранении схемы он становится применённым. */
   const [openedTemplate, setOpenedTemplate] = useState<OfficeTemplate | null>(null);
   const [actionMessage, setActionMessage] = useState('');
+  const requestEpoch = useRef(new OfficeRequestGeneration());
   const sourceId = query.sources[0] || '';
   const activeAnchor = props.activeAnchor;
   const fileSource: OfficeFileSource = props.localSource ?? props.fileId;
@@ -117,7 +119,8 @@ export default function FluxOfficePanel(props: Props) {
     return () => { alive = false; };
   }, [!!props.onProjectChange]);
   // Другой проект — другая выборка: строки и план прежнего проекта к нему не относятся
-  useEffect(() => { setResult(null); setSelectedIds([]); setPlan(null); setPlanSchema(null); setPlanQuery(null); setAppliedSummary(null); setSelectedField(null); }, [props.projectId]);
+  useEffect(() => { requestEpoch.current.invalidate(); setLoading(false); setBusy(false); setResult(null); setSelectedIds([]); setPlan(null); setPlanSchema(null); setPlanQuery(null); setAppliedSummary(null); setSelectedField(null); setQuery((current) => ({ ...current, sourceRevision: undefined })); }, [props.projectId, fileSource]);
+  useEffect(() => () => { requestEpoch.current.invalidate(); }, []);
 
   useEffect(() => {
     const saved = Number(localStorage.getItem('flux-office-panel-width'));
@@ -191,16 +194,21 @@ export default function FluxOfficePanel(props: Props) {
     const available = new Set(sourceFields.map((field) => field.fieldKey));
     const columns = query.columns?.length ? query.columns.filter((key) => available.has(key)) : sourceFields.map((field) => field.fieldKey);
     if (!columns.length) { setError('Для источника сервер не вернул полей.'); return; }
-    setLoading(true); setError(''); setActionMessage('');
+    const epoch = requestEpoch.current.next();
+    const querySnapshot = { ...query, columns };
+    setLoading(true); setBusy(false); setPlan(null); setPlanSchema(null); setPlanQuery(null); setError(''); setActionMessage('');
     try {
-      const data = await officeDataApi.query({ ...query, columns });
+      const recovered = await queryWithRevisionRecovery(querySnapshot, officeDataApi.query);
+      const data = recovered.result;
+      if (!requestEpoch.current.isCurrent(epoch)) return;
+      if (recovered.refreshed) setActionMessage('Данные обновлены');
       setResult(data);
-      setSelectedIds((ids) => ids.filter((id) => !query.excludedEntityIds.includes(id) && data.rows.some((row) => row.entityId === id)));
+      setSelectedIds((ids) => ids.filter((id) => !querySnapshot.excludedEntityIds.includes(id) && data.rows.some((row) => row.entityId === id)));
       setQuery((current) => ({ ...current, columns, sourceRevision: data.revision }));
       setPlan(null);
       setAppliedSummary(null);
-    } catch (reason: any) { setError(String(reason?.message || reason)); }
-    finally { setLoading(false); }
+    } catch (reason: any) { if (requestEpoch.current.isCurrent(epoch)) setError(String(reason?.message || reason)); }
+    finally { if (requestEpoch.current.isCurrent(epoch)) setLoading(false); }
   }, [sourceId, sourceFields, query]);
 
   const bindSelectedField = useCallback(async () => {
@@ -241,34 +249,50 @@ export default function FluxOfficePanel(props: Props) {
     if (templatePending.length) { setError('Сначала уточните все связи выбранного шаблона.'); return; }
     if (templateSchema) { setError('Сохраните схему шаблона во вкладке «Поля и шапка», затем создайте предпросмотр.'); return; }
     if (!officeState || !schema || !result || !selectedIds.length) { setError('Выберите строки и дождитесь загрузки состояния документа.'); return; }
-    setBusy(true); setError(''); setActionMessage('');
+    const epoch = requestEpoch.current.next();
+    setBusy(true); setError(''); setActionMessage(''); setPlan(null); setPlanSchema(null); setPlanQuery(null);
     try {
       setAppliedSummary(null);
       // Обычная ручная правка меняет хеш файла вне панели. Для нового
       // предпросмотра сохраняем её и читаем актуальные связи; confirm
       // по-прежнему проверяет ровно эту версию и этот план.
       const current = await props.requestState();
+      if (!requestEpoch.current.isCurrent(epoch)) return;
       if (!current) throw new Error('Состояние документа недоступно. Повторите проверку.');
       setOfficeState(current);
       const previewSchema = templateSchema || current.schema;
       const queryBody = toProjectQuery({ ...query, columns: query.columns?.length ? query.columns : sourceFields.map((field) => field.fieldKey) });
-      const next = await officeDataApi.preview(fileSource, {
-        projectId: props.projectId, baseHash: current.baseHash, sourceRevision: result.revision,
-        selectedEntityIds: selectedIds, query: queryBody, schema: previewSchema,
+      const previewBody = { projectId: props.projectId, baseHash: current.baseHash, sourceRevision: result.revision,
+        selectedEntityIds: selectedIds, query: queryBody, schema: previewSchema };
+      const recovered = await previewWithRevisionRecovery<OfficeFillPlan, OfficeQueryResult>({
+        sourceRevision: result.revision,
+        selectedIds,
+        preview: (sourceRevision, selectedEntityIds) => officeDataApi.preview(fileSource, { ...previewBody, sourceRevision, selectedEntityIds }),
+        reload: () => officeDataApi.query({ ...query, columns: query.columns?.length ? query.columns : sourceFields.map((field) => field.fieldKey), sourceRevision: undefined }),
       });
+      if (!requestEpoch.current.isCurrent(epoch)) return;
+      if (recovered.refreshed) {
+        setResult(recovered.refreshed.result); setSelectedIds(recovered.refreshed.selectedIds);
+        setQuery((value) => ({ ...value, sourceRevision: recovered.refreshed!.result.revision }));
+        setActionMessage('Данные обновлены');
+      }
+      if (!recovered.plan) throw new Error('Данные обновлены. Выберите строки и постройте предпросмотр заново.');
+      const next = recovered.plan;
       setPlan(next); setPlanSchema(previewSchema); setPlanQuery(queryBody); setTab('update');
-    } catch (reason: any) { setError(String(reason?.message || reason)); }
-    finally { setBusy(false); }
+    } catch (reason: any) { if (requestEpoch.current.isCurrent(epoch)) setError(String(reason?.message || reason)); }
+    finally { if (requestEpoch.current.isCurrent(epoch)) setBusy(false); }
   }, [officeState, schema, templateSchema, templatePending.length, result, selectedIds, fileSource, props.projectId, props.requestState, query, sourceFields]);
 
   const applyPlan = useCallback(async () => {
     if (!plan || !planSchema || !planQuery || props.readOnly) return;
+    const epoch = requestEpoch.current.next();
     setBusy(true); setError(''); setActionMessage('');
     try {
       const confirmed = await officeDataApi.confirm(fileSource, {
         projectId: props.projectId, planId: plan.planId, baseHash: plan.baseHash,
         sourceRevision: plan.sourceRevision, selectedEntityIds: plan.selectedEntityIds, query: planQuery, schema: planSchema,
       });
+      if (!requestEpoch.current.isCurrent(epoch)) return;
       const applied = await props.applyWrites({ ...plan, writes: confirmed.writes }, planSchema, officeState?.rows || []);
       if (!applied) throw new Error('Редактор не применил заполнение.');
       setAppliedSummary(applied);
@@ -419,8 +443,8 @@ export default function FluxOfficePanel(props: Props) {
       case 'source-equipment': case 'source-tags': {
         const source = command.name === 'source-tags' ? 'tags' : 'equipment';
         setView('data'); setTab('selection');
-        setQuery((current) => current.sources[0] === source ? current : { ...current, sources: [source], columns: undefined, filters: [], sort: [], types: [], excludedEntityIds: [] });
-        setResult(null); setSelectedIds([]);
+        setQuery((current) => current.sources[0] === source ? current : { ...current, sources: [source], columns: undefined, filters: [], sort: [], types: [], excludedEntityIds: [], sourceRevision: undefined });
+        requestEpoch.current.invalidate(); setLoading(false); setBusy(false); setResult(null); setSelectedIds([]); setPlan(null); setPlanSchema(null); setPlanQuery(null);
         break;
       }
       case 'templates': setDialog('templates'); break;
@@ -495,7 +519,7 @@ export default function FluxOfficePanel(props: Props) {
       {!props.projectId && <p className="shrink-0 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">Сначала привяжите документ к проекту.</p>}
       {/* Остальные вкладки показывают это сами (поля, обновление); на «Выборке» выпущенный файл иначе не объявил бы запрет */}
       {props.readOnly && tab === 'selection' && <p className="shrink-0 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">Документ открыт только для просмотра.</p>}
-      {tab === 'selection' && <FluxSelectionPanel query={query} fields={fields} result={result} loading={loading} error="" selectedIds={selectedIds} onQueryChange={setQuery} onRun={() => void runQuery()} onSelectionChange={setSelectedIds} />}
+      {tab === 'selection' && <FluxSelectionPanel query={query} fields={fields} result={result} loading={loading} error="" selectedIds={selectedIds} onQueryChange={(next) => { requestEpoch.current.invalidate(); setLoading(false); setBusy(false); setQuery({ ...next, sourceRevision: undefined }); setResult(null); setSelectedIds([]); setPlan(null); setPlanSchema(null); setPlanQuery(null); }} onRun={() => void runQuery()} onSelectionChange={(ids) => { requestEpoch.current.invalidate(); setBusy(false); setSelectedIds(ids); setPlan(null); setPlanSchema(null); setPlanQuery(null); }} />}
       {tab === 'fields' && <FluxFieldsPanel fields={fields} state={officeState ? { ...officeState, schema: schema || officeState.schema } : null} forceSave={!!templateSchema} saveBlocked={!!templatePending.length} selectedField={selectedField} activeAnchorId={activeAnchor?.anchorId || ''} readOnly={props.readOnly} canEditSchema={props.schemaWriteAvailable} onSelectField={setSelectedField} onSaveSchema={saveSchema} />}
       {tab === 'update' && <UpdatePanel state={officeState} result={result} plan={plan} applied={appliedSummary} selectedCount={selectedIds.length} busy={busy} readOnly={props.readOnly} fileId={props.localSource ? '' : props.fileId} fileName={props.fileName} onIssued={props.onIssued} onDraftCreated={props.onDraftCreated} beforeRevisionIssue={async () => {
         const current = await props.requestState();

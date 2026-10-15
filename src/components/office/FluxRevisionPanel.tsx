@@ -162,6 +162,6 @@ export default function FluxRevisionPanel({ fileId, fileName, readOnly = false, 
 }
 
 function sourceLabel(source: string) {
-  const labels: Record<string, string> = { equipment: 'Оборудование', tags: 'Теги', management: 'Менеджмент', e3: 'E3Flux', document: 'Документ' };
+  const labels: Record<string, string> = { equipment: 'Оборудование', tags: 'Теги', management: 'Менеджмент', e3: 'E3Flux', e3flux: 'E3Flux', document: 'Документ' };
   return source.split(',').map((value) => labels[value] || value).join(', ');
 }

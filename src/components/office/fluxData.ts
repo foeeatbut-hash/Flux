@@ -108,7 +108,7 @@ export interface OfficeAnchorRow {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(String(data?.error || `Сервер ответил ${response.status}`));
+  if (!response.ok) throw Object.assign(new Error(String(data?.error || `Сервер ответил ${response.status}`)), { status: response.status });
   return data as T;
 }
 
