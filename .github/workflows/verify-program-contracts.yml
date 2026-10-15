@@ -199,3 +199,58 @@ jobs:
             /tmp/office-addon-native-*.png
             /tmp/guide-tours-native-*.png
           if-no-files-found: warn
+
+  equipment-import-wizard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Зависимости
+        run: npm ci
+      - name: Общий мастер импорта оборудования в настоящем браузере
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+          FLUX_FIXTURE_URL: http://127.0.0.1:4192
+        run: |
+          set -euo pipefail
+          fixture_log="${{ runner.temp }}/equipment-import-wizard-vite.log"
+          node ./node_modules/vite/bin/vite.js \
+            --config scripts/fixtures/equipment-xml-source-ui/vite.config.ts \
+            --host 127.0.0.1 --port 4192 --strictPort >"$fixture_log" 2>&1 &
+          fixture_pid=$!
+          cleanup() {
+            if kill -0 "$fixture_pid" 2>/dev/null; then
+              kill "$fixture_pid" 2>/dev/null || true
+              wait "$fixture_pid" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+
+          ready=false
+          for attempt in $(seq 1 60); do
+            if ! kill -0 "$fixture_pid" 2>/dev/null; then
+              cat "$fixture_log"
+              exit 1
+            fi
+            if curl --fail --silent --show-error "$FLUX_FIXTURE_URL/wizard.html" --output /dev/null 2>/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != true ]]; then
+            cat "$fixture_log"
+            echo "Equipment import wizard fixture did not become ready" >&2
+            exit 1
+          fi
+
+          node scripts/fixtures/equipment-xml-source-ui/wizard.check.mjs
+      - name: Снимки мастера импорта оборудования
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: equipment-import-wizard-evidence
+          path: /tmp/equipment-import-wizard-*.png
+          if-no-files-found: warn

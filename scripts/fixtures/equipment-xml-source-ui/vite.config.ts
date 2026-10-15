@@ -13,5 +13,6 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   define: { __APP_VERSION__: JSON.stringify('fixture') },
   server: { fs: { allow: [projectDir, fixtureDir] } },
-  optimizeDeps: { entries: [path.join(fixtureDir, 'index.html')] },
+  optimizeDeps: { entries: [path.join(fixtureDir, 'index.html'), path.join(fixtureDir, 'importer.html'), path.join(fixtureDir, 'wizard.html')] },
+  build: { rollupOptions: { input: { index: path.join(fixtureDir, 'index.html'), importer: path.join(fixtureDir, 'importer.html'), wizard: path.join(fixtureDir, 'wizard.html') } } },
 });
