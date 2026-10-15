@@ -122,6 +122,19 @@ const sizes = (page: Page, selector: string) => page.locator(selector).evaluateA
       const iconCalls = await explorer.evaluate(() => (window as any).__windowsFilesCalls.filter((call: any) => call.action === 'placeIcon' || call.action === 'icon').length);
       ok(`[${t}] Проводник не обращается к значкам оболочки (icon, placeIcon)`, iconCalls === 0, iconCalls);
       ok(`[${t}] Горизонтальной прокрутки в Проводнике нет`, await explorer.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
+      await explorer.evaluate(() => (window as any).__go('/explorer'));
+      await explorer.getByRole('heading', { name: 'Быстрый доступ', exact: true }).waitFor();
+      await explorer.evaluate(() => (window as any).__seedExplorerSharedSource());
+      const pinnedButton = explorer.getByRole('button', { name: 'Проекты', exact: true });
+      const sharedButton = explorer.getByRole('button', { name: /Общий доступ · 1/ });
+      const trashButton = explorer.getByRole('button', { name: 'Корзина', exact: true });
+      const iconWidth = (button: import('playwright-core').Locator) => button.locator('svg').first().evaluate((svg) => Math.round(svg.getBoundingClientRect().width));
+      ok(`[${t}] «Быстрый доступ»: значок Flux ${ICON_SIZE.row}`, await iconWidth(pinnedButton) === ICON_SIZE.row);
+      ok(`[${t}] «Общий доступ»: значок Flux ${ICON_SIZE.row}`, await iconWidth(sharedButton) === ICON_SIZE.row);
+      ok(`[${t}] «Корзина»: значок Flux ${ICON_SIZE.row}`, await iconWidth(trashButton) === ICON_SIZE.row);
+      const homeImages = await Promise.all([pinnedButton, sharedButton, trashButton].map((button) => button.locator('img').count()));
+      ok(`[${t}] Главная не использует картинки значков из Windows`, homeImages.every((count) => count === 0));
+      await explorer.screenshot({ path: `/tmp/flux06-home-${theme}.png` });
       await explorer.close();
     }
   } finally { await browser.close(); }

@@ -132,7 +132,8 @@ export const EVENTS = {
   // Ожидание и выполнение разделены: время в обработчике — не то же самое,
   // что время, которое прождало окно.
   'ipc.call': { channel: 'name', ok: 'flag', error: 'name', code: 'code', waitMs: 'ms' },
-  'ipc.handle': { channel: 'name', sender: 'count', ok: 'flag', error: 'name', code: 'code', action: 'name', rootRequest: 'flag', entryCount: 'count' },
+  // Для файлового помощника пишем действие, этап и HRESULT, но не путь и не текст ошибки.
+  'ipc.handle': { channel: 'name', sender: 'count', ok: 'flag', error: 'name', code: 'code', action: 'name', stage: 'name', hresult: 'code', rootRequest: 'flag', entryCount: 'count' },
 
   // ── Процесс ───────────────────────────────────────────────────────────────
   'process.start': { pid: 'count', node: 'name', platform: 'name', arch: 'name' },

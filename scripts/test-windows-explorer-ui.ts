@@ -74,8 +74,27 @@ async function loadUntil(page: Page, count: number) {
     await page.locator(MENU).getByRole('button', { name: 'Показать дополнительные параметры' }).click();
     await page.locator(MENU).getByRole('button', { name: 'Проверить пункт оболочки' }).waitFor();
     ok('Дополнительные параметры передают выбор в имитированный shell bridge', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenu' && request.extended === true)));
+    await page.evaluate(() => (window as any).__setShellMenuDelay(0, 180));
     await page.locator(MENU).getByRole('button', { name: 'Проверить пункт оболочки' }).click();
-    ok('Выбор пункта меню передаётся имитированному shell bridge', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenuInvoke')));
+    await page.waitForFunction(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenuInvoke'));
+    const invokeToken = await page.evaluate(() => [...(window as any).__windowsFilesCalls].reverse().find((request: any) => request.action === 'shellMenuInvoke')?.token);
+    await page.waitForTimeout(30);
+    const closedBeforeInvokeFinished = await page.evaluate((token) => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenuClose' && request.token === token), invokeToken);
+    ok('При выборе пункта токен остаётся открытым до завершения вызова', !closedBeforeInvokeFinished);
+    await page.waitForFunction((token) => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenuClose' && request.token === token), invokeToken);
+    const invokeBeforeClose = await page.evaluate((token) => {
+      const calls = (window as any).__windowsFilesCalls as any[];
+      return calls.findIndex((request) => request.action === 'shellMenuInvoke' && request.token === token) < calls.findIndex((request) => request.action === 'shellMenuClose' && request.token === token);
+    }, invokeToken);
+    ok('Выбор пункта запускает shellMenuInvoke до освобождения токена', invokeBeforeClose);
+    await page.evaluate(() => (window as any).__setShellMenuDelay(160, 0));
+    await page.getByRole('row', { name: /Инструкция\.docx/ }).click({ button: 'right' });
+    await page.locator(MENU).getByRole('button', { name: 'Показать дополнительные параметры' }).click();
+    await page.waitForFunction(() => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'shellMenu').length >= 2);
+    await page.getByRole('row', { name: /Проекты/ }).click({ button: 'right' });
+    await page.waitForFunction(() => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'shellMenuClose').length >= 2);
+    ok('Поздний ответ открытия закрывается после смены контекстного меню', await page.locator(MENU).getByRole('button', { name: 'Проверить пункт оболочки' }).count() === 0);
+    await page.evaluate(() => (window as any).__setShellMenuDelay(0, 0));
     await page.getByRole('row', { name: /Проекты/ }).click({ button: 'right' });
     ok('Контекстное меню папки содержит явное действие привязки к проекту', await page.locator(MENU).getByRole('button', { name: 'Привязать к проекту', exact: true }).isVisible());
     await page.keyboard.press('Escape');
@@ -177,6 +196,17 @@ async function loadUntil(page: Page, count: number) {
     await page.getByRole('button', { name: 'Назад' }).click();
     await page.getByRole('row', { name: /Отчёт\.xlsx/ }).waitFor();
     ok('Назад после повторного перехода возвращает к последней посещённой папке', await page.getByRole('row', { name: /Отчёт\.xlsx/ }).isVisible());
+    const openRequestsBeforeBack = await page.evaluate(() => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'shellMenu').length);
+    const closesBeforeBack = await page.evaluate(() => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'shellMenuClose').length);
+    await page.evaluate(() => (window as any).__setShellMenuDelay(160, 0));
+    await page.getByRole('row', { name: /Отчёт\.xlsx/ }).click({ button: 'right' });
+    await page.locator(MENU).getByRole('button', { name: 'Показать дополнительные параметры' }).click();
+    await page.waitForFunction((count) => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'shellMenu').length > count, openRequestsBeforeBack);
+    await page.getByRole('button', { name: 'Назад' }).click();
+    await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
+    await page.waitForFunction((count) => (window as any).__windowsFilesCalls.filter((request: any) => request.action === 'shellMenuClose').length > count, closesBeforeBack);
+    ok('Поздний ответ shell menu закрывается после перехода «Назад» при уже закрытом контекстном меню', await page.locator(MENU).getByRole('button', { name: 'Проверить пункт оболочки' }).count() === 0);
+    await page.evaluate(() => (window as any).__setShellMenuDelay(0, 0));
     for (let step = 0; step < 5; step++) {
       await page.getByLabel('Путь').getByRole('button', { name: 'Рабочий стол', exact: true }).click();
       await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
@@ -751,6 +781,20 @@ async function loadUntil(page: Page, count: number) {
     ok('Нет ошибок браузера', errors.length === 0);
     if (errors.length) console.error(errors.slice(0, 5));
     }
+    const latePage = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+    latePage.on('pageerror', (error) => errors.push(error.message));
+    latePage.on('console', (message) => { if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`); });
+    await latePage.goto(`${BASE}/scripts/fixtures/windows-explorer-ui.html`);
+    await latePage.locator('[data-windows-explorer]').waitFor();
+    await latePage.getByRole('row', { name: /Инструкция\.docx/ }).click({ button: 'right' });
+    await latePage.evaluate(() => (window as any).__setShellMenuDelay(160, 0));
+    await latePage.locator(MENU).getByRole('button', { name: 'Показать дополнительные параметры' }).click();
+    await latePage.waitForFunction(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenu'));
+    await latePage.evaluate(() => (window as any).__showWindowsDesktop());
+    await latePage.locator('section[aria-label="Рабочий стол Windows"]').waitFor();
+    await latePage.waitForFunction(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenuClose'));
+    ok('Поздний ответ открытия закрывает токен даже после размонтирования Проводника', await latePage.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenuClose')));
+    await latePage.close();
   } finally { await browser.close(); }
   console.log(`${passed} проверок пройдено, ${failed} провалено`);
   process.exit(failed ? 1 : 0);

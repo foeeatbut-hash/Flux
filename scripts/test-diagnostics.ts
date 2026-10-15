@@ -22,6 +22,8 @@ import { BoundedQueue, RateLimit, RepeatFilter, isFailure, passesMode, validBatc
 import { FileWriter } from '../diagnostics/node/writer';
 import { summarize, parseJsonl } from '../diagnostics/summary';
 import { armVisibleTimer, frameGap, tickVisibleTimer } from '../diagnostics/uiTiming';
+import { diagnostic, rendererEvents } from '../src/lib/diagnostics';
+import { useLogStore } from '../src/store/logStore';
 
 let f = 0;
 const ok = (name: string, cond: boolean, detail?: unknown) =>
@@ -46,6 +48,13 @@ const ok = (name: string, cond: boolean, detail?: unknown) =>
   const fileList = cleanFields('ipc.handle', { channel: 'windows-files:invoke', action: 'list', rootRequest: true, entryCount: 7, path: 'E:\\private\\Project' });
   ok('filesystem IPC diagnostics сохраняет только действие и счётчики, отбрасывая путь',
     fileList?.action === 'list' && fileList?.rootRequest === true && fileList?.entryCount === 7 && fileList?.path === undefined);
+  const nativeFailure = cleanFields('ipc.handle', { channel: 'windows-files:invoke', action: 'shellMenuInvoke', stage: 'menu-invoke', hresult: '80004005', path: 'E:\\private\\Project' });
+  ok('native IPC diagnostics сохраняет действие, этап и HRESULT без пути',
+    nativeFailure?.action === 'shellMenuInvoke' && nativeFailure?.stage === 'menu-invoke' && nativeFailure?.hresult === '80004005' && nativeFailure?.path === undefined);
+  useLogStore.getState().addLog('ERROR', 'NoStackTest', 'Подробный текст остаётся только в Журнале');
+  const noStackError = rendererEvents().filter((event) => event.event === 'log.error' && event.data.context === 'NoStackTest').at(-1);
+  ok('ошибка без стека получает безопасное имя, но текст сообщения не попадает в диагностику',
+    noStackError?.data.error === 'Error' && !JSON.stringify(noStackError).includes('Подробный текст'));
   ok('office host не записывает произвольный ввод как имя канала',
     cleanFields('office.host', { unknownChannel: 'sheets:C:\\Users\\Jane\\book.xlsx' })?.unknownChannel === undefined);
   const lifecycle = cleanFields('office.lifecycle', { app: 'docs', stage: 'frame-load', instance: 2, sequence: 3, frameLoad: 1, width: 820.4, height: 640, ready: false, dirtyKnown: false, dirty: true, path: 'C:\\Users\\NEVER_LOG_THIS\\book.docx', document: 'NEVER_LOG_THIS' });
