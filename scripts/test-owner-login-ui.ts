@@ -55,7 +55,17 @@ async function run() {
     });
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
-    page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+    page.on('console', message => { if (message.type() === 'error') {
+      const location = message.location();
+      errors.push(`${message.text()} (${location.url}:${location.lineNumber}:${location.columnNumber})`);
+      console.error(`[browser console.error] ${message.text()} (${location.url}:${location.lineNumber}:${location.columnNumber})`);
+    } });
+    page.on('response', response => {
+      if (response.status() >= 400) console.error(`[browser response ${response.status()}] ${response.url()}`);
+    });
+    page.on('requestfailed', request => {
+      console.error(`[browser requestfailed] ${request.url()} — ${request.failure()?.errorText || 'unknown failure'}`);
+    });
     await page.goto(`${url}/scripts/fixtures/owner-login-ui.html`);
     await page.waitForFunction(() => (window as any).__ownerLoginKeydownListeners?.size === 1);
     const ownerButton = page.getByRole('button', { name: 'Вход владельца', exact: true });
