@@ -37,6 +37,22 @@ try {
       ? mainBackground.darkClass && alpha === 255 && Math.max(red, green, blue) < 80
       : !mainBackground.darkClass && alpha === 255 && Math.min(red, green, blue) > 240;
     assert(themeApplied, `${theme} theme is applied to the rendered wizard`, mainBackground);
+    if (label === 'narrow') {
+      const layout = await page.locator('.fx-dialog').evaluate(dialog => {
+        const workspace = dialog.querySelector(':scope > .flex-1.min-h-0');
+        const main = workspace?.children[1];
+        return {
+          dialogWidth: dialog.clientWidth,
+          dialogScrollWidth: dialog.scrollWidth,
+          workspaceWidth: workspace?.clientWidth || 0,
+          workspaceScrollWidth: workspace?.scrollWidth || 0,
+          mainWidth: main?.getBoundingClientRect().width || 0,
+          mainScrollWidth: main?.scrollWidth || 0,
+        };
+      });
+      assert(layout.dialogScrollWidth <= layout.dialogWidth && layout.workspaceScrollWidth <= layout.workspaceWidth, 'narrow wizard has no horizontal clipping', layout);
+      assert(layout.mainWidth >= layout.dialogWidth * 0.75 && layout.mainScrollWidth <= layout.mainWidth, 'narrow wizard keeps its preview usable', layout);
+    }
     await page.screenshot({ path: `/tmp/equipment-import-wizard-${label}-${theme}.png`, fullPage: true });
     await page.close();
   }

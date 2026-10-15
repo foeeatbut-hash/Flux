@@ -619,9 +619,9 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
         </div>}
         {bindingRefreshFailed && <div role="alert" className="flex items-center gap-3 border-b border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"><span className="flex-1">{bindingWarning || 'Импорт завершён, но список привязок нужно обновить перед следующим файлом.'}</span><button type="button" disabled={bindingRefreshPending} onClick={() => void refreshBindingLedger()} className="rounded border border-rose-400 px-2 py-1 font-medium disabled:opacity-50">{bindingRefreshPending ? 'Обновление…' : 'Обновить привязки'}</button></div>}
 
-        <div className="flex-1 min-h-0 flex">
+        <div className="flex-1 min-h-0 flex flex-col sm:flex-row">
           {/* Левая колонка: файлы */}
-          <div className="w-64 shrink-0 border-r border-slate-200 dark:border-slate-800 flex flex-col">
+          <div className="w-full sm:w-64 sm:shrink-0 max-h-[38%] sm:max-h-none border-b sm:border-b-0 sm:border-r border-slate-200 dark:border-slate-800 flex flex-col min-h-0">
             <div
               className={`m-3 p-4 border-2 border-dashed rounded-xl text-center transition-colors ${
                 isDragOver ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30' : 'border-slate-300 dark:border-slate-700'
