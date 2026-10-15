@@ -1023,6 +1023,7 @@ try {
     return canvas && cell && bounds ? { x: (Number(cell.left) + Number(cell.width) / 2) * bounds.width / canvas.width, y: (Number(cell.top) + Number(cell.height) / 2) * bounds.height / canvas.height } : null;
   });
   if (!darkCellPoint) throw new Error('Could not locate dark native grid cell A1');
+  const darkDefinedNameProbe = await darkFrame.locator('body').evaluate(() => { const definitions = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.()?.getDefinedNames?.() || []; return { count: definitions.length, fluxAnchors: definitions.filter((item: any) => { try { return /^FLUX_ANCHOR_/i.test(String(item?.getName?.() || '')); } catch { return false; } }).slice(0, 50).map((item: any) => { let name: any = null, ref: any = null, formula: any = null; try { name = item?.getName?.(); } catch {} try { ref = item?.getRef?.(); } catch {} try { formula = item?.getFormulaOrRefString?.(); } catch {} return { name: typeof name === 'string' || typeof name === 'number' || typeof name === 'boolean' ? name : null, nameType: typeof name, ref: typeof ref === 'string' || typeof ref === 'number' || typeof ref === 'boolean' ? ref : null, refType: typeof ref, formula: typeof formula === 'string' || typeof formula === 'number' || typeof formula === 'boolean' ? formula : null, formulaType: typeof formula }; }) }; }).catch((error: any) => ({ error: String(error) }));
   await darkFrame.locator('body').evaluate(() => {
     const events: any[] = [];
     const win = window as any;
@@ -1052,7 +1053,7 @@ try {
     }).catch((error: unknown) => ({ error: String(error) }));
     const screenshot = '/tmp/office-addon-native-sheets-dark-edit-failure.png';
     await page.screenshot({ path: screenshot, fullPage: true }).catch(() => {});
-    console.error('NATIVE_DARK_EDIT_DIAGNOSTIC', JSON.stringify({ darkReadinessBeforeKey, darkReadinessAfterWait: await darkHostReadiness(), darkProbe, screenshot }));
+    console.error('NATIVE_DARK_EDIT_DIAGNOSTIC', JSON.stringify({ darkReadinessBeforeKey, darkReadinessAfterWait: await darkHostReadiness(), darkDefinedNameProbe, darkProbe, screenshot }));
   }
   check('typing into the natively activated dark A1 cell opens the protected-token editor', darkOverlayOpened);
   if (!darkOverlayOpened) throw new Error('Typing into dark native A1 did not open the protected-token editor');

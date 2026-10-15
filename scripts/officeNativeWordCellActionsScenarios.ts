@@ -204,21 +204,16 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
     const win = window as any;
     const editor = win.__fluxCtxRef?.current?.editor;
     const view = editor?.view;
-    const describeNode = (node: any) => ({
-      type: node?.type?.name || '',
-      text: String(node?.textContent || '').slice(0, 160),
-      attrs: Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|anchor|colspan|rowspan/i.test(key))),
-    });
     let clickedPath: any[] = [];
     let clickedPos: number | null = null;
     try {
       clickedPos = view.posAtDOM(cell, 0);
       const $clicked = editor.state.doc.resolve(clickedPos);
-      for (let depth = 0; depth <= $clicked.depth; depth++) clickedPath.push(describeNode($clicked.node(depth)));
+      for (let depth = 0; depth <= $clicked.depth; depth++) { const node = $clicked.node(depth); clickedPath.push({ type: node?.type?.name || '', text: String(node?.textContent || '').slice(0, 160), attrs: Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|anchor|colspan|rowspan/i.test(key))) }); }
     } catch (error) { clickedPath = [{ error: String(error).slice(0, 240) }]; }
     const selection = editor?.state?.selection;
     const selectedCells: any[] = [];
-    try { selection?.forEachCell?.((node: any, pos: number) => selectedCells.push({ pos, ...describeNode(node) })); } catch { /* Not a cell selection */ }
+    try { selection?.forEachCell?.((node: any, pos: number) => selectedCells.push({ pos, type: node?.type?.name || '', text: String(node?.textContent || '').slice(0, 160), attrs: Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|anchor|colspan|rowspan/i.test(key))) })); } catch { /* Not a cell selection */ }
     const rowCells = Array.from(cell.parentElement?.children || []).slice(0, 3).map((item) => ({
       tag: item.tagName,
       text: String(item.textContent || '').slice(0, 160),
