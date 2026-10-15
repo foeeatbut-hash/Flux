@@ -105,7 +105,7 @@ try {
   const unitPane = page.getByTestId('equipment-selected-unit-general');
   await unitPane.waitFor();
   await unitPane.locator('h4[title="Параметры установки"]').waitFor();
-  if (!await unitPane.getByText('8060', { exact: true }).isVisible()) throw new Error('installation characteristic value did not render');
+  if (!await unitPane.getByText('8060 м³/ч', { exact: true }).isVisible()) throw new Error('installation characteristic value and unit did not render');
   const noteHeading = unitPane.getByRole('heading', { name: 'Примечание к установке', exact: true });
   const noteToggle = noteHeading.locator('xpath=..');
   if (await noteToggle.getAttribute('aria-expanded') !== 'true') await noteToggle.click();
