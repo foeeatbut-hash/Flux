@@ -178,14 +178,37 @@ const result = (value: string, tags?: string[]) => ({
     // Применение решений: занятый тег не перевешивается молча
     const created: any[] = [];
     const connected: any[] = [];
+    const idCounters: any[] = [];
     const prisma: any = {
+      project: { findUnique: async ({ where }: any) => ({ id: where.id }) },
+      appSetting: {
+        upsert: async ({ where, create }: any) => {
+          let row = idCounters.find((item) => item.id === where.id);
+          if (!row) { row = { ...create }; idCounters.push(row); }
+          return { ...row };
+        },
+        findUnique: async ({ where }: any) => {
+          const row = idCounters.find((item) => item.id === where.id);
+          return row ? { ...row } : null;
+        },
+        updateMany: async ({ where, data }: any) => {
+          const row = idCounters.find((item) => Object.entries(where).every(([key, value]) => item[key] === value));
+          if (!row) return { count: 0 };
+          Object.assign(row, data);
+          return { count: 1 };
+        },
+      },
       tag: {
         create: async ({ data }: any) => { created.push(data); return { id: 'new1', ...data }; },
         // `projectId` здесь не для полноты: без него применение решений обязано
         // отказать — тег чужого проекта привязывать нельзя
         findUnique: async ({ where }: any) => (where.id === 'busy'
           ? { id: 'busy', projectId: 'p1', identifier: 'T-9', componentElements: [{ id: 'other', name: 'Другое изделие' }] }
-          : { id: where.id, projectId: 'p1', identifier: 'T-1', componentElements: [] }),
+          : where.id === 'ok1'
+            ? { id: 'ok1', projectId: 'p1', identifier: 'T-1', componentElements: [] }
+            : created.find((item) => item.id === where.id)
+              ? { ...created.find((item) => item.id === where.id), componentElements: [] }
+              : null),
       },
       componentElement: { update: async ({ where, data }: any) => { connected.push({ where, data }); return {}; } },
     };

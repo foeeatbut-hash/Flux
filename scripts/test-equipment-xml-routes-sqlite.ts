@@ -26,6 +26,7 @@ const ddl = [
   `CREATE TABLE _ComponentElementToTag (A TEXT NOT NULL, B TEXT NOT NULL, UNIQUE(A,B))`,
   `CREATE TABLE ProjectMember (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, userId TEXT NOT NULL)`,
   `CREATE TABLE AppSetting (id TEXT PRIMARY KEY, key TEXT NOT NULL, userId TEXT, value TEXT NOT NULL, updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(key,userId))`,
+  `CREATE TABLE Role (code TEXT PRIMARY KEY, permissions TEXT)`,
   `CREATE TABLE EquipmentHistory (id TEXT PRIMARY KEY, elementId TEXT NOT NULL, version INTEGER NOT NULL, changedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, oldSpecs TEXT, newSpecs TEXT, changeType TEXT NOT NULL, batchId TEXT)`,
   `CREATE TABLE EquipmentXmlSource (id TEXT PRIMARY KEY, projectId TEXT NOT NULL, tagId TEXT NOT NULL, targetType TEXT NOT NULL, systemId TEXT, elementId TEXT NOT NULL, tagIdentifier TEXT NOT NULL, xmlTargetIdentity TEXT, revisionOrder TEXT NOT NULL DEFAULT 'alphabetical', selectedRule TEXT NOT NULL DEFAULT 'exact-tag', lastImportedRevision TEXT, lastImportedSha256 TEXT, lastImportedAt DATETIME, lastReviewedRevision TEXT, lastReviewedSha256 TEXT, lastReviewedAt DATETIME, createdById TEXT, createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, deletedAt DATETIME)`,
   `CREATE TABLE EquipmentXmlCandidate (id TEXT PRIMARY KEY, sourceId TEXT NOT NULL, projectId TEXT NOT NULL, revision TEXT NOT NULL, fileName TEXT NOT NULL, sha256 TEXT NOT NULL, parsedSpecs TEXT NOT NULL, changes TEXT NOT NULL, decisions TEXT NOT NULL DEFAULT '{}', decisionHistory TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'pending', expectedVersion INTEGER NOT NULL, expectedVersions TEXT NOT NULL DEFAULT '{}', uploadedById TEXT, createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(sourceId,sha256))`,
@@ -56,6 +57,7 @@ try {
   setPrisma(prisma);
   await prisma.$executeRawUnsafe(`INSERT INTO Project(id,name) VALUES ('project-a','Project A'),('project-b','Project B')`);
   await prisma.$executeRawUnsafe(`INSERT INTO ProjectMember(id,projectId,userId) VALUES ('member-a','project-a','fixture-admin')`);
+  await prisma.$executeRawUnsafe(`INSERT INTO ProjectMember(id,projectId,userId) VALUES ('member-reader','project-a','reader')`);
   await prisma.$executeRawUnsafe(`INSERT INTO Tag(id,identifier,projectId) VALUES ('tag-a','FAN-1','project-a'),('tag-b','FAN-1','project-b')`);
   await prisma.$executeRawUnsafe(`INSERT INTO Tag(id,identifier,projectId) VALUES ('tag-root','SYS-1','project-a')`);
   await prisma.$executeRawUnsafe(`INSERT INTO EquipmentSystem(id,name,projectId) VALUES ('sys-a','SYS-1','project-a')`);
@@ -78,20 +80,37 @@ try {
   const sourceId = created.body.source.sourceId;
   const bindingsPath = '/api/equipment/projects/:projectId/document-bindings';
   let bindingsView = await call('GET', bindingsPath, { projectId: 'project-a' });
+  const readerBindings = await call('GET', bindingsPath, { projectId: 'project-a' }, {}, { id: 'reader', role: 'ENGINEER_VENT', isActive: true });
+  const readerWrite = await call('POST', bindingsPath, { projectId: 'project-a' }, { expectedRevision: bindingsView.body.revision, operation: { kind: 'upsert', binding: { kind: 'document', equipmentIds: [], fileName: 'manual.pdf' } } }, { id: 'reader', role: 'ENGINEER_VENT', isActive: true });
+  check('участник проекта читает общие привязки без права управления, но не может их менять', readerBindings.statusCode === 200 && readerBindings.body.canManage === false && readerBindings.body.bindings.length === bindingsView.body.bindings.length && readerWrite.statusCode === 403);
+  const outsiderBindings = await call('GET', bindingsPath, { projectId: 'project-a' }, {}, { id: 'outsider', role: 'ENGINEER_VENT', isActive: true });
+  check('посторонний пользователь не читает общие привязки закрытого проекта', outsiderBindings.statusCode === 403);
   const initialBinding = bindingsView.body.bindings.find((row: any) => row.xmlSourceId === sourceId);
   check('XML-источник атомарно появляется в общем переносимом журнале', bindingsView.statusCode === 200 && initialBinding?.locator?.folderKey === locator.folderKey && initialBinding.latestRevision === undefined);
   const badLocator = await call('POST', bindingsPath, { projectId: 'project-a' }, { expectedRevision: bindingsView.body.revision, operation: { kind: 'upsert', binding: { id: sourceId, kind: 'cad-xml', xmlSourceId: sourceId, equipmentIds: ['element-a'], fileName: 'FAN-1.xml', locator: { folderKey: 'd'.repeat(64), anchors: [{ key: 'e'.repeat(64), relativePath: '../escape' }] } } } });
   check('общий API отклоняет относительный путь с выходом из корня', badLocator.statusCode === 400);
   const staleBinding = await call('POST', bindingsPath, { projectId: 'project-a' }, { expectedRevision: bindingsView.body.revision - 1, operation: { kind: 'upsert', binding: { id: sourceId, kind: 'cad-xml', xmlSourceId: sourceId, equipmentIds: ['element-a'], fileName: 'FAN-1.xml' } } });
-  check('общий API не применяет привязку с устаревшей ревизией', staleBinding.statusCode === 409);
+  const historyBeforeStale = await prisma.equipmentHistory.count();
+  const sourceCountBeforeStale = await prisma.equipmentXmlSource.count();
+  const candidateCountBeforeStale = await prisma.equipmentXmlCandidate.count();
+  const tagCountBeforeStale = await prisma.tag.count();
+  check('общий API отклоняет устаревшую ревизию до изменения журнала, оборудования, тегов, XML-источников и истории', staleBinding.statusCode === 409 && (await call('GET', bindingsPath, { projectId: 'project-a' })).body.revision === bindingsView.body.revision && (await prisma.componentElement.findUnique({ where: { id: 'element-a' } })).specs === initialSpecs && await prisma.equipmentHistory.count() === historyBeforeStale && await prisma.equipmentXmlSource.count() === sourceCountBeforeStale && await prisma.equipmentXmlCandidate.count() === candidateCountBeforeStale && await prisma.tag.count() === tagCountBeforeStale);
   const migrationWithoutConfirm = await call('POST', `${bindingsPath}/migrate`, { projectId: 'project-a' }, { expectedRevision: bindingsView.body.revision, confirmed: false, bindings: [{ sourceId }] });
-  check('перенос локальных привязок требует явного подтверждения', migrationWithoutConfirm.statusCode === 400);
+  check('неподтверждённый перенос отклоняется без изменения общего журнала', migrationWithoutConfirm.statusCode === 400 && (await call('GET', bindingsPath, { projectId: 'project-a' })).body.revision === bindingsView.body.revision);
   const upsertedBinding = await call('POST', bindingsPath, { projectId: 'project-a' }, { expectedRevision: bindingsView.body.revision, operation: { kind: 'upsert', binding: { id: sourceId, kind: 'cad-xml', xmlSourceId: sourceId, equipmentIds: ['element-a'], fileName: 'FAN-1.xml', locator } } });
   check('управляющий может обновить привязку проекта через CAS API', upsertedBinding.statusCode === 200 && upsertedBinding.body.revision === bindingsView.body.revision + 1);
   const migratedBindings = await call('POST', `${bindingsPath}/migrate`, { projectId: 'project-a' }, { expectedRevision: upsertedBinding.body.revision, confirmed: true, bindings: [{ sourceId, fileName: 'FAN-1.xml', locator }] });
-  check('подтверждённый перенос привязки находит оборудование только внутри того же проекта', migratedBindings.statusCode === 200 && migratedBindings.body.bindings.some((row: any) => row.xmlSourceId === sourceId && row.equipmentIds.includes('element-a')));
+  const migratedSource = migratedBindings.body.bindings.find((row: any) => row.xmlSourceId === sourceId);
+  check('подтверждённый перенос сохраняет выбранный источник, ID оборудования и переносимый адрес проекта', migratedBindings.statusCode === 200 && migratedSource?.id === sourceId && migratedSource?.equipmentIds.includes('element-a') && migratedSource?.locator?.folderKey === locator.folderKey && migratedSource?.tag === 'FAN-1');
+  const hugeLocator = { folderKey: 'f'.repeat(64), anchors: Array.from({ length: 64 }, (_, index) => ({ key: index === 0 ? 'f'.repeat(64) : index.toString(16).padStart(64, '0'), relativePath: index === 0 ? '' : `${index}/${'x'.repeat(2047 - String(index).length)}` })) };
+  const trimResult = await call('POST', bindingsPath, { projectId: 'project-a' }, { expectedRevision: migratedBindings.body.revision, operation: { kind: 'upsert', binding: { id: sourceId, kind: 'cad-xml', xmlSourceId: sourceId, equipmentIds: ['element-a'], fileName: 'FAN-1.xml', locator: hugeLocator } } });
+  const storedLedger = await prisma.appSetting.findFirst({ where: { key: 'equipment_document_bindings:shared:v1', userId: '__shared__' } });
+  check('при достижении 256 КБ журнал сначала отбрасывает историю отмены и сохраняет активную привязку', trimResult.statusCode === 200 && trimResult.body.bindings.some((row: any) => row.id === sourceId && row.locator.anchors.length === 64) && Buffer.byteLength(storedLedger.value, 'utf8') <= 256 * 1024 && JSON.parse(storedLedger.value).undo.length === 0);
   const secondSource = await call('POST', sourcePath, { projectId: 'project-b' }, { tagId: 'tag-b', elementId: 'element-b', targetType: 'component', ...rawSource(xml('5'), 'A') });
   check('вторая независимая привязка сохраняется для другого стабильного tagId', secondSource.statusCode === 201 && secondSource.body.source.tagId === 'tag-b' && secondSource.body.source.lastImportedSha256 !== null);
+  const beforeForeignMigration = await call('GET', bindingsPath, { projectId: 'project-a' });
+  const foreignMigration = await call('POST', `${bindingsPath}/migrate`, { projectId: 'project-a' }, { expectedRevision: beforeForeignMigration.body.revision, confirmed: true, bindings: [{ sourceId: secondSource.body.source.sourceId, fileName: 'FAN-1.xml', locator }] });
+  check('перенос отклоняет XML-источник другого проекта и не меняет журнал', foreignMigration.statusCode === 404 && (await call('GET', bindingsPath, { projectId: 'project-a' })).body.revision === beforeForeignMigration.body.revision);
   const checkPath = '/api/equipment/projects/:projectId/sources/:sourceId/check';
   const params = { projectId: 'project-a', sourceId };
   const bad = await call('POST', checkPath, params, rawSource('<broken', 'C'));
@@ -131,6 +150,10 @@ try {
   const systemXml = `<project><system name="SYS-1"><group title="Установка"><param name="Расход" unit="м³/с">2</param></group><monoblock name="M1"><block name="FAN-1"><group title="Параметры"><param name="Давление" unit="Па">8</param></group></block></monoblock></system></project>`;
   const systemSource = await call('POST', sourcePath, { projectId: 'project-a' }, { tagId: 'tag-root', elementId: 'unit-root', targetType: 'system', systemId: 'sys-a', ...rawSource(systemXml, 'D', 'SYS-1.xml') });
   const systemSourceId = systemSource.body.source.sourceId;
+  const beforeSystemMigration = await call('GET', bindingsPath, { projectId: 'project-a' });
+  const systemMigration = await call('POST', `${bindingsPath}/migrate`, { projectId: 'project-a' }, { expectedRevision: beforeSystemMigration.body.revision, confirmed: true, bindings: [{ sourceId: systemSourceId, fileName: 'SYS-1.xml', locator }] });
+  const migratedSystemBinding = systemMigration.body.bindings.find((row: any) => row.xmlSourceId === systemSourceId);
+  check('перенос XML-источника установки использует ID служебной ComponentElement вместе с ID установки', systemMigration.statusCode === 200 && migratedSystemBinding?.equipmentIds.includes('unit-root') && migratedSystemBinding?.systemId === 'sys-a');
   const systemCandidate = await call('POST', checkPath, { projectId: 'project-a', sourceId: systemSourceId }, rawSource(systemXml, 'D', 'SYS-1.xml'));
   check('системный XML обнаруживает корневую и вложенную характеристику при неизменном составе', systemCandidate.statusCode === 201 && systemCandidate.body.candidate.changes.length === 2 && systemCandidate.body.candidate.changes.some((change: any) => change.targetId === 'unit-root') && systemCandidate.body.candidate.changes.some((change: any) => change.targetId === 'element-a'));
   const systemDecisions = await call('POST', '/api/equipment/projects/:projectId/sources/:sourceId/candidates/:candidateId/decisions', { projectId: 'project-a', sourceId: systemSourceId, candidateId: systemCandidate.body.candidate.id }, { expectedVersion: systemCandidate.body.candidate.expectedVersion, decisions: systemCandidate.body.candidate.changes.map((change: any) => ({ id: change.id, action: 'accept' })) });

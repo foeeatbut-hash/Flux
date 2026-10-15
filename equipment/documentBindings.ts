@@ -1,13 +1,13 @@
 import type { PortableFolderLocator } from '../filesystem/contracts.js';
 
-/** Exact matching policy kept with the source so later revisions cannot widen silently. */
+/** Сохраняем точное правило вместе с источником, чтобы будущий импорт незаметно не расширил совпадения. */
 export type FilenameMatchRule =
   | { kind: 'exact-tag' }
   | { kind: 'selected-name'; fileName: string }
   | { kind: 'document-name'; fileName: string };
 export type EquipmentDocumentFilenameRule = FilenameMatchRule;
 
-/** Shared provenance for an equipment source; device-local capabilities stay in the renderer. */
+/** Общие сведения об источнике хранятся на сервере; локальные возможности устройства остаются в renderer. */
 export interface EquipmentDocumentBinding {
   id: string;
   projectId: string;
@@ -53,4 +53,18 @@ export interface EquipmentDocumentBindingInput {
   fileName: string;
   rule?: FilenameMatchRule;
   latestRevision?: { revision: string; sha256: string; updatedAt?: string };
+}
+
+/** Повторный импорт документа несёт общую привязку и ревизию CAS журнала. */
+export interface EquipmentDocumentImportSource {
+  id?: string;
+  kind: 'document';
+  expectedLedgerRevision: number;
+  locator?: PortableFolderLocator;
+  fileName: string;
+  rule?: FilenameMatchRule;
+  revision: string;
+  sha256: string;
+  systemId?: string;
+  tag?: string;
 }

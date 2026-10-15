@@ -43,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/test-office-no-ai.cjs
-          for check in test-entity-ids test-entity-id-migration-sqlite test-entity-id-migration-routes test-dynamic-field-rename-sqlite test-tag-exchange test-equipment-source-import test-equipment-xml-routes-sqlite test-remaining-identity-project-routes test-remaining-files-notes test-remaining-files-explorer-purge test-html-to-markdown test-mail-open-unread; do
+          for check in test-entity-ids test-entity-id-migration-sqlite test-entity-id-migration-routes test-dynamic-field-rename-sqlite test-tag-exchange test-equipment-source-import test-equipment-document-import-source test-equipment-xml-routes-sqlite test-remaining-identity-project-routes test-remaining-files-notes test-remaining-files-explorer-purge test-html-to-markdown test-mail-open-unread; do
             node --import tsx "scripts/$check.ts"
           done
       - name: Компонентные сценарии интерфейса
@@ -103,6 +103,45 @@ jobs:
         env:
           FLUX_CHROME: /usr/bin/google-chrome
         run: node scripts/test-entity-id-migration-ui.mjs
+      - name: Источники XML и общий импорт документов в светлой и тёмной темах
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+          FLUX_FIXTURE_URL: http://127.0.0.1:4192
+        run: |
+          set -euo pipefail
+          fixture_log="${{ runner.temp }}/equipment-xml-source-vite.log"
+          node ./node_modules/vite/bin/vite.js \
+            --config scripts/fixtures/equipment-xml-source-ui/vite.config.ts \
+            --host 127.0.0.1 --port 4192 --strictPort >"$fixture_log" 2>&1 &
+          fixture_pid=$!
+          cleanup() {
+            if kill -0 "$fixture_pid" 2>/dev/null; then
+              kill "$fixture_pid" 2>/dev/null || true
+              wait "$fixture_pid" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+
+          ready=false
+          for attempt in $(seq 1 60); do
+            if ! kill -0 "$fixture_pid" 2>/dev/null; then
+              cat "$fixture_log"
+              exit 1
+            fi
+            if curl --fail --silent --show-error "$FLUX_FIXTURE_URL/importer.html" --output /dev/null 2>/dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != true ]]; then
+            cat "$fixture_log"
+            echo "Equipment import UI fixture did not become ready" >&2
+            exit 1
+          fi
+
+          node scripts/fixtures/equipment-xml-source-ui/check.mjs
+          node scripts/fixtures/equipment-xml-source-ui/importer.check.mjs
       - name: Артефакты с явно указанной областью проверки
         if: always()
         uses: actions/upload-artifact@v4

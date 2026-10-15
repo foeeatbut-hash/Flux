@@ -11,8 +11,7 @@ import InSchemeNotice from './import/InSchemeNotice';
 import MatchPanel, { type MatchRow, type MissingRow, type SystemRow } from './import/MatchPanel';
 import FileBadge from './ui/FileBadge';
 import { ICON_SIZE } from '../lib/metrics';
-import type { EquipmentDocumentFilenameRule } from '../../equipment/documentBindings';
-import type { PortableFolderLocator } from '../../filesystem/contracts';
+import type { EquipmentDocumentImportSource } from '../../equipment/documentBindings';
 import { loadEquipmentDocumentBindings } from '../lib/equipmentDocumentBindings';
 
 // ── Предпросмотр импорта оборудования (dry-run, Фаза 2 «Импорт бланков 2.0») ──
@@ -77,11 +76,7 @@ interface Props {
    */
   draft?: {
     units: any[]; fileName: string;
-    sourceBinding?: {
-      id?: string; expectedLedgerRevision: number; locator?: PortableFolderLocator;
-      fileName: string; rule?: EquipmentDocumentFilenameRule; revision: string; sha256: string;
-      systemId?: string; tag?: string;
-    };
+    sourceBinding?: EquipmentDocumentImportSource;
   };
   category: string;
   categoryLabel: string;

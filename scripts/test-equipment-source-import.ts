@@ -237,14 +237,34 @@ async function main() {
     const documentResult = await documentApply.json();
     const documentBinding = (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).bindings.find((row: any) => row.id === documentResult.associations.bindingId);
     check('подтверждённый импорт документа сохраняет привязку и точные ID в одной транзакции', documentBinding?.kind === 'document' && documentBinding.latestRevision.sha256 === documentSha256 && documentBinding.equipmentIds.length > 0 && documentBinding.equipmentIds.join(',') === documentResult.associations.equipmentIds.join(','));
+    const documentEquipmentId = documentResult.associations.equipmentIds[0];
+    await prisma.componentElement.update({ where: { id: documentEquipmentId }, data: { overrides: JSON.stringify({ 'Основные||Расход': 'ручное значение документа' }) } });
+    const reimportText = Buffer.from(makeBody('DOC-01-AHU-001', 'temporary.xml', false, '1600').base64, 'base64').toString('utf8');
+    const reimportUnits = parseEquipmentXML(reimportText).units;
+    const reimportPlanResponse = await postApi('/api/equipment/import-draft-plan', { units: reimportUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'form.docx' });
+    assert.equal(reimportPlanResponse.status, 200, (await reimportPlanResponse.clone().text()).slice(0, 350));
+    const reimportPlan = await reimportPlanResponse.json();
+    const reimportBytes = Buffer.from('verified fixture document bytes revision 2');
+    const reimportSha256 = createHash('sha256').update(reimportBytes).digest('hex');
+    const reimportLedgerRevision = (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).revision;
+    const reimportApply = await postApi('/api/equipment/import-draft', {
+      units: reimportUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'form.docx', tagLinks: reimportPlan.plan?.tagLinks,
+      sourceBinding: { id: documentBinding.id, kind: 'document', expectedLedgerRevision: reimportLedgerRevision, locator: portableLocator,
+        fileName: 'form.docx', rule: { kind: 'document-name', fileName: 'form.docx' }, revision: 'R2', sha256: reimportSha256 },
+    });
+    assert.equal(reimportApply.status, 200, (await reimportApply.clone().text()).slice(0, 350));
+    const reimportResult = await reimportApply.json();
+    const reimportBinding = (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).bindings.find((row: any) => row.id === documentBinding.id);
+    const afterDocumentEquipment = await prisma.componentElement.findUnique({ where: { id: documentEquipmentId } });
+    check('повторный импорт сохраняет ID общей привязки, точные ID оборудования и ручное переопределение', reimportResult.associations.bindingId === documentBinding.id && reimportResult.associations.equipmentIds.includes(documentEquipmentId) && reimportBinding.latestRevision.sha256 === reimportSha256 && reimportBinding.equipmentIds.includes(documentEquipmentId) && afterDocumentEquipment?.overrides === JSON.stringify({ 'Основные||Расход': 'ручное значение документа' }));
     const staleDocumentUnits = parseEquipmentXML(documentText.replace('DOC-01-AHU-001', 'DOC-02-AHU-002')).units;
     const staleDocPlan = await postApi('/api/equipment/import-draft-plan', { units: staleDocumentUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'stale-form.docx' });
     assert.equal(staleDocPlan.status, 200, (await staleDocPlan.clone().text()).slice(0, 300));
-    const beforeStaleDoc = { systems: await count(prisma.equipmentSystem), history: await count(prisma.equipmentHistory) };
+    const beforeStaleDoc = { systems: await count(prisma.equipmentSystem), tags: await count(prisma.tag), sources: await count(prisma.equipmentXmlSource), equipment: await count(prisma.componentElement), history: await count(prisma.equipmentHistory), revision: (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).revision };
     const staleDocApply = await postApi('/api/equipment/import-draft', { units: staleDocumentUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'stale-form.docx',
       sourceBinding: { kind: 'document', expectedLedgerRevision: documentLedgerRevision, fileName: 'stale-form.docx', revision: 'R1', sha256: documentSha256 } });
-    const afterStaleDoc = { systems: await count(prisma.equipmentSystem), history: await count(prisma.equipmentHistory) };
-    check('устаревшая ревизия общего журнала откатывает подтверждённый импорт документа', staleDocApply.status === 409 && JSON.stringify(beforeStaleDoc) === JSON.stringify(afterStaleDoc));
+    const afterStaleDoc = { systems: await count(prisma.equipmentSystem), tags: await count(prisma.tag), sources: await count(prisma.equipmentXmlSource), equipment: await count(prisma.componentElement), history: await count(prisma.equipmentHistory), revision: (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).revision };
+    check('устаревшая ревизия журнала атомарно откатывает импорт документа, теги, ID оборудования и историю', staleDocApply.status === 409 && JSON.stringify(beforeStaleDoc) === JSON.stringify(afterStaleDoc));
     console.log(`Equipment source import HTTP checks: ${checks} passed.`);
   } finally {
     if (server) await new Promise<void>(resolve => server.close(() => resolve()));

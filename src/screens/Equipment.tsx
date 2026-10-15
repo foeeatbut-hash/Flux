@@ -39,8 +39,8 @@ import { normalizeSpecs, type SpecParam, type ParamConflict } from '../lib/specs
 import BlockCard from '../components/equipment/BlockCard';
 import EquipmentXmlSourcePanel from '../components/equipment/EquipmentXmlSourcePanel';
 import EquipmentXmlUpdatesDialog from '../components/equipment/EquipmentXmlUpdatesDialog';
-import { getEquipmentSourceBinding, scanEquipmentSource, type EquipmentSourceCandidate } from '../lib/equipmentSourcesLocal';
-import { findLatestBoundDocument, getLocalEquipmentDocumentRef, loadEquipmentDocumentBindings } from '../lib/equipmentDocumentBindings';
+import { scanEquipmentSource, type EquipmentSourceCandidate } from '../lib/equipmentSourcesLocal';
+import { findLatestBoundDocument, loadEquipmentDocumentBindings, resolveEquipmentSourceBinding } from '../lib/equipmentDocumentBindings';
 import type { EquipmentDocumentBinding } from '../../equipment/documentBindings';
 import PositionTree, { blockLabel, type TreeMode } from '../components/equipment/PositionTree';
 import PositionList from '../components/equipment/PositionList';
@@ -90,6 +90,7 @@ export default function Equipment() {
   const sourceScanLatest = useRef<(() => Promise<void>) | null>(null);
   const sourceScanController = useRef<AbortController | null>(null);
   const sourceScanDebounce = useRef<number | null>(null);
+  const notifiedDocumentRevisions = useRef(new Set<string>());
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
@@ -122,6 +123,10 @@ export default function Equipment() {
       if (!response.ok) return;
       const result = await response.json();
       const sources: any[] = Array.isArray(result.sources) ? result.sources : [];
+      const bindingsView = await loadEquipmentDocumentBindings(pid, controller.signal).catch(() => null);
+      const bindings = bindingsView?.bindings || [];
+      const cadBindings = new Map<string, EquipmentDocumentBinding>();
+      for (const binding of bindings) if (binding.kind === 'cad-xml') cadBindings.set(binding.xmlSourceId || binding.id, binding);
       const next: Record<string, { status: string; revision?: string }> = {};
       const setSourceStatus = (source: any, status: string, revision?: string) => {
         const targets: any[] = Array.isArray(source.targetTags) ? source.targetTags : [{ elementId: source.elementId, tagIds: [source.tagId] }];
@@ -146,13 +151,9 @@ export default function Equipment() {
           const source = sources[cursor++];
           const sharedStatus = source.latestCandidate?.status;
           const hasSharedReview = sharedStatus === 'pending' || sharedStatus === 'partial';
-          const local = getEquipmentSourceBinding(pid, String(source.sourceId), String(source.tagId), String(source.elementId)) || (() => {
-            const saved = getLocalEquipmentDocumentRef(pid, String(source.sourceId));
-            if (!saved) return null;
-            return { sourceId: String(source.sourceId), projectId: pid, tagId: String(source.tagId || ''), systemId: String(source.systemId || ''), elementId: String(source.elementId || ''), targetType: source.targetType === 'component' ? 'component' as const : 'system' as const, rootId: saved.sourceFolder.rootId, relativePath: saved.sourceFolder.relativePath, selectedFileRef: saved.fileRef, revisionOrder: source.revisionOrder || ['A', 'B', 'C'], selectedRule: source.selectedRule };
-          })();
-          if (!local) { setSourceStatus(source, hasSharedReview ? sharedStatus : 'source-unavailable', source.latestCandidate?.revision); continue; }
           try {
+            const local = await resolveEquipmentSourceBinding(pid, source, cadBindings.get(String(source.sourceId)));
+            if (!local) { setSourceStatus(source, hasSharedReview ? sharedStatus : 'source-unavailable', source.latestCandidate?.revision); continue; }
             const scan = await scanEquipmentSource(local);
             if (generation !== sourceScanGeneration.current) return;
             if (scan.status !== 'ready') {
@@ -182,17 +183,23 @@ export default function Equipment() {
       await Promise.all(workers);
       if (generation === sourceScanGeneration.current) setXmlSourceStatuses(next);
       }
-      const bindingsView = await loadEquipmentDocumentBindings(pid, controller.signal);
-      const documentBindings = bindingsView.bindings.filter(binding => binding.kind === 'document');
-      if (generation === sourceScanGeneration.current) setDocumentBindingsForUpdates(documentBindings);
+      const documentBindings = bindings.filter(binding => binding.kind === 'document');
+      if (bindingsView && generation === sourceScanGeneration.current) setDocumentBindingsForUpdates(documentBindings);
       const docs: typeof documentSourceStatuses = {};
       for (const binding of documentBindings) {
         if (generation !== sourceScanGeneration.current) return;
         const latest = await findLatestBoundDocument(pid, binding).catch(() => null);
+        if (generation !== sourceScanGeneration.current) return;
         if (!latest) { docs[binding.id] = { status: 'source-unavailable' }; continue; }
-        docs[binding.id] = { ...latest, status: binding.latestRevision?.sha256 === latest.sha256 ? 'noChanges' : 'pending' };
+        const isNewRevision = binding.latestRevision?.sha256 !== latest.sha256;
+        docs[binding.id] = { ...latest, status: isNewRevision ? 'pending' : 'noChanges' };
+        const noticeKey = `${pid}:${binding.id}:${latest.sha256}`;
+        if (isNewRevision && !notifiedDocumentRevisions.current.has(noticeKey)) {
+          notifiedDocumentRevisions.current.add(noticeKey);
+          addToast(`Новая ревизия документа «${binding.fileName}» готова к проверке.`, 'info');
+        }
       }
-      if (generation === sourceScanGeneration.current) setDocumentSourceStatuses(docs);
+      if (bindingsView && generation === sourceScanGeneration.current) setDocumentSourceStatuses(docs);
     } catch (_) {
       // Список реестра остаётся доступен, даже если проверка источников офлайн.
     } finally {
@@ -203,7 +210,7 @@ export default function Equipment() {
         void sourceScanLatest.current?.();
       }
     }
-  }, [pid, canManageEquipment]);
+  }, [pid, canManageEquipment, addToast]);
   sourceScanLatest.current = checkProjectXmlSources;
 
   const scheduleProjectXmlCheck = useCallback(() => {

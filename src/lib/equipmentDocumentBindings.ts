@@ -1,10 +1,13 @@
 import type {
   EquipmentDocumentBinding,
   EquipmentDocumentBindingInput,
+  EquipmentDocumentImportSource,
   EquipmentDocumentBindingsView,
 } from '../../equipment/documentBindings';
 import { useStore } from '../store/store';
 import { windowsFilesRequest, type WindowsFileRef, type WindowsFileEntry } from './windowsFiles';
+import { getEquipmentSourceBinding, saveEquipmentSourceBinding, type LocalEquipmentSourceBinding } from './equipmentSourcesLocal';
+import type { EquipmentXmlTargetIdentity } from '../../equipment/sourceXml';
 
 const api = (path: string) => `/api${path}`;
 const LOCAL_REFS_KEY = 'flux.equipmentDocumentRefs.local.v1';
@@ -14,6 +17,65 @@ export interface LocalEquipmentDocumentRef {
   bindingId: string;
   sourceFolder: WindowsFileRef;
   fileRef?: WindowsFileRef;
+}
+
+export interface EquipmentSourceBindingContext {
+  sourceId: string;
+  projectId?: string;
+  tagId?: string;
+  tagIdentifier?: string;
+  xmlTargetIdentity?: EquipmentXmlTargetIdentity | null;
+  elementId: string;
+  targetType: 'system' | 'component';
+  systemId?: string;
+  revisionOrder?: string[];
+  selectedRule?: LocalEquipmentSourceBinding['selectedRule'];
+}
+
+/** Resolve a source's device-local capability from its shared portable locator when needed. */
+export async function resolveEquipmentSourceBinding(
+  projectId: string,
+  source: EquipmentSourceBindingContext,
+  sharedBinding?: EquipmentDocumentBinding,
+): Promise<LocalEquipmentSourceBinding | null> {
+  const local = getEquipmentSourceBinding(projectId, source.sourceId, source.tagId, source.elementId);
+  if (local) return local;
+
+  const priorCapability = getLocalEquipmentDocumentRef(projectId, source.sourceId);
+  if (priorCapability) {
+    const restored: LocalEquipmentSourceBinding = {
+      sourceId: source.sourceId, projectId,
+      ...(source.tagId ? { tagId: source.tagId } : {}), ...(source.tagIdentifier ? { tagIdentifier: source.tagIdentifier } : {}),
+      ...(source.xmlTargetIdentity ? { xmlTargetIdentity: source.xmlTargetIdentity } : {}),
+      elementId: source.elementId, targetType: source.targetType, ...(source.systemId ? { systemId: source.systemId } : {}),
+      rootId: priorCapability.sourceFolder.rootId, relativePath: priorCapability.sourceFolder.relativePath,
+      ...(priorCapability.fileRef ? { selectedFileRef: priorCapability.fileRef } : {}),
+      revisionOrder: source.revisionOrder || ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'],
+      ...(source.selectedRule ? { selectedRule: source.selectedRule } : {}),
+    };
+    saveEquipmentSourceBinding(restored);
+    return restored;
+  }
+
+  if (sharedBinding?.kind !== 'cad-xml' || (sharedBinding.xmlSourceId || sharedBinding.id) !== source.sourceId || !sharedBinding.locator) return null;
+  const resolved = await windowsFilesRequest<WindowsFileRef | null>({ action: 'resolvePortableFolder', locator: sharedBinding.locator });
+  if (resolved.ok === false || !resolved.data) return null;
+  const rule = sharedBinding.rule?.kind === 'exact-tag' || sharedBinding.rule?.kind === 'selected-name' ? sharedBinding.rule : undefined;
+  const restored: LocalEquipmentSourceBinding = {
+    sourceId: source.sourceId, projectId,
+    ...(source.tagId ? { tagId: source.tagId } : {}), ...(source.tagIdentifier || sharedBinding.tag ? { tagIdentifier: source.tagIdentifier || sharedBinding.tag } : {}),
+    ...(source.xmlTargetIdentity ? { xmlTargetIdentity: source.xmlTargetIdentity } : {}),
+    elementId: source.elementId, targetType: source.targetType, ...(source.systemId || sharedBinding.systemId ? { systemId: source.systemId || sharedBinding.systemId } : {}),
+    rootId: resolved.data.rootId, relativePath: resolved.data.relativePath,
+    revisionOrder: source.revisionOrder || ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'],
+    ...(source.selectedRule ? { selectedRule: source.selectedRule } : rule ? { selectedRule: rule } : {}),
+  };
+  saveEquipmentSourceBinding(restored);
+  return restored;
+}
+
+export function equipmentDocumentImportSource(value: Omit<EquipmentDocumentImportSource, 'kind'>): EquipmentDocumentImportSource {
+  return { ...value, kind: 'document' };
 }
 
 function localKey(projectId: string, bindingId: string, userId: string): string {
@@ -30,7 +92,7 @@ function readLocalRefs(): Record<string, LocalEquipmentDocumentRef & { userId: s
 /** Локальная capability нужна на не-сетевом диске, но никогда не уходит в API. */
 export function saveLocalEquipmentDocumentRef(value: LocalEquipmentDocumentRef): void {
   const userId = useStore.getState().user?.id;
-  if (!userId || !value.projectId || !value.bindingId || !value.sourceFolder?.rootId || !value.sourceFolder.relativePath) return;
+  if (!userId || !value.projectId || !value.bindingId || !value.sourceFolder?.rootId || typeof value.sourceFolder.relativePath !== 'string') return;
   const all = readLocalRefs();
   all[localKey(value.projectId, value.bindingId, userId)] = { ...value, userId };
   localStorage.setItem(LOCAL_REFS_KEY, JSON.stringify(all));

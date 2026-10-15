@@ -33,6 +33,7 @@ const ok = (name: string, cond: boolean, detail?: unknown) =>
 interface Row { [k: string]: any }
 
 const store: Record<string, Row[]> = { ImportBatch: [], ImportJob: [] };
+const idCounters: Row[] = [];
 /** Что должен сделать импорт: пусто — записать, текст — упасть с этой причиной */
 let breakImportWith = '';
 let imported = 0;
@@ -117,6 +118,23 @@ const table = (name: string) => ({
  */
 const prisma: any = {
   $executeRawUnsafe: async () => 0,
+  appSetting: {
+    upsert: async ({ where, create }: any) => {
+      let row = idCounters.find((item) => item.id === where.id);
+      if (!row) { row = { ...create }; idCounters.push(row); }
+      return { ...row };
+    },
+    findUnique: async ({ where }: any) => {
+      const row = idCounters.find((item) => item.id === where.id);
+      return row ? { ...row } : null;
+    },
+    updateMany: async ({ where, data }: any) => {
+      const row = idCounters.find((item) => Object.entries(where).every(([key, value]) => item[key] === value));
+      if (!row) return { count: 0 };
+      Object.assign(row, data);
+      return { count: 1 };
+    },
+  },
   importBatch: table('ImportBatch'),
   importJob: table('ImportJob'),
   projectTagPolicy: { findFirst: async () => null },
@@ -124,13 +142,15 @@ const prisma: any = {
     findFirst: async () => { if (breakImportWith) throw new Error(breakImportWith); return { id: 'sys1' }; },
     // Запись ищет установку тем же сравнением, что и план: списком проекта
     findMany: async () => { if (breakImportWith) throw new Error(breakImportWith); return []; },
+    findUnique: async () => null,
     create: async () => ({ id: 'sys1' }),
     update: async ({ data }: any) => ({ id: 'sys1', ...data }),
   },
-  project: { findUnique: async () => ({ code: '' }) },
-  monoblock: { findFirst: async () => ({ id: 'mb1' }), create: async () => ({ id: 'mb1' }) },
+  project: { findUnique: async ({ where }: any) => ({ id: where.id, code: '' }) },
+  monoblock: { findFirst: async () => ({ id: 'mb1' }), findUnique: async () => null, create: async () => ({ id: 'mb1' }) },
   componentElement: {
     findFirst: async () => null,
+    findUnique: async () => null,
     create: async () => { imported++; return { id: `el${imported}` }; },
     update: async () => ({}),
     findMany: async () => [],

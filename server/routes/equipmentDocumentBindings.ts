@@ -81,7 +81,7 @@ export async function readEquipmentDocumentBindingLedger(prisma: any): Promise<E
   return parseLedger(row?.value);
 }
 
-/** Must receive the Prisma transaction client when equipment is being imported in the same transaction. */
+/** При импорте оборудования передаём клиент текущей транзакции, чтобы привязка записалась вместе с ним. */
 export async function upsertEquipmentDocumentBindingInTransaction(
   prisma: any,
   projectId: string,
@@ -243,6 +243,6 @@ function parseLedgerRule(stored: unknown, fallback: unknown) {
   try {
     const parsed = typeof stored === 'string' ? JSON.parse(stored) : stored;
     if (parsed && filenameRuleKinds.has(parsed.kind)) return parsed;
-  } catch { /* Use the validated legacy selection below. */ }
+  } catch { /* Используем ниже уже проверенное правило из старого формата. */ }
   return fallback;
 }

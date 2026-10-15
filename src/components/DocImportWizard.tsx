@@ -18,7 +18,7 @@ import FileBadge from './ui/FileBadge';
 import { ICON_SIZE } from '../lib/metrics';
 import type { SelectionProvenance } from '../lib/windowsFiles';
 import type { EquipmentDocumentBinding, FilenameMatchRule } from '../../equipment/documentBindings';
-import { getLocalEquipmentDocumentRef, loadEquipmentDocumentBindings, saveLocalEquipmentDocumentRef } from '../lib/equipmentDocumentBindings';
+import { equipmentDocumentImportSource, getLocalEquipmentDocumentRef, loadEquipmentDocumentBindings, saveLocalEquipmentDocumentRef } from '../lib/equipmentDocumentBindings';
 import { base64ToBytes, takeWindowsDrop, windowsFilesRequest } from '../lib/windowsFiles';
 import { WINDOWS_IMPORT_READ_BYTES, type ImportedFileRef } from '../../filesystem/contracts';
 import { listEquipmentSourceBindings, removeEquipmentSourceBinding, scanEquipmentSource, type EquipmentSourceCandidate, type LocalEquipmentSourceBinding } from '../lib/equipmentSourcesLocal';
@@ -147,6 +147,8 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   const [migrationSelection, setMigrationSelection] = useState<Set<string>>(new Set());
   const [migrationOpen, setMigrationOpen] = useState(false);
   const [migrationBusy, setMigrationBusy] = useState(false);
+  const [bindingRefreshPending, setBindingRefreshPending] = useState(false);
+  const [bindingRefreshFailed, setBindingRefreshFailed] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -173,6 +175,20 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     });
     return () => controller.abort();
   }, [projectId]);
+
+  const refreshBindingLedger = useCallback(async () => {
+    setBindingRefreshPending(true); setBindingWarning('');
+    try {
+      const view = await loadEquipmentDocumentBindings(projectId);
+      setBindingRevision(view.revision); setDocumentBindings(view.bindings); setBindingRefreshFailed(false);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Не удалось обновить общий список привязок.';
+      setBindingWarning(message); setBindingRefreshFailed(true);
+      addToast(`Импорт сохранён, но список общих источников не обновился: ${message}`, 'error');
+      return false;
+    } finally { setBindingRefreshPending(false); }
+  }, [projectId, addToast]);
 
   const confirmLegacyMigration = async () => {
     const selected = legacyCandidates.filter(item => migrationSelection.has(item.binding.sourceId));
@@ -515,7 +531,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     });
   };
 
-  const previewDone = (summary?: { bindingId?: string }) => {
+  const previewDone = async (summary?: { bindingId?: string }) => {
     const done = jobs.filter(j => preview?.jobIds.includes(j.id));
     setPreview(null);
     if (!done.length) return;
@@ -523,6 +539,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     if (summary?.bindingId && bound.provenance?.sourceFolder) {
       saveLocalEquipmentDocumentRef({ projectId, bindingId: summary.bindingId, sourceFolder: bound.provenance.sourceFolder, fileRef: bound.provenance.fileRef });
     }
+    if (summary?.bindingId) await refreshBindingLedger();
     for (const job of done) {
       // Подтверждённый импорт — надёжная разметка: учим словарь по всем источникам (в т.ч. PDF/OCR).
       // У разобранного расчёта учить нечему: там не распознавание, а точный разбор
@@ -538,6 +555,20 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
 
   const activeJob = jobs.find(j => j.id === activeJobId) || jobs[0] || null;
   const readyCount = jobs.filter(j => j.status === 'ready' && ((j.draft?.items.length || 0) > 0 || (j.cad?.blocks || 0) > 0)).length;
+  const previewJob = preview ? jobs.find(job => job.id === preview.jobIds[0]) : undefined;
+  const documentSource = previewJob?.provenance?.sourceFolder && previewJob.sourceSha256
+    ? equipmentDocumentImportSource({
+      ...(previewJob.sourceBinding ? { id: previewJob.sourceBinding.id } : {}),
+      expectedLedgerRevision: bindingRevision,
+      ...(previewJob.provenance.portableLocator || previewJob.sourceBinding?.locator ? { locator: previewJob.provenance.portableLocator || previewJob.sourceBinding?.locator } : {}),
+      fileName: previewJob.fileName,
+      rule: { kind: 'document-name', fileName: previewJob.fileName },
+      revision: previewJob.sourceRevision || 'без ревизии',
+      sha256: previewJob.sourceSha256,
+      ...(previewJob.sourceBinding?.systemId ? { systemId: previewJob.sourceBinding.systemId } : {}),
+      ...(previewJob.sourceBinding?.tag ? { tag: previewJob.sourceBinding.tag } : {}),
+    })
+    : undefined;
 
   // ── Рендер ──────────────────────────────────────────────────────────────────
 
@@ -586,6 +617,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
             {bindingWarning && <p role="alert" className="text-rose-700 dark:text-rose-300">{bindingWarning}</p>}
           </div>}
         </div>}
+        {bindingRefreshFailed && <div role="alert" className="flex items-center gap-3 border-b border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"><span className="flex-1">{bindingWarning || 'Импорт завершён, но список привязок нужно обновить перед следующим файлом.'}</span><button type="button" disabled={bindingRefreshPending} onClick={() => void refreshBindingLedger()} className="rounded border border-rose-400 px-2 py-1 font-medium disabled:opacity-50">{bindingRefreshPending ? 'Обновление…' : 'Обновить привязки'}</button></div>}
 
         <div className="flex-1 min-h-0 flex">
           {/* Левая колонка: файлы */}
@@ -598,7 +630,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
               <Upload className="w-5 h-5 mx-auto text-slate-400 mb-1.5" />
               <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">{allowDrop ? 'Перетащите файлы или выберите источник' : 'Выберите файлы для импорта'}</p>
               <div className="mt-3 flex justify-center" onClick={event => event.stopPropagation()}>
-                <ImportFileChooser multiple accept=".pdf,.xlsx,.xls,.csv,.docx,.doc,.xml,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif" label="Выбрать файлы" onFiles={handleFiles} />
+                <ImportFileChooser disabled={bindingRefreshPending || bindingRefreshFailed} multiple accept=".pdf,.xlsx,.xls,.csv,.docx,.doc,.xml,.jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif" label="Выбрать файлы" onFiles={handleFiles} />
               </div>
             </div>
             <div className="px-3 pb-1 flex items-center gap-1.5 text-2xs text-slate-400">
@@ -858,7 +890,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                       Установок: {activeJob.cad.units.length} · блоков: {activeJob.cad.blocks}
                     </div>
                     <button type="button"
-                      onClick={() => commitJob(activeJob)} disabled={!canManage}
+                      onClick={() => commitJob(activeJob)} disabled={!canManage || bindingRefreshPending || bindingRefreshFailed}
                       className="fx-btn fx-btn-primary shrink-0"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
@@ -874,7 +906,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                       Зелёное — уверенно · жёлтое — проверьте · серое — подпись не распознана.
                     </div>
                     <button type="button"
-                      onClick={() => commitJob(activeJob)} disabled={!canManage}
+                      onClick={() => commitJob(activeJob)} disabled={!canManage || bindingRefreshPending || bindingRefreshFailed}
                       className="fx-btn fx-btn-primary shrink-0"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
@@ -896,26 +928,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
       {/* Второй шаг: тот же предпросмотр, что у ввоза расчёта из Проводника */}
       {preview && (
         <EquipmentImportPreview
-          draft={{ units: preview.units, fileName: preview.fileName, ...(jobs.find(job => job.id === preview.jobIds[0])?.sourceBinding && jobs.find(job => job.id === preview.jobIds[0])?.sourceSha256 ? {
-            sourceBinding: {
-              id: jobs.find(job => job.id === preview.jobIds[0])!.sourceBinding!.id,
-              expectedLedgerRevision: bindingRevision,
-              locator: jobs.find(job => job.id === preview.jobIds[0])!.provenance?.portableLocator,
-              fileName: jobs.find(job => job.id === preview.jobIds[0])!.fileName,
-              rule: { kind: 'document-name', fileName: jobs.find(job => job.id === preview.jobIds[0])!.fileName },
-              revision: jobs.find(job => job.id === preview.jobIds[0])!.sourceRevision || 'без ревизии',
-              sha256: jobs.find(job => job.id === preview.jobIds[0])!.sourceSha256!,
-            },
-          } : jobs.find(job => job.id === preview.jobIds[0])?.provenance?.sourceFolder && jobs.find(job => job.id === preview.jobIds[0])?.sourceSha256 ? {
-            sourceBinding: {
-              expectedLedgerRevision: bindingRevision,
-              locator: jobs.find(job => job.id === preview.jobIds[0])!.provenance?.portableLocator,
-              fileName: preview.fileName,
-              rule: { kind: 'document-name', fileName: preview.fileName },
-              revision: jobs.find(job => job.id === preview.jobIds[0])!.sourceRevision || 'без ревизии',
-              sha256: jobs.find(job => job.id === preview.jobIds[0])!.sourceSha256!,
-            },
-          } : {}) }}
+          draft={{ units: preview.units, fileName: preview.fileName, ...(documentSource ? { sourceBinding: documentSource } : {}) }}
           category={category}
           categoryLabel={categories.find(c => c.id === category)?.label || category}
           projectId={projectId}
@@ -935,8 +948,9 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
           <EquipmentSourceImportDialog embedded projectId={projectId} categories={categories} canManage={canManage}
             initialSelection={initialSelection} expectedLedgerRevision={bindingRevision}
             onClose={() => setSourceJobId(null)}
-            onImported={({ bindingId, source, category: importedCategory }) => {
+            onImported={async ({ bindingId, source, category: importedCategory }) => {
               if (bindingId && job.provenance?.sourceFolder) saveLocalEquipmentDocumentRef({ projectId, bindingId, sourceFolder: job.provenance.sourceFolder, fileRef: job.provenance.fileRef });
+              if (bindingId) await refreshBindingLedger();
               updateJob(job.id, { status: 'imported' }); setSourceJobId(null); setCategory(importedCategory);
               addToast(`«${job.fileName}»: XML импортирован, привязка сохранена.`, 'success'); onImported();
             }} />

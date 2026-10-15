@@ -778,6 +778,15 @@
       "timeoutMs": 900000
     },
     {
+      "id": "eng-equipment-document-import-source",
+      "path": "scripts/test-equipment-document-import-source.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "eng-equipment-param-access",
       "path": "scripts/test-equipment-param-access.ts",
       "layer": "api-db",
