@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { makeXlsx } from './officeHarness';
+export { captureNativeDefinedNameEvidence } from './officeNativeDefinedNameEvidence';
 
 type SuiteOptions = {
   fixture: { projectId: string };

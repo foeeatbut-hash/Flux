@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { chromium } from 'playwright-core';
 import { makeDocxWithTable, makeXlsxWithBlankFormula, makeXlsxWithManualRow, loginPage } from './officeHarness';
-import { runNativeSheetCellActions } from './officeNativeCellActionsScenarios';
+import { captureNativeDefinedNameEvidence, runNativeSheetCellActions } from './officeNativeCellActionsScenarios';
 import { runNativeWordCellActions } from './officeNativeWordCellActionsScenarios';
 
 void (async () => {
@@ -846,8 +846,8 @@ try {
   check('field token can be rebound to the same real A1 anchor after removal', reboundSheetField && reboundHeaderLoaded && await waitFor(async () => await sheetCell(sheets, 'A1') === 'Аэродинамика · Расход воздуха'));
   const reboundManualCellLoaded = await loadSheetAddress(sheets, 'A5');
   check('rebind preserves unrelated manual and formula cells', reboundManualCellLoaded && await sheetCell(sheets, 'A5') === 'MANUAL_KEEP' && await hasEmptyFormulaTarget(formulaId));
-  await page.keyboard.press('Control+s');
-  await capture(page, sheets, 'sheets-light');
+  await page.keyboard.press('Control+s'); await waitForSheetFile(sheets);
+  console.log('NATIVE_DEFINED_NAME_CHECKPOINT', JSON.stringify({ stage: 'after-last-header-save-before-fill', evidence: await captureNativeDefinedNameEvidence(sheets, () => raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`)) })); await capture(page, sheets, 'sheets-light');
   let beforeRepeat = (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json;
   check('saved schema has a stable anchor id and project binding', beforeRepeat?.schema?.anchors?.some((a: any) => a.id && a.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey)), beforeRepeat?.schema);
 
@@ -884,6 +884,7 @@ try {
     // Confirmation is a deliberate UI action against only the disposable file.
     const sheetApply = await confirmPreview(page, sheetPanel, sheetConfirm, 'SHEETS');
     const sheetRowsReady = sheetApply.ok && await waitFor(async () => (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json?.rows?.length > 0, 10000);
+    if (sheetRowsReady) console.log('NATIVE_DEFINED_NAME_CHECKPOINT', JSON.stringify({ stage: 'after-first-fill-before-followup-save', evidence: await captureNativeDefinedNameEvidence(sheets, () => raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`)) }));
     if (!sheetRowsReady) console.error('SHEETS_APPLY_RESULT_DIAGNOSTIC', JSON.stringify({ ...sheetApply.details, officeState: (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json, workbookXml: (await archiveText(xlsxId, 'xl/worksheets/sheet1.xml')).slice(0, 2500) }));
     let state = (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json;
     check('first fill wrote stable row metadata', state?.rows?.some((r: any) => r.entityId && !String(r.entityId).startsWith('manual:')), state?.rows);
@@ -903,7 +904,7 @@ try {
       await sheets.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
       await page.keyboard.type('NATIVE_MANUAL_EDIT'); await page.keyboard.press('Enter'); await page.keyboard.press('Control+s');
       await waitFor(async () => (await archiveText(xlsxId, 'xl/worksheets/sheet1.xml')).includes('NATIVE_MANUAL_EDIT'), 15000);
-      const editedXml = await archiveText(xlsxId, 'xl/worksheets/sheet1.xml');
+      console.log('NATIVE_DEFINED_NAME_CHECKPOINT', JSON.stringify({ stage: 'after-first-fill-and-save', evidence: await captureNativeDefinedNameEvidence(sheets, () => raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`)) })); const editedXml = await archiveText(xlsxId, 'xl/worksheets/sheet1.xml');
       check('manual edit to generated row persisted in actual OOXML cell', editedXml.includes('NATIVE_MANUAL_EDIT'), editedXml.match(/<row[^>]*>[\s\S]*?NATIVE_MANUAL_EDIT[\s\S]*?<\/row>/)?.[0]);
       const sourceQuery = await api('POST', '/api/project-data/office/query', { projectId: fixture.projectId, query: { entity: 'element', columns: ['name', 'param:Аэродинамика|Расход воздуха'], filters: [], sort: [], limit: 20, excludedEntityIds: [] } });
       const changedSource = sourceQuery.json?.rows?.find((item: any) => item.values?.name?.value === 'FAN_HIGH');
@@ -952,8 +953,7 @@ try {
     check('native fill preview enabled for selected fixture row', false, await sheetPanel.innerText().catch(() => ''));
   }
 
-  console.log('\n3. Empty-result formula target remains protected');
-  await resetPage(false);
+  console.log('NATIVE_DEFINED_NAME_CHECKPOINT', JSON.stringify({ stage: 'before-next-workbook-reload-after-repeat-fill', evidence: await captureNativeDefinedNameEvidence(sheets, () => raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`)) })); console.log('\n3. Empty-result formula target remains protected'); await resetPage(false);
   await navigateOffice(page, `/office-sheet?file=${encodeURIComponent(formulaId)}`);
   const formulaFrame = page.frameLocator('iframe[title="Flux Office — Таблица"]');
   check('formula editor loaded the actual workbook', await waitForSheetFile(formulaFrame));
@@ -1023,7 +1023,7 @@ try {
     return canvas && cell && bounds ? { x: (Number(cell.left) + Number(cell.width) / 2) * bounds.width / canvas.width, y: (Number(cell.top) + Number(cell.height) / 2) * bounds.height / canvas.height } : null;
   });
   if (!darkCellPoint) throw new Error('Could not locate dark native grid cell A1');
-  const darkDefinedNameProbe = await darkFrame.locator('body').evaluate(() => { const definitions = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.()?.getDefinedNames?.() || []; return { count: definitions.length, fluxAnchors: definitions.filter((item: any) => { try { return /^FLUX_ANCHOR_/i.test(String(item?.getName?.() || '')); } catch { return false; } }).slice(0, 50).map((item: any) => { let name: any = null, ref: any = null, formula: any = null; try { name = item?.getName?.(); } catch {} try { ref = item?.getRef?.(); } catch {} try { formula = item?.getFormulaOrRefString?.(); } catch {} return { name: typeof name === 'string' || typeof name === 'number' || typeof name === 'boolean' ? name : null, nameType: typeof name, ref: typeof ref === 'string' || typeof ref === 'number' || typeof ref === 'boolean' ? ref : null, refType: typeof ref, formula: typeof formula === 'string' || typeof formula === 'number' || typeof formula === 'boolean' ? formula : null, formulaType: typeof formula }; }) }; }).catch((error: any) => ({ error: String(error) }));
+  const darkDefinedNameProbe = await captureNativeDefinedNameEvidence(darkFrame, () => raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`));
   await darkFrame.locator('body').evaluate(() => {
     const events: any[] = [];
     const win = window as any;
