@@ -8,7 +8,7 @@ import './fixture.css';
 const rootId = 'wizard-fixture-root';
 const projectId = 'wizard-fixture-project';
 const sourceFolder: WindowsFileRef = { rootId, relativePath: 'Equipment' };
-const cadXml = '<Root><Revision>A</Revision><Elements cfnElement="cadVentilation"><Element name="L23"/></Elements></Root>';
+const cadXml = '<Root><Revision>A</Revision><Unit name="L23"/><Elements cfnElement="cadVentilation"><Element name="L23"/></Elements></Root>';
 const csvA = 'Tag,Name,Type,Parameter,Value,Unit\nFAN-A,Вентилятор A,Вентилятор,Расход воздуха,1000,м³/ч\n';
 const csvB = 'Tag,Name,Type,Parameter,Value,Unit\nFAN-B,Вентилятор B,Вентилятор,Расход воздуха,1200,м³/ч\n';
 const bytes = (text: string) => new TextEncoder().encode(text);

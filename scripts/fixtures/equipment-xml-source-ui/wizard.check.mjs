@@ -66,6 +66,8 @@ try {
   if (await choose.count()) await choose.click();
   await cadPage.getByRole('button', { name: 'Показать план' }).click();
   await cadPage.getByRole('heading', { name: /Предпросмотр/ }).waitFor({ timeout: 30000 });
+  assert(await cadPage.getByLabel('Тег оборудования').inputValue() === 'L23', 'CAD XML source tag is populated from the selected XML');
+  assert(await cadPage.getByLabel('Категория оборудования').inputValue() === 'vent', 'CAD XML import uses the visible selected category');
   cadEntries = await logs(cadPage);
   assert(cadEntries.some(entry => entry.path.endsWith('/equipment/source-import/preview')), 'CAD XML routes into the production XML-source plan dialog');
   assert(!cadEntries.some(entry => entry.path.endsWith('/equipment/source-import/apply')), 'XML-source plan performs no write before confirmation');
