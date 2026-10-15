@@ -24,6 +24,12 @@ const adaptedUnit = {
     ...monoblock,
     components: monoblock.components.map((component) => ({
       ...component,
+      ...(component.id === 'comp-2' ? {
+        // Origin metadata belongs to the API-shaped fixture adapter; keep the
+        // extracted concept UNIT snapshot byte-for-byte unchanged.
+        catalogSource: { effective: [{ group: 'Блок', key: 'Аэродинамическое сопротивление', value: '34.3', unit: 'Па', source: 'catalog' }] },
+        overrides: JSON.stringify({ 'Блок||Длина': '1365' }),
+      } : {}),
       specs: JSON.stringify(component.specs || { groups: [] }),
       version: component.version || 1,
       hasConflict: Boolean(component.hasConflict),
@@ -63,6 +69,25 @@ try {
       else if (endpoint === '/api/equipment/view-templates') body = { views: [] };
       else if (endpoint.endsWith('/sources')) body = { sources: [] };
       else if (endpoint.endsWith('/e3/summary')) body = [];
+      else if (endpoint === '/api/equipment/component/comp-2/catalog-source') body = {
+        mode: 'hybrid',
+        binding: {
+          modelId: 'fixture-inlet-1220', code: 'ГЕРМИК-С-1220', manufacturer: 'ВентПром',
+          sourceType: 'component', sourceRevision: '2026-09-01T00:00:00.000Z', revision: 1,
+          snapshot: {
+            id: 'fixture-inlet-1220', code: 'ГЕРМИК-С-1220', manufacturer: 'ВентПром', sourceType: 'component',
+            specs: [{ label: 'Аэродинамическое сопротивление', value: '32', unit: 'Па' }],
+          },
+        },
+        matches: [{ id: 'fixture-inlet-1220', code: 'ГЕРМИК-С-1220', manufacturer: 'ВентПром', sourceType: 'component' }],
+        effective: [{ group: 'Блок', key: 'Аэродинамическое сопротивление', value: '34.3', unit: 'Па', source: 'xml' }],
+        warnings: [],
+        discrepancies: [{
+          group: 'Блок', key: 'Аэродинамическое сопротивление', xmlValue: '34.3', catalogValue: '32',
+          xmlUnit: 'Па', catalogUnit: 'Па', sourceRef: { file: 'Каталог ВентПром.pdf', pages: '18' },
+        }],
+      };
+      else if (endpoint.includes('/catalog-source')) body = { mode: 'xml', matches: [], effective: [], warnings: [], discrepancies: [] };
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
     });
     await page.goto(url, { waitUntil: 'networkidle' });
@@ -74,6 +99,30 @@ try {
     await page.getByTestId(testId).waitFor();
     const expectedText = state === 'unit' ? UNIT.name : fixtureComponents.find(component => component.id === (state === 'block' ? 'comp-2' : 'comp-3')).name;
     await page.getByText(expectedText, { exact: false }).first().waitFor();
+    await page.waitForTimeout(100);
+    assert.equal(await page.locator('[role="alert"]').count(), 0, `${state}/${theme}/${width}: catalog source panel must not show an error`);
+    if (state === 'block') {
+      const selectedPanel = page.getByTestId('equipment-selected-comp-2');
+      const catalogDetails = selectedPanel.getByTestId('equipment-catalog-details');
+      await catalogDetails.locator('summary').click();
+      await selectedPanel.getByText('Источник параметров', { exact: true }).waitFor();
+      await selectedPanel.getByText('ГЕРМИК-С-1220', { exact: false }).first().waitFor();
+      await selectedPanel.getByText(/XML и каталог расходятся в 1 параметрах/).click();
+      await selectedPanel.getByText('Каталог ВентПром.pdf', { exact: false }).waitFor();
+      const lockedFact = selectedPanel.getByText('Аэродинамическое сопротивление', { exact: true }).locator('xpath=..');
+      assert.equal(await lockedFact.getByText('Каталог', { exact: true }).count(), 1, 'catalog-origin characteristic should be marked read-only');
+      assert.equal(await lockedFact.locator('button[title="Изменить вручную"]').count(), 0, 'catalog-origin characteristic should not offer manual edit');
+      const manualFact = selectedPanel.getByText('Длина', { exact: true }).locator('xpath=..');
+      assert.equal(await manualFact.getByText('1365', { exact: true }).count(), 1, 'fixture manual override should retain its UNIT value');
+      assert.ok(await manualFact.locator('[title="Изменено вручную"]').count(), 'manual override should have amber manual-origin styling');
+      if (width === 1440) {
+        const shot = path.join('/tmp', `equipment-panel-catalog-open-${width}-${theme}.png`);
+        await page.screenshot({ path: shot, scale: 'css', animations: 'disabled' });
+        screenshots.push({ state: 'catalog-open', width, theme, path: shot, bytes: (await fs.stat(shot)).size });
+      }
+      await catalogDetails.locator('summary').click();
+      assert.equal(await catalogDetails.evaluate(el => el.open), false, 'catalog details should be closed in standard panel screenshots');
+    }
     const shot = path.join('/tmp', `equipment-panel-${state}-${width}-${theme}.png`);
     await page.screenshot({ path: shot, scale: 'css', animations: 'disabled' });
     const stat = await fs.stat(shot);

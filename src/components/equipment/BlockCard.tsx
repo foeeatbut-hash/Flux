@@ -36,8 +36,13 @@ export default function BlockCard(props: any) {
   const { comp, unitName, showAllParams, setShowAllParams, isHidden, toggleHidden, onResolve, onOverride, onHistory, onSaveView, onPickTag, onUnlinkTag, blockLabel, onBackToUnit, highlightKey, onReload } = props;
   const specs = normalizeSpecs(comp?.specs);
   const paramSearch = String(props.paramSearch || '').trim().toLocaleLowerCase('ru');
-  const displayGroups = specs.groups.filter((group: any) => {
+  const noiseKeys = /^(тип блока|позиция|ярус|наименование|состав установки|задача расчёта|подпись|факс|ptract|ptcoilsgeom|ptcoilsnono|ptcoilsadjustfactor|ptlfr|ptx1|ptx2|ptdthe|ptdtcc|ptdte|pttanktrap)$/iu;
+  const displayGroups = specs.groups.map((group: any) => ({
+    ...group,
+    params: (group.params || []).filter((param: any) => !props.hideNoiseKeys || showAllParams || !noiseKeys.test(String(param.key || '').trim())),
+  })).filter((group: any) => {
     if (props.hideNoteGroups && !showAllParams && /^(состав|примечания|особые условия)$/iu.test(String(group.title || '').trim())) return false;
+    if (!group.params.length) return false;
     if (!paramSearch) return true;
     return String(group.title || '').toLocaleLowerCase('ru').includes(paramSearch)
       || (group.params || []).some((param: any) => `${param.key || ''} ${param.value || ''}`.toLocaleLowerCase('ru').includes(paramSearch));
@@ -162,7 +167,12 @@ export default function BlockCard(props: any) {
       )}
 
       <div className="flex-1 overflow-y-auto p-3 @container">
-        <div className="mb-3"><CatalogSourcePanel componentId={comp.id} version={comp.version} equipClass={props.typed?.cls || comp.equipClass || comp.equipType} onChanged={() => onReload?.()} /></div>
+        <div className="mb-3">
+          {props.groupCards ? <details data-testid="equipment-catalog-details" className="rounded-lg border border-slate-200 dark:border-slate-800">
+            <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300">Каталог и источник параметров</summary>
+            <div className="border-t border-slate-200 p-3 dark:border-slate-800"><CatalogSourcePanel componentId={comp.id} version={comp.version} equipClass={props.typed?.cls || comp.equipClass || comp.equipType} onChanged={() => onReload?.()} /></div>
+          </details> : <CatalogSourcePanel componentId={comp.id} version={comp.version} equipClass={props.typed?.cls || comp.equipClass || comp.equipType} onChanged={() => onReload?.()} />}
+        </div>
         {props.hideNoteGroups && sectionNotes(specs.groups).length > 0 && <div className="mb-3 flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
           <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
           <span>{sectionNotes(specs.groups).join(' · ')}</span>

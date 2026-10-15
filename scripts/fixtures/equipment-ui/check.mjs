@@ -104,7 +104,7 @@ try {
   await page.getByTestId('equipment-unit-overview').getByRole('button', { name: 'Параметры установки', exact: true }).click();
   const unitPane = page.getByTestId('equipment-selected-unit-general');
   await unitPane.waitFor();
-  await unitPane.getByRole('heading', { name: 'Параметры установки', exact: true }).waitFor();
+  await unitPane.locator('h4[title="Параметры установки"]').waitFor();
   if (!await unitPane.getByText('8060', { exact: true }).isVisible()) throw new Error('installation characteristic value did not render');
   const noteHeading = unitPane.getByRole('heading', { name: 'Примечание к установке', exact: true });
   const noteToggle = noteHeading.locator('xpath=..');
@@ -141,10 +141,12 @@ try {
   }
   await page.getByRole('button', { name: /Вентиляторная секция ВР-80/ }).first().click();
   if (!await page.getByText('Аэродинамика', { exact: true }).isVisible()) throw new Error('real BlockCard parameter groups did not render');
+  if (await page.locator('[role="alert"]').count()) throw new Error('catalog source fixture rendered an error alert');
   const catalogFact = page.getByText('Полное давление', { exact: true }).locator('xpath=..');
   if (await catalogFact.locator('button[title="Изменить вручную"]').count()) throw new Error('catalog-origin characteristic remained editable in Equipment');
   if (!await catalogFact.getByText('Каталог', { exact: true }).isVisible()) throw new Error('catalog-origin characteristic did not show its read-only origin');
-  await page.locator('summary').filter({ hasText: 'Параметры и источник значения' }).click();
+  await page.getByTestId('equipment-catalog-details').locator('summary').click();
+  await page.getByTestId('equipment-catalog-details').getByText('Источник параметров', { exact: true }).waitFor();
   const markedParam = page.getByLabel(/Аэродинамика · Расход воздуха\. Расхождение:/);
   await markedParam.waitFor();
   if (!await markedParam.getByText('Расхождение', { exact: true }).isVisible()) throw new Error('catalog/XML discrepancy was not marked on its effective parameter row');

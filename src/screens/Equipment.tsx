@@ -824,6 +824,7 @@ export default function Equipment() {
                   paramSearch={specSearch}
                   onParamSearch={setSpecSearch}
                   hideNoteGroups
+                  hideNoiseKeys
                   groupCards
                 />
               </>;
