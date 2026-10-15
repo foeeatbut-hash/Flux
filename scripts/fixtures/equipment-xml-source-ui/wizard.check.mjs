@@ -18,8 +18,25 @@ try {
     const page = await makePage(width, theme);
     await page.getByText('doc-a.csv', { exact: true }).waitFor({ timeout: 30000 });
     await page.getByText(/позиц\./).first().waitFor({ timeout: 30000 });
-    const mainBackground = await page.locator('main').evaluate(element => getComputedStyle(element).backgroundColor);
-    assert(theme === 'dark' ? mainBackground === 'rgb(2, 6, 23)' : mainBackground === 'rgb(255, 255, 255)', `${theme} theme is applied to the rendered wizard`, mainBackground);
+    const mainBackground = await page.locator('main').evaluate(element => {
+      const background = getComputedStyle(element).backgroundColor;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Canvas 2D context is unavailable');
+      context.fillStyle = background;
+      context.fillRect(0, 0, 1, 1);
+      return {
+        background,
+        rgba: Array.from(context.getImageData(0, 0, 1, 1).data),
+        darkClass: document.documentElement.classList.contains('dark'),
+      };
+    });
+    const [red, green, blue, alpha] = mainBackground.rgba;
+    const themeApplied = theme === 'dark'
+      ? mainBackground.darkClass && alpha === 255 && Math.max(red, green, blue) < 80
+      : !mainBackground.darkClass && alpha === 255 && Math.min(red, green, blue) > 240;
+    assert(themeApplied, `${theme} theme is applied to the rendered wizard`, mainBackground);
     await page.screenshot({ path: `/tmp/equipment-import-wizard-${label}-${theme}.png`, fullPage: true });
     await page.close();
   }
