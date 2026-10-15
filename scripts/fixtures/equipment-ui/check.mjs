@@ -100,26 +100,43 @@ try {
   await page.waitForTimeout(300);
 
   await page.getByRole('button', { name: 'AHU-101', exact: true }).click();
-  await page.getByText('Общие характеристики установки', { exact: true }).waitFor();
-  if (!await page.getByText('Параметры установки', { exact: true }).isVisible()) throw new Error('installation characteristic group did not render');
-  await page.getByRole('button', { name: 'Подробно', exact: true }).click();
+  await page.getByTestId('equipment-unit-overview').waitFor();
+  await page.getByTestId('equipment-unit-overview').getByRole('button', { name: 'Параметры установки', exact: true }).click();
+  const unitPane = page.getByTestId('equipment-selected-unit-general');
+  await unitPane.waitFor();
+  await unitPane.getByRole('heading', { name: 'Параметры установки', exact: true }).waitFor();
+  if (!await unitPane.getByText('8060', { exact: true }).isVisible()) throw new Error('installation characteristic value did not render');
+  const noteHeading = unitPane.getByRole('heading', { name: 'Примечание к установке', exact: true });
+  const noteToggle = noteHeading.locator('xpath=..');
+  if (await noteToggle.getAttribute('aria-expanded') !== 'true') await noteToggle.click();
+  const longNote = unitPane.getByText(/Длинный текст характеристики занимает всю ширину/u);
+  await longNote.waitFor();
   await page.setViewportSize({ width: 720, height: 1000 });
-  const unitPane = page.locator('[data-share-focus^="unit:"]');
-  const compact = await unitPane.evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
-  if (compact.scroll > compact.width + 1) throw new Error(`installation panel overflowed at narrow width: ${JSON.stringify(compact)}`);
-  const narrowPairs = await page.evaluate(() => { const row = (label) => { const el = [...document.querySelectorAll('span')].find(node => node.textContent === label); return el?.parentElement?.getBoundingClientRect(); }; return { flow: row('Расход воздуха')?.y, pressure: row('Давление в сети')?.y }; });
-  if (narrowPairs.pressure <= narrowPairs.flow) throw new Error(`installation characteristics did not collapse to one pair: ${JSON.stringify(narrowPairs)}`);
-  await page.screenshot({ path: '/tmp/flux-equipment-unit-720-light.png' });
-  await page.evaluate(() => document.documentElement.classList.add('dark'));
-  await page.screenshot({ path: '/tmp/flux-equipment-unit-720-dark.png' });
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => document.documentElement.classList.toggle('dark', value === 'dark'), theme);
+    const compact = await unitPane.evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
+    if (compact.scroll > compact.width + 1) throw new Error(`installation panel overflowed at narrow width: ${JSON.stringify(compact)}`);
+    const narrowPairRows = await Promise.all(['Расход воздуха', 'Давление в сети'].map(label => unitPane.getByText(label, { exact: true }).locator('xpath=..').evaluate(el => { const rect = el.getBoundingClientRect(); return { y: rect.y, right: rect.right, width: rect.width }; })));
+    if (narrowPairRows[1].y <= narrowPairRows[0].y) throw new Error(`parameters in one group are not displayed as readable rows: ${JSON.stringify(narrowPairRows)}`);
+    const narrowGroups = await Promise.all(['Параметры установки', 'Автоматика'].map(title => unitPane.getByRole('heading', { name: title, exact: true }).locator('xpath=ancestor::section[1]').evaluate(el => { const rect = el.getBoundingClientRect(); return { x: rect.x, y: rect.y }; })));
+    if (narrowGroups[1].y <= narrowGroups[0].y) throw new Error(`narrow detail did not stack separate groups: ${JSON.stringify(narrowGroups)}`);
+    const narrowNote = await longNote.evaluate(el => { const rect = el.getBoundingClientRect(); return { right: rect.right, viewport: innerWidth }; });
+    if (narrowNote.right > narrowNote.viewport + 1) throw new Error(`long installation note overflows at narrow width: ${JSON.stringify(narrowNote)}`);
+    await page.screenshot({ path: `/tmp/flux-equipment-unit-720-${theme}.png` });
+  }
   await page.setViewportSize({ width: 1440, height: 1000 });
   for (const theme of ['light', 'dark']) {
     await page.evaluate(value => document.documentElement.classList.toggle('dark', value === 'dark'), theme);
     const geometry = await unitPane.evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
     if (geometry.scroll > geometry.width + 1) throw new Error(`installation panel overflowed at wide width: ${JSON.stringify(geometry)}`);
-    const pairs = await page.evaluate(() => { const row = (label) => { const el = [...document.querySelectorAll('span')].find(node => node.textContent === label); return el?.parentElement?.getBoundingClientRect(); }; const flow = row('Расход воздуха'); const pressure = row('Давление в сети'); const long = row('Примечание к монтажу и настройке'); const pane = document.querySelector('[data-share-focus^="unit:"]'); return { flowY: flow?.y, pressureY: pressure?.y, longWidth: long?.width, paneWidth: pane?.clientWidth }; });
-    if (Math.abs(pairs.flowY - pairs.pressureY) > 1) throw new Error(`installation characteristics did not use two pairs at wide width: ${JSON.stringify(pairs)}`);
-    if (pairs.longWidth < pairs.paneWidth * 0.9) throw new Error(`long installation characteristic did not span the group: ${JSON.stringify(pairs)}`);
+    const widePairRows = await Promise.all(['Расход воздуха', 'Давление в сети'].map(label => unitPane.getByText(label, { exact: true }).locator('xpath=..').evaluate(el => { const rect = el.getBoundingClientRect(); return { y: rect.y, right: rect.right, width: rect.width }; })));
+    if (widePairRows[1].y <= widePairRows[0].y) throw new Error(`parameters in one group are not displayed as readable rows: ${JSON.stringify(widePairRows)}`);
+    const groupCards = await Promise.all(['Параметры установки', 'Автоматика'].map(title => unitPane.getByRole('heading', { name: title, exact: true }).locator('xpath=ancestor::section[1]').evaluate(el => { const rect = el.getBoundingClientRect(); return { x: rect.x, y: rect.y, right: rect.right }; })));
+    const paneWidth = await unitPane.evaluate(el => el.clientWidth);
+    if (paneWidth >= 760 && groupCards[0].x === groupCards[1].x) throw new Error(`wide detail did not place separate groups in responsive columns: ${JSON.stringify({ paneWidth, groupCards })}`);
+    if (paneWidth < 760 && groupCards[1].y <= groupCards[0].y) throw new Error(`narrow detail did not stack separate groups: ${JSON.stringify({ paneWidth, groupCards })}`);
+    const wideNote = await longNote.evaluate(el => { const rect = el.getBoundingClientRect(); return { right: rect.right, viewport: innerWidth, width: rect.width }; });
+    if (wideNote.right > wideNote.viewport + 1 || wideNote.width < 1) throw new Error(`long installation note is not readable at wide width: ${JSON.stringify(wideNote)}`);
     await page.screenshot({ path: `/tmp/flux-equipment-unit-1440-${theme}.png` });
   }
   await page.getByRole('button', { name: /Вентиляторная секция ВР-80/ }).first().click();
