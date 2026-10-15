@@ -126,9 +126,13 @@ void (async () => {
     const frame = page.frameLocator(`iframe[title="${title}"]`);
     await frame.locator('body').waitFor({ state: 'visible', timeout: 60000 });
     await page.getByText('Открывается локальный редактор…').waitFor({ state: 'detached', timeout: 90000 });
-    // Панель открывает настоящая вкладка Flux ленты редактора: «Оборудование» — источник по умолчанию
-    await frame.getByRole('button', { name: 'Flux', exact: true }).click();
+    // Команда «Поля проекта» существует на ленте Office и открывает панель; её кнопка «Закрыть панель» возвращает к выборке данных.
+    await ribbonClick(frame, 'project-fields');
     await panel().waitFor({ timeout: 15000 });
+    const projectDataPanel = page.getByRole('complementary', { name: 'Данные проекта' });
+    await projectDataPanel.waitFor({ timeout: 15000 });
+    await projectDataPanel.getByRole('button', { name: 'Закрыть панель' }).click();
+    await panel().getByLabel('Проект для данных Flux').waitFor({ timeout: 15000 });
     return frame;
   };
   const chooseProject = async () => {

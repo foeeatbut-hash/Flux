@@ -158,5 +158,6 @@ jobs:
           name: flux-native-office-guide-evidence
           path: |
             /tmp/office-addon-native-*.png
+            /tmp/office-explorer-*.png
             /tmp/guide-tours-native-*.png
           if-no-files-found: warn
