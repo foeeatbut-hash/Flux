@@ -113,8 +113,9 @@ try {
       assert.equal(await lockedFact.getByText('Каталог', { exact: true }).count(), 1, 'catalog-origin characteristic should be marked read-only');
       assert.equal(await lockedFact.locator('button[title="Изменить вручную"]').count(), 0, 'catalog-origin characteristic should not offer manual edit');
       const manualFact = selectedPanel.getByText('Длина', { exact: true }).locator('xpath=..');
-      assert.equal(await manualFact.getByText('1365', { exact: true }).count(), 1, 'fixture manual override should retain its UNIT value');
-      assert.ok(await manualFact.locator('[title="Изменено вручную"]').count(), 'manual override should have amber manual-origin styling');
+      const manualValue = manualFact.locator('[title="Изменено вручную"]');
+      assert.equal(await manualValue.count(), 1, 'manual override should have amber manual-origin styling');
+      assert.equal((await manualValue.innerText()).replace(/\s+/gu, ' ').trim(), '1365 мм', 'fixture manual override should retain its UNIT value and unit');
       if (width === 1440) {
         const shot = path.join('/tmp', `equipment-panel-catalog-open-${width}-${theme}.png`);
         await page.screenshot({ path: shot, scale: 'css', animations: 'disabled' });
