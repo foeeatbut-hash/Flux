@@ -7,6 +7,8 @@ import {
 } from '../../lib/equipmentSourcesLocal';
 import { windowsFilesRequest } from '../../lib/windowsFiles';
 import ImportFileChooser, { type ImportFileChooserHandle } from '../ImportFileChooser';
+import type { PortableFolderLocator } from '../../../filesystem/contracts';
+import { loadEquipmentDocumentBindings } from '../../lib/equipmentDocumentBindings';
 
 type Category = { id: string; label: string };
 type ImportedSource = { sourceId: string; tagId: string; targetType: 'system'; systemId: string; elementId: string; revision: string; sha256: string; fileName: string; revisionOrder?: string[]; unitTag?: { identifier: string } };
@@ -16,10 +18,10 @@ const revisionOrder = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
 const toMessage = (error: unknown) => error instanceof Error ? error.message : 'Не удалось обработать XML-файл.';
 
 /** Первичный XML импорт: неизменяемый снимок → серверный план → явное применение. */
-export default function EquipmentSourceImportDialog(props: { projectId: string; categories: Category[]; canManage: boolean; onClose: () => void; onImported: (result: { source: ImportedSource; tagIdentifier: string; category: string; baselineApplied: boolean }) => void }) {
+export default function EquipmentSourceImportDialog(props: { projectId: string; categories: Category[]; canManage: boolean; onClose: () => void; onImported: (result: { source: ImportedSource; tagIdentifier: string; category: string; baselineApplied: boolean; bindingId?: string }) => void; embedded?: boolean; initialSelection?: { ref: import('../../lib/windowsFiles').WindowsFileRef; name: string; sourceFolder?: import('../../lib/windowsFiles').WindowsFileRef; suggestedTag?: string; portableLocator?: PortableFolderLocator }; expectedLedgerRevision?: number }) {
   const filePicker = useRef<ImportFileChooserHandle>(null);
   const folderPicker = useRef<ImportFileChooserHandle>(null);
-  const { projectId, categories, canManage, onClose, onImported } = props;
+  const { projectId, categories, canManage, onClose, onImported, embedded = false, initialSelection, expectedLedgerRevision } = props;
   const [category, setCategory] = useState(categories[0]?.id || '');
   const [file, setFile] = useState<Extract<EquipmentSourceImportPreview, { status: 'ready' }> | null>(null);
   const [tagIdentifier, setTagIdentifier] = useState('');
@@ -27,6 +29,8 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
   const [revision, setRevision] = useState('');
   const [folderName, setFolderName] = useState('');
   const [rootName, setRootName] = useState('');
+  const [sourceLocator, setSourceLocator] = useState<PortableFolderLocator | undefined>();
+  const [ledgerRevision, setLedgerRevision] = useState(expectedLedgerRevision);
   const [plan, setPlan] = useState<PlanDto | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -37,7 +41,14 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
   const previousProjectRef = useRef(projectId);
+  useEffect(() => setLedgerRevision(expectedLedgerRevision), [expectedLedgerRevision]);
   const clearReviewSelections = () => { setChoices({}); setTagLinkChoices({}); };
+
+  useEffect(() => {
+    if (initialSelection && !file && !busy) void chooseFile(initialSelection);
+    // Источник открывается один раз на выбранный элемент очереди.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSelection?.ref.rootId, initialSelection?.ref.relativePath]);
 
   useEffect(() => {
     const projectChanged = previousProjectRef.current !== projectId;
@@ -77,7 +88,7 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
     return { ...link, action: selected };
   });
 
-  const chooseFile = async (selected?: { ref: import('../../lib/windowsFiles').WindowsFileRef; name: string; sourceFolder?: import('../../lib/windowsFiles').WindowsFileRef; suggestedTag?: string }) => {
+  const chooseFile = async (selected?: { ref: import('../../lib/windowsFiles').WindowsFileRef; name: string; sourceFolder?: import('../../lib/windowsFiles').WindowsFileRef; suggestedTag?: string; portableLocator?: PortableFolderLocator }) => {
     if (!canManage) return;
     if (!selected) { filePicker.current?.open(); return; }
     const operation = ++operationRef.current;
@@ -89,6 +100,7 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
       if (result.data.status === 'canceled') return;
       if (result.data.status !== 'ready') throw new Error(result.data.message);
       const picked = result.data;
+      setSourceLocator(selected.portableLocator);
       const doc = new DOMParser().parseFromString(picked.text, 'application/xml');
       const names = Array.from(doc.getElementsByTagName('*')).filter(node => ['system', 'equipmentsystem', 'установка', 'unit'].includes((node.localName || node.tagName).toLocaleLowerCase().split(':').pop() || '')).flatMap(node => {
         const name = node.getAttribute('name') || node.getAttribute('код') || node.getAttribute('code');
@@ -127,7 +139,9 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
     if (!normalizedTag) throw new Error('Укажите тег оборудования.');
     if (!revision.trim()) throw new Error('Укажите ревизию файла.');
     if (!category) throw new Error('Выберите категорию оборудования.');
-    return { projectId, category, fileName: file.selectedFile.name, revision: revision.trim(), tagIdentifier: normalizedTag, sha256: file.sha256, size: file.size, base64: file.base64, choices };
+    return { projectId, category, fileName: file.selectedFile.name, revision: revision.trim(), tagIdentifier: normalizedTag, sha256: file.sha256, size: file.size, base64: file.base64, choices,
+      ...(file.sourceFolder && sourceLocator ? { locator: sourceLocator } : {}),
+      ...(Number.isSafeInteger(ledgerRevision) ? { expectedLedgerRevision: ledgerRevision } : {}) };
   };
 
   const requestPlan = async () => {
@@ -155,7 +169,11 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
       const payload = await response.json().catch(() => ({}));
       if (operation !== operationRef.current || projectAtStart !== projectIdRef.current) return;
       if (!response.ok || payload.success === false) {
-        if (response.status === 409) setPlan(null);
+        if (response.status === 409) {
+          setPlan(null);
+          try { setLedgerRevision((await loadEquipmentDocumentBindings(projectId)).revision); }
+          catch (_) { /* Конфликт остаётся видимым; план нужно построить повторно. */ }
+        }
         throw new Error(payload.error || (response.status === 409 ? 'План устарел. Подготовьте его повторно перед подтверждением.' : 'Импорт не выполнен. Текущие данные оборудования сохранены.'));
       }
       const source = payload.source as ImportedSource;
@@ -169,7 +187,7 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
       } catch (reason) {
         setNotice(`Оборудование импортировано. Локальную папку XML нужно перепривязать в карточке установки${reason instanceof Error ? `: ${reason.message}` : '.'}`);
       }
-      onImported({ source, tagIdentifier, category, baselineApplied: payload.baselineApplied !== false });
+      onImported({ source, tagIdentifier, category, baselineApplied: payload.baselineApplied !== false, bindingId: payload.associations?.bindingId || payload.bindingId || source.sourceId });
     } catch (reason) { if (operation === operationRef.current && projectAtStart === projectIdRef.current) setError(toMessage(reason)); }
     finally { if (operation === operationRef.current && projectAtStart === projectIdRef.current) setBusy(false); }
   };
@@ -180,8 +198,8 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
     <>
     <ImportFileChooser ref={filePicker} accept=".xml" label="Выбрать XML" trigger={() => null} onFiles={() => {}} onWindowsFile={(ref, entry, context) => { void chooseFile({ ref, name: entry.name, ...context }); }} />
     <ImportFileChooser ref={folderPicker} selectFolder label="Выбрать папку XML" trigger={() => null} onFiles={() => {}} onWindowsFolder={ref => { void changeFolder(ref); }} />
-    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/40 p-3" role="dialog" aria-modal="true" aria-labelledby="equipment-source-import-title">
-      <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md dark:border-slate-700 dark:bg-slate-950">
+    <div className={embedded ? 'flex h-full min-h-0 flex-col overflow-hidden' : 'fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/40 p-3'} role="dialog" aria-modal={embedded ? undefined : true} aria-labelledby="equipment-source-import-title">
+      <div className={embedded ? 'flex h-full min-h-0 w-full flex-col overflow-hidden' : 'flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md dark:border-slate-700 dark:bg-slate-950'}>
         <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800"><div><h2 id="equipment-source-import-title" className="text-sm font-semibold">Загрузить оборудование из XML</h2><p className="text-xs text-slate-500 dark:text-slate-400">Сначала проверьте план; данные проекта изменятся только после подтверждения.</p></div><button type="button" onClick={close} disabled={busy} aria-label="Закрыть" className="rounded p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-900"><X className="h-4 w-4" /></button></header>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
           {!canManage && <div className="rounded border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">Недостаточно прав для импорта оборудования.</div>}

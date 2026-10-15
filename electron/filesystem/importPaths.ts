@@ -44,6 +44,8 @@ export class DropTickets {
     if (!found || found.owner !== owner || this.now() - found.at > TTL_MS) throw new WindowsFilesError('DROP_EXPIRED', 'Перетаскивание устарело. Бросьте файлы в окно ещё раз.');
     return found;
   }
+  /** Даёт import chooser краткоживущие файловые tickets, не раскрывая страницум пути. */
+  importPaths(owner: number, ticket: unknown): string[] { return [...this.get(owner, ticket).paths]; }
   consume(ticket: string) { this.tickets.delete(ticket); }
   closeOwner(owner: number) { for (const [id, value] of this.tickets) if (value.owner === owner) this.tickets.delete(id); }
 }

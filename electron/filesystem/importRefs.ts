@@ -2,11 +2,11 @@ import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { WINDOWS_IMPORT_READ_BYTES, WINDOWS_IMPORT_REFS_PER_PICK, type WindowsFileRef } from '../../filesystem/contracts';
+import { WINDOWS_IMPORT_READ_BYTES, WINDOWS_IMPORT_REFS_PER_PICK, type SelectionProvenance, type WindowsFileRef } from '../../filesystem/contracts';
 import { WindowsFilesError } from './paths';
 import type { WindowsFilesService } from './service';
 
-export interface WindowsImportRef { ticket: string; name: string; size: number; lastModified: number }
+export interface WindowsImportRef { ticket: string; name: string; size: number; lastModified: number; provenance?: SelectionProvenance }
 const IDLE_TTL_MS = 5 * 60 * 1000;
 const MAX_TICKETS_PER_OWNER = WINDOWS_IMPORT_REFS_PER_PICK;
 export const MAX_IMPORT_READ_BYTES = WINDOWS_IMPORT_READ_BYTES;
@@ -25,7 +25,7 @@ export class ImportRefStore {
     for (const [ticket, entry] of this.entries) if (entry.expiresAt <= now || (owner != null && entry.owner === owner && entry.expiresAt <= now)) this.entries.delete(ticket);
   }
 
-  private async snapshot(owner: number, filename: string, name: string): Promise<WindowsImportRef> {
+  private async snapshot(owner: number, filename: string, name: string, provenance?: SelectionProvenance): Promise<WindowsImportRef> {
     this.cleanup(owner);
     if ([...this.entries.values()].filter(item => item.owner === owner).length >= MAX_TICKETS_PER_OWNER) throw new WindowsFilesError('TOO_MANY_IMPORTS', 'Закройте окно выбора файлов и начните заново.');
     let handle: fs.FileHandle | undefined;
@@ -38,27 +38,28 @@ export class ImportRefStore {
       const ticket = randomUUID();
       const lastModified = Math.trunc(Number(stat.mtimeNs) / 1e6);
       this.entries.set(ticket, { owner, path: filename, name: path.basename(name), size: Number(stat.size), lastModified, dev: stat.dev, ino: stat.ino, birthtimeNs: stat.birthtimeNs, mtimeNs: stat.mtimeNs, ctimeNs: stat.ctimeNs, expiresAt: Date.now() + IDLE_TTL_MS });
-      return { ticket, name: path.basename(name), size: Number(stat.size), lastModified };
+      return { ticket, name: path.basename(name), size: Number(stat.size), lastModified, ...(provenance ? { provenance } : {}) };
     } finally { await handle?.close(); }
   }
 
-  async registerPaths(owner: number, paths: string[]): Promise<WindowsImportRef[]> {
+  async registerPaths(owner: number, paths: string[], provenanceForPath?: (filename: string) => Promise<SelectionProvenance | undefined>): Promise<WindowsImportRef[]> {
     if (!Array.isArray(paths) || !paths.length || paths.length > WINDOWS_IMPORT_REFS_PER_PICK) throw new WindowsFilesError('INVALID_REQUEST', `Выберите от 1 до ${WINDOWS_IMPORT_REFS_PER_PICK} файлов.`);
     const result: WindowsImportRef[] = [];
     try {
-      for (const filename of paths) result.push(await this.snapshot(owner, filename, path.basename(filename)));
+      for (const filename of paths) result.push(await this.snapshot(owner, filename, path.basename(filename), await provenanceForPath?.(filename)));
       return result;
     } catch (error) { this.release(owner, result.map(item => item.ticket)); throw error; }
   }
 
-  async registerRefs(owner: number, service: WindowsFilesService, refs: WindowsFileRef[]): Promise<WindowsImportRef[]> {
+  async registerRefs(owner: number, service: WindowsFilesService, refs: WindowsFileRef[], provenanceForFolder?: (folder: WindowsFileRef, file: WindowsFileRef) => Promise<SelectionProvenance>): Promise<WindowsImportRef[]> {
     if (!Array.isArray(refs) || !refs.length || refs.length > WINDOWS_IMPORT_REFS_PER_PICK) throw new WindowsFilesError('INVALID_REQUEST', `Выберите от 1 до ${WINDOWS_IMPORT_REFS_PER_PICK} файлов.`);
     const result: WindowsImportRef[] = [];
     try {
       for (const ref of refs) {
         const entry = await service.entry(ref);
         if (entry.kind !== 'file') throw new WindowsFilesError('NOT_FILE', 'Выберите файл, а не папку.');
-        result.push(await this.snapshot(owner, await service.filename(ref), entry.name));
+        const folder = { rootId: ref.rootId, relativePath: ref.relativePath.split('/').slice(0, -1).join('/') };
+        result.push(await this.snapshot(owner, await service.filename(ref), entry.name, await provenanceForFolder?.(folder, ref)));
       }
       return result;
     } catch (error) { this.release(owner, result.map(item => item.ticket)); throw error; }

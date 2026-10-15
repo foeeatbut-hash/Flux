@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { registerEquipmentXmlSourceRoutes } from '../server/routes/equipmentXmlSources.js';
+import { registerEquipmentDocumentBindingRoutes } from '../server/routes/equipmentDocumentBindings.js';
 import { setPrisma } from '../server/context.js';
 
 const require = createRequire(import.meta.url);
@@ -39,6 +40,7 @@ function rawSource(text: string, revision: string, fileName = 'FAN-1.xml') {
 const routes = new Map<string, Function>();
 const app: any = { get: (p: string, f: Function) => routes.set(`GET ${p}`, f), post: (p: string, f: Function) => routes.set(`POST ${p}`, f), put: (p: string, f: Function) => routes.set(`PUT ${p}`, f), delete: (p: string, f: Function) => routes.set(`DELETE ${p}`, f) };
 registerEquipmentXmlSourceRoutes(app);
+registerEquipmentDocumentBindingRoutes(app);
 async function call(method: string, path: string, params: Record<string, string>, body: any = {}, actor: any = { id: 'fixture-admin', role: 'ADMIN', isActive: true }) {
   const handler = routes.get(`${method} ${path}`);
   assert.ok(handler, `missing route ${method} ${path}`);
@@ -70,9 +72,24 @@ try {
   await prisma.$executeRawUnsafe(`INSERT INTO _ComponentElementToTag(A,B) VALUES ('element-b','tag-b')`);
 
   const sourcePath = '/api/equipment/projects/:projectId/sources';
-  const created = await call('POST', sourcePath, { projectId: 'project-a' }, { tagId: 'tag-a', elementId: 'element-a', targetType: 'component', ...rawSource(xml('2'), 'B') });
+  const locator = { folderKey: 'a'.repeat(64), anchors: [{ key: 'a'.repeat(64), relativePath: '' }, { key: 'c'.repeat(64), relativePath: 'Engineering/Forms' }] };
+  const created = await call('POST', sourcePath, { projectId: 'project-a' }, { tagId: 'tag-a', elementId: 'element-a', targetType: 'component', locator, ...rawSource(xml('2'), 'B') });
   check('привязка к другому XML не переписывает позицию и не ставит ложный imported baseline', created.statusCode === 201 && created.body.source.lastImportedSha256 === null && (await prisma.componentElement.findUnique({ where: { id: 'element-a' } })).specs === initialSpecs);
   const sourceId = created.body.source.sourceId;
+  const bindingsPath = '/api/equipment/projects/:projectId/document-bindings';
+  let bindingsView = await call('GET', bindingsPath, { projectId: 'project-a' });
+  const initialBinding = bindingsView.body.bindings.find((row: any) => row.xmlSourceId === sourceId);
+  check('XML-источник атомарно появляется в общем переносимом журнале', bindingsView.statusCode === 200 && initialBinding?.locator?.folderKey === locator.folderKey && initialBinding.latestRevision === undefined);
+  const badLocator = await call('POST', bindingsPath, { projectId: 'project-a' }, { expectedRevision: bindingsView.body.revision, operation: { kind: 'upsert', binding: { id: sourceId, kind: 'cad-xml', xmlSourceId: sourceId, equipmentIds: ['element-a'], fileName: 'FAN-1.xml', locator: { folderKey: 'd'.repeat(64), anchors: [{ key: 'e'.repeat(64), relativePath: '../escape' }] } } } });
+  check('общий API отклоняет относительный путь с выходом из корня', badLocator.statusCode === 400);
+  const staleBinding = await call('POST', bindingsPath, { projectId: 'project-a' }, { expectedRevision: bindingsView.body.revision - 1, operation: { kind: 'upsert', binding: { id: sourceId, kind: 'cad-xml', xmlSourceId: sourceId, equipmentIds: ['element-a'], fileName: 'FAN-1.xml' } } });
+  check('общий API не применяет привязку с устаревшей ревизией', staleBinding.statusCode === 409);
+  const migrationWithoutConfirm = await call('POST', `${bindingsPath}/migrate`, { projectId: 'project-a' }, { expectedRevision: bindingsView.body.revision, confirmed: false, bindings: [{ sourceId }] });
+  check('перенос локальных привязок требует явного подтверждения', migrationWithoutConfirm.statusCode === 400);
+  const upsertedBinding = await call('POST', bindingsPath, { projectId: 'project-a' }, { expectedRevision: bindingsView.body.revision, operation: { kind: 'upsert', binding: { id: sourceId, kind: 'cad-xml', xmlSourceId: sourceId, equipmentIds: ['element-a'], fileName: 'FAN-1.xml', locator } } });
+  check('управляющий может обновить привязку проекта через CAS API', upsertedBinding.statusCode === 200 && upsertedBinding.body.revision === bindingsView.body.revision + 1);
+  const migratedBindings = await call('POST', `${bindingsPath}/migrate`, { projectId: 'project-a' }, { expectedRevision: upsertedBinding.body.revision, confirmed: true, bindings: [{ sourceId, fileName: 'FAN-1.xml', locator }] });
+  check('подтверждённый перенос привязки находит оборудование только внутри того же проекта', migratedBindings.statusCode === 200 && migratedBindings.body.bindings.some((row: any) => row.xmlSourceId === sourceId && row.equipmentIds.includes('element-a')));
   const secondSource = await call('POST', sourcePath, { projectId: 'project-b' }, { tagId: 'tag-b', elementId: 'element-b', targetType: 'component', ...rawSource(xml('5'), 'A') });
   check('вторая независимая привязка сохраняется для другого стабильного tagId', secondSource.statusCode === 201 && secondSource.body.source.tagId === 'tag-b' && secondSource.body.source.lastImportedSha256 !== null);
   const checkPath = '/api/equipment/projects/:projectId/sources/:sourceId/check';
@@ -88,6 +105,9 @@ try {
   const afterAccept = await prisma.componentElement.findUnique({ where: { id: 'element-a' } });
   const sourceAfterAccept = await prisma.equipmentXmlSource.findUnique({ where: { id: sourceId } });
   check('явный accept записывает характеристику, baseline и историю', applied.statusCode === 200 && JSON.parse(afterAccept.specs).groups[0].params[0].value === '2' && afterAccept.version === 2 && sourceAfterAccept.lastImportedSha256 === candidate.sha256 && await prisma.equipmentXmlApplication.count() === 1);
+  bindingsView = await call('GET', bindingsPath, { projectId: 'project-a' });
+  const appliedBinding = bindingsView.body.bindings.find((row: any) => row.xmlSourceId === sourceId);
+  check('XML-применение обновляет общую ревизию только после транзакционного accept', appliedBinding?.latestRevision?.sha256 === candidate.sha256 && appliedBinding.latestRevision.revision === 'B');
   const undoPlan = await (await import('../server/equipmentXmlUndo.js')).planXmlRevisionUndo(applied.body.batchId);
   check('неизменённое решение допускает безопасный undo', undoPlan.action === 'restore');
   const undo = await (await import('../server/equipmentXmlUndo.js')).applyXmlRevisionUndo(applied.body.batchId, undoPlan);

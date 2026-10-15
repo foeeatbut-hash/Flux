@@ -1,7 +1,7 @@
 import { app, dialog, ipcMain, shell, clipboard, BrowserWindow, nativeImage, webContents, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { WINDOWS_FILES_CHANNEL, WINDOWS_FILES_CHANGED, WINDOWS_FILES_DROP, WINDOWS_FILES_SEARCH, type WindowsFilesRequest, type WindowsFilesResponse } from '../../filesystem/contracts';
+import { WINDOWS_FILES_CHANNEL, WINDOWS_FILES_CHANGED, WINDOWS_FILES_DROP, WINDOWS_FILES_SEARCH, WINDOWS_IMPORT_REFS_PER_PICK, type WindowsFilesRequest, type WindowsFilesResponse } from '../../filesystem/contracts';
 import { createArchive } from './archives';
 import { replaceCopy } from './replacementCopy';
 import { WindowsFilesService } from './service';
@@ -81,6 +81,16 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
   const explorer = new ExplorerBridge({ service, shell: shellCommands, viewState,
     // Страница поиска уходит только окну, которое его запустило и ещё живо.
     emitSearch: (owner, event) => { const target = webContents.fromId(owner); if (target && !target.isDestroyed() && activeSenders.has(owner)) target.send(WINDOWS_FILES_SEARCH, event); } });
+  const provenanceForFilename = async (filename: string) => {
+    const folder = path.dirname(filename);
+    let ref = await service.refForShellPath(folder);
+    if (!ref) {
+      const root = await service.addRoot(folder, path.basename(folder) || 'Импорт');
+      ref = { rootId: root.id, relativePath: '' };
+    }
+    const fileRef = await service.refForShellPath(filename) || { rootId: ref.rootId, relativePath: [ref.relativePath, path.basename(filename)].filter(Boolean).join('/') };
+    return explorer.selectionProvenance(ref, undefined, fileRef);
+  };
   // Пути брошенных файлов приходят из preload по каналу, которого страница не видит; страница получает только билет.
   ipcMain.on(WINDOWS_FILES_DROP, (event: IpcMainEvent, payload: { ticket?: unknown; paths?: unknown } | undefined) => {
     try { if (options.isTrusted(event as unknown as IpcMainInvokeEvent)) explorer.registerDrop(event.sender.id, payload?.ticket, payload?.paths); } catch { /* неверный билет — просто нет билета */ }
@@ -164,10 +174,16 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
           const config = { title: 'Выберите файл для импорта', buttonLabel: 'Выбрать', properties: request.multiple ? ['openFile', 'multiSelections'] as ('openFile' | 'multiSelections')[] : ['openFile'] as ('openFile')[], filters };
           const result = window ? await dialog.showOpenDialog(window, config) : await dialog.showOpenDialog(config);
           if (result.canceled) { data = { canceled: true, files: [] }; break; }
-          data = { canceled: false, files: await importRefs.registerPaths(event.sender.id, result.filePaths) };
+          data = { canceled: false, files: await importRefs.registerPaths(event.sender.id, result.filePaths, provenanceForFilename) };
           break;
         }
-        case 'prepareImportRefs': data = { files: await importRefs.registerRefs(event.sender.id, service, request.refs) }; break;
+        case 'prepareDroppedImportRefs': {
+          const paths = explorer.drops.importPaths(event.sender.id, request.ticket);
+          if (paths.length > WINDOWS_IMPORT_REFS_PER_PICK) throw new WindowsFilesError('INVALID_REQUEST', 'Выберите не более 128 файлов за один раз.');
+          data = { files: await importRefs.registerPaths(event.sender.id, paths, provenanceForFilename) };
+          break;
+        }
+        case 'prepareImportRefs': data = { files: await importRefs.registerRefs(event.sender.id, service, request.refs, (folder, file) => explorer.selectionProvenance(folder, undefined, file)) }; break;
         case 'readImportRef': data = await importRefs.read(event.sender.id, request.ticket, request.offset, request.length); break;
         case 'releaseImportRefs': importRefs.release(event.sender.id, request.tickets); data = { released: true }; break;
         case 'pickEquipmentSource': {
@@ -176,7 +192,7 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
           const result = window ? await dialog.showOpenDialog(window, config) : await dialog.showOpenDialog(config);
           if (result.canceled || !result.filePaths[0]) { data = { canceled: true }; break; }
           const selected = await resolveEquipmentSourceSelection(service, result.filePaths[0]);
-          data = { canceled: false, ...selected };
+          data = { canceled: false, ...selected, provenance: await explorer.selectionProvenance(selected.sourceFolder, selected.suggestedTag, selected.selectedFile.ref) };
           break;
         }
         case 'pickEquipmentSourceFolder': {

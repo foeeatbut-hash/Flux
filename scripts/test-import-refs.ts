@@ -17,8 +17,8 @@ async function main() {
     const handle = await fs.open(largePath, 'w'); await handle.truncate(70 * 1024 * 1024 + 17); await handle.close();
     const expectedMtime = 1_700_000_000_000;
     await fs.utimes(largePath, new Date(expectedMtime), new Date(expectedMtime));
-    const ref = (await store.registerPaths(1, [largePath]))[0];
-    checks.push(['does not expose the selected path and preserves the filesystem modification time', async () => { assert.equal('path' in ref, false); assert.equal(ref.name, 'large.ifc'); assert.equal(ref.lastModified, expectedMtime); }]);
+    const ref = (await store.registerPaths(1, [largePath], async () => ({ sourceFolder: { rootId: 'local-root', relativePath: '' }, fileRef: { rootId: 'local-root', relativePath: 'large.ifc' } })))[0];
+    checks.push(['ticket retains cloneable file/folder capabilities without exposing the selected path', async () => { assert.equal('path' in ref, false); assert.equal(ref.name, 'large.ifc'); assert.equal(ref.lastModified, expectedMtime); assert.deepEqual(ref.provenance, { sourceFolder: { rootId: 'local-root', relativePath: '' }, fileRef: { rootId: 'local-root', relativePath: 'large.ifc' } }); assert.equal(JSON.stringify(ref).includes(directory), false); }]);
     checks.push(['limits every IPC read to one MiB', async () => { await assert.rejects(() => store.read(1, ref.ticket, 0, WINDOWS_IMPORT_READ_BYTES + 1)); }]);
     checks.push(['streams files larger than 64 MiB while renewing the idle TTL', async () => {
       let offset = 0; let total = 0;

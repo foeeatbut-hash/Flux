@@ -11,6 +11,9 @@ import InSchemeNotice from './import/InSchemeNotice';
 import MatchPanel, { type MatchRow, type MissingRow, type SystemRow } from './import/MatchPanel';
 import FileBadge from './ui/FileBadge';
 import { ICON_SIZE } from '../lib/metrics';
+import type { EquipmentDocumentFilenameRule } from '../../equipment/documentBindings';
+import type { PortableFolderLocator } from '../../filesystem/contracts';
+import { loadEquipmentDocumentBindings } from '../lib/equipmentDocumentBindings';
 
 // ── Предпросмотр импорта оборудования (dry-run, Фаза 2 «Импорт бланков 2.0») ──
 // Показывает, ЧТО изменится в проекте, ДО записи: дерево систем/блоков с диффом,
@@ -72,12 +75,21 @@ interface Props {
    * Оба источника проходят один путь: план → предпросмотр → запись, поэтому
    * дифф, правки, выбор области, теги и отмена у них одинаковые.
    */
-  draft?: { units: any[]; fileName: string };
+  draft?: {
+    units: any[]; fileName: string;
+    sourceBinding?: {
+      id?: string; expectedLedgerRevision: number; locator?: PortableFolderLocator;
+      fileName: string; rule?: EquipmentDocumentFilenameRule; revision: string; sha256: string;
+      systemId?: string; tag?: string;
+    };
+  };
   category: string;
   categoryLabel: string;
   projectId: string;
   onClose: () => void;
-  onDone: (summary: { files: number; conflicts: number }) => void;
+  onDone: (summary: { files: number; conflicts: number; bindingId?: string }) => void;
+  /** Встроенный шаг сохраняет общий мастер открытым вместо второго модального окна. */
+  embedded?: boolean;
 }
 
 const actionBadge = (a: PlanBlock['action']) =>
@@ -85,7 +97,7 @@ const actionBadge = (a: PlanBlock['action']) =>
   : a === 'update' ? { icon: RefreshCw, cls: 'text-amber-600 bg-amber-50 dark:bg-amber-950/30', text: 'изменится' }
   : { icon: Minus, cls: 'text-slate-400 bg-slate-100 dark:bg-slate-800', text: 'без изменений' };
 
-export default function EquipmentImportPreview({ fileIds = [], draft, category, categoryLabel, projectId, onClose, onDone }: Props) {
+export default function EquipmentImportPreview({ fileIds = [], draft, category, categoryLabel, projectId, onClose, onDone, embedded = false }: Props) {
   useEscapeClose(true, onClose);
 
   const [idx, setIdx] = useState(0);
@@ -105,6 +117,9 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
   // Спорные позиции: переехавшие, переподобранные, переименованные установки
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [showMatches, setShowMatches] = useState(false);
+  const [bindingRevision, setBindingRevision] = useState(draft?.sourceBinding?.expectedLedgerRevision);
+
+  useEffect(() => setBindingRevision(draft?.sourceBinding?.expectedLedgerRevision), [draft?.sourceBinding?.expectedLedgerRevision]);
 
   const fileId = fileIds[idx];
   const queueLength = draft ? 1 : fileIds.length;
@@ -251,6 +266,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
             body: JSON.stringify({
               units: draft.units, fileName: draft.fileName,
               category, projectId, edits, selection, tagLinks: chosenTags, choices,
+              ...(draft.sourceBinding ? { sourceBinding: { ...draft.sourceBinding, expectedLedgerRevision: bindingRevision ?? draft.sourceBinding.expectedLedgerRevision } } : {}),
             }),
           })
         : await fetch('/api/equipment/import-to-category', {
@@ -258,7 +274,14 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
             body: JSON.stringify({ fileId, category, projectId, edits, selection, tagLinks: chosenTags, choices }),
           });
       const d = await r.json();
-      if (!r.ok) { setError(d.error || 'Ошибка импорта'); setApplying(false); return; }
+      if (!r.ok) {
+        if (r.status === 409 && draft?.sourceBinding) {
+          try { setBindingRevision((await loadEquipmentDocumentBindings(projectId)).revision); }
+          catch (_) { /* Ошибка CAS остаётся видимой; локальная ревизия не подменяется. */ }
+          setError(d.error || 'Список привязок изменился. Проверьте актуальный план и подтвердите импорт повторно.');
+        } else setError(d.error || 'Ошибка импорта');
+        setApplying(false); return;
+      }
       const conflicts = totalConflicts + (d.conflictsCount || 0);
       setTotalConflicts(conflicts);
       // Партию запоминаем сразу: если импорт идёт очередью, отменить нужно
@@ -266,7 +289,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
       if (d.batchId) rememberImport(projectId, d.batchId, queueLength);
       // Следующий файл в очереди или завершение
       if (idx + 1 < fileIds.length) { setIdx(idx + 1); }
-      else { onDone({ files: queueLength, conflicts }); }
+      else { onDone({ files: queueLength, conflicts, bindingId: d.associations?.bindingId }); }
     } catch (e: any) { setError(e.message || 'Ошибка сети'); }
     finally { setApplying(false); }
   };
@@ -309,8 +332,8 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
   const matchCount = (plan?.matches?.length || 0) + (plan?.systemRows?.length || 0) + missingShown.length;
 
   return (
-    <div className="fixed inset-0 z-[75] flex items-center justify-center p-4 fx-backdrop" onClick={onClose}>
-      <div className="fx-dialog w-full max-w-5xl h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <div className={embedded ? 'h-full min-h-0 w-full flex flex-col' : 'fixed inset-0 z-[75] flex items-center justify-center p-4 fx-backdrop'} onClick={embedded ? undefined : onClose}>
+      <div className={embedded ? 'min-h-0 flex-1 flex flex-col overflow-hidden border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950' : 'fx-dialog w-full max-w-5xl h-[85vh] flex flex-col'} onClick={embedded ? undefined : e => e.stopPropagation()}>
         {/* Шапка */}
         <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <FileBadge file={fileName || 'Таблица.xlsx'} size={ICON_SIZE.row} />

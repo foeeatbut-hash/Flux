@@ -13,8 +13,15 @@ import EquipmentImportPreview from './EquipmentImportPreview';
 import { DraftItem, DraftField, DraftResult, Confidence } from '../import/types';
 import CustomSelect from './CustomSelect';
 import ImportFileChooser from './ImportFileChooser';
+import EquipmentSourceImportDialog from './equipment/EquipmentSourceImportDialog';
 import FileBadge from './ui/FileBadge';
 import { ICON_SIZE } from '../lib/metrics';
+import type { SelectionProvenance } from '../lib/windowsFiles';
+import type { EquipmentDocumentBinding, FilenameMatchRule } from '../../equipment/documentBindings';
+import { getLocalEquipmentDocumentRef, loadEquipmentDocumentBindings, saveLocalEquipmentDocumentRef } from '../lib/equipmentDocumentBindings';
+import { base64ToBytes, takeWindowsDrop, windowsFilesRequest } from '../lib/windowsFiles';
+import { WINDOWS_IMPORT_READ_BYTES, type ImportedFileRef } from '../../filesystem/contracts';
+import { listEquipmentSourceBindings, removeEquipmentSourceBinding, scanEquipmentSource, type EquipmentSourceCandidate, type LocalEquipmentSourceBinding } from '../lib/equipmentSourcesLocal';
 
 // Мастер импорта документов: PDF / Excel / Word / XML / вставка из буфера.
 // Распознавание полностью на клиенте; на сервер уходит только подтверждённый результат.
@@ -24,6 +31,8 @@ interface DocImportWizardProps {
   categories: { id: string; label: string }[];
   onClose: () => void;
   onImported: () => void;
+  canManage?: boolean;
+  initialDocument?: { binding: EquipmentDocumentBinding; fileRef: import('../lib/windowsFiles').WindowsFileRef; sourceFolder: import('../lib/windowsFiles').WindowsFileRef; revision: string; sha256: string } | null;
   /** Отключает файловое перетаскивание в сценариях, где нужен только выбор файла. */
   allowDrop?: boolean;
 }
@@ -33,6 +42,10 @@ interface FileJob {
   fileName: string;
   status: 'parsing' | 'ocr' | 'ready' | 'error' | 'imported';
   statusText?: string;
+  provenance?: SelectionProvenance;
+  sourceSha256?: string;
+  sourceRevision?: string;
+  sourceBinding?: EquipmentDocumentBinding;
   draft?: DraftResult;
   error?: string;
   /** Исходные данные PDF — нужны для запуска OCR по кнопке */
@@ -53,6 +66,12 @@ interface FileJob {
    * нечему — разбор точный, а не угаданный.
    */
   cad?: { units: any[]; blocks: number };
+}
+
+interface LegacyMigrationCandidate {
+  binding: LocalEquipmentSourceBinding;
+  candidate: EquipmentSourceCandidate;
+  locator?: SelectionProvenance['portableLocator'];
 }
 
 const IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'tif', 'tiff', 'gif'];
@@ -85,7 +104,30 @@ const CONF_LABEL: Record<Confidence, string> = { high: 'уверенно', mid: 
 
 let jobSeq = 0;
 
-export default function DocImportWizard({ projectId, categories, onClose, onImported, allowDrop = true }: DocImportWizardProps) {
+function revisionFromSource(file: File, provenance: SelectionProvenance): string {
+  const sourcePath = provenance.sourceFolder?.relativePath.replace(/\\/gu, '/') || '';
+  const filePath = provenance.fileRef?.relativePath.replace(/\\/gu, '/') || '';
+  const rest = filePath.startsWith(sourcePath) ? filePath.slice(sourcePath.length).split('/').filter(Boolean) : [];
+  const folderRevision = rest.length > 1 ? rest[0] : '';
+  if (/^[A-Z]$/iu.test(folderRevision) || /^\d{1,20}$/u.test(folderRevision)) return folderRevision;
+  return file.lastModified ? new Date(file.lastModified).toISOString() : 'без ревизии';
+}
+
+function findExistingDocumentBinding(
+  bindings: EquipmentDocumentBinding[], provenance: SelectionProvenance, fileName: string,
+): EquipmentDocumentBinding | undefined {
+  if (!provenance.sourceFolder) return undefined;
+  const shared = provenance.portableLocator?.folderKey;
+  if (shared) return bindings.find(item => item.kind === 'document' && item.fileName === fileName && item.locator?.folderKey === shared);
+  return bindings.find(item => {
+    if (item.kind !== 'document' || item.fileName !== fileName) return false;
+    const local = getLocalEquipmentDocumentRef(item.projectId, item.id);
+    return !!local && local.sourceFolder.rootId === provenance.sourceFolder?.rootId
+      && local.sourceFolder.relativePath.replace(/\\/gu, '/') === provenance.sourceFolder?.relativePath.replace(/\\/gu, '/');
+  });
+}
+
+export default function DocImportWizard({ projectId, categories, onClose, onImported, allowDrop = true, canManage = false, initialDocument = null }: DocImportWizardProps) {
   const { addToast } = useToastStore();
   const [jobs, setJobs] = useState<FileJob[]>([]);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -94,10 +136,68 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   // Открытый предпросмотр: что именно ввозим и из какой работы
   // Открытый предпросмотр: один файл или несколько выбранных расчётов разом
   const [preview, setPreview] = useState<{ jobIds: string[]; units: any[]; fileName: string } | null>(null);
+  const [sourceJobId, setSourceJobId] = useState<string | null>(null);
   // Выбранные расчёты: ввозятся одним предпросмотром и одной партией. Готовый
   // расчёт отмечается сам — ради этого папку файлов и бросают в окно разом
-  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
+  const [bindingRevision, setBindingRevision] = useState(0);
+  const [documentBindings, setDocumentBindings] = useState<EquipmentDocumentBinding[]>([]);
+  const [bindingWarning, setBindingWarning] = useState('');
+  const [legacyCandidates, setLegacyCandidates] = useState<LegacyMigrationCandidate[]>([]);
+  const [migrationSelection, setMigrationSelection] = useState<Set<string>>(new Set());
+  const [migrationOpen, setMigrationOpen] = useState(false);
+  const [migrationBusy, setMigrationBusy] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadEquipmentDocumentBindings(projectId, controller.signal).then(view => {
+      setBindingRevision(view.revision);
+      setDocumentBindings(view.bindings);
+      if (view.canManage) void (async () => {
+        const legacy = listEquipmentSourceBindings(projectId).filter(binding => !view.bindings.some(item => item.kind === 'cad-xml' && (item.xmlSourceId || item.id) === binding.sourceId));
+        const available: LegacyMigrationCandidate[] = [];
+        for (const binding of legacy) {
+          const scan = await scanEquipmentSource(binding).catch(() => null);
+          if (!scan || scan.status !== 'ready' || !scan.recommended) continue;
+          const candidate = scan.recommended;
+          const provenance = await windowsFilesRequest<SelectionProvenance>({ action: 'selectionProvenance', ref: { rootId: binding.rootId, relativePath: binding.relativePath }, fileRef: candidate.fileRef });
+          available.push({ binding, candidate, locator: provenance.ok === true ? provenance.data.portableLocator : undefined });
+        }
+        if (!controller.signal.aborted) {
+          setLegacyCandidates(available);
+          setMigrationSelection(new Set(available.map(item => item.binding.sourceId)));
+        }
+      })();
+    }).catch(error => {
+      if (!controller.signal.aborted) setBindingWarning(error instanceof Error ? error.message : 'Не удалось загрузить привязки источников.');
+    });
+    return () => controller.abort();
+  }, [projectId]);
+
+  const confirmLegacyMigration = async () => {
+    const selected = legacyCandidates.filter(item => migrationSelection.has(item.binding.sourceId));
+    if (!selected.length || migrationBusy) return;
+    setMigrationBusy(true); setBindingWarning('');
+    try {
+      const response = await fetch(`/api/equipment/projects/${encodeURIComponent(projectId)}/document-bindings/migrate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: bindingRevision, confirmed: true, bindings: selected.map(item => ({
+          sourceId: item.binding.sourceId, fileName: item.candidate.fileName,
+          ...(item.locator ? { locator: item.locator } : {}), ...(item.binding.selectedRule ? { rule: item.binding.selectedRule } : {}),
+        })) }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || 'Не удалось перенести локальные привязки. Старые записи сохранены.');
+      const view = await loadEquipmentDocumentBindings(projectId);
+      // Сначала сохраняем новые device-local capabilities; исходные записи удаляем только после подтверждения сервера.
+      for (const item of selected) saveLocalEquipmentDocumentRef({ projectId, bindingId: item.binding.sourceId, sourceFolder: { rootId: item.binding.rootId, relativePath: item.binding.relativePath }, fileRef: item.candidate.fileRef });
+      for (const item of selected) removeEquipmentSourceBinding(projectId, item.binding.sourceId, item.binding.tagId || '', item.binding.elementId);
+      setBindingRevision(view.revision); setDocumentBindings(view.bindings); setMigrationOpen(false);
+      setLegacyCandidates(current => current.filter(item => !migrationSelection.has(item.binding.sourceId)));
+      addToast(`Перенесено общих привязок: ${selected.length}.`, 'success');
+    } catch (error) { setBindingWarning(error instanceof Error ? error.message : 'Не удалось перенести привязки.'); }
+    finally { setMigrationBusy(false); }
+  };
 
   const updateJob = useCallback((id: string, patch: Partial<FileJob>) => {
     setJobs(prev => prev.map(j => j.id === id ? { ...j, ...patch } : j));
@@ -105,12 +205,17 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
 
   // ── Обработка файлов ────────────────────────────────────────────────────────
 
-  const processFile = useCallback(async (file: File) => {
+  const processFile = useCallback(async (file: File, provenance: SelectionProvenance = {}, forcedBinding?: EquipmentDocumentBinding) => {
     const id = `job-${++jobSeq}`;
-    setJobs(prev => [...prev, { id, fileName: file.name, status: 'parsing', statusText: 'Чтение файла…' }]);
+    setJobs(prev => [...prev, { id, fileName: file.name, status: 'parsing', statusText: 'Чтение файла…', provenance }]);
     setActiveJobId(prev => prev || id);
     try {
       const data = await file.arrayBuffer();
+      const digest = await crypto.subtle.digest('SHA-256', data);
+      const sourceSha256 = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+      const sourceRevision = revisionFromSource(file, provenance);
+      const sourceBinding = forcedBinding || findExistingDocumentBinding(documentBindings, provenance, file.name);
+      updateJob(id, { sourceSha256, sourceRevision, sourceBinding });
       const ext = (file.name.split('.').pop() || '').toLowerCase();
 
       // Изображение (фото/скан формы): распознаётся по кнопке OCR ниже
@@ -157,7 +262,6 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
             0,
           );
           updateJob(id, { status: 'ready', statusText: undefined, cad: { units, blocks } });
-          setPicked(prev => new Set(prev).add(id));
           return;
         }
       }
@@ -200,11 +304,51 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
       console.error('Ошибка разбора документа:', err);
       updateJob(id, { status: 'error', error: err?.message || 'Не удалось разобрать файл' });
     }
-  }, [updateJob, projectId]);
+  }, [updateJob, projectId, documentBindings]);
 
-  const handleFiles = useCallback((files: FileList | File[]) => {
-    Array.from(files).forEach(f => { processFile(f); });
+  const initialDocumentLoaded = useRef('');
+  useEffect(() => {
+    if (!initialDocument || initialDocumentLoaded.current === initialDocument.binding.id) return;
+    initialDocumentLoaded.current = initialDocument.binding.id;
+    void windowsFilesRequest<{ name: string; size: number; modifiedAt: string; sha256: string; base64: string }>({ action: 'read', ref: initialDocument.fileRef }).then(result => {
+      if (result.ok === false) throw new Error(result.error.message);
+      const bytes = base64ToBytes(result.data.base64);
+      const file = new File([bytes], initialDocument.binding.fileName, { lastModified: Date.parse(result.data.modifiedAt) || Date.now() });
+      void processFile(file, { fileRef: initialDocument.fileRef, sourceFolder: initialDocument.sourceFolder, portableLocator: initialDocument.binding.locator }, initialDocument.binding);
+    }).catch(error => setBindingWarning(error instanceof Error ? error.message : 'Не удалось открыть новую ревизию документа.'));
+  }, [initialDocument, processFile]);
+
+  const handleFiles = useCallback((files: FileList | File[], provenances: SelectionProvenance[] = []) => {
+    Array.from(files).forEach((f, index) => { void processFile(f, provenances[index] || {}); });
   }, [processFile]);
+
+  const handleDrop = useCallback(async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault(); setIsDragOver(false);
+    const dropped = takeWindowsDrop();
+    if (!dropped?.ticket) { if (event.dataTransfer.files.length) handleFiles(event.dataTransfer.files); return; }
+    let tickets: ImportedFileRef[] = [];
+    try {
+      const prepared = await windowsFilesRequest<{ files: ImportedFileRef[] }>({ action: 'prepareDroppedImportRefs', ticket: dropped.ticket });
+      if (prepared.ok === false) throw new Error(prepared.error.message);
+      tickets = prepared.data.files;
+      const files: File[] = [];
+      for (const ticket of tickets) {
+        const chunks: Uint8Array[] = [];
+        for (let offset = 0; offset < ticket.size; offset += WINDOWS_IMPORT_READ_BYTES) {
+          const part = await windowsFilesRequest<{ size: number; offset: number; base64: string }>({ action: 'readImportRef', ticket: ticket.ticket, offset, length: Math.min(WINDOWS_IMPORT_READ_BYTES, ticket.size - offset) });
+          if (part.ok === false) throw new Error(part.error.message);
+          if (part.data.offset !== offset || part.data.size !== ticket.size) throw new Error('Файл изменился во время чтения. Перетащите его повторно.');
+          chunks.push(base64ToBytes(part.data.base64));
+        }
+        files.push(new File(chunks, ticket.name, { lastModified: ticket.lastModified }));
+      }
+      handleFiles(files, tickets.map(ticket => ticket.provenance || {}));
+    } catch (error) {
+      setBindingWarning(error instanceof Error ? error.message : 'Не удалось прочитать перетащенные файлы.');
+    } finally {
+      if (tickets.length) await windowsFilesRequest({ action: 'releaseImportRefs', tickets: tickets.map(ticket => ticket.ticket) });
+    }
+  }, [handleFiles]);
 
   // ── OCR сканов по кнопке ────────────────────────────────────────────────────
 
@@ -358,10 +502,9 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   // значениями, без выбора области и без разбора тегов. Теперь оба источника
   // сходятся в одном окне, поэтому и результат у них одинаковый.
   const commitJob = (job: FileJob) => {
-    // Разобранный расчёт идёт в предпросмотр как есть: собирать позиции из
-    // распознанного тут нечего — их и не распознавали
+    // CAD XML остаётся в общей очереди, но получает штатный план источника XML.
     if (job.cad) {
-      setPreview({ jobIds: [job.id], units: withFile(job), fileName: job.fileName });
+      setSourceJobId(job.id);
       return;
     }
     if (!job.draft || job.draft.items.length === 0) return;
@@ -372,47 +515,25 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     });
   };
 
-  const previewDone = () => {
+  const previewDone = (summary?: { bindingId?: string }) => {
     const done = jobs.filter(j => preview?.jobIds.includes(j.id));
     setPreview(null);
     if (!done.length) return;
+    const bound = done[0];
+    if (summary?.bindingId && bound.provenance?.sourceFolder) {
+      saveLocalEquipmentDocumentRef({ projectId, bindingId: summary.bindingId, sourceFolder: bound.provenance.sourceFolder, fileRef: bound.provenance.fileRef });
+    }
     for (const job of done) {
       // Подтверждённый импорт — надёжная разметка: учим словарь по всем источникам (в т.ч. PDF/OCR).
       // У разобранного расчёта учить нечему: там не распознавание, а точный разбор
       observe(job.draft?.observations);
       updateJob(job.id, { status: 'imported' });
     }
-    setPicked(prev => { const n = new Set(prev); done.forEach(j => n.delete(j.id)); return n; });
     const count = done.reduce((s, job) => s + (job.cad ? job.cad.blocks : (job.draft?.items.length || 0)), 0);
     addToast(done.length > 1
       ? `Файлов: ${done.length}, импортировано позиций: ${count}`
       : `«${done[0].fileName}»: импортировано позиций: ${count}`, 'success');
     onImported();
-  };
-
-  /** Установки расчёта с именем своего файла: в реестре у каждой — свой источник */
-  const withFile = (job: FileJob) => (job.cad?.units || []).map((u: any) => ({ ...u, fileName: job.fileName }));
-
-  // Несколько расчётов — один предпросмотр и одна партия: одна отмена на всё,
-  // и теги между файлами разводятся одним планом, а не двадцатью
-  const pickedJobs = jobs.filter(j => picked.has(j.id) && j.status === 'ready' && j.cad);
-  const cadReady = jobs.filter(j => j.status === 'ready' && j.cad);
-  const pickedUnits = pickedJobs.reduce((s, j) => s + (j.cad?.units.length || 0), 0);
-  const pickedBlocks = pickedJobs.reduce((s, j) => s + (j.cad?.blocks || 0), 0);
-  // Одна установка в двух файлах — ввезётся одной, последним файлом поверх: сказать заранее
-  const dupUnits = (() => {
-    const seen = new Map<string, number>();
-    for (const j of pickedJobs) for (const u of j.cad!.units) seen.set(u.name, (seen.get(u.name) || 0) + 1);
-    return [...seen.entries()].filter(([, n]) => n > 1).map(([name]) => name);
-  })();
-  const togglePick = (id: string) => setPicked(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const commitPicked = () => {
-    if (!pickedJobs.length) return;
-    setPreview({
-      jobIds: pickedJobs.map(j => j.id),
-      units: pickedJobs.flatMap(withFile),
-      fileName: pickedJobs.length === 1 ? pickedJobs[0].fileName : `Расчёты: ${pickedJobs.length} файлов`,
-    });
   };
 
   const activeJob = jobs.find(j => j.id === activeJobId) || jobs[0] || null;
@@ -428,7 +549,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
         {...(allowDrop ? {
           onDragOver: (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setIsDragOver(true); },
           onDragLeave: () => setIsDragOver(false),
-          onDrop: (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setIsDragOver(false); if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files); },
+          onDrop: handleDrop,
         } : {})}
       >
         {/* Шапка */}
@@ -456,6 +577,16 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
           </div>
         </div>
 
+        {legacyCandidates.length > 0 && <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+          <div className="flex flex-wrap items-center justify-between gap-2"><span>Найдены локальные XML-привязки, которые ещё не доступны коллегам.</span><button type="button" onClick={() => setMigrationOpen(value => !value)} className="rounded border border-amber-500 px-2 py-1 font-medium">{migrationOpen ? 'Скрыть перенос' : `Подготовить перенос · ${legacyCandidates.length}`}</button></div>
+          {migrationOpen && <div className="mt-2 space-y-2 rounded border border-amber-300 p-2 dark:border-amber-800">
+            <p>После подтверждения общие записи появятся у участников проекта. Локальные ссылки будут удалены только после ответа сервера; неподдерживаемые или недоступные источники останутся на устройстве.</p>
+            <div className="max-h-28 space-y-1 overflow-auto">{legacyCandidates.map(item => <label key={item.binding.sourceId} className="flex items-start gap-2"><input type="checkbox" checked={migrationSelection.has(item.binding.sourceId)} onChange={() => setMigrationSelection(current => { const next = new Set(current); next.has(item.binding.sourceId) ? next.delete(item.binding.sourceId) : next.add(item.binding.sourceId); return next; })} /><span>{item.candidate.fileName} · ревизия {item.candidate.revision}{item.locator ? '' : ' · только это устройство'}</span></label>)}</div>
+            <div className="flex gap-2"><button type="button" disabled={!migrationSelection.size || migrationBusy} onClick={() => void confirmLegacyMigration()} className="rounded bg-amber-700 px-2.5 py-1.5 font-medium text-white disabled:opacity-50">{migrationBusy ? 'Перенос…' : `Подтвердить перенос · ${migrationSelection.size}`}</button><button type="button" disabled={migrationBusy} onClick={() => setMigrationOpen(false)} className="rounded border border-amber-500 px-2.5 py-1.5">Отмена</button></div>
+            {bindingWarning && <p role="alert" className="text-rose-700 dark:text-rose-300">{bindingWarning}</p>}
+          </div>}
+        </div>}
+
         <div className="flex-1 min-h-0 flex">
           {/* Левая колонка: файлы */}
           <div className="w-64 shrink-0 border-r border-slate-200 dark:border-slate-800 flex flex-col">
@@ -482,10 +613,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                 const itemCount = j.cad ? j.cad.blocks : (j.draft?.items.length || 0);
                 return (
                   <div key={j.id} className="flex items-start gap-1.5">
-                  {j.cad && j.status === 'ready' ? (
-                    <input type="checkbox" checked={picked.has(j.id)} onChange={() => togglePick(j.id)}
-                      aria-label={`Ввезти ${j.fileName} вместе с другими`} className="mt-2.5 accent-emerald-600 shrink-0 cursor-pointer" />
-                  ) : <span className="w-[13px] shrink-0" />}
+                  <span className="w-[13px] shrink-0" />
                   <button type="button"
                     onClick={() => setActiveJobId(j.id)}
                     className={`flex-1 min-w-0 text-left p-2 rounded-lg border text-xs cursor-pointer transition-colors ${
@@ -509,29 +637,6 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                   </div>
                 );
               })}
-              {cadReady.length > 1 && (
-                <div className="pt-2 space-y-1.5">
-                  <button type="button" onClick={() => setPicked(pickedJobs.length === cadReady.length ? new Set() : new Set(cadReady.map(j => j.id)))}
-                    className="w-full text-2xs text-slate-500 hover:text-emerald-600 cursor-pointer text-left px-1">
-                    {pickedJobs.length === cadReady.length ? 'Снять выбор со всех расчётов' : `Выбрать все расчёты (${cadReady.length})`}
-                  </button>
-                  {pickedJobs.length > 0 && (
-                    <button type="button" onClick={commitPicked}
-                      className="fx-btn fx-btn-primary w-full justify-center">
-                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                      Ввезти выбранные: {pickedJobs.length}
-                    </button>
-                  )}
-                  {pickedJobs.length > 0 && (
-                    <p className="text-2xs text-slate-400 px-1">Установок {pickedUnits} · блоков {pickedBlocks} — одним предпросмотром, одна отмена на всё.</p>
-                  )}
-                  {dupUnits.length > 0 && (
-                    <p className="text-2xs text-amber-600 dark:text-amber-400 px-1">
-                      В нескольких файлах одна и та же установка: {dupUnits.slice(0, 3).join(', ')}{dupUnits.length > 3 ? '…' : ''} — ввезётся одной, последним файлом.
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
 
             {jobs.length > 1 && (
@@ -753,7 +858,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                       Установок: {activeJob.cad.units.length} · блоков: {activeJob.cad.blocks}
                     </div>
                     <button type="button"
-                      onClick={() => commitJob(activeJob)}
+                      onClick={() => commitJob(activeJob)} disabled={!canManage}
                       className="fx-btn fx-btn-primary shrink-0"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
@@ -769,7 +874,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                       Зелёное — уверенно · жёлтое — проверьте · серое — подпись не распознана.
                     </div>
                     <button type="button"
-                      onClick={() => commitJob(activeJob)}
+                      onClick={() => commitJob(activeJob)} disabled={!canManage}
                       className="fx-btn fx-btn-primary shrink-0"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
@@ -791,14 +896,52 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
       {/* Второй шаг: тот же предпросмотр, что у ввоза расчёта из Проводника */}
       {preview && (
         <EquipmentImportPreview
-          draft={{ units: preview.units, fileName: preview.fileName }}
+          draft={{ units: preview.units, fileName: preview.fileName, ...(jobs.find(job => job.id === preview.jobIds[0])?.sourceBinding && jobs.find(job => job.id === preview.jobIds[0])?.sourceSha256 ? {
+            sourceBinding: {
+              id: jobs.find(job => job.id === preview.jobIds[0])!.sourceBinding!.id,
+              expectedLedgerRevision: bindingRevision,
+              locator: jobs.find(job => job.id === preview.jobIds[0])!.provenance?.portableLocator,
+              fileName: jobs.find(job => job.id === preview.jobIds[0])!.fileName,
+              rule: { kind: 'document-name', fileName: jobs.find(job => job.id === preview.jobIds[0])!.fileName },
+              revision: jobs.find(job => job.id === preview.jobIds[0])!.sourceRevision || 'без ревизии',
+              sha256: jobs.find(job => job.id === preview.jobIds[0])!.sourceSha256!,
+            },
+          } : jobs.find(job => job.id === preview.jobIds[0])?.provenance?.sourceFolder && jobs.find(job => job.id === preview.jobIds[0])?.sourceSha256 ? {
+            sourceBinding: {
+              expectedLedgerRevision: bindingRevision,
+              locator: jobs.find(job => job.id === preview.jobIds[0])!.provenance?.portableLocator,
+              fileName: preview.fileName,
+              rule: { kind: 'document-name', fileName: preview.fileName },
+              revision: jobs.find(job => job.id === preview.jobIds[0])!.sourceRevision || 'без ревизии',
+              sha256: jobs.find(job => job.id === preview.jobIds[0])!.sourceSha256!,
+            },
+          } : {}) }}
           category={category}
           categoryLabel={categories.find(c => c.id === category)?.label || category}
           projectId={projectId}
           onClose={() => setPreview(null)}
           onDone={previewDone}
+          embedded
         />
       )}
+      {sourceJobId && (() => {
+        const job = jobs.find(item => item.id === sourceJobId);
+        if (!job) return null;
+        const initialSelection = job.provenance?.fileRef ? {
+          ref: job.provenance.fileRef, name: job.fileName, sourceFolder: job.provenance.sourceFolder,
+          suggestedTag: job.provenance.suggestedTag, portableLocator: job.provenance.portableLocator,
+        } : undefined;
+        return <div className="absolute inset-3 z-10 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-950">
+          <EquipmentSourceImportDialog embedded projectId={projectId} categories={categories} canManage={canManage}
+            initialSelection={initialSelection} expectedLedgerRevision={bindingRevision}
+            onClose={() => setSourceJobId(null)}
+            onImported={({ bindingId, source, category: importedCategory }) => {
+              if (bindingId && job.provenance?.sourceFolder) saveLocalEquipmentDocumentRef({ projectId, bindingId, sourceFolder: job.provenance.sourceFolder, fileRef: job.provenance.fileRef });
+              updateJob(job.id, { status: 'imported' }); setSourceJobId(null); setCategory(importedCategory);
+              addToast(`«${job.fileName}»: XML импортирован, привязка сохранена.`, 'success'); onImported();
+            }} />
+        </div>;
+      })()}
     </div>,
     document.body
   );

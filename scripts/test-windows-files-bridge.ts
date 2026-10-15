@@ -23,7 +23,7 @@ import { OpaqueIds } from '../electron/filesystem/opaque';
 import { WindowsFilesService } from '../electron/filesystem/service';
 import { parseWindowsLogicalDisks, VOLUME_SCRIPT } from '../electron/filesystem/nativePlaces';
 import { INVOKE_CHANNELS, SEND_CHANNELS } from '../electron/ipcAllow';
-import type { WindowsFilesRequest, WindowsSearchEvent } from '../filesystem/contracts';
+import type { WindowsFileRef, WindowsFilesRequest, WindowsSearchEvent } from '../filesystem/contracts';
 
 let passed = 0;
 function check(condition: unknown, message: string) { assert.ok(condition, message); passed++; console.log(`✓ ${message}`); }
@@ -300,7 +300,7 @@ process.stdin.on('end', () => process.exit(0));
     const events: WindowsSearchEvent[] = [];
     const viewState = await ViewStateStore.load(userData);
     const bridge = new ExplorerBridge({ service, shell, viewState, emitSearch: (_owner, event) => events.push(event) });
-    const actions = ['search', 'searchCancel', 'children', 'quickAccess', 'quickAccessPin', 'cloudRoots', 'systemProperties', 'resolveAddress', 'locationKeys', 'placeIcon', 'thumbnail', 'openWithList', 'openWith', 'shellMenu', 'shellMenuInvoke', 'shellMenuClose',
+    const actions = ['search', 'searchCancel', 'children', 'quickAccess', 'quickAccessPin', 'cloudRoots', 'systemProperties', 'resolveAddress', 'locationKeys', 'selectionProvenance', 'resolvePortableFolder', 'placeIcon', 'thumbnail', 'openWithList', 'openWith', 'shellMenu', 'shellMenuInvoke', 'shellMenuClose',
       'recycleBin', 'recycleBinRestore', 'recycleBinPurge', 'recycleBinEmpty', 'startDrag', 'importPaths', 'undoState', 'undo', 'redo', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete'];
     check(actions.every(isExplorerAction) && !isExplorerAction('write') && !isExplorerAction('nonsense'), 'Все команды Проводника известны ipc, а прежние и выдуманные — нет');
     for (const action of actions) {
@@ -329,9 +329,13 @@ process.stdin.on('end', () => process.exit(0));
     // ключи мест для общих привязок: наружу только хеши; локальная папка (и любая вне Windows) ключа не получает
     const localKeys = await bridge.handle({ action: 'locationKeys', refs: [R('Проект')] }, 1) as { keys: string[]; chains: Array<number[] | null> };
     check(localKeys.chains.length === 1 && localKeys.chains[0] === null && localKeys.keys.length === 0 && !JSON.stringify(localKeys).includes(sandbox), 'locationKeys: локальная папка без ключа, путь в ответ не попадает');
+    const localProvenance = await bridge.handle({ action: 'selectionProvenance', ref: R('Проект'), fileRef: R('Проект/Файл.docx') }, 1) as { sourceFolder: WindowsFileRef; fileRef: WindowsFileRef; folderKey?: string; portableLocator?: unknown };
+    check(localProvenance.sourceFolder.relativePath === 'Проект' && localProvenance.fileRef.relativePath === 'Проект/Файл.docx' && !localProvenance.folderKey && !localProvenance.portableLocator && !JSON.stringify(localProvenance).includes(sandbox), 'selectionProvenance: локальная папка и файл выходят только capabilities, без выдуманного portable key');
     const netBridge = new ExplorerBridge({ service, shell, viewState, emitSearch: () => undefined, locations: new LocationKeys({ rootPath: () => '\\\\SRV\\Share\\Projects', uncOfDrive: async () => null }) });
     const netKeys = await netBridge.handle({ action: 'locationKeys', refs: [R('Проект/Файл.docx')] }, 1) as { keys: string[]; chains: Array<number[] | null> };
     check(netKeys.chains[0]?.length === 4 && netKeys.keys.every(key => /^[0-9a-f]{64}$/u.test(key)) && !/srv|share|projects/iu.test(JSON.stringify(netKeys)), 'locationKeys: сетевая папка даёт цепочку хешей до корня ресурса без пути');
+    const netProvenance = await netBridge.handle({ action: 'selectionProvenance', ref: R('Проект'), fileRef: R('Проект/Файл.docx') }, 1) as { portableLocator?: { folderKey: string; anchors: Array<{ key: string; relativePath: string }> }; fileRef: WindowsFileRef };
+    check(netProvenance.portableLocator?.folderKey === netProvenance.portableLocator?.anchors[0]?.key && netProvenance.portableLocator?.anchors.length === 3 && netProvenance.fileRef.relativePath === 'Проект/Файл.docx' && !/srv|share/iu.test(JSON.stringify(netProvenance)), 'selectionProvenance: UNC gets all safe portable anchors and the file capability only');
     await rejects(() => bridge.handle({ action: 'locationKeys', refs: [] }, 1), 'INVALID_REQUEST', 'locationKeys: пустой список отклоняется');
     check(/^Создание/u.test(((await bridge.handle({ action: 'undoState' }, 1)) as { undo: { label: string } }).undo.label), 'Состояние отмены через мост: последнее действие названо');
     bridge.registerDrop(1, 'ticket-from-preload', [path.join(sandbox, 'x')]);
