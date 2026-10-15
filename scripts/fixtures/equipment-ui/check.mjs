@@ -146,7 +146,7 @@ try {
   const catalogFact = page.getByText('Полное давление', { exact: true }).locator('xpath=..');
   if (await catalogFact.locator('button[title="Изменить вручную"]').count()) throw new Error('catalog-origin characteristic remained editable in Equipment');
   if (!await catalogFact.getByText('Каталог', { exact: true }).isVisible()) throw new Error('catalog-origin characteristic did not show its read-only origin');
-  await page.getByTestId('equipment-catalog-details').locator('summary').click();
+  await page.getByTestId('equipment-catalog-details').locator(':scope > summary').click();
   await page.getByTestId('equipment-catalog-details').getByText('Источник параметров', { exact: true }).waitFor();
   const markedParam = page.getByLabel(/Аэродинамика · Расход воздуха\. Расхождение:/);
   await markedParam.waitFor();
