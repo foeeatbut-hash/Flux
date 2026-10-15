@@ -1,0 +1,93 @@
+# Codex 08. Flux Office: вставка данных из панели и лишние кнопки источников
+
+Замечания владельца после сборки 1.20.15 (15.10.2026):
+
+- «Не работает вставка данных в документы из панели Flux».
+- «Зачем сейчас на верхней панели и „Оборудование“, и „Менеджмент“, и
+  „Теги“, если всё это выбирается из правой панели из списка тоже? Нужно
+  проверить, чтобы всё работало».
+
+Сотрудники открывают документы из Проводника, то есть окно
+`LocalOfficeEditor` (локальные байты, `OfficeFileSource` в
+`src/components/office/fluxData.ts`). Начинать надо с него. Если владелец
+приложил журналы, они лежат в `docs/codex/inputs/logs-*`.
+
+## Что известно (разведка руководителя по коду)
+
+- `LocalOfficeEditor.tsx` (~342–345) не передаёт `onInsertField` в
+  `FluxOfficePanel`. Остальные окна передают: `OfficeHost.tsx` ~510,
+  `OfficeAppEditor.tsx` ~472, `NoteEditorHost.tsx` ~302. Поэтому «Поля
+  проекта» в окне из Проводника только для чтения
+  (`FluxOfficePanel.tsx` ~483: `readOnly || !onInsertField`). Это
+  подтверждённая причина.
+- «Вставить все»: `FluxOfficePanel.tsx` ~361–372 → `LocalOfficeEditor.tsx`
+  ~327–332.
+  - Word: событие `insertTable`, обработчик в
+    `tools/genoffice/inject/docs-collab.ts` ~1061.
+  - Таблица: `flux:insert-table`, обработчик в `sheets-collab.ts` ~1075.
+  - Ответ — `flux:command-result`, таймаут 8 с (`LocalOfficeEditor.tsx` ~119).
+
+  Причина поломки по коду не найдена, нужен живой прогон.
+- Вставка параметра в ячейку и плашки: `useFluxCellActions.tsx`
+  (`insertBinding` ~278), мост `useOfficeFluxBridge.ts`.
+- Лента: `tools/genoffice/inject/flux-ribbon.tsx` ~95–100, группа «Данные».
+  - Кнопки «Оборудование» и «Теги» дублируют список источников справа
+    (`FluxOfficePanel.tsx` ~419–425).
+  - «Менеджмент» и E3Flux — заглушки «Скоро». Источники `management` и
+    `e3flux` на сервере уже есть (`server/officeSources.ts`).
+  - Сервер называет источник `e3flux`, а подписи (`SOURCE_TITLES` в
+    `fluxTable.ts`, `FluxFieldsPanel`, `FluxSelectionPanel`,
+    `FluxRevisionPanel`) — `e3`.
+
+## Что сделать
+
+1. Довести до работы в окне из Проводника (Word и Таблица) всё, что делает
+   панель:
+   - вставка поля проекта;
+   - вставка параметра в ячейку (плашка);
+   - «Вставить все»;
+   - XLSX/CSV;
+   - «Книга Flux»;
+   - «Обновить»;
+   - шаблоны;
+   - «Исходная шапка».
+
+   Каждое действие проверить живым прогоном в настоящих редакторах. Сравнить
+   с окнами `OfficeHost` и `OfficeAppEditor` и убрать расхождения.
+2. Убрать с ленты кнопки отдельных источников (Оборудование, Менеджмент,
+   Теги, E3Flux). Источник выбирается только в правой панели.
+3. В правой панели подключить «Менеджмент» и E3Flux как полноценные
+   источники и выровнять ключ `e3flux` ⇄ `e3` в подписях.
+4. Обновить `docs/methodology/03-programs/office.md` (лента и панель).
+
+## Не трогать
+
+- Переводчик: `tools/genoffice/inject/translation-*`,
+  `src/components/office/*Translation*`, `useOfficeTranslation.ts`. Работа
+  идёт в ветке `claude/translator-wip`, конфликт недопустим.
+- Проводник, рабочий стол и Оборудование (задания 06 и 07).
+
+## Как проверять
+
+- Узко: `FLUX_OFFICE_NATIVE_READY=1 FLUX_NATIVE_ONLY=cells FLUX_CHROME=/opt/pw-browsers/chromium-1194/chrome-linux/chrome node --import tsx scripts/test-guide-server.ts --office-addon-native`.
+  Добавить группу `local-panel` для окна из Проводника.
+- В конце один раз: полный `--office-addon-native`, `--office-addon-api`,
+  `--office-explorer`.
+- Ловушки tsx:
+  - внутри `locator.evaluate` нельзя именованные внутренние функции:
+    передавать строку и вызывать `(0, eval)(code)`;
+  - `locator.evaluate(fn, arg)` первым аргументом передаёт элемент.
+- При сбое сначала полный журнал вызовов одного сценария и первая причина.
+  После одного неподтверждённого исправления прекратить угадывать.
+
+## Проверки перед PR
+
+- `tsc`, `test-architecture`, `test-office-local`, `test-office-flux-part`,
+  `test-office-sources`, живые группы выше.
+- Снимки ленты и панели в светлой и тёмной теме.
+
+## Готово, когда
+
+В окне из Проводника каждое действие панели работает в Word и в Таблице. На
+ленте нет дублей источников. «Менеджмент» и E3Flux выбираются справа. Тесты
+и живые группы зелёные.
