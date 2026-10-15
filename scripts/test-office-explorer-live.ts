@@ -60,6 +60,18 @@ void (async () => {
   const errors: string[] = [];
   const failed: string[] = [];
   const serverCalls: string[] = [];
+  let token = '';
+  const api = async (method: string, route: string, body?: unknown) => {
+    const response = await fetch(`${BASE}${route}`, {
+      method,
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const bytes = Buffer.from(await response.arrayBuffer());
+    let json: any = null;
+    try { json = JSON.parse(bytes.toString('utf8')); } catch { /* Ответ может быть двоичным. */ }
+    return { status: response.status, bytes, json };
+  };
   let context: any = null;
   let page: any = null;
   // Диспетчер окон потребляет хеш адреса один раз, поэтому каждый файл — в свежей странице
@@ -125,13 +137,24 @@ void (async () => {
     await picker.selectOption(fixture.projectId);
     await panel().getByRole('button', { name: /1\. Выборка/ }).waitFor();
   };
-  const fillFromProject = async (label: string) => {
+  const changeFanHighPower = async (value: string) => {
+    const rows = await api('POST', '/api/project-data/office/query', { projectId: fixture.projectId, query: { entity: 'element', columns: ['name', 'param:Вентиляция|Мощность двигателя'], filters: [], sort: [], limit: 50, excludedEntityIds: [] } });
+    const fan = rows.json?.rows?.find((row: any) => row.values?.name?.value === 'FAN_HIGH');
+    const id = fan?.entityId ? decodeURIComponent(String(fan.entityId).split(':').at(-1) || '') : '';
+    const oldValue = String(fan?.values?.['param:Вентиляция|Мощность двигателя']?.value ?? '');
+    if (!id) throw new Error('В тестовом проекте нет FAN_HIGH для сценария смены источника');
+    const changed = await api('POST', `/api/equipment/component/${encodeURIComponent(id)}/override`, { group: 'Вентиляция', key: 'Мощность двигателя', value });
+    if (changed.status !== 200) throw new Error(`Не удалось изменить FAN_HIGH через API: ${changed.status}`);
+    return oldValue;
+  };
+  const fillFromProject = async (label: string, beforePreview?: () => Promise<void>) => {
     await page.getByRole('button', { name: /1\. Выборка/ }).click();
     await panel().getByRole('button', { name: 'Обновить выборку' }).click();
     check(`${label}: выборка показывает оборудование проекта`, await waitFor(async () => (await panel().getByRole('grid', { name: 'Предпросмотр выборки' }).getByText(/FAN_HIGH/).count()) > 0, 20000));
     await panel().getByRole('checkbox', { name: 'Выбрать все строки' }).check();
     await page.getByRole('button', { name: /3\. Обновление/ }).click();
     check(`${label}: на вкладке «Обновление» нет выпуска ревизий для файла Проводника`, await panel().getByRole('button', { name: /Выпустить/ }).count() === 0 && await panel().getByText(/Ревизии файла|Выпущенная ревизия/i).count() === 0);
+    await beforePreview?.();
     await panel().getByRole('button', { name: 'Предпросмотр заполнения' }).click();
     const confirm = panel().getByRole('button', { name: 'Подтвердить и заполнить' });
     const planned = await confirm.waitFor({ state: 'visible', timeout: 30000 }).then(() => true).catch(() => false);
@@ -159,7 +182,7 @@ void (async () => {
     check(`${label}: кнопки ленты по ТЗ §3 и §13`, JSON.stringify(labels) === JSON.stringify(['Переводчик', 'Английская версия', 'Поля проекта', 'Шаблоны', 'Закреплённые', 'Сохранить как', 'Обновить шаблон', 'Обновить данные', 'Выпустить', 'Исходная шапка', 'Выгрузить']), labels);
     const byId = Object.fromEntries(groups.flatMap((g: any) => g.buttons).map((b: any) => [b.id, b]));
     check(`${label}: «Исходная шапка» неактивна без шаблона, подсказка «У файла нет шаблона»`, byId['reset-header']?.disabled === true && (await ribbonButton(frame, 'reset-header').getAttribute('title')) === 'У файла нет шаблона');
-    check(`${label}: «Поля проекта» и «Английская версия» для файла Проводника неактивны`, byId['project-fields']?.disabled === true && byId['english']?.disabled === true, [byId['project-fields'], byId['english']]);
+    check(`${label}: «Поля проекта» и «Английская версия» для файла Проводника неактивны`, byId['project-fields']?.disabled === false && byId['english']?.disabled === true, [byId['project-fields'], byId['english']]);
     check(`${label}: «Выпустить» для файла Проводника неактивна`, byId['issue']?.disabled === true);
     check(`${label}: на ленте нет строки операторов`, (await frame.locator('[data-flux-command]').count()) === labels.length);
     await shot('ribbon');
@@ -232,6 +255,9 @@ void (async () => {
   };
 
   try {
+    const login = await api('POST', '/api/login', fixture.admin);
+    token = String(login.json?.token || '');
+    if (login.status !== 200 || !token) throw new Error('Не удалось войти в одноразовый стенд теста.');
     await freshPage();
 
     console.log('\n1. DOCX из Проводника: новая панель Flux, привязка, предпросмотр, заполнение');
@@ -249,8 +275,42 @@ void (async () => {
     await panel().getByRole('button', { name: 'Привязать поле' }).click();
     check('привязка записана в сам файл (customXml) без переоткрытия', await waitFor(async () => ((await readOfficeBindings(await disk('one.docx')))?.anchors.length || 0) > 0, 30000), await panel().getByRole('alert').allTextContents().catch(() => []));
     check('редактор остался на месте: документ не перезапускался', await docs.locator('.ProseMirror').first().isVisible());
-    const confirm = await fillFromProject('DOCX');
+    await panel().getByRole('button', { name: 'Обновить выборку' }).click();
+    await docs.locator('.ProseMirror').first().click();
+    const projectFields = page.getByRole('complementary', { name: 'Данные проекта' });
+    const insertProjectFieldButton = projectFields.getByRole('button', { name: 'Вставить' }).first();
+    await insertProjectFieldButton.waitFor({ timeout: 15000 });
+    await insertProjectFieldButton.click();
+    check('локальная панель вставила поле проекта в DOCX', await waitFor(async () => (await docs.locator('.ProseMirror').first().innerText()).includes('{{')));
+    await docs.locator('.ProseMirror').first().click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('REFRESH_KEEP');
+    await ribbonClick(docs, 'project-fields');
+    await page.getByRole('button', { name: 'Обновить поля' }).click();
+    check('обновление полей сохранило несохранённую правку и перечитало DOCX', await waitFor(async () =>
+      (await page.getByText(/Обновлено полей:/).count()) > 0
+      && (await docs.locator('.ProseMirror').first().innerText().catch(() => '')).includes('REFRESH_KEEP')
+      && (await diskText('one.docx', 'word/document.xml')).includes('REFRESH_KEEP'), 45000));
+    await page.getByRole('button', { name: 'Закрыть данные' }).click();
     const before = await disk('one.docx');
+    const originalFanPower = await changeFanHighPower('1500');
+    try {
+      await panel().getByRole('button', { name: 'Обновить выборку' }).click();
+      check('открытый DOCX перечитал изменившийся источник после 409', await waitFor(async () =>
+        (await panel().getByRole('status').filter({ hasText: 'Данные обновлены' }).count()) > 0
+        && (await panel().getByRole('grid', { name: 'Предпросмотр выборки' }).getByText('1500').count()) > 0, 20000));
+      const staleConfirm = await fillFromProject('DOCX после изменения источника', async () => {
+        await changeFanHighPower('1600');
+      });
+      check('409 предпросмотра перестроил свежий план и оставил подтверждение человеку', await staleConfirm.isVisible());
+      check('свежий предпросмотр не записывает файл до подтверждения', before.equals(await disk('one.docx')));
+    } finally {
+      await changeFanHighPower(originalFanPower);
+    }
+    await panel().getByRole('button', { name: /1\. Выборка/ }).click();
+    await panel().getByRole('button', { name: 'Обновить выборку' }).click();
+    await waitFor(async () => (await panel().getByRole('status').filter({ hasText: 'Данные обновлены' }).count()) > 0, 20000);
+    const confirm = await fillFromProject('DOCX');
     check('предпросмотр не меняет файл на диске', before.equals(await disk('one.docx')));
     await applied(confirm, 'DOCX');
     await shot('docx');

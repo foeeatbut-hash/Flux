@@ -1,5 +1,7 @@
 import { useMemo, useRef, type MutableRefObject } from 'react';
 import { base64ToBytes, type WindowsFileContent } from '../../lib/windowsFiles';
+import { sha256Hex } from '../../lib/officeBridge';
+import type { OfficeLocalFieldRefreshResult } from '../../../office/fieldRefresh';
 import { officeDataApi, type OfficeLocalSource } from './fluxData';
 import { useOfficeFluxBridge, type OfficeEditorLink, type OfficeFileLink } from './useOfficeFluxBridge';
 
@@ -64,5 +66,34 @@ export function useLocalFluxBridge(options: Options) {
     },
   };
   const bridge = useOfficeFluxBridge(options.editor, file, options.fileKey);
-  return { ...bridge, source };
+  const refreshFields = async (projectId: string): Promise<OfficeLocalFieldRefreshResult> => {
+    const fileKey = live.current.fileKey;
+    const assertScope = () => {
+      if (live.current.projectId !== projectId || live.current.fileKey !== fileKey) throw new Error('Проект или файл изменился во время обновления. Повторите действие.');
+    };
+    if (!projectId || !live.current.ready()) throw new Error('Редактор ещё загружается.');
+    assertScope();
+    if (!(await live.current.save(true))) throw new Error('Изменения файла не удалось сохранить. Поля не обновлены.');
+    const before = await reload();
+    assertScope();
+    const result = await officeDataApi.updateLocalFields({ projectId, base64: before.base64, baseHash: before.sha256 });
+    assertScope();
+    const updatedBytes = base64ToBytes(result.base64);
+    const resultHash = await sha256Hex(updatedBytes.slice().buffer as ArrayBuffer);
+    if (resultHash !== result.sha256) throw new Error('Ответ обновления повреждён. Файл не изменён.');
+    const current = await live.current.load();
+    assertScope();
+    if (current.sha256 !== before.sha256) throw new Error('Файл изменился во время обновления. Поля не записаны.');
+    if (result.unchanged) {
+      if (result.sha256 !== before.sha256) throw new Error('Файл изменился во время обновления. Поля не записаны.');
+      live.current.latest.current = current;
+      return result;
+    }
+    const written = await live.current.write(updatedBytes);
+    if (written.sha256 !== result.sha256) throw new Error('Не удалось подтвердить новую версию файла.');
+    live.current.latest.current = written;
+    justWrote.current = true;
+    return result;
+  };
+  return { ...bridge, source, refreshFields };
 }

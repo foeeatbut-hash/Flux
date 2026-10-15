@@ -1,4 +1,6 @@
 /** Реальные REST-контракты Flux Office; синтетические поля и демо-ревизии здесь запрещены. */
+import type { OfficeLocalFieldRefreshResult } from '../../../office/fieldRefresh';
+
 export type OfficeEntityType = 'tag' | 'element' | 'procurement' | 'vdr' | 'e3';
 
 export interface OfficeField {
@@ -172,6 +174,8 @@ export const officeDataApi = {
   confirm: (source: OfficeFileSource, body: { projectId: string; planId: string; baseHash: string; sourceRevision: string; selectedEntityIds: string[]; query: Record<string, unknown>; schema: OfficeState['schema'] }) => isLocalSource(source)
     ? request<{ writes: OfficeFillPlan['writes']; status: 'ready-for-editor' }>(`${LOCAL}/confirm`, json(withContent(source, body)))
     : request<{ writes: OfficeFillPlan['writes']; status: 'ready-for-editor' }>(fileRoute(source, 'confirm'), json(body)),
+  updateLocalFields: (body: { projectId: string; base64: string; baseHash: string }) =>
+    request<OfficeLocalFieldRefreshResult>(`${LOCAL}/update-fields`, json(body)),
   templates: () => request<{ templates: OfficeTemplate[]; pinned: string[] }>('/api/project-data/office/templates'),
   saveTemplate: (body: { name: string; description?: string; scope: OfficeTemplate['scope']; schema: OfficeState['schema']; query: Record<string, unknown> }) =>
     request<{ template: OfficeTemplate }>('/api/project-data/office/templates', json(body)),

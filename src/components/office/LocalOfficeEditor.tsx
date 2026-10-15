@@ -50,6 +50,9 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   const dirty = useRef(false);
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
+  const [refreshingFields, setRefreshingFields] = useState(false);
+  const [editorGeneration, setEditorGeneration] = useState(0);
+  const awaitingFieldReload = useRef(false);
   const lifecycleInstance = useRef(0);
   if (!lifecycleInstance.current) lifecycleInstance.current = ++nextLifecycleInstance;
   const lifecycleSequence = useRef(0);
@@ -195,6 +198,33 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     load: () => io.current.load(), write: bytes => io.current.write(bytes), save, ready: () => lifecycleState.current.ready,
     rebase: app === 'sheets' ? async sha256 => { await native({ action: 'rebase', session: await ensure(), sha256 }); } : undefined,
   });
+  const refreshProjectFields = useCallback(async () => {
+    const projectId = flowProjectId;
+    setRefreshingFields(true);
+    try {
+      const result = await flux.refreshFields(projectId);
+      if (!result.unchanged) {
+        const oldSession = await session.current?.catch(() => null);
+        if (oldSession) await closeSession(oldSession);
+        session.current = null;
+        sessionId.current = 0;
+        lifecycleState.current.ready = false;
+        awaitingFieldReload.current = true;
+        setReady(false);
+        setDirtyState(false);
+        setEditorGeneration((value) => value + 1);
+      }
+      const updated = result.changed.length;
+      const skipped = result.skipped.length;
+      toast(updated ? `Обновлено полей: ${updated}${skipped ? `, пропущено: ${skipped}` : ''}.` : skipped ? `Поля не изменены; пропущено: ${skipped}.` : 'Данные в файле уже актуальны.', updated || skipped ? 'success' : 'info');
+    } catch (cause: any) {
+      const message = String(cause?.message || cause || 'Не удалось обновить поля.');
+      setError(message);
+      toast(message, 'error');
+    } finally {
+      if (!awaitingFieldReload.current) setRefreshingFields(false);
+    }
+  }, [flowProjectId, flux.refreshFields, closeSession, setDirtyState, toast]);
   const cellActions = useFluxCellActions({ fileId: file.fileId, projectId: flowProjectId, readOnly: !ready,
     requestState: flux.requestState, updateSchema: flux.updateSchema, insertBinding: flux.insertBinding, isInlineEditing: () => flux.inlineEditingRef.current,
     requestNative: async (operation, payload) => {
@@ -205,7 +235,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
     onError: message => toast(message, 'error') });
   // Обработчик сообщений редактора живёт дольше одной отрисовки и берёт свежее отсюда
   // Выпуск ревизий для файлов Проводника — отдельный этап позже (решение владельца)
-  const ribbon = useFluxRibbon({ send, peek: flowProjectId ? flux.peekState : undefined, issueAvailable: false, issueHint: 'Выпуск ревизий для файлов Проводника появится позже' });
+  const ribbon = useFluxRibbon({ send, peek: flowProjectId ? flux.peekState : undefined, issueAvailable: false, issueHint: 'Выпуск ревизий для файлов Проводника появится позже', projectFile: false, projectFields: true });
   const panelOpen = ribbon.open;
   const fluxHost = useRef({ flux, cellActions, ribbon }); fluxHost.current = { flux, cellActions, ribbon };
   useEffect(() => {
@@ -214,7 +244,9 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
       const m = event.data;
       if (isOfficeEditorReadyMessage(app, m)) {
         if (!lifecycleState.current.ready) { lifecycleState.current.ready = true; logLifecycle('editor-ready'); }
-        setReady(true); return;
+        setReady(true);
+        if (awaitingFieldReload.current) { awaitingFieldReload.current = false; setRefreshingFields(false); }
+        return;
       }
       if (fluxHost.current.ribbon.handle(m)) return;
       if (m.op === 'flux:tag-click') { if (flowProjectId) void openEditorTag(flowProjectId, m.payload); return; }
@@ -349,12 +381,13 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   };
   return <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
     {error && <div role="alert" className="shrink-0 border-b border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-300">{error} Правки остаются в редакторе. Используйте «Сохранить как», чтобы создать отдельную копию.</div>}
-    <div ref={editorArea} className="relative flex min-h-0 min-w-0 flex-1">
-      <iframe ref={frame} src={`genoffice/${app}/index.html`} title={`Flux Office — ${app === 'docs' ? 'Документ' : app === 'pdf' ? 'PDF' : 'Таблица'}`} onLoad={() => { frameLoadCount.current++; logLifecycle('frame-load'); }} onError={() => logLifecycle('frame-error', { outcome: 'error' })} className="min-h-0 min-w-0 flex-1 border-0" />
+    <div ref={editorArea} className="relative flex min-h-0 min-w-0 flex-1" aria-busy={refreshingFields}>
+      <iframe key={editorGeneration} ref={frame} inert={refreshingFields} src={`genoffice/${app}/index.html`} title={`Flux Office - ${app === 'docs' ? 'Документ' : app === 'pdf' ? 'PDF' : 'Таблица'}`} onLoad={() => { frameLoadCount.current++; logLifecycle('frame-load'); }} onError={() => logLifecycle('frame-error', { outcome: 'error' })} className="min-h-0 min-w-0 flex-1 border-0" />
+      {refreshingFields && <div className="absolute inset-0 z-30 flex items-center justify-center bg-white/75 text-sm font-medium text-slate-700 dark:bg-slate-950/75 dark:text-slate-200" role="status">Сохраняем файл и обновляем поля…</div>}
       {panelOpen && app !== 'pdf' && <FluxOfficePanel fileId="" localSource={flux.source} projectId={flowProjectId} onProjectChange={setPickedProjectId} fileName={file.name} editorKind={app}
         readOnly={!ready} schemaWriteAvailable={ready} activeAnchor={flux.activeAnchor} isInlineEditing={() => flux.inlineEditingRef.current}
         requestState={flux.requestState} insertBinding={flux.insertBinding} applyWrites={flux.applyWrites} updateSchema={flux.updateSchema}
-        command={ribbon.command} onInsertTable={insertTable} onInsertText={app === 'docs' ? insertText : undefined} onInsertField={insertProjectField} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />}
+        command={ribbon.command} onInsertTable={insertTable} onInsertText={app === 'docs' ? insertText : undefined} onInsertField={insertProjectField} onUpdateFields={refreshProjectFields} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />}
       {cellActions.dialog}
       {panelOpen && app === 'pdf' && <div className={`flex min-h-0 shrink-0 ${overlayPanel ? 'absolute bottom-0 right-0 top-0 z-20' : ''}`} style={{ width: visiblePanelWidth + 4 }}>
         <div role="separator" aria-label="Изменить ширину панели Flux" aria-orientation="vertical" tabIndex={0} className="w-1 shrink-0 cursor-col-resize touch-none bg-slate-200 hover:bg-sky-500 focus:bg-sky-500 dark:bg-slate-700" onPointerDown={event => {
