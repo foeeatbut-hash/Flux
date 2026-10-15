@@ -1023,7 +1023,7 @@ try {
     return canvas && cell && bounds ? { x: (Number(cell.left) + Number(cell.width) / 2) * bounds.width / canvas.width, y: (Number(cell.top) + Number(cell.height) / 2) * bounds.height / canvas.height } : null;
   });
   if (!darkCellPoint) throw new Error('Could not locate dark native grid cell A1');
-  const darkDefinedNameProbe = await captureNativeDefinedNameEvidence(darkFrame, () => raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`));
+  const darkDefinedNameProbe = await captureNativeDefinedNameEvidence(darkFrame, () => raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`), true);
   await darkFrame.locator('body').evaluate(() => {
     const events: any[] = [];
     const win = window as any;
