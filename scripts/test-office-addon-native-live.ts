@@ -361,9 +361,10 @@ try {
     if (!pageOfficeRoutes.has(target)) pageOfficeRoutes.set(target, contextOfficeRoutes.get(context) || currentOfficeRoute);
     recordBrowserEvent('page-created', target, undefined, contextId, pageId);
     target.on('close', () => recordBrowserEvent('page-closed', target, undefined, contextId, pageId));
-    await target.addInitScript(`window.__fluxPlanReplies = []; window.addEventListener('message', (event) => {
+    await target.addInitScript(`window.__fluxPlanReplies = []; window.__fluxHeaderSchemaTrace = []; window.addEventListener('message', (event) => {
       if (event.origin !== location.origin) return;
-      const data = event.data || {};
+      const data = event.data || {}, trace = window.__fluxHeaderSchemaTrace, channel = data.payload?.channel, payload = data.payload?.args?.[0], request = data.event === 'ipc' && channel === 'flux:get-header-schema', reply = data.op === 'ipc-send' && channel === 'flux:header-schema-read';
+      if (trace.length < 32 && (request || reply)) { const result = reply ? payload : payload?.schema, anchors = reply ? result?.headers : result?.anchors; trace.push({ at: Date.now(), direction: request ? 'request' : 'reply', op: data.event || data.op, channel, ok: reply ? result?.ok === true : undefined, anchorCount: Array.isArray(anchors) ? anchors.length : null, anchorIds: Array.isArray(anchors) ? anchors.map((item) => String(item?.id || item?.anchorId || '')).slice(0, 100) : [] }); }
       if (data.payload && data.payload.channel === 'flux:office-plan-applied') window.__fluxPlanReplies.push(data.payload.args[0]);
     });`);
     target.on('console', (message: any) => { if (message.type() === 'error') { browserErrors.push(`console: ${message.text()}`.slice(0, 500)); recordBrowserEvent('console-error', target, { text: message.text(), location: message.location?.() }, contextId, pageId); } });
@@ -1029,12 +1030,11 @@ try {
     document.addEventListener('keydown', (event) => {
       if (events.length >= 20) return;
       const target = event.target as HTMLElement | null;
-      const describe = (node: Element | null) => node && { tag: node.tagName, id: (node as HTMLElement).id, className: String((node as HTMLElement).className || '').slice(0, 160) };
-      events.push({ kind: 'keydown', at: Date.now(), key: event.key, target: describe(target), active: describe(document.activeElement), defaultPrevented: event.defaultPrevented });
+      events.push({ kind: 'keydown', at: Date.now(), key: event.key, target: target ? { tag: target.tagName, id: target.id, className: String(target.className || '').slice(0, 160) } : null, active: document.activeElement ? { tag: document.activeElement.tagName, id: (document.activeElement as HTMLElement).id, className: String((document.activeElement as HTMLElement).className || '').slice(0, 160) } : null, defaultPrevented: event.defaultPrevented });
     }, true);
     const api = win.__fluxSheets?.univerRef?.current?.univerAPI;
     const eventType = api?.Event?.BeforeSheetEditStart;
-    if (api && eventType !== undefined) api.addEvent(eventType, (params: any) => { if (events.length < 20) events.push({ kind: 'BeforeSheetEditStart', at: Date.now(), row: params?.row, column: params?.column, sheet: params?.worksheet?.getSheetName?.(), cancel: params?.cancel }); });
+    if (api && eventType !== undefined) api.addEvent(eventType, (params: any) => { if (events.length < 20) events.push({ kind: 'BeforeSheetEditStart', at: Date.now(), row: params?.row, column: params?.column, sheet: params?.worksheet?.getSheetName?.(), isZenEditor: params?.isZenEditor ?? null, cancel: params?.cancel ?? null }); });
   });
   const darkHostReadiness = async () => ({ capturedAt: new Date().toISOString(), panelText: await page.getByRole('complementary', { name: 'Flux Office' }).innerText().catch(() => ''), presenceText: await page.locator('body').innerText().then((text: string) => text.split('\n').filter((line: string) => /Подключение к (общему документу|серверу)|Правите вместе|Только просмотр|Документ открыт только для просмотра|Правка свободна|Открываю свежую версию/.test(line)).slice(0, 12)).catch(() => []) });
   await darkFrame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().click({ position: darkCellPoint, timeout: 10000 });
@@ -1184,7 +1184,7 @@ try {
     })).catch((reason: any) => ({ error: String(reason) }));
     const path = '/tmp/office-addon-native-scenario-failure.png';
     await page.screenshot({ path, fullPage: true }).catch(() => {});
-    console.error('NATIVE_SCENARIO_FAILURE_DIAGNOSTIC', JSON.stringify({ diagnostic, browserErrors: browserErrors.slice(-30), screenshot: path }));
+    console.error('NATIVE_SCENARIO_FAILURE_DIAGNOSTIC', JSON.stringify({ diagnostic, headerSchemaTrace: await Promise.all(page.frames().map((frame: any) => frame.evaluate(() => (window as any).__fluxHeaderSchemaTrace || []).catch(() => []))), browserErrors: browserErrors.slice(-30), screenshot: path }));
   }
   console.error('NATIVE_SCENARIO_STACK', String(error?.stack || error).replace(/\u001b\[[0-9;]*m/g, ''));
   check('native Office add-on scenario completed', false, String(error?.stack || error));
