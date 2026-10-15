@@ -105,7 +105,7 @@ console.log('Что мешает обновиться');
   check('в разработке обновление не ставится',
     blocker({ ...okCase, packaged: false }).includes('разработки'));
   check('без файла сказано, что делать владельцу',
-    blocker({ ...okCase, fileUrl: '' }).toLowerCase().includes('владельцу'));
+    blocker({ ...okCase, fileUrl: '' }).toLowerCase().includes('ответственному'));
   check('непортативная сборка предупреждает про установщик',
     blocker({ ...okCase, portable: false }).includes('установщик'));
 }
