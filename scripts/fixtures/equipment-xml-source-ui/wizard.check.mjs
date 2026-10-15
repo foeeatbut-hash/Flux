@@ -27,7 +27,7 @@ try {
   const page = await makePage(1080, 'light');
   await page.getByText('doc-a.csv', { exact: true }).waitFor({ timeout: 30000 });
   await page.getByRole('button', { name: /Проверить и импортировать 1 позиц\./ }).click();
-  await page.getByRole('heading', { name: /Предпросмотр/ }).waitFor({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Импортировать 1', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
   let entries = await logs(page);
   assert(entries.some(entry => entry.path.endsWith('/equipment/import-draft-plan')), 'document route uses the production import-draft plan');
   assert(!entries.some(entry => entry.path.endsWith('/equipment/import-draft')), 'document plan performs no write before confirmation');
@@ -43,7 +43,7 @@ try {
   await page.evaluate(() => (window).__wizardLoadSecondDocument());
   await page.getByText('doc-b.csv', { exact: true }).waitFor({ timeout: 30000 });
   await page.getByRole('button', { name: /Проверить и импортировать 1 позиц\./ }).click();
-  await page.getByRole('heading', { name: /Предпросмотр/ }).waitFor({ timeout: 30000 });
+  await page.getByRole('button', { name: 'Импортировать 1', exact: true }).waitFor({ state: 'visible', timeout: 30000 });
   const apply = page.getByRole('button', { name: 'Импортировать 1', exact: true });
   await apply.click();
   await page.waitForFunction(() => (window).__wizardState?.secondDraftPending === true, null, { timeout: 30000 });
