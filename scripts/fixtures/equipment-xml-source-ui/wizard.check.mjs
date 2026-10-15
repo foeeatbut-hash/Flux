@@ -37,8 +37,7 @@ try {
       ? mainBackground.darkClass && alpha === 255 && Math.max(red, green, blue) < 80
       : !mainBackground.darkClass && alpha === 255 && Math.min(red, green, blue) > 240;
     assert(themeApplied, `${theme} theme is applied to the rendered wizard`, mainBackground);
-    if (label !== 'wide') {
-      const layout = await page.locator('.fx-dialog').evaluate(dialog => {
+    const layout = await page.locator('.fx-dialog').evaluate(dialog => {
         const workspace = dialog.querySelector(':scope > .flex-1.min-h-0');
         const main = workspace?.children[1];
         const footerButton = Array.from(dialog.querySelectorAll('button')).find(button => button.textContent.includes('Проверить и импортировать'));
@@ -65,12 +64,11 @@ try {
             width: footerButton.clientWidth, height: footerButton.clientHeight, scrollWidth: footerButton.scrollWidth, scrollHeight: footerButton.scrollHeight,
           } : null,
         };
-      });
-      assert(layout.dialogScrollWidth <= layout.dialogWidth && layout.workspaceScrollWidth <= layout.workspaceWidth, 'responsive wizard has no horizontal clipping', layout);
-      assert(layout.mainWidth >= layout.dialogWidth * 0.75 && layout.mainScrollWidth <= layout.mainWidth, 'responsive wizard keeps its preview usable', layout);
-      assert(layout.footerButton && layout.footerButton.left >= layout.footerButton.dialogLeft && layout.footerButton.right <= layout.footerButton.dialogRight && layout.footerButton.scrollWidth <= layout.footerButton.width, 'responsive wizard footer action wraps within the dialog', layout.footerButton);
-      assert(layout.footerButton && layout.footerButton.top >= layout.footerButton.footerTop && layout.footerButton.bottom <= layout.footerButton.footerBottom && layout.footerButton.scrollHeight <= layout.footerButton.height, 'responsive wizard footer action fits vertically', layout.footerButton);
-    }
+    });
+    assert(layout.dialogScrollWidth <= layout.dialogWidth && layout.workspaceScrollWidth <= layout.workspaceWidth, 'responsive wizard has no horizontal clipping', layout);
+    if (label !== 'wide') assert(layout.mainWidth >= layout.dialogWidth * 0.75 && layout.mainScrollWidth <= layout.mainWidth, 'responsive wizard keeps its preview usable', layout);
+    assert(layout.footerButton && layout.footerButton.left >= layout.footerButton.dialogLeft && layout.footerButton.right <= layout.footerButton.dialogRight && layout.footerButton.scrollWidth <= layout.footerButton.width, 'responsive wizard footer action wraps within the dialog', layout.footerButton);
+    assert(layout.footerButton && layout.footerButton.top >= layout.footerButton.footerTop && layout.footerButton.bottom <= layout.footerButton.footerBottom && layout.footerButton.scrollHeight <= layout.footerButton.height, 'responsive wizard footer action fits vertically', layout.footerButton);
     if (label !== 'medium') await page.screenshot({ path: `/tmp/equipment-import-wizard-${label}-${theme}.png`, fullPage: true });
     await page.close();
   }

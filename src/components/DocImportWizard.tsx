@@ -907,7 +907,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                     </div>
                     <button type="button"
                       onClick={() => commitJob(activeJob)} disabled={!canManage || bindingRefreshPending || bindingRefreshFailed}
-                      className="fx-btn fx-btn-primary w-full min-w-0 h-auto min-h-[var(--flux-control-h)] py-2 lg:w-auto lg:h-[var(--flux-control-h)] lg:py-0 whitespace-normal text-left lg:text-center leading-5"
+                      className="fx-btn fx-btn-primary w-full min-w-0 h-auto min-h-[var(--flux-control-h)] py-2 lg:w-auto lg:py-0 whitespace-normal text-left lg:text-center leading-5"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       Проверить и импортировать {activeJob.draft!.items.length} позиц. в «{categories.find(c => c.id === category)?.label || category}»
