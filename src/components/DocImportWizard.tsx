@@ -619,9 +619,9 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
         </div>}
         {bindingRefreshFailed && <div role="alert" className="flex items-center gap-3 border-b border-rose-200 bg-rose-50 px-4 py-2 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"><span className="flex-1">{bindingWarning || 'Импорт завершён, но список привязок нужно обновить перед следующим файлом.'}</span><button type="button" disabled={bindingRefreshPending} onClick={() => void refreshBindingLedger()} className="rounded border border-rose-400 px-2 py-1 font-medium disabled:opacity-50">{bindingRefreshPending ? 'Обновление…' : 'Обновить привязки'}</button></div>}
 
-        <div className="flex-1 min-h-0 flex flex-col sm:flex-row">
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
           {/* Левая колонка: файлы */}
-          <div className="w-full sm:w-64 sm:shrink-0 max-h-[38%] sm:max-h-none border-b sm:border-b-0 sm:border-r border-slate-200 dark:border-slate-800 flex flex-col min-h-0">
+          <div className="w-full lg:w-64 lg:shrink-0 max-h-[38%] lg:max-h-none border-b lg:border-b-0 lg:border-r border-slate-200 dark:border-slate-800 flex flex-col min-h-0">
             <div
               className={`m-3 p-4 border-2 border-dashed rounded-xl text-center transition-colors ${
                 isDragOver ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30' : 'border-slate-300 dark:border-slate-700'
@@ -901,13 +901,13 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
 
                 {/* Нижняя панель импорта */}
                 {activeJob.status === 'ready' && !activeJob.cad && (activeJob.draft?.items.length || 0) > 0 && (
-                  <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
-                    <div className="text-xs text-slate-400">
+                  <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 shrink-0">
+                    <div className="min-w-0 text-xs text-slate-400">
                       Зелёное — уверенно · жёлтое — проверьте · серое — подпись не распознана.
                     </div>
                     <button type="button"
                       onClick={() => commitJob(activeJob)} disabled={!canManage || bindingRefreshPending || bindingRefreshFailed}
-                      className="fx-btn fx-btn-primary shrink-0"
+                      className="fx-btn fx-btn-primary w-full min-w-0 h-auto min-h-[var(--flux-control-h)] py-2 lg:w-auto lg:h-[var(--flux-control-h)] lg:py-0 whitespace-normal text-left lg:text-center leading-5"
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       Проверить и импортировать {activeJob.draft!.items.length} позиц. в «{categories.find(c => c.id === category)?.label || category}»

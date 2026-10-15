@@ -14,7 +14,7 @@ const makePage = async (width, theme, route = 'wizard.html') => {
 };
 const logs = page => page.evaluate(() => (window).__wizardLog || []);
 try {
-  for (const [label, width] of [['narrow', 390], ['wide', 1440]]) for (const theme of ['light', 'dark']) {
+  for (const [label, width] of [['narrow', 390], ['medium', 768], ['wide', 1440]]) for (const theme of ['light', 'dark']) {
     const page = await makePage(width, theme);
     await page.getByText('doc-a.csv', { exact: true }).waitFor({ timeout: 30000 });
     await page.getByText(/позиц\./).first().waitFor({ timeout: 30000 });
@@ -37,10 +37,14 @@ try {
       ? mainBackground.darkClass && alpha === 255 && Math.max(red, green, blue) < 80
       : !mainBackground.darkClass && alpha === 255 && Math.min(red, green, blue) > 240;
     assert(themeApplied, `${theme} theme is applied to the rendered wizard`, mainBackground);
-    if (label === 'narrow') {
+    if (label !== 'wide') {
       const layout = await page.locator('.fx-dialog').evaluate(dialog => {
         const workspace = dialog.querySelector(':scope > .flex-1.min-h-0');
         const main = workspace?.children[1];
+        const footerButton = Array.from(dialog.querySelectorAll('button')).find(button => button.textContent.includes('Проверить и импортировать'));
+        const buttonRect = footerButton?.getBoundingClientRect();
+        const dialogRect = dialog.getBoundingClientRect();
+        const footerRect = footerButton?.parentElement?.getBoundingClientRect();
         return {
           dialogWidth: dialog.clientWidth,
           dialogScrollWidth: dialog.scrollWidth,
@@ -48,12 +52,19 @@ try {
           workspaceScrollWidth: workspace?.scrollWidth || 0,
           mainWidth: main?.getBoundingClientRect().width || 0,
           mainScrollWidth: main?.scrollWidth || 0,
+          footerButton: footerButton && buttonRect ? {
+            left: buttonRect.left, right: buttonRect.right, dialogLeft: dialogRect.left, dialogRight: dialogRect.right,
+            top: buttonRect.top, bottom: buttonRect.bottom, footerTop: footerRect?.top, footerBottom: footerRect?.bottom,
+            width: footerButton.clientWidth, height: footerButton.clientHeight, scrollWidth: footerButton.scrollWidth, scrollHeight: footerButton.scrollHeight,
+          } : null,
         };
       });
-      assert(layout.dialogScrollWidth <= layout.dialogWidth && layout.workspaceScrollWidth <= layout.workspaceWidth, 'narrow wizard has no horizontal clipping', layout);
-      assert(layout.mainWidth >= layout.dialogWidth * 0.75 && layout.mainScrollWidth <= layout.mainWidth, 'narrow wizard keeps its preview usable', layout);
+      assert(layout.dialogScrollWidth <= layout.dialogWidth && layout.workspaceScrollWidth <= layout.workspaceWidth, 'responsive wizard has no horizontal clipping', layout);
+      assert(layout.mainWidth >= layout.dialogWidth * 0.75 && layout.mainScrollWidth <= layout.mainWidth, 'responsive wizard keeps its preview usable', layout);
+      assert(layout.footerButton && layout.footerButton.left >= layout.footerButton.dialogLeft && layout.footerButton.right <= layout.footerButton.dialogRight && layout.footerButton.scrollWidth <= layout.footerButton.width, 'responsive wizard footer action wraps within the dialog', layout.footerButton);
+      assert(layout.footerButton && layout.footerButton.top >= layout.footerButton.footerTop && layout.footerButton.bottom <= layout.footerButton.footerBottom && layout.footerButton.scrollHeight <= layout.footerButton.height, 'responsive wizard footer action fits vertically', layout.footerButton);
     }
-    await page.screenshot({ path: `/tmp/equipment-import-wizard-${label}-${theme}.png`, fullPage: true });
+    if (label !== 'medium') await page.screenshot({ path: `/tmp/equipment-import-wizard-${label}-${theme}.png`, fullPage: true });
     await page.close();
   }
 
