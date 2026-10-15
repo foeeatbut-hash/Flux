@@ -735,17 +735,28 @@ try {
   await sheets.locator('input.univer-box-border').first().press('Enter');
   await sheets.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
   // Набор в привязанной ячейке идёт в окне ввода поверх неё: метка защищена, текст рядом свободный
-  await page.keyboard.type('FORBIDDEN_HEADER');
+  await page.keyboard.type('=+FORBIDDEN_HEADER');
   const inCellInput = await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-edit').waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
   const inCellChips = inCellInput ? await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-chip').count() : 0;
   const inCellText = inCellInput ? await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-edit').innerText() : '';
+  const tokenOverlayGeometry = inCellInput ? await sheets.locator('#flux-sheet-token-overlay').evaluate((root) => {
+    const host = root.querySelector('.flux-sheet-token-edit') as HTMLElement;
+    const chip = root.querySelector('.flux-sheet-token-chip') as HTMLElement;
+    const save = root.querySelector('button[data-action="save"]') as HTMLElement;
+    const hostRect = host.getBoundingClientRect();
+    const chipRect = chip.getBoundingClientRect();
+    const saveRect = save.getBoundingClientRect();
+    return { chipRight: chipRect.right, hostRight: hostRect.right, saveLeft: saveRect.left, text: host.innerText };
+  }) : null;
+  check('narrow A1 parameter chip and typed formula suffix stay inside the host, clear of Done', !!tokenOverlayGeometry && tokenOverlayGeometry.chipRight <= tokenOverlayGeometry.hostRight + 1 && tokenOverlayGeometry.hostRight <= tokenOverlayGeometry.saveLeft + 1 && tokenOverlayGeometry.text.endsWith('=+FORBIDDEN_HEADER'), tokenOverlayGeometry);
+  await page.screenshot({ path: '/tmp/office-addon-native-sheets-chip-light.png', fullPage: true });
   await page.keyboard.press('Escape');
   await sheets.locator('#flux-sheet-token-overlay').waitFor({ state: 'detached', timeout: 10000 }).catch(() => undefined);
   const headerAfterEdit = await sheets.locator('body').evaluate(() => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     return api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень')?.getRange('A1')?.getValues?.()?.[0]?.[0];
   });
-  check('ordinary typing cannot replace the persisted protected Excel header', typeof protectedHeader === 'string' && protectedHeader.includes('Расход воздуха') && headerAfterEdit === protectedHeader && inCellInput && inCellChips === 1 && inCellText.endsWith('FORBIDDEN_HEADER'), { protectedHeader, headerAfterEdit, inCellInput, inCellChips, inCellText });
+  check('formula suffix =,+ remains editable beside the protected chip and Escape preserves the persisted Excel header', typeof protectedHeader === 'string' && protectedHeader.includes('Расход воздуха') && headerAfterEdit === protectedHeader && inCellInput && inCellChips === 1 && inCellText.endsWith('=+FORBIDDEN_HEADER'), { protectedHeader, headerAfterEdit, inCellInput, inCellChips, inCellText });
   await page.keyboard.press('Escape');
   await sheetPanel.getByRole('button', { name: 'Удалить привязку поля' }).click();
   await sheetPanel.getByRole('button', { name: 'Сохранить схему' }).click();
@@ -935,6 +946,24 @@ try {
   const darkFrame = await openPanel(page, 'Flux Office — Таблица');
   const darkMetrics = await capture(page, darkFrame, 'sheets-dark');
   check('dark theme uses a dark actual add-on surface', darkMetrics.background !== 'rgb(255, 255, 255)' && darkMetrics.background !== 'rgba(0, 0, 0, 0)');
+  await darkFrame.locator('input.univer-box-border').first().fill('A1');
+  await darkFrame.locator('input.univer-box-border').first().press('Enter');
+  await darkFrame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
+  await page.keyboard.type('=+DARK_GEOMETRY_CHECK');
+  const darkTokenOverlay = darkFrame.locator('#flux-sheet-token-overlay');
+  const darkOverlayOpened = await darkTokenOverlay.waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+  const darkTokenGeometry = darkOverlayOpened ? await darkTokenOverlay.evaluate((root) => {
+    const host = root.querySelector('.flux-sheet-token-edit') as HTMLElement;
+    const chip = root.querySelector('.flux-sheet-token-chip') as HTMLElement;
+    const save = root.querySelector('button[data-action="save"]') as HTMLElement;
+    const hostRect = host.getBoundingClientRect();
+    const chipRect = chip.getBoundingClientRect();
+    const saveRect = save.getBoundingClientRect();
+    return { theme: (root as HTMLElement).dataset.theme, chipRight: chipRect.right, hostRight: hostRect.right, saveLeft: saveRect.left, text: host.innerText };
+  }) : null;
+  check('dark narrow A1 parameter chip and typed formula suffix stay inside the host, clear of Done', !!darkTokenGeometry && darkTokenGeometry.theme === 'dark' && darkTokenGeometry.chipRight <= darkTokenGeometry.hostRight + 1 && darkTokenGeometry.hostRight <= darkTokenGeometry.saveLeft + 1 && darkTokenGeometry.text.endsWith('=+DARK_GEOMETRY_CHECK'), darkTokenGeometry);
+  await page.screenshot({ path: '/tmp/office-addon-native-sheets-chip-dark.png', fullPage: true });
+  if (darkOverlayOpened) await page.keyboard.press('Escape');
   await context.close();
 
   console.log('\n4. Issued Office revision is immutable and draft is an exact copy');

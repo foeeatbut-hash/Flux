@@ -190,7 +190,6 @@ void (async () => {
     check(`${label}: «Выпустить» для файла Проводника неактивна`, byId['issue']?.disabled === true);
     check(`${label}: на ленте нет строки операторов`, (await frame.locator('[data-flux-command]').count()) === labels.length);
     await shot('ribbon');
-    await panel().waitFor({ timeout: 15000 });
   };
   const dialog = (name: string) => page.getByRole('dialog', { name });
   /** «Сохранить как» → «Шаблоны» → «Открыть» → сохранить схему → «Исходная шапка» */
@@ -279,8 +278,10 @@ void (async () => {
     await panel().getByRole('button', { name: 'Привязать поле' }).click();
     check('привязка записана в сам файл (customXml) без переоткрытия', await waitFor(async () => ((await readOfficeBindings(await disk('one.docx')))?.anchors.length || 0) > 0, 30000), await panel().getByRole('alert').allTextContents().catch(() => []));
     check('редактор остался на месте: документ не перезапускался', await docs.locator('.ProseMirror').first().isVisible());
+    await panel().getByRole('button', { name: /1\. Выборка/ }).click();
     await panel().getByRole('button', { name: 'Обновить выборку' }).click();
     await docs.locator('.ProseMirror').first().click();
+    await ribbonClick(docs, 'project-fields');
     const projectFields = page.getByRole('complementary', { name: 'Данные проекта' });
     const insertProjectFieldButton = projectFields.getByRole('button', { name: 'Вставить' }).first();
     await insertProjectFieldButton.waitFor({ timeout: 15000 });
@@ -295,7 +296,7 @@ void (async () => {
       (await page.getByText(/Обновлено полей:/).count()) > 0
       && (await docs.locator('.ProseMirror').first().innerText().catch(() => '')).includes('REFRESH_KEEP')
       && (await diskText('one.docx', 'word/document.xml')).includes('REFRESH_KEEP'), 45000));
-    await page.getByRole('button', { name: 'Закрыть данные' }).click();
+    await page.getByRole('button', { name: 'Закрыть панель' }).click();
     const before = await disk('one.docx');
     const originalFanPower = await changeFanHighPower('1500');
     try {

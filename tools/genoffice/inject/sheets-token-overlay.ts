@@ -38,6 +38,8 @@ export function createSheetsTokenOverlay(
     style.textContent = `
 #flux-sheet-token-overlay{position:fixed;z-index:1200;display:flex;align-items:center;gap:5px;box-sizing:border-box;min-height:34px;padding:4px 6px;border:1px solid #94a3b8;border-radius:7px;background:#fff;color:#0f172a;box-shadow:0 8px 24px #0f172a33;font:13px/1.35 system-ui,sans-serif}
 #flux-sheet-token-overlay .flux-sheet-token-edit{display:block;flex:1;min-width:0;min-height:24px;outline:none;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+/* Чип живёт внутри flex-редактора; не даём ему занимать место кнопок при узкой ячейке. */
+#flux-sheet-token-overlay .flux-sheet-token-chip{max-inline-size:100%;max-width:100%;min-width:0;box-sizing:border-box}
 #flux-sheet-token-overlay button{flex:none;border:0;border-radius:5px;padding:4px 7px;background:#f1f5f9;color:#334155;font:inherit;cursor:pointer}
 #flux-sheet-token-overlay button[data-action=save]{background:#2563eb;color:#fff}
 #flux-sheet-token-menu{position:fixed;z-index:1201;padding:4px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;box-shadow:0 5px 16px #0f172a33}
