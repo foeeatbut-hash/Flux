@@ -359,7 +359,7 @@ try {
       if (event.origin !== location.origin) return;
       const data = event.data || {}, trace = window.__fluxHeaderSchemaTrace, channel = data.payload?.channel, payload = data.payload?.args?.[0], request = data.event === 'ipc' && channel === 'flux:get-header-schema', reply = data.op === 'ipc-send' && channel === 'flux:header-schema-read';
       if (trace.length < 32 && (request || reply)) { const result = reply ? payload : payload?.schema, anchors = reply ? result?.headers : result?.anchors; trace.push({ at: Date.now(), direction: request ? 'request' : 'reply', op: data.event || data.op, channel, ok: reply ? result?.ok === true : undefined, anchorCount: Array.isArray(anchors) ? anchors.length : null, anchorIds: Array.isArray(anchors) ? anchors.map((item) => String(item?.id || item?.anchorId || '')).slice(0, 100) : [] }); }
-      if (data.event === 'ipc' && channel === 'flux:x-ready') window.__fluxSheetsCollabReady = true;
+      if ((data.event === 'ipc' || data.op === 'ipc-send') && channel === 'flux:x-ready') window.__fluxSheetsCollabReady = true;
       if (data.payload && data.payload.channel === 'flux:office-plan-applied') window.__fluxPlanReplies.push(data.payload.args[0]);
     });`);
     target.on('console', (message: any) => { if (message.type() === 'error') { browserErrors.push(`console: ${message.text()}`.slice(0, 500)); recordBrowserEvent('console-error', target, { text: message.text(), location: message.location?.() }, contextId, pageId); } });
