@@ -16,6 +16,7 @@ import { chromium } from 'playwright-core';
 import { WindowsFilesService } from '../electron/filesystem/service';
 import { LocalOfficeSessions, type LocalOfficeRequest } from '../electron/localOfficeSessions';
 import { readOfficeBindings } from '../server/officeBindings';
+import { listDocxFields, listDocxMarkers } from '../server/officeFields';
 import { makeDocxWithTable, makeXlsxWithManualRow, loginPage } from './officeHarness';
 
 void (async () => {
@@ -40,6 +41,7 @@ void (async () => {
     while (Date.now() < end) { if (await probe().catch(() => false)) return true; await new Promise((r) => setTimeout(r, 250)); }
     return probe().catch(() => false);
   };
+  const evaluateBrowserCode = (page: any, code: string) => page.evaluate((source: string) => (0, eval)(source), code);
 
   // Настоящие модули за заглушкой моста: файлы Windows и сеанс локальной книги
   const root = await mkdtemp(join(tmpdir(), 'flux-office-explorer-'));
@@ -63,7 +65,17 @@ void (async () => {
   const errors: string[] = [];
   const failed: string[] = [];
   const serverCalls: string[] = [];
-  const fieldRefreshResponses: Array<{ status: number; error?: string }> = [];
+  const fieldRefreshResponses: Array<{
+    status: number;
+    error?: string;
+    changedCount?: number;
+    skippedCount?: number;
+    skipped?: Array<{ key: string; why: string }>;
+    unchanged?: boolean;
+    responseHashValid?: boolean;
+    payloadHashMatches?: boolean;
+  }> = [];
+  let fieldRefreshRequestBaseHash = '';
   let token = '';
   const api = async (method: string, route: string, body?: unknown) => {
     const response = await fetch(`${BASE}${route}`, {
@@ -90,14 +102,43 @@ void (async () => {
       if (response.status() >= 400 && !/\/api\/(license|auth|presence)/.test(response.url())) failed.push(`${response.status()} ${response.url()}`);
       if (new URL(response.url()).pathname === '/api/project-data/office-local/update-fields') {
         let error: string | undefined;
+        let result: any = null;
+        let responseHashValid: boolean | undefined;
+        let payloadHashMatches: boolean | undefined;
         if (response.status() >= 400) {
           try { error = String((await response.json())?.error || '').slice(0, 240) || undefined; } catch { error = 'non-JSON error response'; }
+        } else {
+          try {
+            result = await response.json();
+            responseHashValid = typeof result?.sha256 === 'string' && /^[a-f\d]{64}$/i.test(result.sha256);
+            if (typeof result?.base64 === 'string' && responseHashValid) {
+              const bytes = Buffer.from(result.base64, 'base64');
+              const canonical = bytes.toString('base64') === result.base64;
+              payloadHashMatches = canonical && createHash('sha256').update(bytes).digest('hex') === result.sha256;
+            } else payloadHashMatches = false;
+          } catch { error = 'non-JSON success response'; }
         }
-        fieldRefreshResponses.push({ status: response.status(), ...(error ? { error } : {}) });
+        fieldRefreshResponses.push({
+          status: response.status(),
+          ...(error ? { error } : {}),
+          ...(result ? {
+            changedCount: Array.isArray(result.changed) ? result.changed.length : -1,
+            skippedCount: Array.isArray(result.skipped) ? result.skipped.length : -1,
+            skipped: Array.isArray(result.skipped) ? result.skipped.slice(0, 3).map((item: any) => ({ key: String(item?.key || '').slice(0, 100), why: String(item?.why || '').slice(0, 160) })) : [],
+            unchanged: typeof result.unchanged === 'boolean' ? result.unchanged : undefined,
+            responseHashValid,
+            payloadHashMatches,
+          } : {}),
+        });
         if (fieldRefreshResponses.length > 4) fieldRefreshResponses.shift();
       }
     });
-    page.on('request', (request: any) => { if (/office-local|office-state|\/api\/files/.test(request.url())) serverCalls.push(`${request.method()} ${new URL(request.url()).pathname}`); });
+    page.on('request', (request: any) => {
+      if (/office-local|office-state|\/api\/files/.test(request.url())) serverCalls.push(`${request.method()} ${new URL(request.url()).pathname}`);
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/project-data/office-local/update-fields') {
+        try { fieldRefreshRequestBaseHash = String(request.postDataJSON()?.baseHash || ''); } catch { fieldRefreshRequestBaseHash = ''; }
+      }
+    });
     await page.exposeFunction('__fluxWindowsFiles', async (request: any) => {
       try {
         if (request.action === 'read') return { ok: true, data: await files.read(request.ref) };
@@ -130,7 +171,7 @@ void (async () => {
   const panel = () => page.getByRole('complementary', { name: 'Flux Office' });
   const fieldRefreshFailureDetails = async (docs: any, refreshToastObserved: boolean) => {
     const frame = page.locator('iframe').first();
-    const [fileBytes, bindings, ui] = await Promise.all([
+    const [fileBytes, bindings, ui, toastCapture] = await Promise.all([
       disk('one.docx'),
       readOfficeBindings(await disk('one.docx')),
       (async () => ({
@@ -138,11 +179,33 @@ void (async () => {
         editorMarkerVisible: (await docs.locator('.ProseMirror').first().innerText().catch(() => '')).includes('REFRESH_KEEP'),
         frame: await frame.evaluate((el: HTMLIFrameElement) => ({ title: el.title, src: el.getAttribute('src'), ready: !!el.contentDocument?.body })).catch(() => null),
       }))(),
+      evaluateBrowserCode(page, `(() => {
+        const w = window;
+        w.__fluxFieldRefreshToastStop?.();
+        const messages = w.__fluxFieldRefreshToastMessages || [];
+        const rawPrefs = Object.keys(localStorage).filter(key => key.startsWith('notif_prefs_')).map(key => {
+          try { return JSON.parse(localStorage.getItem(key) || '{}')?.popups !== false; } catch { return null; }
+        });
+        return {
+          messages: messages.slice(-6).map(item => ({ tone: item.tone, message: String(item.message).slice(0, 200) })),
+          popupSetting: rawPrefs.length === 0 ? { source: 'defaultPrefs', popups: true } : rawPrefs.length === 1
+            ? { source: 'notif_prefs_*', popups: rawPrefs[0] } : { source: 'multiple-notif_prefs_*', popups: null },
+        };
+      })()`).catch(() => ({ messages: [], popupSetting: { source: 'unavailable', popups: null } })),
     ]);
+    const diskHash = createHash('sha256').update(fileBytes).digest('hex');
+    const [markers, fields, documentXml] = await Promise.all([
+      listDocxMarkers(fileBytes),
+      listDocxFields(fileBytes),
+      (await JSZip.loadAsync(fileBytes)).file('word/document.xml')?.async('string') || Promise.resolve(''),
+    ]);
+    const paragraphs = [...documentXml.matchAll(/<w:p(?:\s[^>]*)?>([\s\S]*?)<\/w:p>/g)].map((paragraph) =>
+      [...paragraph[1].matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>/g)].map((text) => text[1]
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'")).join(''));
     let lifecycle: unknown[] = [];
     try {
       const downloadEvent = page.waitForEvent('download', { timeout: 3000 });
-      await page.evaluate(() => (window as any).__fluxDiagnostics?.save?.());
+      await evaluateBrowserCode(page, 'window.__fluxDiagnostics?.save?.()');
       const download = await downloadEvent;
       const path = await download.path();
       if (path) lifecycle = (await readFile(path, 'utf8')).split('\n').filter(Boolean).map(line => {
@@ -166,7 +229,16 @@ void (async () => {
     return {
       checks: { ...ui, refreshToastObserved, diskMarkerPresent: (await diskText('one.docx', 'word/document.xml')).includes('REFRESH_KEEP') },
       refreshResponses: fieldRefreshResponses.slice(-4),
-      disk: { sha256: createHash('sha256').update(fileBytes).digest('hex'), anchors: bindings?.anchors.length ?? null, rows: bindings?.rows.length ?? null },
+      request: { baseHashValid: /^[a-f\d]{64}$/i.test(fieldRefreshRequestBaseHash), baseHashMatchesCurrentDisk: fieldRefreshRequestBaseHash === diskHash },
+      toastCapture,
+      docxRecognition: {
+        markerCount: markers.length,
+        markerHasProjectName: markers.includes('project.name'),
+        fieldCount: fields.length,
+        fieldHasProjectName: fields.some((field) => field.key === 'project.name'),
+        paragraphHasLiteralProjectNameMarker: paragraphs.some((paragraph) => paragraph.includes('{{project.name}}')),
+      },
+      disk: { sha256: diskHash, anchors: bindings?.anchors.length ?? null, rows: bindings?.rows.length ?? null },
       lifecycle,
       browserErrors: errors.slice(-4).map(error => error.slice(0, 300)),
     };
@@ -349,6 +421,29 @@ void (async () => {
     await page.keyboard.press('Control+End');
     await page.keyboard.type('REFRESH_KEEP');
     await ribbonClick(docs, 'project-fields');
+    await evaluateBrowserCode(page, `(() => {
+      const w = window;
+      w.__fluxFieldRefreshToastMessages = [];
+      const seen = new WeakSet();
+      document.querySelectorAll('.fx-pop').forEach(element => seen.add(element));
+      const collect = root => {
+        const candidates = [];
+        if (root instanceof Element && root.matches('.fx-pop')) candidates.push(root);
+        root.querySelectorAll?.('.fx-pop').forEach(element => candidates.push(element));
+        for (const element of candidates) {
+          if (seen.has(element)) continue;
+          seen.add(element);
+          const message = element.querySelector('p')?.textContent || '';
+          const icon = element.querySelector('svg')?.getAttribute('class') || '';
+          const tone = icon.includes('text-rose-') ? 'error' : icon.includes('text-emerald-') ? 'success' : 'info';
+          w.__fluxFieldRefreshToastMessages.push({ tone, message: message.slice(0, 200) });
+          if (w.__fluxFieldRefreshToastMessages.length > 6) w.__fluxFieldRefreshToastMessages.shift();
+        }
+      };
+      const observer = new MutationObserver(records => records.forEach(record => record.addedNodes.forEach(node => { if (node instanceof Element) collect(node); })));
+      observer.observe(document.body, { childList: true, subtree: true });
+      w.__fluxFieldRefreshToastStop = () => observer.disconnect();
+    })()`);
     await page.getByRole('button', { name: 'Обновить поля' }).click();
     let refreshToastObserved = false;
     const refreshPassed = await waitFor(async () => {
@@ -359,7 +454,7 @@ void (async () => {
         && (await diskText('one.docx', 'word/document.xml')).includes('REFRESH_KEEP');
     }, 45000);
     const refreshDetails = refreshPassed ? undefined : await fieldRefreshFailureDetails(docs, refreshToastObserved);
-    if (fieldRefreshOnly && refreshDetails) {
+    if (refreshDetails) {
       const diagnostic = JSON.stringify(refreshDetails);
       console.error('OFFICE_FIELD_REFRESH_DIAGNOSTIC', diagnostic);
       await writeFile('/tmp/office-explorer-field-refresh-diagnostic.json', JSON.stringify(refreshDetails, null, 2), { mode: 0o600 });
