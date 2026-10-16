@@ -73,6 +73,12 @@ jobs:
             fi
             if curl --fail --silent --show-error \
               "$FLUX_UI_URL/scripts/fixtures/employee-import-ui.tsx" \
+              --output /dev/null 2>/dev/null && \
+              curl --fail --silent --show-error \
+              "$FLUX_UI_URL/scripts/fixtures/icons-shell.html" \
+              --output /dev/null 2>/dev/null && \
+              curl --fail --silent --show-error \
+              "$FLUX_UI_URL/scripts/fixtures/windows-explorer-ui.html?mix=1" \
               --output /dev/null 2>/dev/null; then
               ready=true
               break
@@ -85,7 +91,7 @@ jobs:
             exit 1
           fi
 
-          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-import-file-chooser-ui test-chat-ui test-chat-screen-ui; do
+          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-icons-shell-ui test-import-file-chooser-ui test-chat-ui test-chat-screen-ui test-owner-login-ui; do
             node --import tsx "scripts/$check.ts"
           done
           for check in test-remaining-identity-import-ui test-remaining-files-notes-ui test-remaining-engineering-registry-ui test-remaining-collaboration-handbook-ui test-remaining-shell-ui; do
@@ -155,6 +161,10 @@ jobs:
             /tmp/catalog-ui-*.png
             /tmp/employee-import-*.png
             /tmp/flux-desktop-*.png
+            /tmp/flux-owner-login-ui/*
+            /tmp/flux-explorer-shots/*.png
+            /tmp/flux06-home-*.png
+            /tmp/flux06-taskbar-*.png
           if-no-files-found: warn
 
   office-native:

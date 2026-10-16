@@ -91,7 +91,7 @@ export type WindowsFilesRequest =
   | { action: 'setMetadata'; ref: WindowsFileRef; metadata: Pick<WindowsFileMetadata, 'tags' | 'projectIds' | 'revision' | 'responsible'> }
   | { action: 'watch' | 'unwatch'; ref: WindowsFileRef }
   | WindowsExplorerRequest;
-export type WindowsFilesResponse<T = unknown> = { ok: true; data: T } | { ok: false; error: { code: string; message: string } };
+export type WindowsFilesResponse<T = unknown> = { ok: true; data: T } | { ok: false; error: { code: string; message: string; nativeDiagnostic?: { stage?: string; hresult?: string } } };
 export interface ImportedFileBytes { name: string; size: number; base64: string }
 export interface ImportedFileRef { ticket: string; name: string; size: number; lastModified: number; provenance?: SelectionProvenance }
 export const WINDOWS_IMPORT_READ_BYTES = 1024 * 1024;

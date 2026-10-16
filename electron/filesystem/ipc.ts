@@ -37,9 +37,15 @@ const volumeFields = (volume: Awaited<ReturnType<typeof enumerateWindowsVolumes>
   label: volume.label, letter: volume.letter, used: volume.used, ...(volume.fileSystem ? { fileSystem: volume.fileSystem } : {}),
 });
 export function windowsFilesFailure(error: any): WindowsFilesResponse {
-  if (error instanceof WindowsFilesError) return { ok: false, error: { code: error.code, message: error.message } };
+  const native = error?.nativeDiagnostic;
+  const nativeDiagnostic = {
+    ...(typeof native?.stage === 'string' && /^[A-Za-z0-9_.:-]{1,64}$/u.test(native.stage) ? { stage: native.stage } : {}),
+    ...(typeof native?.hresult === 'string' && /^[0-9A-Fa-f]{8}$/u.test(native.hresult) ? { hresult: native.hresult } : {}),
+  };
+  const detail = Object.keys(nativeDiagnostic).length ? { nativeDiagnostic } : {};
+  if (error instanceof WindowsFilesError) return { ok: false, error: { code: error.code, message: error.message, ...detail } };
   const code = typeof error?.code === 'string' ? error.code : 'FILESYSTEM_ERROR';
-  return { ok: false, error: { code, message: ERROR_MESSAGES[code] || 'Не удалось выполнить действие с файлом. Исходные данные сохранены; повторите действие.' } };
+  return { ok: false, error: { code, message: ERROR_MESSAGES[code] || 'Не удалось выполнить действие с файлом. Исходные данные сохранены; повторите действие.', ...detail } };
 }
 export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): Promise<WindowsFilesService> {
   const activeSenders = new Set<number>();
