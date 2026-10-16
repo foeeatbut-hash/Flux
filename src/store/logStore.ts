@@ -51,7 +51,8 @@ export const useLogStore = create<LogState>((set, get) => ({
       const code = /\b(P\d{4}|ERR_[A-Z0-9_]{2,32}|E[A-Z]{2,16})\b/.exec(header)?.[1];
       diagnostic(type === 'ERROR' ? 'log.error' : 'log.warn', {
         context,
-        ...(error ? { error } : {}),
+        // Без стека имя ошибки терялось целиком; текст сообщения не пишем, чтобы не унести данные документа.
+        error: error || 'Error',
         ...(code ? { code } : {}),
         ...(frames[0] ? { frame1: frames[0] } : {}),
         ...(type === 'ERROR' && frames[1] ? { frame2: frames[1] } : {}),

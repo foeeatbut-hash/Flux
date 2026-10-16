@@ -12,12 +12,12 @@ const ref = { rootId: 'desktop', relativePath: 'План.docx' };
 const key = `flux.shared-sources:${ENV_CONFIG.apiUrl}:${actorId}`;
 const binding: SourceBinding = { sourceKey: sha('source'), fileId: 'file', ref, name: 'План.docx', baseSha: sha('начало') };
 let local = 'начало', remote = 'правка коллеги', downloaded = remote;
-let network = false, pending = false, online = true, current = true;
-let writes: any[] = [], requests: Array<{ url: string; method: string }> = [];
-const reset = () => { storage.set(key, JSON.stringify([binding])); writes = []; requests = []; current = true; network = false; pending = false; online = true; };
+let network = false, pending = false, online = true, current = true, readErrorCode: string | null = null;
+let writes: any[] = [], requests: Array<{ url: string; method: string }> = [], localReads = 0;
+const reset = () => { storage.set(key, JSON.stringify([binding])); writes = []; requests = []; localReads = 0; current = true; network = false; pending = false; online = true; readErrorCode = null; };
 (globalThis as any).window = { electron: { windowsFiles: { invoke: async (request: any) => {
   if (request.action === 'roots') return { ok: true, data: [{ id: 'desktop', name: 'Рабочий стол', kind: 'desktop', available: true, network }] };
-  if (request.action === 'read') return { ok: true, data: { name: 'План.docx', sha256: sha(local), base64: Buffer.from(local).toString('base64'), size: Buffer.byteLength(local) } };
+  if (request.action === 'read') { localReads += 1; return readErrorCode ? { ok: false, error: { code: readErrorCode, message: readErrorCode === 'DRAFT_MISSING' ? 'Черновик не найден на этом устройстве.' : 'Нет доступа к исходнику.' } } : { ok: true, data: { name: 'План.docx', sha256: sha(local), base64: Buffer.from(local).toString('base64'), size: Buffer.byteLength(local) } }; }
   if (request.action === 'write') { writes.push(request); assert.equal(request.baseSha256, sha(local)); local = Buffer.from(request.base64, 'base64').toString(); return { ok: true, data: {} }; }
   throw Error('Неожиданный запрос Windows');
 } } } };
@@ -58,6 +58,27 @@ async function main() {
   online = true; downloaded = remote;
   assert.equal(await syncSource(actorId, sourceBindings(actorId)[0]), 'Синхронизировано');
   assert.equal(local, remote, 'возврат после обрыва продолжает безопасную синхронизацию');
+
+  reset(); local = 'начало'; remote = 'начало'; readErrorCode = 'DRAFT_MISSING';
+  const missingStatus = await syncSource(actorId, binding);
+  assert.match(missingStatus, /черновик удалён/i);
+  assert.equal(sourceBindings(actorId)[0].status, missingStatus, 'понятный статус остаётся видимым владельцу');
+  assert.equal(sourceBindings(actorId)[0].stoppedReason, 'draft-missing', 'причина остановки хранится отдельно от текста статуса');
+  const callsAfterMissing = requests.length;
+  const readsAfterMissing = localReads;
+  assert.equal(await syncSource(actorId, sourceBindings(actorId)[0]), missingStatus);
+  assert.equal(requests.length, callsAfterMissing, 'терминальная привязка больше не вызывает сервер при следующем периодическом проходе');
+  assert.equal(localReads, readsAfterMissing, 'терминальная привязка больше не читает удалённый черновик');
+  assert.equal(writes.length, 0);
+  assert.equal(remote, 'начало', 'удаление источника не удаляет общий файл');
+
+  reset(); local = 'начало'; remote = 'начало'; readErrorCode = 'ACCESS_DENIED';
+  assert.match(await syncSource(actorId, binding), /^Синхронизация приостановлена/);
+  assert.equal(sourceBindings(actorId)[0].stoppedReason, undefined, 'временный отказ доступа не становится терминальной причиной');
+  const readsBeforeRetry = localReads;
+  readErrorCode = null;
+  assert.equal(await syncSource(actorId, sourceBindings(actorId)[0]), 'Синхронизировано');
+  assert.equal(localReads, readsBeforeRetry + 1, 'повтор после временного отказа снова читает исходник');
 
   reset(); current = false;
   await syncSource(actorId, binding, () => current);
