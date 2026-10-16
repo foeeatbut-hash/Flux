@@ -46,7 +46,11 @@ export class ImportRefStore {
     if (!Array.isArray(paths) || !paths.length || paths.length > WINDOWS_IMPORT_REFS_PER_PICK) throw new WindowsFilesError('INVALID_REQUEST', `Выберите от 1 до ${WINDOWS_IMPORT_REFS_PER_PICK} файлов.`);
     const result: WindowsImportRef[] = [];
     try {
-      for (const filename of paths) result.push(await this.snapshot(owner, filename, path.basename(filename), await provenanceForPath?.(filename)));
+      for (const filename of paths) {
+        let provenance: SelectionProvenance | undefined;
+        try { provenance = await provenanceForPath?.(filename); } catch { /* Provenance is optional; file selection remains usable. */ }
+        result.push(await this.snapshot(owner, filename, path.basename(filename), provenance));
+      }
       return result;
     } catch (error) { this.release(owner, result.map(item => item.ticket)); throw error; }
   }
@@ -58,7 +62,7 @@ export class ImportRefStore {
       for (const ref of refs) {
         const entry = await service.entry(ref);
         if (entry.kind !== 'file') throw new WindowsFilesError('NOT_FILE', 'Выберите файл, а не папку.');
-        const folder = { rootId: ref.rootId, relativePath: ref.relativePath.split('/').slice(0, -1).join('/') };
+        const folder = { rootId: ref.rootId, relativePath: ref.relativePath.split('/').slice(0, -1).join('/'), ...(ref.draftId ? { draftId: ref.draftId } : {}) };
         result.push(await this.snapshot(owner, await service.filename(ref), entry.name, await provenanceForFolder?.(folder, ref)));
       }
       return result;

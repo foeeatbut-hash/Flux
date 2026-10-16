@@ -88,14 +88,13 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
     // Страница поиска уходит только окну, которое его запустило и ещё живо.
     emitSearch: (owner, event) => { const target = webContents.fromId(owner); if (target && !target.isDestroyed() && activeSenders.has(owner)) target.send(WINDOWS_FILES_SEARCH, event); } });
   const provenanceForFilename = async (filename: string) => {
-    const folder = path.dirname(filename);
-    let ref = await service.refForShellPath(folder);
-    if (!ref) {
-      const root = await service.addRoot(folder, path.basename(folder) || 'Импорт');
-      ref = { rootId: root.id, relativePath: '' };
-    }
-    const fileRef = await service.refForShellPath(filename) || { rootId: ref.rootId, relativePath: [ref.relativePath, path.basename(filename)].filter(Boolean).join('/') };
-    return explorer.selectionProvenance(ref, undefined, fileRef);
+    try {
+      const folder = path.dirname(filename);
+      const ref = await service.refForShellPath(folder);
+      if (!ref) return undefined;
+      const fileRef = await service.refForShellPath(filename) || { rootId: ref.rootId, relativePath: [ref.relativePath, path.basename(filename)].filter(Boolean).join('/') };
+      return await explorer.selectionProvenance(ref, undefined, fileRef);
+    } catch { return undefined; }
   };
   // Пути брошенных файлов приходят из preload по каналу, которого страница не видит; страница получает только билет.
   ipcMain.on(WINDOWS_FILES_DROP, (event: IpcMainEvent, payload: { ticket?: unknown; paths?: unknown } | undefined) => {

@@ -186,15 +186,26 @@ export default function Equipment() {
       const documentBindings = bindings.filter(binding => binding.kind === 'document');
       if (bindingsView && generation === sourceScanGeneration.current) setDocumentBindingsForUpdates(documentBindings);
       const docs: typeof documentSourceStatuses = {};
+      let documentScanErrorNotified = false;
       for (const binding of documentBindings) {
         if (generation !== sourceScanGeneration.current) return;
-        const latest = await findLatestBoundDocument(pid, binding).catch(() => null);
+        let latest: Awaited<ReturnType<typeof findLatestBoundDocument>> = null;
+        try { latest = await findLatestBoundDocument(pid, binding); }
+        catch (error) {
+          docs[binding.id] = { status: 'source-unavailable' };
+          if (!documentScanErrorNotified) {
+            documentScanErrorNotified = true;
+            const reason = error instanceof Error ? error.message : 'Неизвестная ошибка.';
+            addToast(`Не удалось проверить ревизии документов: ${reason}`, 'error');
+          }
+          continue;
+        }
         if (generation !== sourceScanGeneration.current) return;
         if (!latest) { docs[binding.id] = { status: 'source-unavailable' }; continue; }
         const isNewRevision = binding.latestRevision?.sha256 !== latest.sha256;
         docs[binding.id] = { ...latest, status: isNewRevision ? 'pending' : 'noChanges' };
         const noticeKey = `${pid}:${binding.id}:${latest.sha256}`;
-        if (isNewRevision && !notifiedDocumentRevisions.current.has(noticeKey)) {
+        if (canManageEquipment && isNewRevision && !notifiedDocumentRevisions.current.has(noticeKey)) {
           notifiedDocumentRevisions.current.add(noticeKey);
           addToast(`Новая ревизия документа «${binding.fileName}» готова к проверке.`, 'info');
         }

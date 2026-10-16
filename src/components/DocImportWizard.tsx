@@ -18,7 +18,7 @@ import FileBadge from './ui/FileBadge';
 import { ICON_SIZE } from '../lib/metrics';
 import type { SelectionProvenance } from '../lib/windowsFiles';
 import type { EquipmentDocumentBinding, FilenameMatchRule } from '../../equipment/documentBindings';
-import { equipmentDocumentImportSource, getLocalEquipmentDocumentRef, loadEquipmentDocumentBindings, saveLocalEquipmentDocumentRef } from '../lib/equipmentDocumentBindings';
+import { canonicalDocumentSourceFolder, equipmentDocumentImportSource, equipmentDocumentRevisionFolder, getLocalEquipmentDocumentRef, loadEquipmentDocumentBindings, saveLocalEquipmentDocumentRef } from '../lib/equipmentDocumentBindings';
 import { base64ToBytes, takeWindowsDrop, windowsFilesRequest } from '../lib/windowsFiles';
 import { WINDOWS_IMPORT_READ_BYTES, type ImportedFileRef } from '../../filesystem/contracts';
 import { listEquipmentSourceBindings, removeEquipmentSourceBinding, scanEquipmentSource, type EquipmentSourceCandidate, type LocalEquipmentSourceBinding } from '../lib/equipmentSourcesLocal';
@@ -104,12 +104,26 @@ const CONF_LABEL: Record<Confidence, string> = { high: 'уверенно', mid: 
 
 let jobSeq = 0;
 
+async function documentSourceProvenance(provenance: SelectionProvenance): Promise<SelectionProvenance> {
+  if (!provenance.sourceFolder || !provenance.fileRef) return provenance;
+  const canonical = canonicalDocumentSourceFolder(provenance.sourceFolder, provenance.fileRef);
+  if (canonical.sourceFolder.relativePath === provenance.sourceFolder.relativePath) return provenance;
+  try {
+    const resolved = await windowsFilesRequest<SelectionProvenance>({
+      action: 'selectionProvenance', ref: canonical.sourceFolder, fileRef: provenance.fileRef,
+    });
+    if (resolved.ok) return { ...resolved.data, ...(provenance.suggestedTag ? { suggestedTag: provenance.suggestedTag } : {}) };
+  } catch { /* Provenance is optional; file parsing must still work. */ }
+  // Keep local matching possible if the shared locator cannot be derived.
+  return { ...provenance, sourceFolder: canonical.sourceFolder, portableLocator: undefined, folderKey: undefined };
+}
+
 function revisionFromSource(file: File, provenance: SelectionProvenance): string {
   const sourcePath = provenance.sourceFolder?.relativePath.replace(/\\/gu, '/') || '';
   const filePath = provenance.fileRef?.relativePath.replace(/\\/gu, '/') || '';
-  const rest = filePath.startsWith(sourcePath) ? filePath.slice(sourcePath.length).split('/').filter(Boolean) : [];
+  const rest = filePath.startsWith(sourcePath ? `${sourcePath}/` : '') ? filePath.slice(sourcePath ? sourcePath.length + 1 : 0).split('/').filter(Boolean) : [];
   const folderRevision = rest.length > 1 ? rest[0] : '';
-  if (/^[A-Z]$/iu.test(folderRevision) || /^\d{1,20}$/u.test(folderRevision)) return folderRevision;
+  if (equipmentDocumentRevisionFolder(folderRevision)) return folderRevision;
   return file.lastModified ? new Date(file.lastModified).toISOString() : 'без ревизии';
 }
 
@@ -226,12 +240,14 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     setJobs(prev => [...prev, { id, fileName: file.name, status: 'parsing', statusText: 'Чтение файла…', provenance }]);
     setActiveJobId(prev => prev || id);
     try {
+      const normalizedProvenance = await documentSourceProvenance(provenance);
+      updateJob(id, { provenance: normalizedProvenance });
       const data = await file.arrayBuffer();
       const digest = await crypto.subtle.digest('SHA-256', data);
       const sourceSha256 = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
-      const sourceRevision = revisionFromSource(file, provenance);
-      const sourceBinding = forcedBinding || findExistingDocumentBinding(documentBindings, provenance, file.name);
-      updateJob(id, { sourceSha256, sourceRevision, sourceBinding });
+      const sourceRevision = revisionFromSource(file, normalizedProvenance);
+      const sourceBinding = forcedBinding || findExistingDocumentBinding(documentBindings, normalizedProvenance, file.name);
+      updateJob(id, { sourceSha256, sourceRevision, sourceBinding, provenance: normalizedProvenance });
       const ext = (file.name.split('.').pop() || '').toLowerCase();
 
       // Изображение (фото/скан формы): распознаётся по кнопке OCR ниже
@@ -531,7 +547,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     });
   };
 
-  const previewDone = async (summary?: { bindingId?: string }) => {
+  const previewDone = async (summary?: { bindingId?: string; bindingWarning?: string | null }) => {
     const done = jobs.filter(j => preview?.jobIds.includes(j.id));
     setPreview(null);
     if (!done.length) return;
@@ -550,6 +566,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     addToast(done.length > 1
       ? `Файлов: ${done.length}, импортировано позиций: ${count}`
       : `«${done[0].fileName}»: импортировано позиций: ${count}`, 'success');
+    if (summary?.bindingWarning) addToast(`Оборудование импортировано, но связь с документом не сохранена: ${summary.bindingWarning}`, 'error');
     onImported();
   };
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { equipmentDocumentImportSource, getLocalEquipmentDocumentRef, resolveEquipmentSourceBinding, saveLocalEquipmentDocumentRef } from '../src/lib/equipmentDocumentBindings';
+import { canonicalDocumentSourceFolder, equipmentDocumentImportSource, equipmentDocumentRevisionFolder, findLatestBoundDocument, getLocalEquipmentDocumentRef, resolveEquipmentSourceBinding, saveLocalEquipmentDocumentRef } from '../src/lib/equipmentDocumentBindings';
 import { saveEquipmentSourceBinding } from '../src/lib/equipmentSourcesLocal';
 import { useStore } from '../src/store/store';
 
@@ -20,6 +20,24 @@ assert.equal(source.expectedLedgerRevision, 7, 'the reviewed plan carries its le
 assert.deepEqual(source.locator, locator, 'portable source provenance survives into the reviewed plan');
 assert.equal(source.revision, 'R2');
 assert.equal(source.sha256, 'c'.repeat(64));
+
+const revisionFolder = { rootId: 'equipment-root', relativePath: 'Plant/B' };
+const revisionFile = { rootId: 'equipment-root', relativePath: 'Plant/B/doc.pdf' };
+const canonicalRevisionSource = canonicalDocumentSourceFolder(revisionFolder, revisionFile);
+assert.deepEqual(canonicalRevisionSource, {
+  sourceFolder: { rootId: 'equipment-root', relativePath: 'Plant' }, revision: 'B',
+}, 'a document selected inside revision B maps to the existing parent source binding');
+assert.equal(equipmentDocumentRevisionFolder('B'), true);
+assert.equal(equipmentDocumentRevisionFolder('2026'), true);
+assert.equal(equipmentDocumentRevisionFolder('Archive'), false, 'ordinary folder names are not revisions');
+
+const draftRevisionRoot = canonicalDocumentSourceFolder(
+  { rootId: 'draft-root', relativePath: 'B', draftId: 'draft-7' },
+  { rootId: 'draft-root', relativePath: 'B/doc.pdf', draftId: 'draft-7' },
+);
+assert.deepEqual(draftRevisionRoot, {
+  sourceFolder: { rootId: 'draft-root', relativePath: '', draftId: 'draft-7' }, revision: 'B',
+}, 'revision B directly below a draft root maps to the empty root path and keeps its capability');
 
 const localValues = new Map<string, string>();
 Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
@@ -76,6 +94,27 @@ const unavailable = await resolveEquipmentSourceBinding('project-fixture', { ...
   locator: { folderKey: '0'.repeat(64), anchors: [] }, fileName: 'L24.xml', createdAt: '', updatedAt: '',
 });
 assert.equal(unavailable, null, 'an unavailable portable locator remains unavailable without guessing another folder');
+
+Object.defineProperty(globalThis, 'window', { configurable: true, value: { electron: { windowsFiles: {
+  invoke: async (request: any) => {
+    if (request.action === 'resolvePortableFolder') return { ok: true, data: { rootId: 'scan-root', relativePath: 'source' } };
+    if (request.action === 'list') {
+      const entries = request.ref.relativePath === 'source'
+        ? Array.from({ length: 81 }, (_, index) => ({ kind: 'directory', name: `folder-${index}`, relativePath: `source/folder-${index}` }))
+        : [];
+      return { ok: true, data: { entries, nextOffset: null } };
+    }
+    return { ok: false, error: { code: 'NOT_SUPPORTED', message: 'unexpected request' } };
+  }, onChanged: () => () {},
+} } } });
+await assert.rejects(
+  () => findLatestBoundDocument('project-fixture', {
+    id: 'scan-binding', projectId: 'project-fixture', kind: 'document', locator,
+    fileName: 'doc.pdf', createdAt: '', updatedAt: '',
+  } as any),
+  /больше 80 папок/u,
+  'scanner reports when the 80-folder safety limit would truncate results',
+);
 console.log('Equipment document/XML source helpers: typed import identity, root-folder persistence, second-PC resolution, local override, and unavailable state passed.');
 }
 void checkPortableSourceResolution().catch(error => { console.error(error); process.exitCode = 1; });

@@ -82,7 +82,7 @@ interface Props {
   categoryLabel: string;
   projectId: string;
   onClose: () => void;
-  onDone: (summary: { files: number; conflicts: number; bindingId?: string }) => void;
+  onDone: (summary: { files: number; conflicts: number; bindingId?: string; bindingWarning?: string | null }) => void;
   /** Встроенный шаг сохраняет общий мастер открытым вместо второго модального окна. */
   embedded?: boolean;
 }
@@ -284,7 +284,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
       if (d.batchId) rememberImport(projectId, d.batchId, queueLength);
       // Следующий файл в очереди или завершение
       if (idx + 1 < fileIds.length) { setIdx(idx + 1); }
-      else { onDone({ files: queueLength, conflicts, bindingId: d.associations?.bindingId }); }
+      else { onDone({ files: queueLength, conflicts, bindingId: d.associations?.bindingId, bindingWarning: d.bindingWarning ?? null }); }
     } catch (e: any) { setError(e.message || 'Ошибка сети'); }
     finally { setApplying(false); }
   };

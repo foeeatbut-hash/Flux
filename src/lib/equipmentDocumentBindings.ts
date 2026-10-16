@@ -134,6 +134,22 @@ export function equipmentBindingLabel(binding: EquipmentDocumentBinding): string
   return binding.tag || binding.fileName || 'Документ оборудования';
 }
 
+export function equipmentDocumentRevisionFolder(name: string): boolean {
+  return /^[A-Z]$/iu.test(name) || /^\d{1,20}$/u.test(name);
+}
+
+/** A picked file inside a revision directory belongs to the parent source binding. */
+export function canonicalDocumentSourceFolder(sourceFolder: WindowsFileRef, fileRef: WindowsFileRef): { sourceFolder: WindowsFileRef; revision?: string } {
+  const sourcePath = sourceFolder.relativePath.replace(/\\/gu, '/').replace(/\/$/u, '');
+  const filePath = fileRef.relativePath.replace(/\\/gu, '/');
+  const rest = filePath.startsWith(sourcePath ? `${sourcePath}/` : '') ? filePath.slice(sourcePath ? sourcePath.length + 1 : 0).split('/').filter(Boolean) : [];
+  const parts = sourcePath.split('/').filter(Boolean);
+  const leaf = parts[parts.length - 1] || '';
+  if (rest.length !== 1 || !equipmentDocumentRevisionFolder(leaf)) return { sourceFolder };
+  const parentPath = parts.slice(0, -1).join('/');
+  return { sourceFolder: { rootId: sourceFolder.rootId, relativePath: parentPath, ...(sourceFolder.draftId ? { draftId: sourceFolder.draftId } : {}) }, revision: leaf };
+}
+
 export async function findLatestBoundDocument(projectId: string, binding: EquipmentDocumentBinding): Promise<{ fileRef: WindowsFileRef; sourceFolder: WindowsFileRef; revision: string; sha256: string; modifiedAt: string } | null> {
   let folder = binding.locator ? null : getLocalEquipmentDocumentRef(projectId, binding.id)?.sourceFolder || null;
   if (binding.locator) {
@@ -155,12 +171,13 @@ export async function findLatestBoundDocument(projectId: string, binding: Equipm
         if (entry.kind === 'file' && entry.name.toLocaleLowerCase() === binding.fileName.toLocaleLowerCase()) {
           matches.push({ ref: { rootId: current.ref.rootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) }, modifiedAt: entry.modifiedAt, revision: current.revision || new Date(entry.modifiedAt).toISOString() });
         } else if (entry.kind === 'directory' && current.depth < 3) {
-          queue.push({ ref: { rootId: current.ref.rootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) }, depth: current.depth + 1, revision: current.depth === 0 ? entry.name : current.revision });
+          queue.push({ ref: { rootId: current.ref.rootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) }, depth: current.depth + 1, revision: current.depth === 0 && equipmentDocumentRevisionFolder(entry.name) ? entry.name : current.revision });
         }
       }
       offset = page.data.nextOffset ?? -1;
     } while (offset >= 0);
   }
+  if (queue.length) throw new Error('Проверка ревизий остановлена: в источнике больше 80 папок. Уточните папку источника или уменьшите число подпапок.');
   if (!matches.length) return null;
   matches.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
   const newest = matches[0];
