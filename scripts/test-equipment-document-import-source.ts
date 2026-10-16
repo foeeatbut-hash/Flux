@@ -27,17 +27,6 @@ const canonicalRevisionSource = canonicalDocumentSourceFolder(revisionFolder, re
 assert.deepEqual(canonicalRevisionSource, {
   sourceFolder: { rootId: 'equipment-root', relativePath: 'Plant' }, revision: 'B',
 }, 'a document selected inside revision B maps to the existing parent source binding');
-saveLocalEquipmentDocumentRef({
-  projectId: 'project-fixture', bindingId: 'document-root-binding', sourceFolder: { rootId: 'equipment-root', relativePath: 'Plant' },
-});
-const existingDocumentBinding = {
-  id: 'document-root-binding', projectId: 'project-fixture', kind: 'document', fileName: 'doc.pdf',
-} as any;
-assert.equal(findExistingEquipmentDocumentBinding(
-  [existingDocumentBinding],
-  { sourceFolder: revisionFolder, fileRef: revisionFile },
-  'doc.pdf',
-), existingDocumentBinding, 'wizard lookup reuses the binding attached to the revision parent folder');
 assert.equal(equipmentDocumentRevisionFolder('B'), true);
 assert.equal(equipmentDocumentRevisionFolder('2026'), true);
 assert.equal(equipmentDocumentRevisionFolder('Archive'), false, 'ordinary folder names are not revisions');
@@ -63,6 +52,26 @@ saveLocalEquipmentDocumentRef(rootCapability);
 const rootRoundTrip = getLocalEquipmentDocumentRef('project-fixture', 'root-binding');
 assert.equal(rootRoundTrip?.sourceFolder.rootId, 'local-root', 'root-folder capability preserves its root ID');
 assert.equal(rootRoundTrip?.sourceFolder.relativePath, '', 'an empty relative path is a valid root-folder capability');
+
+saveLocalEquipmentDocumentRef({
+  projectId: 'project-fixture', bindingId: 'document-root-binding', sourceFolder: { rootId: 'equipment-root', relativePath: 'Plant' },
+});
+const existingDocumentBinding = {
+  id: 'document-root-binding', projectId: 'project-fixture', kind: 'document', fileName: 'doc.pdf',
+} as any;
+assert.equal(findExistingEquipmentDocumentBinding(
+  [existingDocumentBinding],
+  { sourceFolder: revisionFolder, fileRef: revisionFile },
+  'doc.pdf',
+), existingDocumentBinding, 'wizard lookup reuses the binding attached to the revision parent folder');
+saveLocalEquipmentDocumentRef({
+  projectId: 'project-fixture', bindingId: 'same-path-other-draft', sourceFolder: { rootId: 'equipment-root', relativePath: 'Plant', draftId: 'other-draft' },
+});
+assert.equal(findExistingEquipmentDocumentBinding(
+  [{ ...existingDocumentBinding, id: 'same-path-other-draft' }],
+  { sourceFolder: { ...revisionFolder, draftId: 'different-draft' }, fileRef: { ...revisionFile, draftId: 'different-draft' } },
+  'doc.pdf',
+), undefined, 'same relative path under a different draft capability does not match');
 
 const portableSource = {
   sourceId: 'source-shared-xml', projectId: 'project-fixture', tagId: 'tag-23', tagIdentifier: 'L23',

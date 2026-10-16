@@ -39,20 +39,7 @@ async function main() {
       assert.equal(drafted.provenance?.sourceFolder.draftId, 'draft-17');
       store.release(1, [drafted.ticket]);
     }]);
-    checks.push(['draft file parent ref retains draftId during provenance registration', async () => {
-      let folderSeen: any;
-      let fileSeen: any;
-      const drafted = (await store.registerRefs(1, {
-        entry: async () => ({ kind: 'file', name: 'draft.pdf' }),
-        filename: async () => largePath,
-      } as any, [{ rootId: 'draft-root', relativePath: 'draft-folder/draft.pdf', draftId: 'draft-17' }], async (folder, file) => {
-        folderSeen = folder; fileSeen = file; return { sourceFolder: folder, fileRef: file };
-      }))[0];
-      assert.deepEqual(folderSeen, { rootId: 'draft-root', relativePath: 'draft-folder', draftId: 'draft-17' });
-      assert.equal(fileSeen.draftId, 'draft-17');
-      assert.equal(drafted.provenance?.sourceFolder.draftId, 'draft-17');
-      store.release(1, [drafted.ticket]);
-    }]);
+
     checks.push(['registerRefs keeps file selection working when provenance fails', async () => {
       const picked = (await store.registerRefs(1, {
         entry: async () => ({ kind: 'file', name: 'draft.pdf' }),

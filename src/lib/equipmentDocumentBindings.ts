@@ -166,7 +166,7 @@ export function findExistingEquipmentDocumentBinding(
   return bindings.find(item => {
     if (item.kind !== 'document' || item.fileName !== fileName) return false;
     const local = getLocalEquipmentDocumentRef(item.projectId, item.id);
-    return !!local && local.sourceFolder.rootId === sourceFolder.rootId
+    return !!local && local.sourceFolder.rootId === sourceFolder.rootId && local.sourceFolder.draftId === sourceFolder.draftId
       && local.sourceFolder.relativePath.replace(/\\/gu, '/') === sourceFolder.relativePath.replace(/\\/gu, '/');
   });
 }
