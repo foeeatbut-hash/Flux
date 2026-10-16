@@ -194,7 +194,7 @@ export default function Equipment() {
         catch (error) {
           if (generation !== sourceScanGeneration.current) return;
           docs[binding.id] = { status: 'source-unavailable' };
-          if (!documentScanErrorNotified) {
+          if (canManageEquipment && !documentScanErrorNotified) {
             documentScanErrorNotified = true;
             const reason = error instanceof Error ? error.message : 'Неизвестная ошибка.';
             addToast(`Не удалось проверить ревизии документов: ${reason}`, 'error');

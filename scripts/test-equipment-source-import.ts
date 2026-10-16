@@ -80,6 +80,9 @@ async function main() {
     const aBody = await appliedA.json();
     check('first import returns stable linked source, tag, system and root IDs', !!aBody.source.sourceId && !!aBody.source.tagId && !!aBody.source.systemId && !!aBody.source.elementId);
     check('successful XML import returns the exact equipment associations for its source', aBody.associations?.bindingId === aBody.source.sourceId && aBody.associations.systemIds.includes(aBody.source.systemId) && aBody.associations.equipmentIds.includes(aBody.source.elementId));
+    const sourceSystems = await prisma.equipmentSystem.findMany({ where: { id: { in: aBody.associations.systemIds } } });
+    const sourceEquipment = await prisma.componentElement.findMany({ where: { id: { in: aBody.associations.equipmentIds } } });
+    check('successful XML import returns existing system and component IDs', sourceSystems.length === aBody.associations.systemIds.length && sourceEquipment.length === aBody.associations.equipmentIds.length);
     const sharedBindings = await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json());
     const sharedSource = sharedBindings.bindings.find((row: any) => row.xmlSourceId === aBody.source.sourceId);
     check('source and portable locator are committed in the same import transaction', sharedBindings.revision === 1 && sharedSource?.locator?.folderKey === portableLocator.folderKey && sharedSource.latestRevision.sha256 === a.sha256);
@@ -236,7 +239,9 @@ async function main() {
     assert.equal(documentApply.status, 200, (await documentApply.clone().text()).slice(0, 350));
     const documentResult = await documentApply.json();
     const documentBinding = (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).bindings.find((row: any) => row.id === documentResult.associations.bindingId);
-    check('подтверждённый импорт документа сохраняет привязку и точные ID в одной транзакции', documentBinding?.kind === 'document' && documentBinding.latestRevision.sha256 === documentSha256 && documentBinding.equipmentIds.length > 0 && documentBinding.equipmentIds.join(',') === documentResult.associations.equipmentIds.join(','));
+    const documentSystemExists = await prisma.equipmentSystem.findUnique({ where: { id: documentResult.associations.systemIds[0] } });
+    const documentEquipmentRows = await prisma.componentElement.findMany({ where: { id: { in: documentResult.associations.equipmentIds } } });
+    check('подтверждённый импорт документа сохраняет R1, системную привязку и точные ID импорта', documentBinding?.kind === 'document' && documentBinding.latestRevision.revision === 'R1' && documentBinding.latestRevision.sha256 === documentSha256 && documentBinding.equipmentIds.length === 0 && documentBinding.systemId === documentResult.associations.systemIds[0] && documentSystemExists && documentResult.associations.equipmentIds.length > 0 && documentEquipmentRows.length === documentResult.associations.equipmentIds.length);
     const documentEquipmentId = documentResult.associations.equipmentIds[0];
     await prisma.componentElement.update({ where: { id: documentEquipmentId }, data: { overrides: JSON.stringify({ 'Основные||Расход': 'ручное значение документа' }) } });
     const reimportText = Buffer.from(makeBody('DOC-01-AHU-001', 'temporary.xml', false, '1600').base64, 'base64').toString('utf8');
@@ -256,7 +261,9 @@ async function main() {
     const reimportResult = await reimportApply.json();
     const reimportBinding = (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).bindings.find((row: any) => row.id === documentBinding.id);
     const afterDocumentEquipment = await prisma.componentElement.findUnique({ where: { id: documentEquipmentId } });
-    check('повторный импорт сохраняет ID общей привязки, точные ID оборудования и ручное переопределение', reimportResult.associations.bindingId === documentBinding.id && reimportResult.associations.equipmentIds.includes(documentEquipmentId) && reimportBinding.latestRevision.sha256 === reimportSha256 && reimportBinding.equipmentIds.includes(documentEquipmentId) && afterDocumentEquipment?.overrides === JSON.stringify({ 'Основные||Расход': 'ручное значение документа' }));
+    const reimportSystemExists = await prisma.equipmentSystem.findUnique({ where: { id: reimportResult.associations.systemIds[0] } });
+    const reimportEquipmentRows = await prisma.componentElement.findMany({ where: { id: { in: reimportResult.associations.equipmentIds } } });
+    check('повторный импорт сохраняет R2 в системной привязке без ID оборудования, возвращённые ID и ручное переопределение', reimportResult.associations.bindingId === documentBinding.id && reimportBinding.equipmentIds.length === 0 && reimportBinding.systemId === documentBinding.systemId && reimportBinding.systemId === reimportResult.associations.systemIds[0] && reimportBinding.latestRevision.revision === 'R2' && reimportBinding.latestRevision.sha256 === reimportSha256 && reimportSystemExists && reimportEquipmentRows.length === reimportResult.associations.equipmentIds.length && reimportResult.associations.equipmentIds.includes(documentEquipmentId) && afterDocumentEquipment?.overrides === JSON.stringify({ 'Основные||Расход': 'ручное значение документа' }));
     const staleDocumentUnits = parseEquipmentXML(documentText.replace('DOC-01-AHU-001', 'DOC-02-AHU-002')).units;
     const staleDocPlan = await postApi('/api/equipment/import-draft-plan', { units: staleDocumentUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'stale-form.docx' });
     assert.equal(staleDocPlan.status, 200, (await staleDocPlan.clone().text()).slice(0, 300));
@@ -264,7 +271,13 @@ async function main() {
     const staleDocApply = await postApi('/api/equipment/import-draft', { units: staleDocumentUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'stale-form.docx',
       sourceBinding: { kind: 'document', expectedLedgerRevision: documentLedgerRevision, fileName: 'stale-form.docx', revision: 'R1', sha256: documentSha256 } });
     const afterStaleDoc = { systems: await count(prisma.equipmentSystem), tags: await count(prisma.tag), sources: await count(prisma.equipmentXmlSource), equipment: await count(prisma.componentElement), history: await count(prisma.equipmentHistory), revision: (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).revision };
-    check('устаревшая ревизия журнала атомарно откатывает импорт документа, теги, ID оборудования и историю', staleDocApply.status === 409 && JSON.stringify(beforeStaleDoc) === JSON.stringify(afterStaleDoc));
+    assert.equal(staleDocApply.status, 200, (await staleDocApply.clone().text()).slice(0, 350));
+    const staleDocResult = await staleDocApply.json();
+    const staleDocLedger = await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json());
+    const staleSystems = await prisma.equipmentSystem.findMany({ where: { id: { in: staleDocResult.associations.systemIds } } });
+    const staleEquipment = await prisma.componentElement.findMany({ where: { id: { in: staleDocResult.associations.equipmentIds } } });
+    check('устаревшая форма успешно импортируется без привязки и предупреждает о конфликте журнала', staleDocResult.bindingWarning && !staleDocResult.associations.bindingId && !staleDocLedger.bindings.some((row: any) => row.fileName === 'stale-form.docx') && staleDocLedger.revision === beforeStaleDoc.revision);
+    check('импорт stale-формы сохраняет возвращённые ID и историю, не удаляя прежние записи', staleSystems.length === staleDocResult.associations.systemIds.length && staleEquipment.length === staleDocResult.associations.equipmentIds.length && afterStaleDoc.systems >= beforeStaleDoc.systems && afterStaleDoc.equipment >= beforeStaleDoc.equipment && afterStaleDoc.history > beforeStaleDoc.history);
     console.log(`Equipment source import HTTP checks: ${checks} passed.`);
   } finally {
     if (server) await new Promise<void>(resolve => server.close(() => resolve()));

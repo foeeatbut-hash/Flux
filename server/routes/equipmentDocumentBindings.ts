@@ -4,6 +4,7 @@ import { getPrisma } from '../context.js';
 import { actorMay } from '../projectAccess.js';
 import { isPrivilegedUser } from '../accessPolicy.js';
 import { canSeeProject, roleGrantsOf } from './members.js';
+import { getDialect } from '../ddl.js';
 import type { EquipmentDocumentBinding, EquipmentDocumentBindingInput, EquipmentDocumentBindingLedger, EquipmentDocumentBindingsView } from '../../equipment/documentBindings.js';
 import type { PortableFolderLocator } from '../../filesystem/contracts.js';
 
@@ -92,14 +93,15 @@ async function readSetting(prisma: any, projectId: string) {
   // Не создаём пустую копию журнала для проекта, которого нет в старых данных.
   if (!bindings.length && !undo.length) return null;
   const migrated: EquipmentDocumentBindingLedger = { revision: prior.revision, bindings, undo };
-  try {
-    return await prisma.appSetting.create({ data: { ...where, value: JSON.stringify(migrated) } });
-  } catch (error) {
-    // Параллельный первый запрос мог уже создать проектный журнал.
-    const concurrent = await prisma.appSetting.findFirst({ where });
-    if (concurrent) return concurrent;
-    throw error;
+  const data = { ...where, value: JSON.stringify(migrated) };
+  if (getDialect() === 'sqlite') {
+    await prisma.appSetting.upsert({ where: { key_userId: where }, create: data, update: { key: where.key } });
+  } else {
+    // INSERT IGNORE / ON CONFLICT DO NOTHING avoids a unique violation aborting
+    // the caller's PostgreSQL transaction when two first reads race.
+    await prisma.appSetting.createMany({ data: [data], skipDuplicates: true });
   }
+  return prisma.appSetting.findFirst({ where });
 }
 
 export async function readEquipmentDocumentBindingLedger(prisma: any, projectId: string): Promise<EquipmentDocumentBindingLedger> {
@@ -109,17 +111,19 @@ export async function readEquipmentDocumentBindingLedger(prisma: any, projectId:
 
 export async function cleanupEquipmentDocumentBindingLedger(prisma: any, projectId: string): Promise<void> {
   await prisma.appSetting.deleteMany({ where: { key: ledgerKey(projectId), userId: LEDGER_OWNER } });
-  const legacy = await prisma.appSetting.findFirst({ where: { key: LEGACY_LEDGER_KEY, userId: LEDGER_OWNER } });
-  if (!legacy) return;
-  const prior = parseLedger(legacy.value);
-  const forOtherProjects = (rows: EquipmentDocumentBinding[]) => rows.filter(row => row.projectId !== projectId);
-  const next: EquipmentDocumentBindingLedger = {
-    revision: prior.revision + 1,
-    bindings: forOtherProjects(prior.bindings),
-    undo: prior.undo.map(item => ({ ...item, before: forOtherProjects(item.before), after: forOtherProjects(item.after) })),
-  };
-  const changed = await prisma.appSetting.updateMany({ where: { id: legacy.id, value: legacy.value }, data: { value: JSON.stringify(next) } });
-  if (changed.count !== 1) throw Object.assign(new Error('Журнал источников оборудования изменился параллельно при удалении проекта'), { status: 409 });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const legacy = await prisma.appSetting.findFirst({ where: { key: LEGACY_LEDGER_KEY, userId: LEDGER_OWNER } });
+    if (!legacy) return;
+    const prior = parseLedger(legacy.value);
+    const forOtherProjects = (rows: EquipmentDocumentBinding[]) => rows.filter(row => row.projectId !== projectId);
+    const next: EquipmentDocumentBindingLedger = {
+      revision: prior.revision + 1,
+      bindings: forOtherProjects(prior.bindings),
+      undo: prior.undo.map(item => ({ ...item, before: forOtherProjects(item.before), after: forOtherProjects(item.after) })),
+    };
+    const changed = await prisma.appSetting.updateMany({ where: { id: legacy.id, value: legacy.value }, data: { value: JSON.stringify(next) } });
+    if (changed.count === 1) return;
+  }
 }
 
 /** Клиент транзакции нужен там, где запись привязки должна быть атомарна с импортом. */
