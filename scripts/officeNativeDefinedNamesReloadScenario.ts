@@ -120,16 +120,27 @@ export async function runNativeDefinedNamesReloadScenario(
     return { available: true, eventType };
   }).catch((error: unknown) => ({ available: false, error: String(error) }));
   await frame.locator('body').evaluate((name: string) => { (window as any).__fluxDefinedNameCommandName = name; }, runtimeName);
-  const inserted = await frame.locator('body').evaluate(
+  const insertion = await frame.locator('body').evaluate(
     ({ name, ref }: { name: string; ref: string }) => {
-      const workbook = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
-      if (!workbook || typeof workbook.insertDefinedName !== 'function') return false;
-      workbook.insertDefinedName(name, ref);
-      return true;
+      const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
+      const workbook = api?.getActiveWorkbook?.();
+      const insert = workbook?.insertDefinedName;
+      if (!workbook || typeof insert !== 'function') {
+        return { ok: false, availableWorkbook: Boolean(workbook), insertType: typeof insert };
+      }
+      try {
+        const result = insert.call(workbook, name, ref);
+        return { ok: true, availableWorkbook: true, insertType: typeof insert, returnType: typeof result };
+      } catch (error: any) {
+        return { ok: false, availableWorkbook: true, insertType: typeof insert,
+          error: String(error?.message || error), stack: String(error?.stack || '').slice(0, 3000) };
+      }
     },
     { name: runtimeName, ref: runtimeRef },
-  ).catch(() => false);
-  check('runtime defined name inserted', inserted, { name: runtimeName, ref: runtimeRef });
+  ).catch((error: unknown) => ({ ok: false, availableWorkbook: null, insertType: null,
+    error: String(error), stack: String((error as any)?.stack || '').slice(0, 3000) }));
+  if (!insertion.ok) console.error('NATIVE_DEFINED_NAME_INSERT_DIAGNOSTIC', JSON.stringify({ name: runtimeName, ref: runtimeRef, ...insertion }));
+  check('runtime defined name inserted', insertion.ok, { name: runtimeName, ref: runtimeRef, ...insertion });
   const commandEvidence = await frame.locator('body').evaluate(() => (window as any).__fluxDefinedNameCommandTrace || null)
     .catch((error: unknown) => ({ error: String(error) }));
   console.log('NATIVE_DEFINED_NAME_COMMAND_TRACE', JSON.stringify({ subscription: commandTrace, command: commandEvidence?.command ?? null }));
