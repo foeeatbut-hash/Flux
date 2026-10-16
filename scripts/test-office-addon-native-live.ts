@@ -392,7 +392,7 @@ try {
   const nativeOnly = process.env.FLUX_NATIVE_ONLY || '';
   // Имена проверяются до Word только в полном прогоне; names-reload закрывает браузер штатно.
   if (await runNativeDefinedNamesReloadMode(nativeOnly, { fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page }, () => context.close())) return;
-
+  if (!nativeOnly) await resetPage(false); // Закрываем окно Sheets перед основным сценарием Word.
   // FLUX_NATIVE_ONLY=cells — только разделы 5 и 6 (действия с заголовочными ячейками): они сами
   // создают свои файлы, и узкий прогон идёт в разы быстрее полного
   if (process.env.FLUX_NATIVE_ONLY === 'cells') {
