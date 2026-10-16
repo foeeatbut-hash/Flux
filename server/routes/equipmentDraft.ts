@@ -9,6 +9,18 @@ import { TAG_MAX } from '../../equipment/tagPolicy.js';
 import { planEquipmentImport, applyEdits, filterBySelection, type EditMap } from '../equipmentPlan.js';
 import { cleanChoices } from '../equipmentResolve.js';
 import type { TagLink } from '../equipmentTags.js';
+import { actorMay } from '../projectAccess.js';
+import { isPrivilegedUser } from '../accessPolicy.js';
+import { canSeeProject, roleGrantsOf } from './members.js';
+import { emitProjectDataChanged } from '../entityChanged.js';
+import { upsertEquipmentDocumentBindingInTransaction, validateEquipmentDocumentBindingTargets } from './equipmentDocumentBindings.js';
+import { draftDocumentBindingTargets, importWithBestEffortBinding, type EquipmentDocumentBindingInput } from '../../equipment/documentBindings.js';
+import { notifyExporters } from '../e3Impact.js';
+
+export function importDraftTransactionOptions(prisma: any): { timeout: number; isolationLevel?: 'Serializable' } {
+  const provider = prisma?._engineConfig?.activeProvider || prisma?._activeProvider;
+  return { timeout: 30_000, ...(provider === 'sqlite' ? {} : { isolationLevel: 'Serializable' as const }) };
+}
 
 // ── Ввоз распознанного документа (PDF / Word / скан / буфер) ────────────────
 // Мастер распознавания присылает уже разобранный документ, а не файл. Раньше
@@ -303,7 +315,7 @@ export function registerEquipmentDraftRoutes(app: Express): void {
 
   // Запись подтверждённого предпросмотра
   app.post('/api/equipment/import-draft', async (req: Request, res: Response) => {
-    const { units, category, fileName, projectId: reqProjectId, tagLinks, edits, selection, choices } = req.body;
+    const { units, category, fileName, projectId: reqProjectId, tagLinks, edits, selection, choices, sourceBinding } = req.body;
     if (!Array.isArray(units) || units.length === 0) {
       return res.status(400).json({ error: 'Пустой результат распознавания' });
     }
@@ -322,18 +334,69 @@ export function registerEquipmentDraftRoutes(app: Express): void {
       const modeSetting = await prisma.appSetting.findFirst({ where: { key: 'equip_conflict_mode', userId: null } });
       const conflictMode: 'immediate' | 'wait' = (modeSetting && modeSetting.value === 'immediate') ? 'immediate' : 'wait';
 
-      const summary = await importEquipmentToDB(
-        prisma, projectId, category,
-        clean(fileName, 200) || 'Распознанный документ',
-        result, conflictMode, cleanTagLinks(tagLinks), { userId: (req as any).authUser?.id },
-        { choices: cleanChoices(choices), full: edited },
-      );
-      res.json({ success: true, ...summary, conflictMode });
+      let summary;
+      let bindingWarning: string | null = null;
+      if (sourceBinding !== undefined) {
+        const actor = (req as any).authUser;
+        if (!actor?.id || !(await canSeeProject(String(actor.id), projectId, isPrivilegedUser(actor)))) return res.status(actor?.id ? 403 : 401).json({ error: 'Нет доступа к выбранному проекту' });
+        if (!(await actorMay(actor, roleGrantsOf, 'equipment.manage'))) return res.status(403).json({ error: 'Нужно право «Правка характеристик оборудования»' });
+        if (!Number.isSafeInteger(sourceBinding?.expectedLedgerRevision) || sourceBinding.expectedLedgerRevision < 0
+          || typeof sourceBinding?.revision !== 'string' || sourceBinding.revision.length > 120
+          || !/^[a-f0-9]{64}$/iu.test(String(sourceBinding?.sha256 || ''))
+          || sourceBinding?.kind !== 'document'
+          || typeof sourceBinding?.fileName !== 'string') return res.status(400).json({ error: 'Некорректные данные общего источника' });
+        const bindingInput = {
+          id: sourceBinding.id,
+          kind: sourceBinding.kind,
+          locator: sourceBinding.locator,
+          fileName: clean(sourceBinding.fileName, 255),
+          rule: sourceBinding.rule,
+          systemId: sourceBinding.systemId,
+          tag: sourceBinding.tag,
+          equipmentIds: [],
+          latestRevision: { revision: sourceBinding.revision, sha256: String(sourceBinding.sha256).toLowerCase() },
+        } as EquipmentDocumentBindingInput;
+        // Сначала атомарно фиксируем весь импорт. Ошибка привязки не отменяет
+        // созданное оборудование.
+        const bindingAttempt = await importWithBestEffortBinding(
+          () => prisma.$transaction(async (tx: any) => importEquipmentToDB(
+            tx, projectId, category,
+            clean(fileName, 200) || 'Распознанный документ',
+            result, conflictMode, cleanTagLinks(tagLinks), { userId: String(actor.id) },
+            { choices: cleanChoices(choices), full: edited, inTransaction: true, deferEntityChanged: true, deferNotifications: true },
+          ), importDraftTransactionOptions(prisma)),
+          (imported: any) => {
+            Object.assign(bindingInput, draftDocumentBindingTargets(imported.associations, sourceBinding.systemId));
+            return prisma.$transaction(async (tx: any) => {
+              await validateEquipmentDocumentBindingTargets(tx, projectId, bindingInput);
+              return upsertEquipmentDocumentBindingInTransaction(tx, projectId, bindingInput, sourceBinding.expectedLedgerRevision);
+            }, importDraftTransactionOptions(prisma));
+          },
+          (imported: any, saved: any) => {
+            imported.associations = { ...(imported.associations || { systemIds: [], equipmentIds: [] }), bindingId: saved.binding.id };
+          },
+        );
+        summary = bindingAttempt.summary;
+        bindingWarning = bindingAttempt.bindingWarning;
+        if (bindingWarning) console.warn('[equipment-import] Данные импортированы, привязка не сохранена:', bindingWarning);
+        try { summary.e3Notified = await notifyExporters(prisma, projectId, summary.batchId, String(actor.id)); }
+        catch (error: any) { console.error('[E3] Уведомление о смене выгруженных позиций не отправлено:', error?.message || error); }
+        if (summary.newBlocks || summary.updatedBlocks || summary.movedBlocks || summary.supersededBlocks || summary.removedBlocks || summary.restoredBlocks) emitProjectDataChanged('element', projectId, { userId: String(actor.id) });
+        if (summary.tagsLinked || summary.tagsCreated || summary.tagParents) emitProjectDataChanged('tag', projectId, { userId: String(actor.id) });
+      } else {
+        summary = await importEquipmentToDB(
+          prisma, projectId, category,
+          clean(fileName, 200) || 'Распознанный документ',
+          result, conflictMode, cleanTagLinks(tagLinks), { userId: (req as any).authUser?.id },
+          { choices: cleanChoices(choices), full: edited },
+        );
+      }
+      res.json({ success: true, ...summary, conflictMode, bindingWarning });
     } catch (error: any) {
       const known = draftFailure(error);
       if (known) return res.status(400).json(known);
-      console.error('Error in import-draft:', error);
-      return res.status(500).json({ error: error.message || 'Не удалось импортировать распознанные данные' });
+      if (!error?.status || error.status >= 500) console.error('Error in import-draft:', error);
+      return res.status(error.status || 500).json({ error: error.message || 'Не удалось импортировать распознанные данные' });
     }
   });
 }

@@ -107,9 +107,14 @@ const runUpdatesDialog = async () => {
   page.on('response', response => { if (response.status() >= 400) failures.push(`updates-dialog: HTTP ${response.status()} ${response.url()}`); });
   await page.addInitScript(() => { localStorage.setItem('flux.equipmentXmlAutoCheck', '0'); localStorage.removeItem('flux.equipmentSources.local.v1'); });
   await page.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?updates=1&theme=dark`);
-  const dialog = page.getByRole('dialog', { name: /Обновления XML/ });
+  const dialog = page.getByRole('dialog', { name: /Обновления источников/ });
   await dialog.waitFor();
-  if (!(await dialog.getByText('Обновления XML · на проверку: 3', { exact: true }).count())) throw new Error('Project counter should clearly report three sources needing review');
+  if (!(await dialog.getByText('Обновления источников · на проверку: 4', { exact: true }).count())) throw new Error('Project counter should include three XML sources and one new document revision');
+  const documentRow = dialog.getByRole('region', { name: 'Новые ревизии документов' });
+  await documentRow.getByText('L23.xlsx', { exact: true }).waitFor();
+  await documentRow.getByText('R1 → R2', { exact: true }).waitFor();
+  await documentRow.getByRole('button', { name: 'Проверить и обновить' }).click();
+  if (await page.evaluate(() => (window).__reviewDocument) !== 'doc-binding-1') throw new Error('Document revision did not dispatch into the review wizard');
   const table = dialog.locator('table');
   if (await table.locator('tbody tr').count() !== 4) throw new Error('Dialog must include every source, including source-local errors');
   const status = tag => table.locator('tbody tr').filter({ hasText: tag }).first().locator('td').last();
@@ -162,7 +167,7 @@ const runUpdatesDialog = async () => {
   review.on('pageerror', error => failures.push(`updates-review: ${error.message}`));
   await review.addInitScript(() => { localStorage.setItem('flux.equipmentXmlAutoCheck', '0'); });
   await review.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?updates=1`);
-  const reviewDialog = review.getByRole('dialog', { name: /Обновления XML/ });
+  const reviewDialog = review.getByRole('dialog', { name: /Обновления источников/ });
   await reviewDialog.getByRole('button', { name: 'Рассмотреть обновления' }).click();
   await reviewDialog.getByText('Проверка 1 / 3').waitFor();
   await reviewDialog.getByRole('button', { name: 'Подробнее' }).click();
@@ -179,14 +184,15 @@ const runUpdatesDialog = async () => {
 
   const viewer = await browser.newPage({ viewport: { width: 900, height: 800 } });
   await viewer.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?updates=1&viewer=1`);
-  const readOnlyDialog = viewer.getByRole('dialog', { name: /Обновления XML/ });
+  const readOnlyDialog = viewer.getByRole('dialog', { name: /Обновления источников/ });
   await readOnlyDialog.waitFor();
   for (const name of ['Выбрать все', 'Перепривязать папку XML', 'Рассмотреть обновления']) if (await readOnlyDialog.getByRole('button', { name: new RegExp(name) }).count()) throw new Error(`Read-only user sees updates write control: ${name}`);
+  if (await readOnlyDialog.getByRole('button', { name: 'Проверить и обновить' }).count()) throw new Error('Read-only user sees document import control');
   await viewer.close();
 
   const narrow = await browser.newPage({ viewport: { width: 360, height: 800 } });
   await narrow.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?updates=1&theme=dark&width=narrow`);
-  const narrowDialog = narrow.getByRole('dialog', { name: /Обновления XML/ });
+  const narrowDialog = narrow.getByRole('dialog', { name: /Обновления источников/ });
   await narrowDialog.waitFor();
   const geometry = await narrow.evaluate(() => ({ body: document.documentElement.scrollWidth, width: innerWidth, dialog: document.querySelector('[role="dialog"]')?.clientWidth }));
   if (geometry.body > geometry.width || geometry.dialog > geometry.width) throw new Error(`Updates dialog overflows at narrow width: ${JSON.stringify(geometry)}`);
@@ -199,7 +205,7 @@ const runUpdatesProjectSwitch = async () => {
   page.on('console', message => { if (message.type() === 'error') failures.push(`updates-project-switch: ${message.text()}`); });
   await page.addInitScript(() => { localStorage.setItem('flux.equipmentXmlAutoCheck', '0'); localStorage.removeItem('flux.equipmentSources.local.v1'); });
   await page.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?updates=1&switch=1&theme=dark`);
-  const dialog = page.getByRole('dialog', { name: /Обновления XML/ });
+  const dialog = page.getByRole('dialog', { name: /Обновления источников/ });
   await page.getByRole('button', { name: 'Сменить проект' }).evaluate(button => button.click());
   await dialog.getByText('Q90', { exact: true }).waitFor();
   await page.waitForTimeout(600);

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { WindowsFileRef } from '../../filesystem/contracts';
+import type { PortableFolderLocator, WindowsFileRef } from '../../filesystem/contracts';
 import { WindowsFilesError, relativeSegments } from './paths';
 
 /**
@@ -137,4 +137,54 @@ export class LocationKeys {
     }
     return { keys, chains };
   }
+
+  /** Выдаёт переносимые якоря UNC, не раскрывая сам сетевой адрес странице. */
+  async portable(ref: WindowsFileRef): Promise<PortableFolderLocator | null> {
+    try {
+      if (!ref || ref.draftId || typeof ref.rootId !== 'string' || typeof ref.relativePath !== 'string') return null;
+      const segments = relativeSegments(ref.relativePath);
+      const base = await this.base(ref.rootId);
+      const full = base && normalizeLocationPath([base, ...segments].join('/'));
+      if (!full?.startsWith('//')) return null;
+      const chain = uncChain(full);
+      const fullParts = full.slice(2).split('/');
+      const anchors = chain.map((ancestor, index) => {
+        const ancestorParts = ancestor.slice(2).split('/');
+        return { key: hashLocation(ancestor), relativePath: fullParts.slice(ancestorParts.length).join('/') };
+      });
+      return { folderKey: hashLocation(full), anchors };
+    } catch { return null; }
+  }
+}
+
+/** Ищет только внутри уже подключённых корней: переносимая ссылка не запускает обход диска. */
+export async function resolvePortableFolder(
+  locator: PortableFolderLocator,
+  roots: Array<{ id: string; available: boolean }>,
+  locations: LocationKeys,
+  entry: (ref: WindowsFileRef) => Promise<{ kind: string }>,
+): Promise<WindowsFileRef | null> {
+  if (!locator || !/^[a-f0-9]{64}$/u.test(locator.folderKey) || !Array.isArray(locator.anchors) || locator.anchors.length > 64) return null;
+  for (const anchor of locator.anchors) if (!/^[a-f0-9]{64}$/u.test(anchor.key) || typeof anchor.relativePath !== 'string' || anchor.relativePath.length > 4096 || anchor.relativePath.includes('\\') || anchor.relativePath.split('/').some(part => part === '..' || part === '.')) return null;
+  for (const root of roots) {
+    if (!root.available) continue;
+    const baseRef = { rootId: root.id, relativePath: '' };
+    const rootLocator = await locations.portable(baseRef);
+    if (!rootLocator) continue;
+    for (const targetAnchor of locator.anchors) {
+      const rootAnchor = rootLocator.anchors.find(item => item.key === targetAnchor.key);
+      if (!rootAnchor) continue;
+      const prefix = rootAnchor.relativePath;
+      const targetSuffix = targetAnchor.relativePath;
+      if (prefix && targetSuffix !== prefix && !targetSuffix.startsWith(`${prefix}/`)) continue;
+      const relativePath = prefix ? targetSuffix.slice(prefix.length).replace(/^\//u, '') : targetSuffix;
+      const candidate = { rootId: root.id, relativePath };
+      try {
+        if ((await entry(candidate)).kind !== 'directory') continue;
+        const verified = await locations.portable(candidate);
+        if (verified?.folderKey === locator.folderKey) return candidate;
+      } catch { /* отключённый том или недоступная папка — следующий подключённый корень */ }
+    }
+  }
+  return null;
 }

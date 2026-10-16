@@ -17,8 +17,40 @@ async function main() {
     const handle = await fs.open(largePath, 'w'); await handle.truncate(70 * 1024 * 1024 + 17); await handle.close();
     const expectedMtime = 1_700_000_000_000;
     await fs.utimes(largePath, new Date(expectedMtime), new Date(expectedMtime));
-    const ref = (await store.registerPaths(1, [largePath]))[0];
-    checks.push(['does not expose the selected path and preserves the filesystem modification time', async () => { assert.equal('path' in ref, false); assert.equal(ref.name, 'large.ifc'); assert.equal(ref.lastModified, expectedMtime); }]);
+    const ref = (await store.registerPaths(1, [largePath], async () => ({ sourceFolder: { rootId: 'local-root', relativePath: '' }, fileRef: { rootId: 'local-root', relativePath: 'large.ifc' } })))[0];
+    checks.push(['ticket retains cloneable file/folder capabilities without exposing the selected path', async () => { assert.equal('path' in ref, false); assert.equal(ref.name, 'large.ifc'); assert.equal(ref.lastModified, expectedMtime); assert.deepEqual(ref.provenance, { sourceFolder: { rootId: 'local-root', relativePath: '' }, fileRef: { rootId: 'local-root', relativePath: 'large.ifc' } }); assert.equal(JSON.stringify(ref).includes(directory), false); }]);
+    checks.push(['provenance failure does not cancel native file selection', async () => {
+      const picked = (await store.registerPaths(1, [largePath], async () => { throw new Error('provenance unavailable'); }))[0];
+      assert.equal(picked.provenance, undefined);
+      const firstByte = await store.read(1, picked.ticket, 0, 1);
+      assert.equal(Buffer.from(firstByte.base64, 'base64').length, 1);
+    }]);
+    checks.push(['draft file parent ref retains draftId during provenance registration', async () => {
+      let folderSeen: any;
+      let fileSeen: any;
+      const drafted = (await store.registerRefs(1, {
+        entry: async () => ({ kind: 'file', name: 'draft.pdf' }),
+        filename: async () => largePath,
+      } as any, [{ rootId: 'draft-root', relativePath: 'draft-folder/draft.pdf', draftId: 'draft-17' }], async (folder, file) => {
+        folderSeen = folder; fileSeen = file; return { sourceFolder: folder, fileRef: file };
+      }))[0];
+      assert.deepEqual(folderSeen, { rootId: 'draft-root', relativePath: 'draft-folder', draftId: 'draft-17' });
+      assert.equal(fileSeen.draftId, 'draft-17');
+      assert.equal(drafted.provenance?.sourceFolder.draftId, 'draft-17');
+      store.release(1, [drafted.ticket]);
+    }]);
+
+    checks.push(['registerRefs keeps file selection working when provenance fails', async () => {
+      const picked = (await store.registerRefs(1, {
+        entry: async () => ({ kind: 'file', name: 'draft.pdf' }),
+        filename: async () => largePath,
+      } as any, [{ rootId: 'draft-root', relativePath: 'draft-folder/draft.pdf', draftId: 'draft-17' }], async () => {
+        throw new Error('provenance unavailable');
+      }))[0];
+      assert.equal(picked.provenance, undefined);
+      assert.equal(Buffer.from((await store.read(1, picked.ticket, 0, 1)).base64, 'base64').length, 1);
+      store.release(1, [picked.ticket]);
+    }]);
     checks.push(['limits every IPC read to one MiB', async () => { await assert.rejects(() => store.read(1, ref.ticket, 0, WINDOWS_IMPORT_READ_BYTES + 1)); }]);
     checks.push(['streams files larger than 64 MiB while renewing the idle TTL', async () => {
       let offset = 0; let total = 0;

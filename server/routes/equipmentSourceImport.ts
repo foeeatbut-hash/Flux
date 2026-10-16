@@ -15,11 +15,15 @@ import { canSeeProject, roleGrantsOf } from './members.js';
 import { isPrivilegedUser } from '../accessPolicy.js';
 import { blockKey } from '../specUtils.js';
 import { emitProjectDataChanged } from '../entityChanged.js';
+import { upsertEquipmentDocumentBindingInTransaction } from './equipmentDocumentBindings.js';
+import type { EquipmentDocumentBindingInput } from '../../equipment/documentBindings.js';
+import { notifyExporters } from '../e3Impact.js';
 
 type RequestData = {
   projectId?: unknown; category?: unknown; fileName?: unknown; revision?: unknown;
   tagIdentifier?: unknown; sha256?: unknown; size?: unknown; base64?: unknown;
   edits?: EditMap; choices?: unknown; selection?: unknown; tagLinks?: unknown; conflictMode?: unknown; previewToken?: unknown;
+  locator?: unknown; expectedLedgerRevision?: unknown;
 };
 
 const tagKey = (value: unknown) => String(value ?? '').normalize('NFC').trim().toLocaleLowerCase();
@@ -75,7 +79,7 @@ function parseBody(body: RequestData) {
       ? { ...item, tags: Array.from(new Set([...(item.tags || []), input.identifier])) }
       : item),
   };
-  return { ...input, text, sha256, result, unitName: unit.name, rule };
+  return { ...input, text, sha256, result, unitName: unit.name, rule, locator: body.locator };
 }
 
 function normalizedPlanOptions(body: RequestData) {
@@ -196,7 +200,7 @@ export function registerEquipmentSourceImportRoutes(app: Express): void {
           prisma.equipmentSystem.findFirst({ where: { id: oldSource.systemId || '', projectId: input.projectId, category: input.category, name: input.unitName, fileName: input.fileName } }),
           prisma.componentElement.findFirst({ where: { id: oldSource.elementId, itemCode: '__unit__', monoblock: { systemId: oldSource.systemId || '', name: '__unit__' } }, include: { tags: true } }),
         ]);
-        if (tag && system && element && (element.tags || []).some((item: any) => item.id === tag.id)) return res.json({ success: true, duplicate: true, fileName: input.fileName, revision: input.revision, sha256: input.sha256, source: {
+        if (tag && system && element && (element.tags || []).some((item: any) => item.id === tag.id)) return res.json({ success: true, duplicate: true, fileName: input.fileName, revision: input.revision, sha256: input.sha256, associations: { bindingId: oldSource.id, systemIds: [system.id], equipmentIds: [element.id] }, source: {
           sourceId: oldSource.id, tagId: tag.id, targetType: 'system', systemId: system.id,
           elementId: element.id, revision: input.revision, sha256: input.sha256, fileName: input.fileName,
         } });
@@ -229,7 +233,7 @@ export function registerEquipmentSourceImportRoutes(app: Express): void {
           throw error('Найдено прежнее сохранение этой ревизии, но его привязка повреждена; повторный импорт остановлен.', 409);
         }
         const summary = await importEquipmentToDB(tx, input.projectId, input.category, input.fileName, selectedResult, mode, links,
-          { userId: String(actor.id) }, { choices: reviewedChoices, full: edited, removeMissing: true, deferEntityChanged: true, inTransaction: true });
+          { userId: String(actor.id) }, { choices: reviewedChoices, full: edited, removeMissing: true, deferEntityChanged: true, deferNotifications: true, inTransaction: true });
         const systemRows = await tx.equipmentSystem.findMany({ where: {
           projectId: input.projectId, category: input.category, name: input.unitName, fileName: input.fileName,
         } });
@@ -264,13 +268,26 @@ export function registerEquipmentSourceImportRoutes(app: Express): void {
               lastImportedAt: now, lastReviewedRevision: input.revision, lastReviewedSha256: input.sha256, lastReviewedAt: now } : {}),
             createdById: String(actor.id),
           } });
-        return { duplicate: false as const, summary, source, tag, system, root };
+        const associationInput: EquipmentDocumentBindingInput = {
+          id: source.id, kind: 'cad-xml', xmlSourceId: source.id,
+          equipmentIds: [root.id], systemId: system.id, tag: input.identifier,
+          ...(input.locator ? { locator: input.locator as any } : {}), fileName: input.fileName, rule: input.rule,
+          ...(sourceBaselineApplied ? { latestRevision: { revision: input.revision, sha256: input.sha256, updatedAt: now.toISOString() } } : {}),
+        };
+        const expectedLedgerRevision = body.expectedLedgerRevision;
+        if (expectedLedgerRevision !== undefined && (!Number.isSafeInteger(expectedLedgerRevision) || Number(expectedLedgerRevision) < 0)) throw error('Некорректная ревизия списка источников. Обновите страницу.');
+        const savedBinding = await upsertEquipmentDocumentBindingInTransaction(tx, input.projectId, associationInput,
+          expectedLedgerRevision === undefined ? undefined : Number(expectedLedgerRevision));
+        return { duplicate: false as const, summary, source, tag, system, root, bindingId: savedBinding.binding.id };
       }, { timeout: 30_000, isolationLevel: 'Serializable' });
       if (result.duplicate) return res.json({ success: true, duplicate: true, fileName: input.fileName,
         revision: input.revision, sha256: input.sha256, source: { sourceId: result.source.id,
           tagId: result.tag.id, targetType: 'system', systemId: result.system.id,
-          elementId: result.root.id, revision: input.revision, sha256: input.sha256, fileName: input.fileName } });
+          elementId: result.root.id, revision: input.revision, sha256: input.sha256, fileName: input.fileName },
+        associations: { bindingId: result.source.id, systemIds: [result.system.id], equipmentIds: [result.root.id] } });
       const summary = result.summary;
+      try { summary.e3Notified = await notifyExporters(prisma, input.projectId, summary.batchId, String(actor.id)); }
+      catch (notificationError: any) { console.error('[E3] Уведомление о смене выгруженных позиций не отправлено:', notificationError?.message || notificationError); }
       if (summary.newBlocks || summary.updatedBlocks || summary.movedBlocks || summary.supersededBlocks
         || summary.removedBlocks || summary.restoredBlocks) emitProjectDataChanged('element', input.projectId, actor);
       if (summary.tagsLinked || summary.tagsCreated || summary.tagParents) emitProjectDataChanged('tag', input.projectId, actor);
@@ -282,6 +299,7 @@ export function registerEquipmentSourceImportRoutes(app: Express): void {
         removedBlocks: result.summary.removedBlocks || 0, systems: result.summary.systems,
         batchId: result.summary.batchId, tagsLinked: result.summary.tagsLinked,
         tagsCreated: result.summary.tagsCreated, conflictMode: mode,
+        associations: { bindingId: result.bindingId, systemIds: result.summary.associations?.systemIds || [result.system.id], equipmentIds: result.summary.associations?.equipmentIds || [result.root.id] },
         source: { sourceId: result.source.id, tagId: result.tag.id, targetType: 'system',
           systemId: result.system.id, elementId: result.root.id, revision: input.revision,
           sha256: input.sha256, fileName: input.fileName },

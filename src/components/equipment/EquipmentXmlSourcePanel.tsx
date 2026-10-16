@@ -3,6 +3,7 @@ import { AlertTriangle, Check, ChevronDown, FolderOpen, Link2, RefreshCw, Unlink
 import { windowsFilesRequest } from '../../lib/windowsFiles';
 import ImportFileChooser, { type ImportFileChooserHandle } from '../ImportFileChooser';
 import type { EquipmentXmlTargetIdentity } from '../../../equipment/sourceXml';
+import { loadEquipmentDocumentBindings, resolveEquipmentSourceBinding } from '../../lib/equipmentDocumentBindings';
 import {
   captureEquipmentSourceBindings, getEquipmentSourceBinding, pickEquipmentSource, pickEquipmentSourceFolder, planEquipmentSourceFolderRebind, rebindEquipmentSourceFolders, restoreEquipmentSourceBindings, removeEquipmentSourceBinding,
   saveEquipmentSourceBinding, scanEquipmentSource,
@@ -70,7 +71,10 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
       const selected = (payload.sources || []).find((item: SourceDto) => (tag ? item.tagId === tag.id : !item.tagId) && item.elementId === elementId && item.targetType === targetType && (item.systemId || '') === (systemId || '')) || null;
       setSource(selected);
       if (!selected) { setBinding(null); setCandidates([]); setActiveCandidateId(''); return; }
-      const local = getEquipmentSourceBinding(projectId, selected.sourceId, selected.tagId, elementId) || null;
+      const hasLocal = getEquipmentSourceBinding(projectId, selected.sourceId, selected.tagId, elementId);
+      const bindings = hasLocal ? null : await loadEquipmentDocumentBindings(projectId).catch(() => null);
+      const sharedBinding = bindings?.bindings.find(item => item.kind === 'cad-xml' && (item.xmlSourceId || item.id) === selected.sourceId);
+      const local = await resolveEquipmentSourceBinding(projectId, selected, sharedBinding);
       setBinding(local);
       setRevisionOrderText((local?.revisionOrder || selected.revisionOrder || []).join(', '));
       const candidateResponse = await fetch(api(`/equipment/projects/${encodeURIComponent(projectId)}/sources/${encodeURIComponent(selected.sourceId)}/candidates`));

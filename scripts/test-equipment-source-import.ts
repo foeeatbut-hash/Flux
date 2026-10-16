@@ -8,6 +8,9 @@ import express from 'express';
 import { bootstrapLocalDatabase } from '../server/databaseBootstrap.js';
 import { setBroadcaster, setPrisma } from '../server/context.js';
 import { registerEquipmentSourceImportRoutes } from '../server/routes/equipmentSourceImport.js';
+import { registerEquipmentDocumentBindingRoutes } from '../server/routes/equipmentDocumentBindings.js';
+import { registerEquipmentDraftRoutes } from '../server/routes/equipmentDraft.js';
+import { parseEquipmentXML } from '../server/equipmentParser.js';
 import { createHash } from 'node:crypto';
 
 const require = createRequire(import.meta.url);
@@ -40,9 +43,14 @@ async function main() {
     const app = express(); app.use(express.json({ limit: '24mb' }));
     app.use((req, _res, next) => { (req as any).authUser = { id: 'source-import-user', role: 'ADMIN', isActive: true }; next(); });
     registerEquipmentSourceImportRoutes(app);
+    registerEquipmentDocumentBindingRoutes(app);
+    registerEquipmentDraftRoutes(app);
     server = await new Promise<any>(resolve => { const listening = app.listen(0, '127.0.0.1', () => resolve(listening)); });
     const origin = `http://127.0.0.1:${server.address().port}`;
     const post = (endpoint: string, body: unknown) => fetch(`${origin}/api/equipment/source-import/${endpoint}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    const postApi = (endpoint: string, body: unknown) => fetch(`${origin}${endpoint}`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
     const count = async (model: any) => model.count();
@@ -66,10 +74,26 @@ async function main() {
     check('failed previews leave equipment, tags and bindings untouched', beforePreview.systems === await count(prisma.equipmentSystem)
       && beforePreview.tags === await count(prisma.tag) && beforePreview.sources === await count(prisma.equipmentXmlSource));
 
-    const appliedA = await post('apply', { ...a, previewToken: previewBody.previewToken });
+    const portableLocator = { folderKey: 'a'.repeat(64), anchors: [{ key: 'a'.repeat(64), relativePath: '' }, { key: 'c'.repeat(64), relativePath: 'Forms/A' }] };
+    const appliedA = await post('apply', { ...a, locator: portableLocator, expectedLedgerRevision: 0, previewToken: previewBody.previewToken });
     assert.equal(appliedA.status, 200, (await appliedA.clone().text()).slice(0, 500));
     const aBody = await appliedA.json();
     check('first import returns stable linked source, tag, system and root IDs', !!aBody.source.sourceId && !!aBody.source.tagId && !!aBody.source.systemId && !!aBody.source.elementId);
+    check('successful XML import returns the exact equipment associations for its source', aBody.associations?.bindingId === aBody.source.sourceId && aBody.associations.systemIds.includes(aBody.source.systemId) && aBody.associations.equipmentIds.includes(aBody.source.elementId));
+    const sourceSystems = await prisma.equipmentSystem.findMany({ where: { id: { in: aBody.associations.systemIds } } });
+    const sourceEquipment = await prisma.componentElement.findMany({ where: { id: { in: aBody.associations.equipmentIds } } });
+    check('successful XML import returns existing system and component IDs', sourceSystems.length === aBody.associations.systemIds.length && sourceEquipment.length === aBody.associations.equipmentIds.length);
+    const sharedBindings = await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json());
+    const sharedSource = sharedBindings.bindings.find((row: any) => row.xmlSourceId === aBody.source.sourceId);
+    check('source and portable locator are committed in the same import transaction', sharedBindings.revision === 1 && sharedSource?.locator?.folderKey === portableLocator.folderKey && sharedSource.latestRevision.sha256 === a.sha256);
+    const ledgerConflictPreview = await post('preview', b);
+    assert.equal(ledgerConflictPreview.status, 200, (await ledgerConflictPreview.clone().text()).slice(0, 300));
+    const ledgerConflictPlan = await ledgerConflictPreview.json();
+    const beforeLedgerConflict = { systems: await count(prisma.equipmentSystem), tags: await count(prisma.tag), sources: await count(prisma.equipmentXmlSource), history: await count(prisma.equipmentHistory) };
+    const staleLedgerApply = await post('apply', { ...b, expectedLedgerRevision: 0, previewToken: ledgerConflictPlan.previewToken });
+    assert.equal(staleLedgerApply.status, 409);
+    const afterLedgerConflict = { systems: await count(prisma.equipmentSystem), tags: await count(prisma.tag), sources: await count(prisma.equipmentXmlSource), history: await count(prisma.equipmentHistory) };
+    check('устаревший ledger CAS откатывает XML импорт, оборудование, теги и историю целиком', JSON.stringify(beforeLedgerConflict) === JSON.stringify(afterLedgerConflict));
     const aSource = await prisma.equipmentXmlSource.findUnique({ where: { id: aBody.source.sourceId } });
     check('source baseline stores the original XML digest and revision', aSource?.lastImportedSha256 === a.sha256 && aSource?.lastImportedRevision === a.revision);
 
@@ -121,6 +145,8 @@ async function main() {
     check('new source revision reuses the original stable binding ID', nextBody.source.sourceId === aBody.source.sourceId && nextBody.source.sha256 === nextRevision.sha256);
     check('unresolved wait conflicts do not advance the imported source baseline',
       nextBody.baselineApplied === false && (await prisma.equipmentXmlSource.findUnique({ where: { id: aBody.source.sourceId } }))?.lastImportedSha256 === a.sha256);
+    const afterWaitBinding = (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).bindings.find((row: any) => row.xmlSourceId === aBody.source.sourceId);
+    check('unresolved conflicts keep the shared source revision at the last applied baseline', afterWaitBinding.latestRevision.sha256 === a.sha256);
     check('manual override and absent position are preserved by the default wait/keep policy',
       afterFan?.overrides === JSON.stringify({ 'Основные||Расход': 'ручное значение' }) && afterMissing?.status === 'OK');
 
@@ -196,6 +222,62 @@ async function main() {
     check('both source IDs remain bound to their exact project tags',
       (await prisma.equipmentXmlSource.count({ where: { projectId: 'source-import-project', deletedAt: null } })) === 2
       && (await prisma.equipmentXmlSource.findUnique({ where: { id: bBody.source.sourceId } }))?.tagIdentifier === b.tagIdentifier);
+
+    const documentText = Buffer.from(makeBody('DOC-01-AHU-001', 'temporary.xml').base64, 'base64').toString('utf8');
+    const documentUnits = parseEquipmentXML(documentText).units;
+    const documentPlanResponse = await postApi('/api/equipment/import-draft-plan', { units: documentUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'form.docx' });
+    assert.equal(documentPlanResponse.status, 200, (await documentPlanResponse.clone().text()).slice(0, 350));
+    const documentPlan = await documentPlanResponse.json();
+    const documentBytes = Buffer.from('verified fixture document bytes');
+    const documentSha256 = createHash('sha256').update(documentBytes).digest('hex');
+    const documentLedgerRevision = (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).revision;
+    const documentApply = await postApi('/api/equipment/import-draft', {
+      units: documentUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'form.docx', tagLinks: documentPlan.plan?.tagLinks,
+      sourceBinding: { kind: 'document', expectedLedgerRevision: documentLedgerRevision, locator: portableLocator,
+        fileName: 'form.docx', rule: { kind: 'document-name', fileName: 'form.docx' }, revision: 'R1', sha256: documentSha256 },
+    });
+    assert.equal(documentApply.status, 200, (await documentApply.clone().text()).slice(0, 350));
+    const documentResult = await documentApply.json();
+    const documentBinding = (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).bindings.find((row: any) => row.id === documentResult.associations.bindingId);
+    const documentSystemExists = await prisma.equipmentSystem.findUnique({ where: { id: documentResult.associations.systemIds[0] } });
+    const documentEquipmentRows = await prisma.componentElement.findMany({ where: { id: { in: documentResult.associations.equipmentIds } } });
+    check('подтверждённый импорт документа сохраняет R1, системную привязку и точные ID импорта', documentBinding?.kind === 'document' && documentBinding.latestRevision.revision === 'R1' && documentBinding.latestRevision.sha256 === documentSha256 && documentBinding.equipmentIds.length === 0 && documentBinding.systemId === documentResult.associations.systemIds[0] && documentSystemExists && documentResult.associations.equipmentIds.length > 0 && documentEquipmentRows.length === documentResult.associations.equipmentIds.length);
+    const documentEquipmentId = documentResult.associations.equipmentIds[0];
+    await prisma.componentElement.update({ where: { id: documentEquipmentId }, data: { overrides: JSON.stringify({ 'Основные||Расход': 'ручное значение документа' }) } });
+    const reimportText = Buffer.from(makeBody('DOC-01-AHU-001', 'temporary.xml', false, '1600').base64, 'base64').toString('utf8');
+    const reimportUnits = parseEquipmentXML(reimportText).units;
+    const reimportPlanResponse = await postApi('/api/equipment/import-draft-plan', { units: reimportUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'form.docx' });
+    assert.equal(reimportPlanResponse.status, 200, (await reimportPlanResponse.clone().text()).slice(0, 350));
+    const reimportPlan = await reimportPlanResponse.json();
+    const reimportBytes = Buffer.from('verified fixture document bytes revision 2');
+    const reimportSha256 = createHash('sha256').update(reimportBytes).digest('hex');
+    const reimportLedgerRevision = (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).revision;
+    const reimportApply = await postApi('/api/equipment/import-draft', {
+      units: reimportUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'form.docx', tagLinks: reimportPlan.plan?.tagLinks,
+      sourceBinding: { id: documentBinding.id, kind: 'document', expectedLedgerRevision: reimportLedgerRevision, locator: portableLocator,
+        fileName: 'form.docx', rule: { kind: 'document-name', fileName: 'form.docx' }, revision: 'R2', sha256: reimportSha256 },
+    });
+    assert.equal(reimportApply.status, 200, (await reimportApply.clone().text()).slice(0, 350));
+    const reimportResult = await reimportApply.json();
+    const reimportBinding = (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).bindings.find((row: any) => row.id === documentBinding.id);
+    const afterDocumentEquipment = await prisma.componentElement.findUnique({ where: { id: documentEquipmentId } });
+    const reimportSystemExists = await prisma.equipmentSystem.findUnique({ where: { id: reimportResult.associations.systemIds[0] } });
+    const reimportEquipmentRows = await prisma.componentElement.findMany({ where: { id: { in: reimportResult.associations.equipmentIds } } });
+    check('повторный импорт сохраняет R2 в системной привязке без ID оборудования, возвращённые ID и ручное переопределение', reimportResult.associations.bindingId === documentBinding.id && reimportBinding.equipmentIds.length === 0 && reimportBinding.systemId === documentBinding.systemId && reimportBinding.systemId === reimportResult.associations.systemIds[0] && reimportBinding.latestRevision.revision === 'R2' && reimportBinding.latestRevision.sha256 === reimportSha256 && reimportSystemExists && reimportEquipmentRows.length === reimportResult.associations.equipmentIds.length && reimportResult.associations.equipmentIds.includes(documentEquipmentId) && afterDocumentEquipment?.overrides === JSON.stringify({ 'Основные||Расход': 'ручное значение документа' }));
+    const staleDocumentUnits = parseEquipmentXML(documentText.replace('DOC-01-AHU-001', 'DOC-02-AHU-002')).units;
+    const staleDocPlan = await postApi('/api/equipment/import-draft-plan', { units: staleDocumentUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'stale-form.docx' });
+    assert.equal(staleDocPlan.status, 200, (await staleDocPlan.clone().text()).slice(0, 300));
+    const beforeStaleDoc = { systems: await count(prisma.equipmentSystem), tags: await count(prisma.tag), sources: await count(prisma.equipmentXmlSource), equipment: await count(prisma.componentElement), history: await count(prisma.equipmentHistory), revision: (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).revision };
+    const staleDocApply = await postApi('/api/equipment/import-draft', { units: staleDocumentUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'stale-form.docx',
+      sourceBinding: { kind: 'document', expectedLedgerRevision: documentLedgerRevision, fileName: 'stale-form.docx', revision: 'R1', sha256: documentSha256 } });
+    const afterStaleDoc = { systems: await count(prisma.equipmentSystem), tags: await count(prisma.tag), sources: await count(prisma.equipmentXmlSource), equipment: await count(prisma.componentElement), history: await count(prisma.equipmentHistory), revision: (await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json())).revision };
+    assert.equal(staleDocApply.status, 200, (await staleDocApply.clone().text()).slice(0, 350));
+    const staleDocResult = await staleDocApply.json();
+    const staleDocLedger = await fetch(`${origin}/api/equipment/projects/source-import-project/document-bindings`).then(response => response.json());
+    const staleSystems = await prisma.equipmentSystem.findMany({ where: { id: { in: staleDocResult.associations.systemIds } } });
+    const staleEquipment = await prisma.componentElement.findMany({ where: { id: { in: staleDocResult.associations.equipmentIds } } });
+    check('устаревшая форма успешно импортируется без привязки и предупреждает о конфликте журнала', staleDocResult.bindingWarning && !staleDocResult.associations.bindingId && !staleDocLedger.bindings.some((row: any) => row.fileName === 'stale-form.docx') && staleDocLedger.revision === beforeStaleDoc.revision);
+    check('импорт stale-формы сохраняет возвращённые ID и историю, не удаляя прежние записи', staleSystems.length === staleDocResult.associations.systemIds.length && staleEquipment.length === staleDocResult.associations.equipmentIds.length && afterStaleDoc.systems >= beforeStaleDoc.systems && afterStaleDoc.equipment >= beforeStaleDoc.equipment && afterStaleDoc.history > beforeStaleDoc.history);
     console.log(`Equipment source import HTTP checks: ${checks} passed.`);
   } finally {
     if (server) await new Promise<void>(resolve => server.close(() => resolve()));

@@ -45,7 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/test-office-no-ai.cjs
-          for check in test-entity-ids test-entity-id-migration-sqlite test-entity-id-migration-routes test-dynamic-field-rename-sqlite test-tag-exchange test-remaining-identity-project-routes test-remaining-files-notes test-remaining-files-explorer-purge test-html-to-markdown test-mail-open-unread; do
+          for check in test-entity-ids test-entity-id-migration-sqlite test-entity-id-migration-routes test-dynamic-field-rename-sqlite test-tag-exchange test-equipment-source-import test-equipment-document-import-source test-equipment-xml-routes-sqlite test-remaining-identity-project-routes test-remaining-files-notes test-remaining-files-explorer-purge test-html-to-markdown test-mail-open-unread; do
             node --import tsx "scripts/$check.ts"
           done
       - name: Компонентные сценарии интерфейса
@@ -154,6 +154,7 @@ jobs:
           done
           node scripts/fixtures/equipment-xml-source-ui/check.mjs
           node scripts/fixtures/equipment-xml-source-ui/importer.check.mjs
+          node scripts/fixtures/equipment-xml-source-ui/wizard.check.mjs
       - name: Equipment preview screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -163,6 +164,7 @@ jobs:
             /tmp/equipment-panel-*.png
             /tmp/flux-equipment-*.png
             /tmp/flux-equipment-ui-*.png
+            /tmp/equipment-import-wizard-*.png
           if-no-files-found: warn
       - name: Артефакты с явно указанной областью проверки
         if: always()

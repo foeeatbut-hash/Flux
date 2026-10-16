@@ -21,6 +21,7 @@ on:
       - src/config/env.ts
       - src/components/ConnectionPanel.tsx
       - scripts/test-*.ts
+      - scripts/security-db-equipment-binding-ledger.ts
       - prisma/**
       - package.json
       - package-lock.json
@@ -92,7 +93,9 @@ jobs:
           })().catch(e => { console.error(e.message); process.exit(1); });
           NODE
           FLUX_ID_MIGRATION_PROVIDER=mysql node --import tsx scripts/test-entity-id-migration-sqlite.ts
+          FLUX_BINDING_LEDGER_PROVIDER=mysql node --import tsx scripts/security-db-equipment-binding-ledger.ts
           FLUX_ID_MIGRATION_PROVIDER=postgresql node --import tsx scripts/test-entity-id-migration-sqlite.ts
+          FLUX_BINDING_LEDGER_PROVIDER=postgresql node --import tsx scripts/security-db-equipment-binding-ledger.ts
       - name: Обновления через общую MariaDB 10.11
         env:
           FLUX_UPDATE_MARIA_FIXTURE_URL: mysql://root:disposable-ci-fixture-password@127.0.0.1:${{ job.services.mariadb.ports[3306] }}/flux_update_fixture
