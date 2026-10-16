@@ -23,6 +23,8 @@ jobs:
           npx prisma generate --schema=prisma/schema.mariadb.prisma
       - name: Типы
         run: npm run lint
+      - name: Архитектурные ограничения проекта
+        run: node --import tsx scripts/test-architecture.ts
       - name: Guide, демонстрации, мессенджер и модель дополнения Office
         run: |
           set -euo pipefail
@@ -109,6 +111,59 @@ jobs:
         env:
           FLUX_CHROME: /usr/bin/google-chrome
         run: node scripts/test-entity-id-migration-ui.mjs
+      - name: Equipment overview grouping regression
+        run: node --import tsx scripts/test-equipment-unit-overview.ts
+      - name: Equipment panel preview
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: node scripts/fixtures/equipment-panel/check.mjs
+      - name: Existing Equipment screen scenarios
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+          FLUX_FIXTURE_URL: http://127.0.0.1:4191
+        run: |
+          set -euo pipefail
+          fixture_log="${{ runner.temp }}/equipment-ui-vite.log"
+          node ./node_modules/vite/bin/vite.js --config scripts/fixtures/equipment-ui/vite.config.ts --host 127.0.0.1 --port 4191 --strictPort >"$fixture_log" 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$FLUX_FIXTURE_URL" --output /dev/null 2>/dev/null; then break; fi
+            if [[ "$attempt" == 60 ]]; then cat "$fixture_log"; exit 1; fi
+            sleep 1
+          done
+          node scripts/fixtures/equipment-ui/check.mjs
+      - name: Equipment catalog UI
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: node scripts/test-equipment-catalog-ui.mjs
+      - name: Equipment XML and import UI scenarios
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+          FLUX_FIXTURE_URL: http://127.0.0.1:4192
+        run: |
+          set -euo pipefail
+          fixture_log="${{ runner.temp }}/equipment-xml-source-vite.log"
+          node ./node_modules/vite/bin/vite.js --config scripts/fixtures/equipment-xml-source-ui/vite.config.ts --host 127.0.0.1 --port 4192 --strictPort >"$fixture_log" 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$FLUX_FIXTURE_URL/importer.html" --output /dev/null 2>/dev/null; then break; fi
+            if [[ "$attempt" == 60 ]]; then cat "$fixture_log"; exit 1; fi
+            sleep 1
+          done
+          node scripts/fixtures/equipment-xml-source-ui/check.mjs
+          node scripts/fixtures/equipment-xml-source-ui/importer.check.mjs
+      - name: Equipment preview screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: equipment-panel-preview
+          path: |
+            /tmp/equipment-panel-*.png
+            /tmp/flux-equipment-*.png
+            /tmp/flux-equipment-ui-*.png
+          if-no-files-found: warn
       - name: Артефакты с явно указанной областью проверки
         if: always()
         uses: actions/upload-artifact@v4

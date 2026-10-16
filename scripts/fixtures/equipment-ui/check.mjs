@@ -26,6 +26,14 @@ const systems = [
     ]) },
     { id: 'motor-1', itemCode: 'M-1', name: 'Электродвигатель 160М6', equipType: 'Электродвигатель', role: 'ДВИГАТЕЛЬ', parentElementId: 'block-1', version: 1, hasConflict: false, status: 'OK', tags: [{ id: 'tag-2', identifier: 'AHU-101-M1' }], specs: specs([{ title: 'Электрические', params: [{ key: 'Мощность', value: '5.5', unit: 'кВт' }] }]) },
     { id: longUntaggedId, itemCode: 'B-2', name: 'Рама фильтра длинного проекта', equipType: 'Корпус фильтра', role: 'ФИЛЬТР', parentElementId: 'block-1', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([{ title: 'Габариты', params: [{ key: 'Ширина', value: '600', unit: 'мм' }] }]) },
+    { id: 'mono-general', itemCode: 'Основной блок_общие', name: 'Основные параметры моноблока', equipType: 'МОНОБЛОК', role: 'МОНОБЛОК', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([{ title: 'Общие', params: [{ key: 'Масса моноблока', value: '455', unit: 'кг' }] }]) },
+    { id: 'orphan-panel', itemCode: 'ORPHAN-1', name: 'Нераспределённая позиция', equipType: 'СЕКЦИЯ', role: 'БЛОК', parentElementId: 'missing-parent', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([]) },
+    { id: 'cycle-panel-a', itemCode: 'CYCLE-A', name: 'Цикл A', equipType: 'СЕКЦИЯ', role: 'БЛОК', parentElementId: 'cycle-panel-b', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([]) },
+    { id: 'cycle-panel-b', itemCode: 'CYCLE-B', name: 'Цикл B', equipType: 'СЕКЦИЯ', role: 'БЛОК', parentElementId: 'cycle-panel-a', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([]) },
+    { id: 'tag-owner-a', itemCode: 'TAG-OWNER-A', name: 'Владелец тега A', equipType: 'СЕКЦИЯ', role: 'БЛОК', tags: [{ id: 'owner-tag-a', identifier: 'TAG-A' }], specs: specs([]) },
+    { id: 'tag-owner-b', itemCode: 'TAG-OWNER-B', name: 'Владелец тега B', equipType: 'СЕКЦИЯ', role: 'БЛОК', tags: [{ id: 'owner-tag-b', identifier: 'TAG-B' }], specs: specs([]) },
+    { id: 'tag-parent-panel', itemCode: 'TAG-PARENT', name: 'Без родительского тега', equipType: 'СЕКЦИЯ', role: 'БЛОК', tags: [{ id: 'child-tag-parent', identifier: 'TAG-PARENT-CHILD', metadata: { parentId: 'absent-tag' } }], specs: specs([]) },
+    { id: 'tag-ambiguous-panel', itemCode: 'TAG-AMBIGUOUS', name: 'Неоднозначная позиция', equipType: 'СЕКЦИЯ', role: 'БЛОК', tags: [{ id: 'child-tag-a', identifier: 'TAG-CHILD-A', metadata: { parentId: 'owner-tag-a' } }, { id: 'child-tag-b', identifier: 'TAG-CHILD-B', metadata: { parentId: 'owner-tag-b' } }], specs: specs([]) },
     { id: 'unit-general', itemCode: '__unit__', name: 'Параметры установки', equipType: 'Установка', role: 'БЛОК', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([
       { title: 'Параметры установки', params: [{ key: 'Расход воздуха', value: '8060', unit: 'м³/ч' }, { key: 'Давление в сети', value: '500', unit: 'Па' }, { key: 'Мощность', value: '38.64', unit: 'кВт' }, { key: 'Количество блоков', value: '7', unit: 'шт.' }] },
       { title: 'Автоматика', params: [{ key: 'Система управления', value: 'контроллер' }] },
@@ -100,34 +108,66 @@ try {
   await page.waitForTimeout(300);
 
   await page.getByRole('button', { name: 'AHU-101', exact: true }).click();
-  await page.getByText('Общие характеристики установки', { exact: true }).waitFor();
-  if (!await page.getByText('Параметры установки', { exact: true }).isVisible()) throw new Error('installation characteristic group did not render');
-  await page.getByRole('button', { name: 'Подробно', exact: true }).click();
+  const overview = page.getByTestId('equipment-unit-overview');
+  await overview.waitFor();
+  await overview.getByText('Общие характеристики моноблока', { exact: true }).waitFor();
+  await overview.getByText('Масса моноблока', { exact: true }).waitFor();
+  const unassigned = overview.getByTestId('equipment-unassigned');
+  await unassigned.getByText('ORPHAN-1', { exact: false }).waitFor();
+  await unassigned.getByText('CYCLE-A', { exact: false }).waitFor();
+  await unassigned.getByText('Родительский тег не найден', { exact: true }).waitFor();
+  await unassigned.getByText('Неоднозначная связь по тегам', { exact: true }).waitFor();
+  await unassigned.getByText('Цикл в составе', { exact: true }).waitFor();
+  await unassigned.getByText('Родитель не найден', { exact: true }).waitFor();
+  await overview.getByRole('button', { name: 'Параметры установки', exact: true }).click();
+  const unitPane = page.getByTestId('equipment-selected-unit-general');
+  await unitPane.waitFor();
+  await unitPane.locator('h4[title="Параметры установки"]').waitFor();
+  if (!await unitPane.getByText('8060 м³/ч', { exact: true }).isVisible()) throw new Error('installation characteristic value and unit did not render');
+  const noteHeading = unitPane.getByRole('heading', { name: 'Примечание к установке', exact: true });
+  const noteToggle = noteHeading.locator('xpath=..');
+  if (await noteToggle.getAttribute('aria-expanded') !== 'true') await noteToggle.click();
+  const noteSection = noteHeading.locator('xpath=ancestor::section[1]');
+  const longNote = noteSection.getByText(/Длинный текст характеристики занимает всю ширину/u);
+  await longNote.waitFor();
   await page.setViewportSize({ width: 720, height: 1000 });
-  const unitPane = page.locator('[data-share-focus^="unit:"]');
-  const compact = await unitPane.evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
-  if (compact.scroll > compact.width + 1) throw new Error(`installation panel overflowed at narrow width: ${JSON.stringify(compact)}`);
-  const narrowPairs = await page.evaluate(() => { const row = (label) => { const el = [...document.querySelectorAll('span')].find(node => node.textContent === label); return el?.parentElement?.getBoundingClientRect(); }; return { flow: row('Расход воздуха')?.y, pressure: row('Давление в сети')?.y }; });
-  if (narrowPairs.pressure <= narrowPairs.flow) throw new Error(`installation characteristics did not collapse to one pair: ${JSON.stringify(narrowPairs)}`);
-  await page.screenshot({ path: '/tmp/flux-equipment-unit-720-light.png' });
-  await page.evaluate(() => document.documentElement.classList.add('dark'));
-  await page.screenshot({ path: '/tmp/flux-equipment-unit-720-dark.png' });
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(value => document.documentElement.classList.toggle('dark', value === 'dark'), theme);
+    const compact = await unitPane.evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
+    if (compact.scroll > compact.width + 1) throw new Error(`installation panel overflowed at narrow width: ${JSON.stringify(compact)}`);
+    const narrowPairRows = await Promise.all(['Расход воздуха', 'Давление в сети'].map(label => unitPane.getByText(label, { exact: true }).locator('xpath=..').evaluate(el => { const rect = el.getBoundingClientRect(); return { y: rect.y, right: rect.right, width: rect.width }; })));
+    if (narrowPairRows[1].y <= narrowPairRows[0].y) throw new Error(`parameters in one group are not displayed as readable rows: ${JSON.stringify(narrowPairRows)}`);
+    const narrowGroups = await Promise.all(['Параметры установки', 'Автоматика'].map(title => unitPane.getByRole('heading', { name: title, exact: true }).locator('xpath=ancestor::section[1]').evaluate(el => { const rect = el.getBoundingClientRect(); return { x: rect.x, y: rect.y }; })));
+    if (narrowGroups[1].y <= narrowGroups[0].y) throw new Error(`narrow detail did not stack separate groups: ${JSON.stringify(narrowGroups)}`);
+    const narrowNote = await longNote.evaluate(el => { const rect = el.getBoundingClientRect(); return { right: rect.right, viewport: innerWidth }; });
+    if (narrowNote.right > narrowNote.viewport + 1) throw new Error(`long installation note overflows at narrow width: ${JSON.stringify(narrowNote)}`);
+    await page.screenshot({ path: `/tmp/flux-equipment-unit-720-${theme}.png` });
+  }
   await page.setViewportSize({ width: 1440, height: 1000 });
   for (const theme of ['light', 'dark']) {
     await page.evaluate(value => document.documentElement.classList.toggle('dark', value === 'dark'), theme);
     const geometry = await unitPane.evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
     if (geometry.scroll > geometry.width + 1) throw new Error(`installation panel overflowed at wide width: ${JSON.stringify(geometry)}`);
-    const pairs = await page.evaluate(() => { const row = (label) => { const el = [...document.querySelectorAll('span')].find(node => node.textContent === label); return el?.parentElement?.getBoundingClientRect(); }; const flow = row('Расход воздуха'); const pressure = row('Давление в сети'); const long = row('Примечание к монтажу и настройке'); const pane = document.querySelector('[data-share-focus^="unit:"]'); return { flowY: flow?.y, pressureY: pressure?.y, longWidth: long?.width, paneWidth: pane?.clientWidth }; });
-    if (Math.abs(pairs.flowY - pairs.pressureY) > 1) throw new Error(`installation characteristics did not use two pairs at wide width: ${JSON.stringify(pairs)}`);
-    if (pairs.longWidth < pairs.paneWidth * 0.9) throw new Error(`long installation characteristic did not span the group: ${JSON.stringify(pairs)}`);
+    const widePairRows = await Promise.all(['Расход воздуха', 'Давление в сети'].map(label => unitPane.getByText(label, { exact: true }).locator('xpath=..').evaluate(el => { const rect = el.getBoundingClientRect(); return { y: rect.y, right: rect.right, width: rect.width }; })));
+    if (widePairRows[1].y <= widePairRows[0].y) throw new Error(`parameters in one group are not displayed as readable rows: ${JSON.stringify(widePairRows)}`);
+    const groupCards = await Promise.all(['Параметры установки', 'Автоматика'].map(title => unitPane.getByRole('heading', { name: title, exact: true }).locator('xpath=ancestor::section[1]').evaluate(el => { const rect = el.getBoundingClientRect(); return { x: rect.x, y: rect.y, right: rect.right }; })));
+    const paneWidth = await unitPane.evaluate(el => el.clientWidth);
+    if (paneWidth >= 760 && groupCards[0].x === groupCards[1].x) throw new Error(`wide detail did not place separate groups in responsive columns: ${JSON.stringify({ paneWidth, groupCards })}`);
+    if (paneWidth < 760 && groupCards[1].y <= groupCards[0].y) throw new Error(`narrow detail did not stack separate groups: ${JSON.stringify({ paneWidth, groupCards })}`);
+    const wideNote = await longNote.evaluate(el => { const rect = el.getBoundingClientRect(); return { right: rect.right, viewport: innerWidth, width: rect.width }; });
+    if (wideNote.right > wideNote.viewport + 1 || wideNote.width < 1) throw new Error(`long installation note is not readable at wide width: ${JSON.stringify(wideNote)}`);
     await page.screenshot({ path: `/tmp/flux-equipment-unit-1440-${theme}.png` });
   }
   await page.getByRole('button', { name: /Вентиляторная секция ВР-80/ }).first().click();
   if (!await page.getByText('Аэродинамика', { exact: true }).isVisible()) throw new Error('real BlockCard parameter groups did not render');
+  if (await page.locator('[role="alert"]').count()) throw new Error('catalog source fixture rendered an error alert');
   const catalogFact = page.getByText('Полное давление', { exact: true }).locator('xpath=..');
   if (await catalogFact.locator('button[title="Изменить вручную"]').count()) throw new Error('catalog-origin characteristic remained editable in Equipment');
   if (!await catalogFact.getByText('Каталог', { exact: true }).isVisible()) throw new Error('catalog-origin characteristic did not show its read-only origin');
-  await page.locator('summary').filter({ hasText: 'Параметры и источник значения' }).click();
+  await page.getByTestId('equipment-catalog-details').locator(':scope > summary').click();
+  const catalogDetails = page.getByTestId('equipment-catalog-details');
+  await catalogDetails.getByText('Источник параметров', { exact: true }).waitFor();
+  await catalogDetails.locator('summary').filter({ hasText: /^Параметры и источник значения/u }).click();
   const markedParam = page.getByLabel(/Аэродинамика · Расход воздуха\. Расхождение:/);
   await markedParam.waitFor();
   if (!await markedParam.getByText('Расхождение', { exact: true }).isVisible()) throw new Error('catalog/XML discrepancy was not marked on its effective parameter row');
