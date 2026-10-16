@@ -412,7 +412,7 @@ void (async () => {
     await docs.locator('.ProseMirror').first().click();
     await ribbonClick(docs, 'project-fields');
     const projectFields = page.getByRole('complementary', { name: 'Данные проекта' });
-    const insertProjectFieldButton = projectFields.getByRole('button', { name: 'Вставить' }).first();
+    const insertProjectFieldButton = projectFields.locator('[title="project.name"]').getByRole('button', { name: 'Вставить' });
     await insertProjectFieldButton.waitFor({ timeout: 15000 });
     await evaluateBrowserCode(page, `(() => {
       const w = window;
