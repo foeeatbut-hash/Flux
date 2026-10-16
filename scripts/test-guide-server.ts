@@ -274,17 +274,18 @@ async function main() {
   if (process.argv.includes('--office-addon-native')) {
     await assertNativeOfficeAssets();
     const fixturePath = await writeFixtureMetadata(users, projectId, systemId);
-    const office = process.env.FLUX_NATIVE_ONLY === 'local-panel' ? null : spawn(process.execPath, ['--import', 'tsx', 'scripts/test-office-addon-native-live.ts', fixturePath], {
+    const explorerOnly = process.env.FLUX_NATIVE_ONLY === 'local-panel' || process.env.FLUX_NATIVE_ONLY === 'field-refresh';
+    const office = explorerOnly ? null : spawn(process.execPath, ['--import', 'tsx', 'scripts/test-office-addon-native-live.ts', fixturePath], {
       cwd,
       env: { ...process.env, FLUX_OFFICE_NATIVE_READY: '1' },
       stdio: 'inherit',
     });
     const [code] = office ? await once(office, 'exit') : [0];
     let explorerCode = 0;
-    if (code === 0 && (!process.env.FLUX_NATIVE_ONLY || process.env.FLUX_NATIVE_ONLY === 'local-panel')) {
+    if (code === 0 && (!process.env.FLUX_NATIVE_ONLY || explorerOnly)) {
       const explorer = spawn(process.execPath, ['--import', 'tsx', 'scripts/test-office-explorer-live.ts', fixturePath], {
         cwd,
-        env: { ...process.env, FLUX_OFFICE_NATIVE_READY: '1' },
+        env: { ...process.env, FLUX_OFFICE_NATIVE_READY: '1', ...(process.env.FLUX_NATIVE_ONLY === 'field-refresh' ? { FLUX_OFFICE_EXPLORER_ONLY: 'field-refresh' } : {}) },
         stdio: 'inherit',
       });
       [explorerCode] = await once(explorer, 'exit');

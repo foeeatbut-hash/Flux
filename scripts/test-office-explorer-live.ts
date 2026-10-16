@@ -10,6 +10,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from 'node:fs/promis
 import { chmod, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { chromium } from 'playwright-core';
 import { WindowsFilesService } from '../electron/filesystem/service';
@@ -28,6 +29,8 @@ void (async () => {
   const BASE = fixture.baseUrl.replace(/\/$/, '');
   const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
   let failures = 0;
+  const fieldRefreshOnly = process.env.FLUX_OFFICE_EXPLORER_ONLY === 'field-refresh';
+  const fieldRefreshDone = Symbol('field-refresh-done');
   const check = (label: string, good: unknown, detail?: unknown) => {
     if (good) console.log(`  ✓ ${label}`);
     else { failures++; console.error(`  ✗ ${label}`, detail === undefined ? '' : JSON.stringify(detail).slice(0, 600)); }
@@ -60,6 +63,7 @@ void (async () => {
   const errors: string[] = [];
   const failed: string[] = [];
   const serverCalls: string[] = [];
+  const fieldRefreshResponses: Array<{ status: number; error?: string }> = [];
   let token = '';
   const api = async (method: string, route: string, body?: unknown) => {
     const response = await fetch(`${BASE}${route}`, {
@@ -82,7 +86,17 @@ void (async () => {
     context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
     page = await context.newPage();
     page.on('pageerror', (error: any) => errors.push(`pageerror: ${error?.message || error}`.slice(0, 500)));
-    page.on('response', (response: any) => { if (response.status() >= 400 && !/\/api\/(license|auth|presence)/.test(response.url())) failed.push(`${response.status()} ${response.url()}`); });
+    page.on('response', async (response: any) => {
+      if (response.status() >= 400 && !/\/api\/(license|auth|presence)/.test(response.url())) failed.push(`${response.status()} ${response.url()}`);
+      if (new URL(response.url()).pathname === '/api/project-data/office-local/update-fields') {
+        let error: string | undefined;
+        if (response.status() >= 400) {
+          try { error = String((await response.json())?.error || '').slice(0, 240) || undefined; } catch { error = 'non-JSON error response'; }
+        }
+        fieldRefreshResponses.push({ status: response.status(), ...(error ? { error } : {}) });
+        if (fieldRefreshResponses.length > 4) fieldRefreshResponses.shift();
+      }
+    });
     page.on('request', (request: any) => { if (/office-local|office-state|\/api\/files/.test(request.url())) serverCalls.push(`${request.method()} ${new URL(request.url()).pathname}`); });
     await page.exposeFunction('__fluxWindowsFiles', async (request: any) => {
       try {
@@ -114,6 +128,49 @@ void (async () => {
   };
 
   const panel = () => page.getByRole('complementary', { name: 'Flux Office' });
+  const fieldRefreshFailureDetails = async (docs: any, refreshToastObserved: boolean) => {
+    const frame = page.locator('iframe').first();
+    const [fileBytes, bindings, ui] = await Promise.all([
+      disk('one.docx'),
+      readOfficeBindings(await disk('one.docx')),
+      (async () => ({
+        refreshToast: await page.getByText(/Обновлено полей:/).count() > 0,
+        editorMarkerVisible: (await docs.locator('.ProseMirror').first().innerText().catch(() => '')).includes('REFRESH_KEEP'),
+        frame: await frame.evaluate((el: HTMLIFrameElement) => ({ title: el.title, src: el.getAttribute('src'), ready: !!el.contentDocument?.body })).catch(() => null),
+      }))(),
+    ]);
+    let lifecycle: unknown[] = [];
+    try {
+      const downloadEvent = page.waitForEvent('download', { timeout: 3000 });
+      await page.evaluate(() => (window as any).__fluxDiagnostics?.save?.());
+      const download = await downloadEvent;
+      const path = await download.path();
+      if (path) lifecycle = (await readFile(path, 'utf8')).split('\n').filter(Boolean).map(line => {
+        try { return JSON.parse(line); } catch { return null; }
+      }).filter(event => event?.event === 'office.lifecycle').slice(-8).map(event => ({
+        time: String(event.time || '').slice(0, 32),
+        app: event.data?.app,
+        stage: String(event.data?.stage || '').slice(0, 40),
+        instance: event.data?.instance,
+        sequence: event.data?.sequence,
+        frameLoad: event.data?.frameLoad,
+        width: event.data?.width,
+        height: event.data?.height,
+        ready: event.data?.ready,
+        dirtyKnown: event.data?.dirtyKnown,
+        dirty: event.data?.dirty,
+        timeout: event.data?.timeout,
+        outcome: event.data?.outcome,
+      }));
+    } catch { /* Diagnostics are optional in the live test renderer. */ }
+    return {
+      checks: { ...ui, refreshToastObserved, diskMarkerPresent: (await diskText('one.docx', 'word/document.xml')).includes('REFRESH_KEEP') },
+      refreshResponses: fieldRefreshResponses.slice(-4),
+      disk: { sha256: createHash('sha256').update(fileBytes).digest('hex'), anchors: bindings?.anchors.length ?? null, rows: bindings?.rows.length ?? null },
+      lifecycle,
+      browserErrors: errors.slice(-4).map(error => error.slice(0, 300)),
+    };
+  };
   const ribbonButton = (frame: any, command: string) => frame.locator(`[data-flux-command="${command}"]`);
   /** Нажать кнопку ленты; если редактор переключил вкладку (курсор в таблице), сначала выбрать вкладку Flux */
   const ribbonClick = async (frame: any, command: string) => {
@@ -287,15 +344,28 @@ void (async () => {
     await insertProjectFieldButton.waitFor({ timeout: 15000 });
     await insertProjectFieldButton.click();
     check('локальная панель вставила поле проекта в DOCX', await waitFor(async () => (await docs.locator('.ProseMirror').first().innerText()).includes('{{')));
+    if (fieldRefreshOnly && failures) throw fieldRefreshDone;
     await docs.locator('.ProseMirror').first().click();
     await page.keyboard.press('Control+End');
     await page.keyboard.type('REFRESH_KEEP');
     await ribbonClick(docs, 'project-fields');
     await page.getByRole('button', { name: 'Обновить поля' }).click();
-    check('обновление полей сохранило несохранённую правку и перечитало DOCX', await waitFor(async () =>
-      (await page.getByText(/Обновлено полей:/).count()) > 0
-      && (await docs.locator('.ProseMirror').first().innerText().catch(() => '')).includes('REFRESH_KEEP')
-      && (await diskText('one.docx', 'word/document.xml')).includes('REFRESH_KEEP'), 45000));
+    let refreshToastObserved = false;
+    const refreshPassed = await waitFor(async () => {
+      const refreshToastShown = (await page.getByText(/Обновлено полей:/).count()) > 0;
+      if (refreshToastShown) refreshToastObserved = true;
+      return refreshToastShown
+        && (await docs.locator('.ProseMirror').first().innerText().catch(() => '')).includes('REFRESH_KEEP')
+        && (await diskText('one.docx', 'word/document.xml')).includes('REFRESH_KEEP');
+    }, 45000);
+    const refreshDetails = refreshPassed ? undefined : await fieldRefreshFailureDetails(docs, refreshToastObserved);
+    if (fieldRefreshOnly && refreshDetails) {
+      const diagnostic = JSON.stringify(refreshDetails);
+      console.error('OFFICE_FIELD_REFRESH_DIAGNOSTIC', diagnostic);
+      await writeFile('/tmp/office-explorer-field-refresh-diagnostic.json', JSON.stringify(refreshDetails, null, 2), { mode: 0o600 });
+    }
+    check('обновление полей сохранило несохранённую правку и перечитало DOCX', refreshPassed, refreshDetails);
+    if (fieldRefreshOnly && !refreshPassed) throw fieldRefreshDone;
     await page.getByRole('button', { name: 'Закрыть панель' }).click();
     const before = await disk('one.docx');
     const originalFanPower = await changeFanHighPower('1500');
@@ -304,6 +374,7 @@ void (async () => {
       check('открытый DOCX перечитал изменившийся источник после 409', await waitFor(async () =>
         (await panel().getByRole('status').filter({ hasText: 'Данные обновлены' }).count()) > 0
         && (await panel().getByRole('grid', { name: 'Предпросмотр выборки' }).getByText('1500').count()) > 0, 20000));
+      if (fieldRefreshOnly) throw fieldRefreshDone;
       const staleConfirm = await fillFromProject('DOCX после изменения источника', async () => {
         await changeFanHighPower('1600');
       });
@@ -389,8 +460,11 @@ void (async () => {
     check('ошибок браузера нет', errors.length === 0, errors);
     check('ответов сервера с ошибкой нет', failed.length === 0, failed);
   } catch (error) {
-    failures++; console.error('✗ прогон прерван', error);
-    await page.screenshot({ path: '/tmp/office-explorer-failure.png', fullPage: true }).catch(() => {});
+    if (error === fieldRefreshDone) { /* Narrow diagnostic profile stops after the target assertions. */ }
+    else {
+      failures++; console.error('✗ прогон прерван', error);
+      await page.screenshot({ path: '/tmp/office-explorer-failure.png', fullPage: true }).catch(() => {});
+    }
   } finally {
     await browser.close().catch(() => {});
     await sessions.dispose().catch(() => {});

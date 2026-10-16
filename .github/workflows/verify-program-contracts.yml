@@ -208,8 +208,10 @@ jobs:
         env:
           FLUX_CHROME: /usr/bin/google-chrome
         run: |
+          set -euo pipefail
           node --import tsx scripts/test-guide-server.ts --office-sheets-collab
           FLUX_NATIVE_ONLY=issued node --import tsx scripts/test-guide-server.ts --office-addon-native
+          FLUX_NATIVE_ONLY=field-refresh node --import tsx scripts/test-guide-server.ts --office-addon-native
           node --import tsx scripts/test-guide-server.ts --office-addon-native
       - name: Совместимость прежних режимов Word, Sheets и совместной правки
         env:
@@ -228,5 +230,6 @@ jobs:
             /tmp/office-addon-native-*.png
             /tmp/flux-office-native-errors.json
             /tmp/office-explorer-*.png
+            /tmp/office-explorer-field-refresh-diagnostic.json
             /tmp/guide-tours-native-*.png
           if-no-files-found: warn
