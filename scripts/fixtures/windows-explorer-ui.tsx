@@ -7,6 +7,7 @@ import '../../src/index.css';
 import { useStore } from '../../src/store/store';
 import { useDisplayStore } from '../../src/store/displayStore';
 import { useDesktopStore } from '../../src/store/desktopStore';
+import { ENV_CONFIG } from '../../src/config/env';
 import type { WindowsFileEntry, WindowsFileMetadata, WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse, WindowsRoot, WindowsVolume } from '../../filesystem/contracts';
 
 const root: WindowsRoot = { id: 'desktop-id', name: 'Рабочий стол', kind: 'desktop', available: true };
@@ -62,8 +63,12 @@ let delayedMetadataPath = '';
 let failedMetadataPath = '';
 let delayedListPath = '';
 let delayedSearchMs = 0;
+let shellMenuOpenDelayMs = 0;
+let shellMenuInvokeDelayMs = 0;
+let shellMenuSequence = 0;
 let listFault: 'none' | 'root-denied' | 'refresh-denied' | 'desktop-refresh-denied' | 'partial' = 'none';
 (window as any).__setExplorerListFault = (fault: typeof listFault) => { listFault = fault; };
+(window as any).__setShellMenuDelay = (openMs: number, invokeMs: number) => { shellMenuOpenDelayMs = openMs; shellMenuInvokeDelayMs = invokeMs; };
 
 function childPath(ref: WindowsFileRef): WindowsFileEntry[] {
   if (ref.draftId) return draftChildren.get(ref.draftId) || [];
@@ -87,6 +92,8 @@ function childFolders(ref: WindowsFileRef, peek = false) {
 }
 async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesResponse<any>> {
   calls.push(request);
+  if (request.action === 'shellMenu' && shellMenuOpenDelayMs) await new Promise((resolve) => setTimeout(resolve, shellMenuOpenDelayMs));
+  if (request.action === 'shellMenuInvoke' && shellMenuInvokeDelayMs) await new Promise((resolve) => setTimeout(resolve, shellMenuInvokeDelayMs));
   if (request.action === 'list' && request.ref.relativePath === delayedListPath) await new Promise((resolve) => setTimeout(resolve, 350));
   if (request.action === 'metadata' && request.ref.relativePath === delayedMetadataPath) {
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -204,7 +211,7 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
     case 'undoState': return { ok: true, data: { undo: { id: 'fixture-undo', label: 'Тестовая операция', at: '2026-10-01T10:00:00.000Z' }, redo: null } };
     case 'undo': return { ok: true, data: { label: 'Тестовая операция', state: { undo: null, redo: { id: 'fixture-redo', label: 'Тестовая операция', at: '2026-10-01T10:00:00.000Z' } } } };
     case 'redo': return { ok: true, data: { label: 'Тестовая операция', state: { undo: { id: 'fixture-undo', label: 'Тестовая операция', at: '2026-10-01T10:00:00.000Z' }, redo: null } } };
-    case 'shellMenu': return { ok: true, data: { token: 'fixture-shell-menu', items: [{ id: 1, label: 'Проверить пункт оболочки', enabled: true, verb: 'open' }] } };
+    case 'shellMenu': return { ok: true, data: { token: `fixture-shell-menu-${++shellMenuSequence}`, items: [{ id: 1, label: 'Проверить пункт оболочки', enabled: true, verb: 'open' }] } };
     case 'shellMenuInvoke': case 'shellMenuClose': return { ok: true, data: {} };
     case 'rename': case 'open': case 'reveal': case 'watch': case 'unwatch': case 'setMetadata': return { ok: true, data: {} };
     case 'addRoot': return { ok: true, data: { ...root, id: 'custom-id', kind: 'custom' } };
@@ -263,6 +270,11 @@ function LocationDebug() { const location = useLocation(); const navigate = useN
 function Fixture() {
   const [desktop, setDesktop] = useState(false);
   (window as any).__showWindowsDesktop = () => setDesktop(true);
+  (window as any).__seedExplorerSharedSource = () => {
+    const id = 'fixture-owner';
+    localStorage.setItem(`flux.shared-sources:${ENV_CONFIG.apiUrl}:${id}`, JSON.stringify([{ sourceKey: 'fixture-source', fileId: 'shared-file', ref: { rootId: root.id, relativePath: 'Инструкция.docx' }, name: 'Инструкция.docx', baseSha: 'fixture-sha', audience: 'ALL' }]));
+    useStore.setState({ user: { id } as any });
+  };
   return <div style={{ position: 'absolute', inset: 0, width: '100vw', height: '100vh' }}>
     {desktop ? <WindowsDesktop screenOrigin={{ x: -1280, y: -200 }} /> : <div className="h-full"><LocationDebug /><Explorer /></div>}
   </div>;

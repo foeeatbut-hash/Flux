@@ -16,6 +16,7 @@ import { RefreshCw, Download } from 'lucide-react';
 import { useToastStore } from '../store/toastStore';
 import { getServerBaseUrl } from '../config/env';
 import { useUpdateStore } from '../store/updateStore';
+import { useStore } from '../store/store';
 import { phaseLabel, fileUrlOf } from '../lib/updates';
 
 // ── Автообновления через локальный API Flux ──
@@ -37,6 +38,9 @@ export default function UpdaterWidget() {
   const { addToast } = useToastStore();
 
   const [showModal, setShowModal] = useState(false);
+  const [auditBusy, setAuditBusy] = useState(false);
+  const [auditReport, setAuditReport] = useState<{ checked: number; broken: { version: string; why: string }[] } | null>(null);
+  const isOwner = useStore((s) => s.user?.role === 'OWNER');
 
   const phase = useUpdateStore((s) => s.phase);
   const percent = useUpdateStore((s) => s.percent);
@@ -108,6 +112,18 @@ export default function UpdaterWidget() {
   };
 
   const isDevSandbox = isElectron && !isPackaged;
+
+  const auditCatalog = async () => {
+    setAuditBusy(true); setAuditReport(null);
+    try {
+      const response = await fetch('/api/updates/audit');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || `Сервер ответил ${response.status}`);
+      setAuditReport({ checked: Number(data.checked) || 0, broken: Array.isArray(data.broken) ? data.broken : [] });
+    } catch (err: any) {
+      addToast(`Не удалось проверить выпуски: ${err?.message || err}`, 'error');
+    } finally { setAuditBusy(false); }
+  };
 
   return (
     <div className="max-w-xl text-left">
@@ -218,6 +234,17 @@ export default function UpdaterWidget() {
             </div>
           </div>
         ))}
+
+        {isOwner && <div className="pt-2">
+          <button type="button" className="fx-btn fx-btn-quiet" onClick={() => void auditCatalog()} disabled={auditBusy}>
+            <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+            <span>{auditBusy ? 'Проверяю каталог…' : 'Проверить все выпуски'}</span>
+          </button>
+          {auditReport && <div className="mt-2 text-xs leading-snug text-slate-600 dark:text-slate-300">
+            Проверено выпусков: {auditReport.checked}. Повреждено или недоступно: {auditReport.broken.length}.
+            {auditReport.broken.map((item) => <div key={item.version} className="mt-1 text-amber-700 dark:text-amber-300">v{item.version}: {item.why}</div>)}
+          </div>}
+        </div>}
 
         <p className="fx-hint mt-3">Выпуски публикует владелец через отдельную программу «Flux · Владелец». Сотрудникам доступны только подписанные обновления компании.</p>
       </div>

@@ -91,31 +91,39 @@ function wrapHandlers(sink: FileWriter): void {
           channel: safeName(channel), sender: event?.sender?.id,
           durationMs: performance.now() - start, ok: false, outcome: 'error', ...safeError(error),
           ...windowsFileRequestFields(channel, args[0], null),
+          ...nativeDiagnosticFields(error),
         });
         throw error; // поведение обработчика не меняется
       }
     });
 }
 
-const FILE_DIAGNOSTIC_ACTIONS = new Set(['list', 'roots', 'volumes', 'children', 'search', 'resolveAddress']);
 function windowsFileRequestFields(channel: string, request: any, result: any): Record<string, string | number | boolean> {
-  if (channel !== 'windows-files:invoke' || !FILE_DIAGNOSTIC_ACTIONS.has(request?.action)) return {};
-  const action = request.action as string;
-  if (action !== 'list') return { action };
+  if (channel !== 'windows-files:invoke' || typeof request?.action !== 'string') return {};
+  const action = safeName(request.action);
+  if (request.action !== 'list') return { action, ...nativeDiagnosticFields(result) };
   const rootRequest = request?.ref?.relativePath === '';
   const data = result?.ok === true ? result.data : null;
   const entryCount = Array.isArray(data?.entries) ? data.entries.length : undefined;
-  return { action, rootRequest, ...(entryCount === undefined ? {} : { entryCount }) };
+  return { action, rootRequest, ...(entryCount === undefined ? {} : { entryCount }), ...nativeDiagnosticFields(result) };
 }
 
-function businessFailureFor(channel: string, result: any): { error: string; code?: string } | null {
+function nativeDiagnosticFields(value: any): Record<string, string> {
+  const native = value?.nativeDiagnostic || value?.error?.nativeDiagnostic;
+  return {
+    ...(typeof native?.stage === 'string' && /^[A-Za-z0-9_.:-]{1,64}$/u.test(native.stage) ? { stage: native.stage } : {}),
+    ...(typeof native?.hresult === 'string' && /^[0-9A-Fa-f]{8}$/u.test(native.hresult) ? { hresult: native.hresult } : {}),
+  };
+}
+
+function businessFailureFor(channel: string, result: any): ({ error: string; code?: string } & Record<string, string>) | null {
   if (channel !== 'windows-files:invoke' && channel !== 'windows-office:invoke') return null;
   const value = result?.data && typeof result.data === 'object' ? result.data : result;
   if (value?.ok !== false && value?.success !== false) return null;
   const error = safeName(value?.error?.name || 'OperationFailed');
   const rawCode = value?.code || value?.error?.code;
   const code = rawCode ? safeName(rawCode) : undefined;
-  return { error, ...(code ? { code } : {}) };
+  return { error, ...(code ? { code } : {}), ...nativeDiagnosticFields(value) };
 }
 
 /**

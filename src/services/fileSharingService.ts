@@ -4,7 +4,9 @@ import { openHref } from '../lib/fileTypes';
 
 export interface ShareState { fileId: string; ownerId: string; audience: 'NONE' | 'USERS' | 'ALL'; permission: 'VIEW' | 'EDIT'; recipients: string[]; epoch: number; state: 'PENDING' | 'READY' }
 export interface SharedFile { id: string; name: string; size: number; updatedAt: string; ownerId: string; ownerName: string; permission: 'OWNER' | 'VIEW' | 'EDIT'; epoch: number }
-export interface SourceBinding { sourceKey: string; fileId: string; ref: WindowsFileRef; name: string; baseSha: string; status?: string; audience?: ShareState['audience'] }
+export interface SourceBinding { sourceKey: string; fileId: string; ref: WindowsFileRef; name: string; baseSha: string; status?: string; stoppedReason?: 'draft-missing'; audience?: ShareState['audience'] }
+const missingDraftStatus = 'Исходный черновик удалён на этом устройстве. Автоматическая синхронизация остановлена; общая версия сохранена.';
+const isMissingDraftBinding = (binding: SourceBinding) => binding.stoppedReason === 'draft-missing';
 const storageKey = (actorId: string) => `flux.shared-sources:${ENV_CONFIG.apiUrl}:${actorId}`;
 const deviceKey = 'flux.shared-device';
 const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
@@ -15,7 +17,7 @@ const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
 };
 async function localRead(ref: WindowsFileRef): Promise<WindowsFileContent> {
   const result = await windowsFilesRequest<WindowsFileContent>({ action: 'read', ref });
-  if ('error' in result) throw Error(result.error.message);
+  if ('error' in result) throw Object.assign(Error(result.error.message), { code: result.error.code });
   return result.data;
 }
 async function isNetworkSource(ref: WindowsFileRef): Promise<boolean> {
@@ -88,6 +90,7 @@ export async function stageLocalShare(actorId: string, ref: WindowsFileRef, prog
 /** Обе версии сохраняются при конфликте: запись Windows разрешена лишь по прежнему хешу. */
 async function syncSourceOnce(actorId: string, binding: SourceBinding, isCurrent: () => boolean): Promise<string> {
   try {
+    if (isMissingDraftBinding(binding)) return binding.status!;
     if (!isCurrent()) return 'Синхронизация остановлена';
     if (await isNetworkSource(binding.ref)) return 'Сетевая папка: исходник используется напрямую с правами Windows';
     const share = await getFileShare(binding.fileId);
@@ -117,6 +120,10 @@ async function syncSourceOnce(actorId: string, binding: SourceBinding, isCurrent
     const result = await response.json(); if (!response.ok) throw Error(result.error || 'Общая версия не сохранена');
     remember(actorId, { ...binding, baseSha: result.sha256, status: '' }); return 'Синхронизировано';
   } catch (err: any) {
+    if (err?.code === 'DRAFT_MISSING') {
+      if (isCurrent()) remember(actorId, { ...binding, status: missingDraftStatus, stoppedReason: 'draft-missing' });
+      return missingDraftStatus;
+    }
     const message = `Синхронизация приостановлена: ${err?.message || 'исходник недоступен'}. Общая версия сохранена на сервере.`;
     if (isCurrent()) remember(actorId, { ...binding, status: message }); return message;
   }
