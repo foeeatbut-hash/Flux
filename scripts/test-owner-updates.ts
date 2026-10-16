@@ -52,12 +52,14 @@ const publicHex = (key: crypto.KeyObject) => crypto.createPublicKey(key).export(
 const updateHex = publicHex(updateKey);
 const body = Buffer.alloc(6 * 1024 * 1024, 72); body.write('MZ');
 let checks = 0;
+let chunkReadSets = 0;
 const check = (name: string, value: unknown) => { assert.ok(value, name); checks++; };
 let pauseCreate: null | (() => Promise<void>) = null;
 const wrapped = new Proxy({}, { get(_target, name) {
   const db = clients[0];
   if (name === 'appUpdateChunk') return new Proxy(db.appUpdateChunk, { get(delegate, method) {
     if (method === 'create') return async (args: any) => { if (pauseCreate) await pauseCreate(); return delegate.create(args); };
+    if (method === 'findMany') return async (...args: any[]) => { chunkReadSets++; return delegate.findMany(...args); };
     const value = delegate[method]; return typeof value === 'function' ? value.bind(delegate) : value;
   } });
   const value = db[name]; return typeof value === 'function' ? value.bind(db) : value;
@@ -146,6 +148,33 @@ async function run() {
     check('missing published chunks fail before sending EXE headers', (await b.call('/api/updates/download/9.8.7')).status === 409);
     const broken: any = await (await b.call('/api/updates/check/9.8.7')).json(); check('readiness checks every chunk', broken.ok === false);
     const fallback: any = await (await b.call('/api/updates/latest')).json(); check('latest skips incomplete release and reports it', fallback.version === '9.8.8' && fallback.broken[0].version === '9.8.7');
+    // Десять подписанных выпусков по 6 МиБ проверяют, что обычная проверка
+    // сотрудника хеширует только первый (самый новый) исправный файл.
+    const fixtureBody = Buffer.from(body), fixtureHash = crypto.createHash('sha256').update(fixtureBody).digest('hex');
+    const fixtures: { version: string; generation: string }[] = [];
+    for (let n = 0; n < 10; n++) {
+      const version = `10.0.${n}`, generation = crypto.randomUUID(), createdAt = new Date(Date.now() + n * 1000);
+      await clients[0].appUpdate.create({ data: { version, generation, state: 'published', signature: testSignature(fixtureBody, version), size: fixtureBody.length, sha256: fixtureHash, chunkCount: 3, changelog: 'fixture', fileUrl: `/api/updates/download/${version}`, createdAt } });
+      for (let idx = 0; idx < 3; idx++) await clients[0].appUpdateChunk.create({ data: { version: generation, idx, data: fixtureBody.subarray(idx * 2 * 1024 * 1024, (idx + 1) * 2 * 1024 * 1024) } });
+      fixtures.push({ version, generation });
+    }
+    chunkReadSets = 0;
+    const quick: any = await (await a.call('/api/updates/latest')).json();
+    check('latest verifies only the newest valid release', quick.version === '10.0.9' && chunkReadSets === 1);
+    const newestChunk = await clients[0].appUpdateChunk.findFirst({ where: { version: fixtures[9].generation }, orderBy: { idx: 'asc' } });
+    const newestBytes = Buffer.from(newestChunk.data); newestBytes[100] ^= 1;
+    await clients[0].appUpdateChunk.update({ where: { id: newestChunk.id }, data: { data: newestBytes } });
+    chunkReadSets = 0;
+    const skippedHead: any = await (await a.call('/api/updates/latest')).json();
+    check('latest falls back after a broken newest release', skippedHead.version === '10.0.8' && skippedHead.broken[0].version === '10.0.9' && chunkReadSets === 2);
+    const oldChunk = await clients[0].appUpdateChunk.findFirst({ where: { version: fixtures[1].generation }, orderBy: { idx: 'asc' } });
+    const oldBytes = Buffer.from(oldChunk.data); oldBytes[101] ^= 1;
+    await clients[0].appUpdateChunk.update({ where: { id: oldChunk.id }, data: { data: oldBytes } });
+    check('employee cannot run full catalogue audit', (await b.call('/api/updates/audit', 'GET', undefined, 'employee')).status === 403);
+    const audit: any = await (await a.call('/api/updates/audit')).json();
+    check('Owner audit checks all published entries and detects independent corruption', audit.checked === 12 && audit.broken.length === 3 && audit.broken.some((r: any) => r.version === '10.0.1') && audit.broken.some((r: any) => r.version === '10.0.9'));
+    await clients[0].appUpdateChunk.deleteMany({ where: { version: { in: fixtures.map(f => f.generation) } } });
+    await clients[0].appUpdate.deleteMany({ where: { version: { in: fixtures.map(f => f.version) } } });
     await clients[0].appUpdateChunk.create({ data: { version: up.generation, idx: first.idx, data: first.data } });
     await b.call('/api/updates/9.8.7', 'DELETE');
     check('withdrawn release is unavailable', (await a.call('/api/updates/download/9.8.7')).status === 404);

@@ -105,17 +105,37 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
     try {
       const db = deps.getPrisma();
       const list: any[] = await db.appUpdate.findMany({ where: { state: { in: ['published', 'legacy'] } }, orderBy: { createdAt: 'desc' }, take: 10 });
-      const states = new Map<string, Awaited<ReturnType<typeof availability>>>();
-      for (const r of list) states.set(r.version, await availability(db, r));
-      const { release, broken } = pickRelease(list, r => states.get(r.version)!);
+      // Проверяем новые выпуски по порядку и останавливаемся на первом
+      // доступном. Полный хеш всех старых файлов при каждой проверке
+      // сотрудника задерживал ответ даже при исправном свежем выпуске.
+      const broken: { version: string; why: string }[] = [];
+      let release: any = null;
+      let selected: Awaited<ReturnType<typeof availability>> | null = null;
+      for (const r of list) {
+        const state = await availability(db, r);
+        if (state.ok) { release = r; selected = state; break; }
+        broken.push({ version: r.version, why: state.why });
+      }
       if (!release) return res.json({ version: null, broken });
       // Recheck lifecycle after the potentially long full-file validation.
       const active = await db.appUpdate.findUnique({ where: { version: release.version } });
       if (!isPublished(active) || active.generation !== release.generation) return res.json({ version: null, broken });
-      const a = states.get(release.version)!;
+      const a = selected!;
       res.json({ version: release.version, generation: release.generation || '', changelog: release.changelog,
         fileUrl: `/api/updates/download/${release.version}`, size: a.size, createdAt: release.createdAt, signature: a.signature, broken });
     } catch (e: any) { res.status(503).json({ error: e?.message || 'Не удалось проверить обновления' }); }
+  });
+  app.get('/api/updates/audit', requireOwnerMiddleware, async (_req: Request, res: Response) => {
+    try {
+      const db = deps.getPrisma();
+      const list: any[] = await db.appUpdate.findMany({ where: { state: { in: ['published', 'legacy'] } }, orderBy: { createdAt: 'desc' } });
+      const broken: { version: string; why: string }[] = [];
+      for (const r of list) {
+        const state = await availability(db, r);
+        if (!state.ok) broken.push({ version: r.version, why: state.why });
+      }
+      res.json({ checked: list.length, broken });
+    } catch (e: any) { res.status(503).json({ error: e?.message || 'Не удалось проверить каталог обновлений' }); }
   });
   app.get('/api/updates/check/:version', async (req: Request, res: Response) => {
     const version = validVersion(req.params.version);
