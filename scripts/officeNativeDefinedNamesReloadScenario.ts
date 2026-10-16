@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import JSZip from 'jszip';
+import type { FrameLocator } from 'playwright-core';
 import { makeXlsxWithManualRow } from './officeHarness';
 import { captureNativeDefinedNameEvidence } from './officeNativeDefinedNameEvidence';
 
@@ -76,7 +77,7 @@ export async function runNativeDefinedNamesReloadScenario(
   await resetPage(false);
   let page = ctx.page();
   await navigateOffice(page, route);
-  let frame = await openPanel(page, 'Flux Office — Таблица');
+  let frame: FrameLocator = await openPanel(page, 'Flux Office — Таблица');
   check('native workbook opened', await waitForSheetFile(frame));
   await clickSheetGrid(frame);
 
@@ -94,6 +95,7 @@ export async function runNativeDefinedNamesReloadScenario(
     check(label, passed, { expected: names, evidence });
   };
   await checkNames('initial-import', 'fixture names imported', expected);
+  check('Sheets collaboration IPC is ready', await waitFor(async () => page.evaluate(() => (window as any).__fluxSheetsCollabReady === true).catch(() => false)));
 
   const runtimeName = `FLUX_ANCHOR_${randomUUID().replaceAll('-', '_')}`;
   const runtimeRef = "'Перечень'!$A$3";
@@ -119,9 +121,9 @@ export async function runNativeDefinedNamesReloadScenario(
     win.__fluxDefinedNameCommandName = '';
     return { available: true, eventType };
   }).catch((error: unknown) => ({ available: false, error: String(error) }));
-  await frame.locator('body').evaluate((name: string) => { (window as any).__fluxDefinedNameCommandName = name; }, runtimeName);
+  await frame.locator('body').evaluate((_body: HTMLElement, name: string) => { (window as any).__fluxDefinedNameCommandName = name; }, runtimeName);
   const insertion = await frame.locator('body').evaluate(
-    ({ name, ref }: { name: string; ref: string }) => {
+    (_body: HTMLElement, { name, ref }: { name: string; ref: string }) => {
       const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
       const workbook = api?.getActiveWorkbook?.();
       const insert = workbook?.insertDefinedName;

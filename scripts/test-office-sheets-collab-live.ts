@@ -79,6 +79,28 @@ const column = async (x: Who, col: string, rows: number) => {
   for (let i = 1; i <= rows; i++) out.push(await cell(x, `${col}${i}`));
   return out;
 };
+const definedNameRef = async (x: Who, name: string): Promise<string | null> => {
+  const fr = frameOf(x);
+  if (!fr) return null;
+  return fr.evaluate((n: string) => {
+    const wb = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
+    const item = wb?.getDefinedNames?.().find((entry: any) => entry.getName?.() === n);
+    const ref = item && String(item.getRef?.() ?? item.getFormulaOrRefString?.() ?? '').replace(/^=/, '').replaceAll('$', '').toUpperCase();
+    return ref || null;
+  }, name).catch(() => null);
+};
+const definedNameState = async (x: Who, name: string): Promise<{ count: number; id: string | null; localSheetId?: string } | null> => {
+  const fr = frameOf(x);
+  if (!fr) return null;
+  return fr.evaluate((n: string) => {
+    const wb = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
+    const items = (wb?.getDefinedNames?.() || []).filter((entry: any) => entry.getName?.() === n);
+    const item = items[0];
+    const params = item?.toBuilder?.()?.build?.();
+    const localSheetId = item?.getLocalSheetId?.();
+    return { count: items.length, id: typeof params?.id === 'string' ? params.id : null, ...(typeof localSheetId === 'string' ? { localSheetId } : {}) };
+  }, name).catch(() => null);
+};
 /** Перейти к ячейке, как в Excel: адрес в поле имени и Enter */
 const gotoCell = async (x: Who, ref: string) => {
   const box = x.page.frameLocator(FRAME).locator('input.univer-box-border').first();
@@ -160,6 +182,43 @@ const strip = (x: Who) => x.page.getByRole('status', { name: 'Кто в файл
     const b = await openAs(mate, id, BASE2);
     ok('первый видит, что правят вместе', await until(async () => /Правите вместе/.test(await strip(a)), 15000), await strip(a));
     ok('второй тоже', await until(async () => /Правите вместе/.test(await strip(b)), 15000), await strip(b));
+
+    console.log('\n1a. Imported defined-name updates, renames and removes resolve by logical identity');
+    const importedName = 'Итого';
+    const initialA = await definedNameState(a, importedName);
+    const initialB = await definedNameState(b, importedName);
+    ok('both participants imported the fixture defined name', initialA?.count === 1 && initialB?.count === 1, { a: initialA, b: initialB });
+    ok('independent imports have different opaque IDs', !!initialA?.id && !!initialB?.id && initialA.id !== initialB.id, { a: initialA?.id, b: initialB?.id });
+
+    const nameUpdated = await frameOf(a).evaluate(({ name, ref }: { name: string; ref: string }) => {
+      const wb = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
+      const item = wb?.getDefinedNames?.().find((entry: any) => entry.getName?.() === name);
+      if (!item || typeof item.setRef !== 'function') return false;
+      item.setRef(ref);
+      return true;
+    }, { name: importedName, ref: "'Перечень'!$B$5" }).catch(() => false);
+    ok('defined-name ref update was dispatched', nameUpdated);
+    ok('ref update resolves the receiver imported ID without duplicates', await until(async () => (await definedNameRef(b, importedName)) === "'ПЕРЕЧЕНЬ'!B5" && (await definedNameState(b, importedName))?.count === 1, 5000), { ref: await definedNameRef(b, importedName), state: await definedNameState(b, importedName) });
+
+    const renamed = await frameOf(a).evaluate(({ from, to }: { from: string; to: string }) => {
+      const wb = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
+      const item = wb?.getDefinedNames?.().find((entry: any) => entry.getName?.() === from);
+      if (!item || typeof item.setName !== 'function') return false;
+      item.setName(to);
+      return true;
+    }, { from: importedName, to: 'Итого_Соавтор' }).catch(() => false);
+    ok('defined-name rename was dispatched', renamed);
+    ok('rename replays as one logical name on the second participant', await until(async () => (await definedNameRef(b, 'Итого_Соавтор')) === "'ПЕРЕЧЕНЬ'!B5" && (await definedNameState(b, importedName))?.count === 0 && (await definedNameState(b, 'Итого_Соавтор'))?.count === 1, 5000), { old: await definedNameState(b, importedName), renamed: await definedNameState(b, 'Итого_Соавтор'), ref: await definedNameRef(b, 'Итого_Соавтор') });
+
+    const nameRemoved = await frameOf(a).evaluate((name: string) => {
+      const wb = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
+      const item = wb?.getDefinedName?.(name);
+      if (!item || typeof item.delete !== 'function') return false;
+      item.delete();
+      return true;
+    }, 'Итого_Соавтор').catch(() => false);
+    ok('defined-name remove was dispatched', nameRemoved);
+    ok('remove resolves the receiver-local ID and leaves no duplicate', await until(async () => (await definedNameState(b, 'Итого_Соавтор'))?.count === 0, 5000), await definedNameState(b, 'Итого_Соавтор'));
 
     console.log('\n2. Значение появляется после Enter');
     const t0 = Date.now();

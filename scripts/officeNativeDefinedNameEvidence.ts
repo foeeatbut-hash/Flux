@@ -1,13 +1,14 @@
 import JSZip from 'jszip';
+import type { FrameLocator } from 'playwright-core';
 
 /** Только чтение имён и ссылок из одноразового native fixture и сохранённого OOXML. */
 export async function captureNativeDefinedNameEvidence(
-  frame: any,
+  frame: FrameLocator,
   readRaw: () => Promise<{ status: number; bytes: Buffer }>,
   includeImportState = false,
 ) {
   const [runtime, file] = await Promise.all([
-    frame.locator('body').evaluate((captureImportState: boolean) => {
+    frame.locator('body').evaluate((_body: HTMLElement, captureImportState: boolean) => {
       const workbook = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
       const definitions = workbook?.getDefinedNames?.() || [];
       const lazyState = captureImportState ? (window as any).__lazyState : null;
