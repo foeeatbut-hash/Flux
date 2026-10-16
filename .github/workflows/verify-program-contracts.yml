@@ -154,6 +154,7 @@ jobs:
           FLUX_CHROME: /usr/bin/google-chrome
         run: |
           node --import tsx scripts/test-guide-server.ts --office-sheets-collab
+          FLUX_NATIVE_ONLY=issued node --import tsx scripts/test-guide-server.ts --office-addon-native
           node --import tsx scripts/test-guide-server.ts --office-addon-native
       - name: Совместимость прежних режимов Word, Sheets и совместной правки
         env:
