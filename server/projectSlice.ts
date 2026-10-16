@@ -331,9 +331,9 @@ export async function projectFingerprint(projectId: string): Promise<{ tag: stri
       orderBy: { id: 'asc' },
     }),
   ]);
-  const elMaxUpdatedAt = elementRows.reduce<Date | null>(
-    (max, row) => !max || row.updatedAt > max ? row.updatedAt : max,
-    null,
+  const elMaxUpdatedAt = elementRows.reduce(
+    (max: Date | null, row: any) => !max || row.updatedAt > max ? row.updatedAt : max,
+    null as Date | null,
   );
   const elementVersionDigest = createHash('sha256')
     .update(JSON.stringify(elementRows.map(({ id, version }) => [id, version])))
