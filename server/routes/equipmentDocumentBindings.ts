@@ -165,7 +165,7 @@ export async function upsertEquipmentDocumentBindingInTransaction(
     const result = await prisma.appSetting.updateMany({ where: { id: stored.id, value: stored.value }, data: { value } });
     if (result.count !== 1) throw Object.assign(new Error('Источники оборудования изменились параллельно. Обновите список.'), { status: 409 });
   } else {
-    try { await prisma.appSetting.create({ data: { key: LEDGER_KEY, userId: LEDGER_OWNER, value } }); }
+    try { await prisma.appSetting.create({ data: { key: ledgerKey(projectId), userId: LEDGER_OWNER, value } }); }
     catch { throw Object.assign(new Error('Источники оборудования изменились параллельно. Обновите список.'), { status: 409 }); }
   }
   return { binding, ledger: next };
