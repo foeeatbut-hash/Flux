@@ -270,13 +270,15 @@ void (async () => {
     await picker.selectOption(fixture.projectId);
     await panel().getByRole('button', { name: /1\. Выборка/ }).waitFor();
   };
-  const changeFanHighPower = async (value: string) => {
-    const rows = await api('POST', '/api/project-data/office/query', { projectId: fixture.projectId, query: { entity: 'element', columns: ['name', 'param:Вентиляция|Мощность двигателя'], filters: [], sort: [], limit: 50, excludedEntityIds: [] } });
+  const changeFanHighAirflow = async (value: string, expectedOldValue: string) => {
+    const fieldKey = 'param:Аэродинамика|Расход воздуха';
+    const rows = await api('POST', '/api/project-data/office/query', { projectId: fixture.projectId, query: { entity: 'element', columns: ['name', fieldKey], filters: [], sort: [], limit: 50, excludedEntityIds: [] } });
     const fan = rows.json?.rows?.find((row: any) => row.values?.name?.value === 'FAN_HIGH');
     const id = fan?.entityId ? decodeURIComponent(String(fan.entityId).split(':').at(-1) || '') : '';
-    const oldValue = String(fan?.values?.['param:Вентиляция|Мощность двигателя']?.value ?? '');
+    const oldValue = String(fan?.values?.[fieldKey]?.value ?? '');
     if (!id) throw new Error('В тестовом проекте нет FAN_HIGH для сценария смены источника');
-    const changed = await api('POST', `/api/equipment/component/${encodeURIComponent(id)}/override`, { group: 'Вентиляция', key: 'Мощность двигателя', value });
+    if (oldValue !== expectedOldValue) throw new Error(`Ожидался существующий расход воздуха FAN_HIGH ${expectedOldValue}, получено ${oldValue || '<пусто>'}`);
+    const changed = await api('POST', `/api/equipment/component/${encodeURIComponent(id)}/override`, { group: 'Аэродинамика', key: 'Расход воздуха', value });
     if (changed.status !== 200) throw new Error(`Не удалось изменить FAN_HIGH через API: ${changed.status}`);
     return oldValue;
   };
@@ -488,8 +490,21 @@ void (async () => {
     if (fieldRefreshOnly && !refreshPassed) throw fieldRefreshDone;
     await page.getByRole('button', { name: 'Закрыть панель' }).click();
     const before = await disk('one.docx');
-    const originalFanPower = await changeFanHighPower('1500');
+    const airflowFieldKey = 'param:Аэродинамика|Расход воздуха';
+    const airflowQuery = { entity: 'element', columns: ['name', airflowFieldKey], filters: [], sort: [], limit: 50, excludedEntityIds: [] };
+    const initialAirflowQuery = await api('POST', '/api/project-data/office/query', { projectId: fixture.projectId, query: airflowQuery });
+    const initialAirflowRevision = initialAirflowQuery.json?.revision;
+    if (initialAirflowQuery.status !== 200 || typeof initialAirflowRevision !== 'string' || !initialAirflowRevision) throw new Error('Не удалось зафиксировать исходную ревизию расхода воздуха');
+    let currentFanAirflow = '1200';
+    const originalFanAirflow = await changeFanHighAirflow('1500', currentFanAirflow);
+    currentFanAirflow = '1500';
     try {
+      const staleAirflowQuery = await api('POST', '/api/project-data/office/query', { projectId: fixture.projectId, sourceRevision: initialAirflowRevision, query: airflowQuery });
+      check('запрос источника с ревизией до override отклонён с 409', staleAirflowQuery.status === 409, { status: staleAirflowQuery.status, revision: staleAirflowQuery.json?.revision });
+      const freshAirflowQuery = await api('POST', '/api/project-data/office/query', { projectId: fixture.projectId, query: airflowQuery });
+      const refreshedFan = freshAirflowQuery.json?.rows?.find((row: any) => row.values?.name?.value === 'FAN_HIGH');
+      const refreshedAirflow = String(refreshedFan?.values?.[airflowFieldKey]?.value ?? '');
+      check('свежий запрос видит новую ревизию и расход воздуха 1500', freshAirflowQuery.status === 200 && freshAirflowQuery.json?.revision !== initialAirflowRevision && refreshedAirflow === '1500', { status: freshAirflowQuery.status, revisionChanged: freshAirflowQuery.json?.revision !== initialAirflowRevision, refreshedAirflow });
       await panel().getByRole('button', { name: 'Обновить выборку' }).click();
       const fieldRefreshSourcePassed = await waitFor(async () =>
         (await panel().getByRole('status').filter({ hasText: 'Данные обновлены' }).count()) > 0
@@ -514,12 +529,13 @@ void (async () => {
       check('открытый DOCX перечитал изменившийся источник после 409', fieldRefreshSourcePassed);
       if (fieldRefreshOnly) throw fieldRefreshDone;
       const staleConfirm = await fillFromProject('DOCX после изменения источника', async () => {
-        await changeFanHighPower('1600');
+        await changeFanHighAirflow('1600', currentFanAirflow);
+        currentFanAirflow = '1600';
       });
       check('409 предпросмотра перестроил свежий план и оставил подтверждение человеку', await staleConfirm.isVisible());
       check('свежий предпросмотр не записывает файл до подтверждения', before.equals(await disk('one.docx')));
     } finally {
-      await changeFanHighPower(originalFanPower);
+      await changeFanHighAirflow(originalFanAirflow, currentFanAirflow);
     }
     await panel().getByRole('button', { name: /1\. Выборка/ }).click();
     await panel().getByRole('button', { name: 'Обновить выборку' }).click();

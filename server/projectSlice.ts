@@ -322,15 +322,25 @@ export async function runQuery(projectId: string, q: ProjectQuery) {
  */
 export async function projectFingerprint(projectId: string): Promise<{ tag: string; element: string }> {
   const prisma = getPrisma();
-  const [tagCount, tagMax, elCount, elMax] = await Promise.all([
+  const [tagCount, tagMax, elementRows] = await Promise.all([
     prisma.tag.count({ where: { projectId } }),
     prisma.tag.aggregate({ where: { projectId }, _max: { createdAt: true, updatedAt: true } }),
-    prisma.componentElement.count({ where: { monoblock: { system: { projectId } } } }),
-    prisma.componentElement.aggregate({ where: { monoblock: { system: { projectId } } }, _max: { updatedAt: true } }),
+    prisma.componentElement.findMany({
+      where: { monoblock: { system: { projectId } } },
+      select: { id: true, version: true, updatedAt: true },
+      orderBy: { id: 'asc' },
+    }),
   ]);
+  const elMaxUpdatedAt = elementRows.reduce<Date | null>(
+    (max, row) => !max || row.updatedAt > max ? row.updatedAt : max,
+    null,
+  );
+  const elementVersionDigest = createHash('sha256')
+    .update(JSON.stringify(elementRows.map(({ id, version }) => [id, version])))
+    .digest('hex');
   return {
     tag: `${tagCount}:${tagMax._max.createdAt?.toISOString?.() || ''}:${tagMax._max.updatedAt?.toISOString?.() || ''}`,
-    element: `${elCount}:${elMax._max.updatedAt?.toISOString?.() || ''}`,
+    element: `${elementRows.length}:${elMaxUpdatedAt?.toISOString?.() || ''}:${elementVersionDigest}`,
   };
 }
 
