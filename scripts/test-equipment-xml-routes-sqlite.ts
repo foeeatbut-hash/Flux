@@ -6,7 +6,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
 import { registerEquipmentXmlSourceRoutes } from '../server/routes/equipmentXmlSources.js';
-import { registerEquipmentDocumentBindingRoutes } from '../server/routes/equipmentDocumentBindings.js';
+import {
+  cleanupEquipmentDocumentBindingLedger,
+  readEquipmentDocumentBindingLedger,
+  registerEquipmentDocumentBindingRoutes,
+  upsertEquipmentDocumentBindingInTransaction,
+} from '../server/routes/equipmentDocumentBindings.js';
+import { registerEquipmentDraftRoutes } from '../server/routes/equipmentDraft.js';
 import { setPrisma } from '../server/context.js';
 
 const require = createRequire(import.meta.url);
@@ -42,6 +48,7 @@ const routes = new Map<string, Function>();
 const app: any = { get: (p: string, f: Function) => routes.set(`GET ${p}`, f), post: (p: string, f: Function) => routes.set(`POST ${p}`, f), put: (p: string, f: Function) => routes.set(`PUT ${p}`, f), delete: (p: string, f: Function) => routes.set(`DELETE ${p}`, f) };
 registerEquipmentXmlSourceRoutes(app);
 registerEquipmentDocumentBindingRoutes(app);
+registerEquipmentDraftRoutes(app);
 async function call(method: string, path: string, params: Record<string, string>, body: any = {}, actor: any = { id: 'fixture-admin', role: 'ADMIN', isActive: true }) {
   const handler = routes.get(`${method} ${path}`);
   assert.ok(handler, `missing route ${method} ${path}`);
@@ -55,7 +62,7 @@ async function main() {
 try {
   for (const sql of ddl) await prisma.$executeRawUnsafe(sql);
   setPrisma(prisma);
-  await prisma.$executeRawUnsafe(`INSERT INTO Project(id,name) VALUES ('project-a','Project A'),('project-b','Project B')`);
+  await prisma.$executeRawUnsafe(`INSERT INTO Project(id,name) VALUES ('project-a','Project A'),('project-b','Project B'),('large-project','Large Project'),('crowded-project','Crowded Project')`);
   await prisma.$executeRawUnsafe(`INSERT INTO ProjectMember(id,projectId,userId) VALUES ('member-a','project-a','fixture-admin')`);
   await prisma.$executeRawUnsafe(`INSERT INTO ProjectMember(id,projectId,userId) VALUES ('member-reader','project-a','reader')`);
   await prisma.$executeRawUnsafe(`INSERT INTO Tag(id,identifier,projectId) VALUES ('tag-a','FAN-1','project-a'),('tag-b','FAN-1','project-b')`);
@@ -72,6 +79,85 @@ try {
   const secondSpecs = JSON.stringify({ groups: [{ title: 'Параметры', params: [{ key: 'Давление', value: '5', unit: 'Па' }] }] });
   await prisma.$executeRawUnsafe(`INSERT INTO ComponentElement(id,name,itemCode,monoblockId,specs) VALUES ('element-b','FAN-1','FAN-1','mono-b',?)`, secondSpecs);
   await prisma.$executeRawUnsafe(`INSERT INTO _ComponentElementToTag(A,B) VALUES ('element-b','tag-b')`);
+
+  // Legacy shared ledger is copied lazily, project by project. Revisions in
+  // those copies can then advance independently; removing A preserves B.
+  const legacyBindings = [
+    { id: 'legacy-a', projectId: 'legacy-project-a', kind: 'document', equipmentIds: [], fileName: 'a.pdf', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    { id: 'legacy-b', projectId: 'legacy-project-b', kind: 'document', equipmentIds: [], fileName: 'b.pdf', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  ];
+  await prisma.appSetting.create({ data: {
+    id: 'legacy-binding-ledger', key: 'equipment_document_bindings:shared:v1', userId: '__shared__',
+    value: JSON.stringify({ revision: 7, bindings: legacyBindings, undo: [] }),
+  } });
+  const legacyA = await readEquipmentDocumentBindingLedger(prisma, 'legacy-project-a');
+  const legacyB = await readEquipmentDocumentBindingLedger(prisma, 'legacy-project-b');
+  const advancedA = await upsertEquipmentDocumentBindingInTransaction(prisma, 'legacy-project-a', { kind: 'document', equipmentIds: [], fileName: 'a2.pdf' }, legacyA.revision);
+  const advancedB = await upsertEquipmentDocumentBindingInTransaction(prisma, 'legacy-project-b', { kind: 'document', equipmentIds: [], fileName: 'b2.pdf' }, legacyB.revision);
+  await cleanupEquipmentDocumentBindingLedger(prisma, 'legacy-project-a');
+  const remainingLegacy = await prisma.appSetting.findUnique({ where: { id: 'legacy-binding-ledger' } });
+  const remainingLegacyBindings = JSON.parse(remainingLegacy.value).bindings;
+  check('legacy bindings migrate per project, revisions isolate, and deleting A preserves B',
+    legacyA.bindings.length === 1 && legacyA.bindings[0].projectId === 'legacy-project-a'
+      && legacyB.bindings.length === 1 && legacyB.bindings[0].projectId === 'legacy-project-b'
+      && advancedA.ledger.revision === 8 && advancedB.ledger.revision === 8
+      && remainingLegacyBindings.every((row: any) => row.projectId !== 'legacy-project-a')
+      && (await readEquipmentDocumentBindingLedger(prisma, 'legacy-project-b')).bindings.length === 2);
+
+  const largeUnits = [{
+    name: 'Large installation', title: 'Large installation', groups: [],
+    monoblocks: Array.from({ length: 3 }, (_, mb) => ({
+      name: `M${mb + 1}`, title: '',
+      blocks: Array.from({ length: 200 }, (_, block) => ({
+        name: `M${mb + 1}-P${block + 1}`, title: `Component ${mb * 200 + block + 1}`,
+        equipType: 'component', groups: [],
+      })),
+    })),
+  }];
+  const draftPath = '/api/equipment/import-draft';
+  const largeImport = await call('POST', draftPath, {}, {
+    units: largeUnits, category: 'AHU', projectId: 'large-project', fileName: 'large.pdf',
+    sourceBinding: { id: 'large-document', kind: 'document', expectedLedgerRevision: 0, fileName: 'large.pdf',
+      revision: 'R1', sha256: 'a'.repeat(64), rule: { kind: 'document-name', fileName: 'large.pdf' } },
+  });
+  const largeLedgerRow = await prisma.appSetting.findFirst({ where: {
+    key: 'equipment_document_bindings:project:v2:large-project', userId: '__shared__',
+  } });
+  const largeLedger = JSON.parse(largeLedgerRow.value);
+  const largeSystemIds = largeImport.body?.associations?.systemIds || [];
+  const largeMonoblocks = await prisma.monoblock.findMany({ where: { systemId: { in: largeSystemIds } }, select: { id: true } });
+  const largeComponentCount = await prisma.componentElement.count({ where: { monoblockId: { in: largeMonoblocks.map((row: any) => row.id) } } });
+  check('actual import-draft API imports 600 positions and binds the installation root',
+    largeImport.statusCode === 200 && largeImport.body?.success === true
+      && largeImport.body?.associations?.equipmentIds?.length === 601 && largeComponentCount === 601
+      && largeLedger.bindings.length === 1 && largeLedger.bindings[0].equipmentIds.length === 0
+      && largeLedger.bindings[0].systemId === largeSystemIds[0]);
+
+  const oversizedBindings = Array.from({ length: 450 }, (_, index) => ({
+    id: `crowded-${index}`, projectId: 'crowded-project', kind: 'document', equipmentIds: [],
+    fileName: 'x'.repeat(255), tag: 't'.repeat(120), systemId: 's'.repeat(256),
+    latestRevision: { revision: 'r'.repeat(120), sha256: 'a'.repeat(64), updatedAt: new Date().toISOString() },
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  }));
+  await prisma.appSetting.create({ data: {
+    id: 'crowded-binding-ledger', key: 'equipment_document_bindings:project:v2:crowded-project', userId: '__shared__',
+    value: JSON.stringify({ revision: 3, bindings: oversizedBindings, undo: [] }),
+  } });
+  const crowdedImport = await call('POST', draftPath, {}, {
+    units: largeUnits, category: 'AHU', projectId: 'crowded-project', fileName: 'crowded.pdf',
+    sourceBinding: { id: 'crowded-document', kind: 'document', expectedLedgerRevision: 3, fileName: 'crowded.pdf',
+      revision: 'R1', sha256: 'b'.repeat(64), rule: { kind: 'document-name', fileName: 'crowded.pdf' } },
+  });
+  const crowdedSystems = await prisma.equipmentSystem.findMany({ where: { projectId: 'crowded-project' }, select: { id: true } });
+  const crowdedMonoblocks = await prisma.monoblock.findMany({ where: { systemId: { in: crowdedSystems.map((row: any) => row.id) } }, select: { id: true } });
+  const crowdedComponentCount = await prisma.componentElement.count({ where: { monoblockId: { in: crowdedMonoblocks.map((row: any) => row.id) } } });
+  const largeProjectRevision = (await readEquipmentDocumentBindingLedger(prisma, 'large-project')).revision;
+  await upsertEquipmentDocumentBindingInTransaction(prisma, 'large-project', { kind: 'document', equipmentIds: [], fileName: 'second.pdf' }, largeProjectRevision);
+  check('active-byte overflow warns while preserving import and another project ledger',
+    crowdedImport.statusCode === 200 && crowdedImport.body?.success === true
+      && crowdedImport.body?.bindingWarning?.includes('256') && crowdedImport.body?.associations?.bindingId === undefined
+      && crowdedComponentCount === 601
+      && (await readEquipmentDocumentBindingLedger(prisma, 'large-project')).revision === largeProjectRevision + 1);
 
   const sourcePath = '/api/equipment/projects/:projectId/sources';
   const locator = { folderKey: 'a'.repeat(64), anchors: [{ key: 'a'.repeat(64), relativePath: '' }, { key: 'c'.repeat(64), relativePath: 'Engineering/Forms' }] };
