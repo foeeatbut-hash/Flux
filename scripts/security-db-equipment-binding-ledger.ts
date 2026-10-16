@@ -34,7 +34,7 @@ const barrier = (() => {
 
 async function main() {
   try {
-    setDialect(provider);
+    setDialect(provider === 'mysql' ? 'mysql' : 'postgresql');
     await prisma.$executeRawUnsafe(provider === 'mysql'
       ? 'CREATE TABLE IF NOT EXISTS `AppSetting` (`id` VARCHAR(191) NOT NULL, `key` VARCHAR(191) NOT NULL, `userId` VARCHAR(191) NULL, `value` LONGTEXT NOT NULL, `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), PRIMARY KEY (`id`), UNIQUE KEY `AppSetting_key_userId_key` (`key`, `userId`)) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
       : 'CREATE TABLE IF NOT EXISTS "AppSetting" ("id" TEXT NOT NULL, "key" TEXT NOT NULL, "userId" TEXT, "value" TEXT NOT NULL, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "AppSetting_pkey" PRIMARY KEY ("id"), CONSTRAINT "AppSetting_key_userId_key" UNIQUE ("key", "userId"))');
