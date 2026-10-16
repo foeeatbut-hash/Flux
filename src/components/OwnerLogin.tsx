@@ -6,6 +6,7 @@ import { useStore } from '../store/store';
 /** Выбор ключа и подпись выполняются в оболочке; содержимое хранилища в React не поступает. */
 export default function OwnerLogin() {
   const bridge = (window as any).electron?.ipcRenderer;
+  const [revealed, setRevealed] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const [fileName, setFileName] = React.useState('');
   const [password, setPassword] = React.useState('');
@@ -13,6 +14,14 @@ export default function OwnerLogin() {
   const [capsLock, setCapsLock] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
+  React.useEffect(() => {
+    const reveal = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.shiftKey && event.altKey) setRevealed(true);
+    };
+    // Сочетание открывает резервный путь только по намеренному действию на экране входа.
+    window.addEventListener('keydown', reveal);
+    return () => window.removeEventListener('keydown', reveal);
+  }, []);
   const select = async () => {
     setError('');
     try {
@@ -39,10 +48,10 @@ export default function OwnerLogin() {
     } catch (e: any) { setError(e.message || 'Не удалось войти.'); }
     finally { setPassword(''); setShowPassword(false); setCapsLock(false); setBusy(false); }
   };
+  if (!revealed) return null;
   return <div className="mt-4 pt-3 border-t border-slate-200 dark:border-slate-800">
     <button type="button" className="fx-btn fx-btn-quiet" aria-expanded={open} disabled={busy} onClick={() => { setOpen(v => !v); setError(''); setPassword(''); setShowPassword(false); setCapsLock(false); }}><KeyRound className="w-4 h-4" />Вход владельца</button>
     {open && (bridge ? <form className="space-y-3 mt-3" onSubmit={login}>
-      <p className="fx-hint">Выберите файл ключа владельца и введите пароль к нему. Если основной ключ недоступен, можно выбрать его резервную копию.</p>
       <button type="button" className="fx-btn max-w-full" onClick={() => void select()} disabled={busy}><span className="truncate">{fileName || 'Выбрать файл ключа'}</span></button>
       <div className="fx-field"><label className="fx-label block mb-1" htmlFor="owner-vault-password">Пароль ключа владельца</label><div className="flex items-center gap-2 min-w-0"><input id="owner-vault-password" className="fx-input flex-1 min-w-0" type={showPassword ? 'text' : 'password'} autoComplete="off" value={password} disabled={busy} onChange={event => setPassword(event.target.value)} onKeyDown={event => setCapsLock(event.getModifierState('CapsLock'))} onKeyUp={event => setCapsLock(event.getModifierState('CapsLock'))} onBlur={() => setCapsLock(false)} required minLength={12} maxLength={1024} /><button type="button" className="fx-ibtn shrink-0" disabled={busy} aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'} aria-pressed={showPassword} onClick={() => setShowPassword(v => !v)}>{showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button></div></div>
       {capsLock && <p className="fx-hint" role="status">Включён Caps Lock. Проверьте регистр букв.</p>}

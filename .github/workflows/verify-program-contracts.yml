@@ -85,7 +85,7 @@ jobs:
             exit 1
           fi
 
-          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-import-file-chooser-ui test-chat-ui test-chat-screen-ui; do
+          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-import-file-chooser-ui test-chat-ui test-chat-screen-ui test-owner-login-ui; do
             node --import tsx "scripts/$check.ts"
           done
           for check in test-remaining-identity-import-ui test-remaining-files-notes-ui test-remaining-engineering-registry-ui test-remaining-collaboration-handbook-ui test-remaining-shell-ui; do
@@ -116,6 +116,7 @@ jobs:
             /tmp/catalog-ui-*.png
             /tmp/employee-import-*.png
             /tmp/flux-desktop-*.png
+            /tmp/flux-owner-login-ui/*
           if-no-files-found: warn
 
   office-native:
