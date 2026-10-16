@@ -1,4 +1,6 @@
 import React from 'react';
+import { buildEquipmentOverview, type EquipmentOverviewNode } from '../../lib/equipmentUnitOverview';
+import { equipmentIdentityOf } from '../../lib/equipmentIdentity';
 import { ICON_SIZE } from '../../lib/metrics';
 import { EquipmentAppIcon } from '../icons/AppIcons';
 
@@ -35,18 +37,6 @@ function paramsOf(component: EquipmentPanelComponent): any[] {
   } catch { return []; }
 }
 
-function identityOf(component: EquipmentPanelComponent) {
-  const raw = String(component.name || '').trim();
-  const split = raw.match(/^(Клапан|Электропривод|Теплообменник|Узел регулирующий|Бак|Вентилятор|Электродвигатель|Выключатель светильника|Сервисный выключатель)\s+(.+?)(?:\s+(№\d+))?$/iu);
-  if (split) return { name: `${split[1]}${split[3] ? ` ${split[3]}` : ''}`, model: split[2].trim() };
-  const model = paramsOf(component).find(param => /^(кассета 1|теплообменник|вентилятор|клапан|узел обвязки|электродвигатель|электропривод)$/iu.test(String(param.key || '')) && String(param.value || '').trim() && String(param.value).trim() !== '-')?.value;
-  const compact = raw.replace(/^Блок воздухоприемный.*$/iu, 'Воздухоприёмный')
-    .replace(/^Воздухонагреватель жидкостный.*$/iu, 'Нагреватель')
-    .replace(/^Воздухоохладитель.*$/iu, 'Охладитель')
-    .replace(/^Фильтр карманный.*$/iu, 'Фильтр')
-    .replace(/^Вентилятор.*$/iu, 'Вентилятор');
-  return { name: compact, model: String(model || '') };
-}
 
 function TagList({ component, onPickTag, onUnlinkTag }: Pick<Props, 'onPickTag' | 'onUnlinkTag'> & { component: EquipmentPanelComponent }) {
   return <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
@@ -58,21 +48,17 @@ function TagList({ component, onPickTag, onUnlinkTag }: Pick<Props, 'onPickTag' 
   </div>;
 }
 
+const reasonLabels = { 'missing-parent': 'Родитель не найден', cycle: 'Цикл в составе', 'tag-parent': 'Родительский тег не найден', 'tag-ambiguous': 'Неоднозначная связь по тегам' } as const;
+
 export default function EquipmentUnitOverview({ unit, onSelect, onPickTag, onUnlinkTag }: Props) {
   const components = unit.monoblocks.flatMap(monoblock => monoblock.components || []);
-  const byParent = new Map<string, EquipmentPanelComponent[]>();
-  for (const component of components) {
-    const parent = component.parentElementId || '';
-    if (!byParent.has(parent)) byParent.set(parent, []);
-    byParent.get(parent)!.push(component);
-  }
-  for (const children of byParent.values()) children.sort((a, b) => (a.sourceOrder || 0) - (b.sourceOrder || 0));
+  const tree = buildEquipmentOverview([...components].sort((a, b) => (a.sourceOrder || 0) - (b.sourceOrder || 0)), {});
   const root = components.find(component => component.itemCode === '__unit__');
   const monoblocks = unit.monoblocks.filter(monoblock => monoblock.name !== '__unit__');
-  const childrenOf = (component: EquipmentPanelComponent): EquipmentPanelComponent[] => byParent.get(component.id) || [];
 
-  const childRows = (component: EquipmentPanelComponent, depth = 1): React.ReactNode => childrenOf(component).map(child => {
-    const identity = identityOf(child);
+  const childRows = (node: EquipmentOverviewNode<EquipmentPanelComponent>, depth = 1): React.ReactNode => node.children.map(childNode => {
+    const child = childNode.item;
+    const identity = equipmentIdentityOf(child);
     return <React.Fragment key={child.id}>
       <button type="button" data-testid={`equipment-unit-child-${child.id}`} onClick={() => onSelect(child.id)} className="flex w-full items-center gap-3 border-t border-slate-100 px-3 py-2 text-left hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50">
         <span className="min-w-0 flex-1" style={{ paddingLeft: (depth - 1) * 12 }}>
@@ -81,7 +67,7 @@ export default function EquipmentUnitOverview({ unit, onSelect, onPickTag, onUnl
         </span>
         {(child.tags || []).map(tag => <span key={tag.id} className="font-mono text-xs text-slate-500 dark:text-slate-400">{tag.identifier}</span>)}
       </button>
-      {childRows(child, depth + 1)}
+      {childRows(childNode, depth + 1)}
     </React.Fragment>;
   });
 
@@ -99,12 +85,27 @@ export default function EquipmentUnitOverview({ unit, onSelect, onPickTag, onUnl
     </header>
     <div className="space-y-3 p-3">
       {monoblocks.map(monoblock => {
-        const sections = (byParent.get('') || []).filter(component => component.itemCode !== '__unit__' && !component.itemCode.endsWith('_общие') && monoblock.components.some(item => item.id === component.id));
+        const members = new Set(monoblock.components.map(item => item.id));
+        const sections = tree.roots.filter(node => members.has(node.item.id));
+        const generalItems = tree.generalItems.filter(item => members.has(item.id));
         return <section key={monoblock.id} className="min-w-0">
           <h3 className="border-b border-slate-200 px-1 pb-2 text-sm font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-300">{monoblock.name}</h3>
+          {generalItems.length > 0 && <div data-testid={`equipment-mono-general-${monoblock.id}`} className="mt-2 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+            <h4 className="text-sm font-medium text-slate-800 dark:text-slate-100">Общие характеристики моноблока</h4>
+            {generalItems.map(item => <div key={item.id} className="mt-2">
+              <div className="mb-1 text-xs text-slate-500 dark:text-slate-400">{item.name}</div>
+              <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm @[760px]:grid-cols-2">
+                {paramsOf(item).map((param: any, index: number) => <div key={`${item.id}:${index}`} className="min-w-0">
+                  <dt className="truncate text-xs text-slate-500 dark:text-slate-400">{String(param.key || '')}</dt>
+                  <dd className="break-words text-slate-700 dark:text-slate-300">{String(param.value ?? '')}{param.unit ? ` ${param.unit}` : ''}</dd>
+                </div>)}
+              </dl>
+            </div>)}
+          </div>}
           <div className="grid grid-cols-1 gap-2 pt-2 @[760px]:grid-cols-2">
-            {sections.map(component => {
-              const identity = identityOf(component);
+            {sections.map(node => {
+              const component = node.item;
+              const identity = equipmentIdentityOf(component);
               return <article key={component.id} className="min-w-0 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-800">
                 <button type="button" data-testid={`equipment-unit-block-${component.id}`} onClick={() => onSelect(component.id)} className="w-full px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800/50">
                   <span className="flex items-center justify-between gap-2">
@@ -114,12 +115,24 @@ export default function EquipmentUnitOverview({ unit, onSelect, onPickTag, onUnl
                   {identity.model && <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">{identity.model}</span>}
                 </button>
                 <TagList component={component} onPickTag={onPickTag} onUnlinkTag={onUnlinkTag} />
-                {childRows(component)}
+                {childRows(node)}
               </article>;
             })}
           </div>
         </section>;
       })}
+      {tree.unassigned.length > 0 && <section data-testid="equipment-unassigned" className="rounded-lg border border-amber-300 bg-amber-50/50 p-3 dark:border-amber-900 dark:bg-amber-950/20">
+        <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">Не распределено</h3>
+        <div className="mt-2 space-y-2">
+          {tree.unassigned.map(({ node, reason }) => <article key={node.item.id} className="rounded-md border border-amber-200 dark:border-amber-900">
+            <div className="flex items-center justify-between gap-2 px-3 py-2">
+              <button type="button" onClick={() => onSelect(node.item.id)} className="min-w-0 truncate text-left text-sm font-medium text-slate-800 dark:text-slate-100">{node.item.itemCode} · {equipmentIdentityOf(node.item).name}</button>
+              <span className="shrink-0 text-xs text-amber-800 dark:text-amber-200">{reasonLabels[reason]}</span>
+            </div>
+            {childRows(node)}
+          </article>)}
+        </div>
+      </section>}
     </div>
   </div>;
 }

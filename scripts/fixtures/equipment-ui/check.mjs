@@ -26,6 +26,14 @@ const systems = [
     ]) },
     { id: 'motor-1', itemCode: 'M-1', name: 'Электродвигатель 160М6', equipType: 'Электродвигатель', role: 'ДВИГАТЕЛЬ', parentElementId: 'block-1', version: 1, hasConflict: false, status: 'OK', tags: [{ id: 'tag-2', identifier: 'AHU-101-M1' }], specs: specs([{ title: 'Электрические', params: [{ key: 'Мощность', value: '5.5', unit: 'кВт' }] }]) },
     { id: longUntaggedId, itemCode: 'B-2', name: 'Рама фильтра длинного проекта', equipType: 'Корпус фильтра', role: 'ФИЛЬТР', parentElementId: 'block-1', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([{ title: 'Габариты', params: [{ key: 'Ширина', value: '600', unit: 'мм' }] }]) },
+    { id: 'mono-general', itemCode: 'Основной блок_общие', name: 'Основные параметры моноблока', equipType: 'МОНОБЛОК', role: 'МОНОБЛОК', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([{ title: 'Общие', params: [{ key: 'Масса моноблока', value: '455', unit: 'кг' }] }]) },
+    { id: 'orphan-panel', itemCode: 'ORPHAN-1', name: 'Нераспределённая позиция', equipType: 'СЕКЦИЯ', role: 'БЛОК', parentElementId: 'missing-parent', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([]) },
+    { id: 'cycle-panel-a', itemCode: 'CYCLE-A', name: 'Цикл A', equipType: 'СЕКЦИЯ', role: 'БЛОК', parentElementId: 'cycle-panel-b', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([]) },
+    { id: 'cycle-panel-b', itemCode: 'CYCLE-B', name: 'Цикл B', equipType: 'СЕКЦИЯ', role: 'БЛОК', parentElementId: 'cycle-panel-a', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([]) },
+    { id: 'tag-owner-a', itemCode: 'TAG-OWNER-A', name: 'Владелец тега A', equipType: 'СЕКЦИЯ', role: 'БЛОК', tags: [{ id: 'owner-tag-a', identifier: 'TAG-A' }], specs: specs([]) },
+    { id: 'tag-owner-b', itemCode: 'TAG-OWNER-B', name: 'Владелец тега B', equipType: 'СЕКЦИЯ', role: 'БЛОК', tags: [{ id: 'owner-tag-b', identifier: 'TAG-B' }], specs: specs([]) },
+    { id: 'tag-parent-panel', itemCode: 'TAG-PARENT', name: 'Без родительского тега', equipType: 'СЕКЦИЯ', role: 'БЛОК', tags: [{ id: 'child-tag-parent', identifier: 'TAG-PARENT-CHILD', metadata: { parentId: 'absent-tag' } }], specs: specs([]) },
+    { id: 'tag-ambiguous-panel', itemCode: 'TAG-AMBIGUOUS', name: 'Неоднозначная позиция', equipType: 'СЕКЦИЯ', role: 'БЛОК', tags: [{ id: 'child-tag-a', identifier: 'TAG-CHILD-A', metadata: { parentId: 'owner-tag-a' } }, { id: 'child-tag-b', identifier: 'TAG-CHILD-B', metadata: { parentId: 'owner-tag-b' } }], specs: specs([]) },
     { id: 'unit-general', itemCode: '__unit__', name: 'Параметры установки', equipType: 'Установка', role: 'БЛОК', version: 1, hasConflict: false, status: 'OK', tags: [], specs: specs([
       { title: 'Параметры установки', params: [{ key: 'Расход воздуха', value: '8060', unit: 'м³/ч' }, { key: 'Давление в сети', value: '500', unit: 'Па' }, { key: 'Мощность', value: '38.64', unit: 'кВт' }, { key: 'Количество блоков', value: '7', unit: 'шт.' }] },
       { title: 'Автоматика', params: [{ key: 'Система управления', value: 'контроллер' }] },
@@ -100,8 +108,18 @@ try {
   await page.waitForTimeout(300);
 
   await page.getByRole('button', { name: 'AHU-101', exact: true }).click();
-  await page.getByTestId('equipment-unit-overview').waitFor();
-  await page.getByTestId('equipment-unit-overview').getByRole('button', { name: 'Параметры установки', exact: true }).click();
+  const overview = page.getByTestId('equipment-unit-overview');
+  await overview.waitFor();
+  await overview.getByText('Общие характеристики моноблока', { exact: true }).waitFor();
+  await overview.getByText('Масса моноблока', { exact: true }).waitFor();
+  const unassigned = overview.getByTestId('equipment-unassigned');
+  await unassigned.getByText('ORPHAN-1', { exact: false }).waitFor();
+  await unassigned.getByText('CYCLE-A', { exact: false }).waitFor();
+  await unassigned.getByText('Родительский тег не найден', { exact: true }).waitFor();
+  await unassigned.getByText('Неоднозначная связь по тегам', { exact: true }).waitFor();
+  await unassigned.getByText('Цикл в составе', { exact: true }).waitFor();
+  await unassigned.getByText('Родитель не найден', { exact: true }).waitFor();
+  await overview.getByRole('button', { name: 'Параметры установки', exact: true }).click();
   const unitPane = page.getByTestId('equipment-selected-unit-general');
   await unitPane.waitFor();
   await unitPane.locator('h4[title="Параметры установки"]').waitFor();

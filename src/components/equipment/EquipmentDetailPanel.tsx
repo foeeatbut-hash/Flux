@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ICON_SIZE } from '../../lib/metrics';
 import { EquipmentAppIcon } from '../icons/AppIcons';
+import { equipmentIdentityText } from '../../lib/equipmentIdentity';
 import EquipmentUnitOverview, { type EquipmentPanelComponent, type EquipmentPanelUnit } from './EquipmentUnitOverview';
 
 interface Props {
@@ -14,11 +15,6 @@ interface Props {
   renderSelectedContent: (component: EquipmentPanelComponent, search: string, setSearch: (value: string) => void) => React.ReactNode;
 }
 
-function identity(component: EquipmentPanelComponent) {
-  const name = String(component.name || '').trim();
-  const match = name.match(/^(Клапан|Электропривод|Теплообменник|Узел регулирующий|Бак|Вентилятор|Электродвигатель)\s+(.+?)(?:\s+(№\d+))?$/iu);
-  return match ? `${match[1]}${match[3] ? ` ${match[3]}` : ''} ${match[2]}` : name;
-}
 
 export default function EquipmentDetailPanel({ unit, selectedComponent, onSelectComponent, onBackToUnit, onPickTag, onUnlinkTag, overviewHeader, renderSelectedContent }: Props) {
   const [search, setSearch] = useState('');
@@ -65,13 +61,13 @@ export default function EquipmentDetailPanel({ unit, selectedComponent, onSelect
         {rootPosition && <button type="button" onClick={() => onSelectComponent(rootPosition.id)} aria-current={selectedComponent.id === rootPosition.id ? 'true' : undefined} className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 aria-[current=true]:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:aria-[current=true]:bg-slate-800">Параметры установки</button>}
         {unit.monoblocks.filter(monoblock => monoblock.name !== '__unit__').map(monoblock => <div key={monoblock.id} className="flex flex-wrap items-center gap-1 rounded-md border border-slate-200 p-1 dark:border-slate-700">
           <span className="px-1 text-xs text-slate-500 dark:text-slate-400">{monoblock.name.replace(/^Моноблок\s+/iu, 'МБ ')}</span>
-          {visibleSections(monoblock.id).map(section => <button key={section.id} type="button" data-equipment-id={section.id} onClick={() => onSelectComponent(section.id)} aria-current={selectedRoot?.id === section.id ? 'true' : undefined} className="max-w-44 truncate rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 aria-[current=true]:bg-slate-100 aria-[current=true]:font-medium dark:text-slate-300 dark:hover:bg-slate-800 dark:aria-[current=true]:bg-slate-800">{section.itemCode} · {identity(section)}</button>)}
+          {visibleSections(monoblock.id).map(section => <button key={section.id} type="button" data-equipment-id={section.id} onClick={() => onSelectComponent(section.id)} aria-current={selectedRoot?.id === section.id ? 'true' : undefined} className="max-w-44 truncate rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 aria-[current=true]:bg-slate-100 aria-[current=true]:font-medium dark:text-slate-300 dark:hover:bg-slate-800 dark:aria-[current=true]:bg-slate-800">{section.itemCode} · {equipmentIdentityText(section)}</button>)}
         </div>)}
       </div>
       {selectedChildren.length > 0 && <div data-testid="equipment-child-navigation" className="flex flex-wrap items-center gap-1 border-t border-slate-100 pt-1.5 dark:border-slate-800">
         <span className="mr-1 text-xs text-slate-500 dark:text-slate-400">Состав {selectedRoot?.itemCode}:</span>
-        <button type="button" data-equipment-id={selectedRoot?.id} onClick={() => onSelectComponent(selectedRoot!.id)} aria-current={selectedComponent.id === selectedRoot?.id ? 'true' : undefined} className="rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 aria-[current=true]:bg-slate-100 aria-[current=true]:font-medium dark:text-slate-300 dark:hover:bg-slate-800 dark:aria-[current=true]:bg-slate-800">{identity(selectedRoot!)}</button>
-        {selectedChildren.map(child => <button key={child.id} type="button" data-testid={`equipment-compact-child-${child.id}`} data-equipment-id={child.id} onClick={() => onSelectComponent(child.id)} aria-current={selectedComponent.id === child.id ? 'true' : undefined} className="max-w-48 truncate rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 aria-[current=true]:bg-slate-100 aria-[current=true]:font-medium dark:text-slate-300 dark:hover:bg-slate-800 dark:aria-[current=true]:bg-slate-800">{identity(child)}{child.tags?.[0]?.identifier ? ` · ${child.tags[0].identifier}` : ''}</button>)}
+        <button type="button" data-equipment-id={selectedRoot?.id} onClick={() => onSelectComponent(selectedRoot!.id)} aria-current={selectedComponent.id === selectedRoot?.id ? 'true' : undefined} className="rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 aria-[current=true]:bg-slate-100 aria-[current=true]:font-medium dark:text-slate-300 dark:hover:bg-slate-800 dark:aria-[current=true]:bg-slate-800">{equipmentIdentityText(selectedRoot!)}</button>
+        {selectedChildren.map(child => <button key={child.id} type="button" data-testid={`equipment-compact-child-${child.id}`} data-equipment-id={child.id} onClick={() => onSelectComponent(child.id)} aria-current={selectedComponent.id === child.id ? 'true' : undefined} className="max-w-48 truncate rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 aria-[current=true]:bg-slate-100 aria-[current=true]:font-medium dark:text-slate-300 dark:hover:bg-slate-800 dark:aria-[current=true]:bg-slate-800">{equipmentIdentityText(child)}{child.tags?.[0]?.identifier ? ` · ${child.tags[0].identifier}` : ''}</button>)}
       </div>}
     </div>
     <div className="min-h-0 flex-1 overflow-y-auto">
