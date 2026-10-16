@@ -414,13 +414,6 @@ void (async () => {
     const projectFields = page.getByRole('complementary', { name: 'Данные проекта' });
     const insertProjectFieldButton = projectFields.getByRole('button', { name: 'Вставить' }).first();
     await insertProjectFieldButton.waitFor({ timeout: 15000 });
-    await insertProjectFieldButton.click();
-    check('локальная панель вставила поле проекта в DOCX', await waitFor(async () => (await docs.locator('.ProseMirror').first().innerText()).includes('{{')));
-    if (fieldRefreshOnly && failures) throw fieldRefreshDone;
-    await docs.locator('.ProseMirror').first().click();
-    await page.keyboard.press('Control+End');
-    await page.keyboard.type('REFRESH_KEEP');
-    await ribbonClick(docs, 'project-fields');
     await evaluateBrowserCode(page, `(() => {
       const w = window;
       w.__fluxFieldRefreshToastMessages = [];
@@ -444,6 +437,38 @@ void (async () => {
       observer.observe(document.body, { childList: true, subtree: true });
       w.__fluxFieldRefreshToastStop = () => observer.disconnect();
     })()`);
+    await insertProjectFieldButton.click();
+    const projectNameMarker = '{{project.name}}';
+    const projectNameInserted = await waitFor(async () => (await docs.locator('.ProseMirror').first().innerText().catch(() => '')).includes(projectNameMarker), 15000);
+    if (!projectNameInserted) {
+      const setupDetails = { phase: 'project-field-insert', expectedKey: 'project.name', editorHasExactMarker: false, ...(await fieldRefreshFailureDetails(docs, false)) };
+      console.error('OFFICE_FIELD_REFRESH_DIAGNOSTIC', JSON.stringify(setupDetails));
+      await writeFile('/tmp/office-explorer-field-refresh-diagnostic.json', JSON.stringify(setupDetails, null, 2), { mode: 0o600 });
+      check('локальная панель вставила точное поле проекта в DOCX', false, setupDetails);
+      throw fieldRefreshDone;
+    }
+    check('локальная панель вставила точное поле проекта в DOCX', true);
+    const projectFieldEditor = docs.locator('.ProseMirror').first();
+    await projectFieldEditor.click();
+    await page.keyboard.press('Control+s');
+    const projectNameSaved = await waitFor(async () => {
+      const savedBytes = await disk('one.docx');
+      const [savedMarkers, savedFields] = await Promise.all([listDocxMarkers(savedBytes), listDocxFields(savedBytes)]);
+      return savedMarkers.includes('project.name') || savedFields.some((field) => field.key === 'project.name');
+    }, 30000);
+    if (!projectNameSaved) {
+      const setupDetails = { phase: 'project-field-save', expectedKey: 'project.name', editorHasExactMarker: true, ...(await fieldRefreshFailureDetails(docs, false)) };
+      console.error('OFFICE_FIELD_REFRESH_DIAGNOSTIC', JSON.stringify(setupDetails));
+      await writeFile('/tmp/office-explorer-field-refresh-diagnostic.json', JSON.stringify(setupDetails, null, 2), { mode: 0o600 });
+      check('сохранённый DOCX распознаёт поле project.name', false, setupDetails);
+      throw fieldRefreshDone;
+    }
+    check('сохранённый DOCX распознаёт поле project.name', true);
+    await projectFieldEditor.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('REFRESH_KEEP');
+    await ribbonClick(docs, 'project-fields');
+    if (fieldRefreshOnly && failures) throw fieldRefreshDone;
     await page.getByRole('button', { name: 'Обновить поля' }).click();
     let refreshToastObserved = false;
     const refreshPassed = await waitFor(async () => {
@@ -466,9 +491,27 @@ void (async () => {
     const originalFanPower = await changeFanHighPower('1500');
     try {
       await panel().getByRole('button', { name: 'Обновить выборку' }).click();
-      check('открытый DOCX перечитал изменившийся источник после 409', await waitFor(async () =>
+      const fieldRefreshSourcePassed = await waitFor(async () =>
         (await panel().getByRole('status').filter({ hasText: 'Данные обновлены' }).count()) > 0
-        && (await panel().getByRole('grid', { name: 'Предпросмотр выборки' }).getByText('1500').count()) > 0, 20000));
+        && (await panel().getByRole('grid', { name: 'Предпросмотр выборки' }).getByText('1500').count()) > 0, 20000);
+      if (!fieldRefreshSourcePassed) {
+        const fieldRefreshSourceState = await evaluateBrowserCode(page, `(() => {
+          const statusText = Array.from(document.querySelectorAll('[role="status"]')).map(element => element.textContent || '').join(' ').slice(-300);
+          const grid = document.querySelector('[role="grid"][aria-label="Предпросмотр выборки"]');
+          const gridText = grid?.textContent || '';
+          return {
+            updatedStatusVisible: statusText.includes('Данные обновлены'),
+            gridRowCount: grid?.querySelectorAll('[role="row"]').length ?? null,
+            has900: gridText.includes('900'),
+            has1200: gridText.includes('1200'),
+            has1500: gridText.includes('1500'),
+          };
+        })()`).catch(() => ({ updatedStatusVisible: false, gridRowCount: null, has900: false, has1200: false, has1500: false }));
+        const fieldRefreshSourceDetails = { phase: 'source-409-preview', fieldRefreshSourceState, recentServerCalls: serverCalls.slice(-6).map(call => call.slice(0, 240)), ...(await fieldRefreshFailureDetails(docs, false)) };
+        console.error('OFFICE_FIELD_REFRESH_DIAGNOSTIC', JSON.stringify(fieldRefreshSourceDetails));
+        await writeFile('/tmp/office-explorer-field-refresh-diagnostic.json', JSON.stringify(fieldRefreshSourceDetails, null, 2), { mode: 0o600 });
+      }
+      check('открытый DOCX перечитал изменившийся источник после 409', fieldRefreshSourcePassed);
       if (fieldRefreshOnly) throw fieldRefreshDone;
       const staleConfirm = await fillFromProject('DOCX после изменения источника', async () => {
         await changeFanHighPower('1600');
