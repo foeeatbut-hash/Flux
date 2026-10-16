@@ -125,7 +125,7 @@ Object.defineProperty(globalThis, 'window', { configurable: true, value: { elect
       return { ok: true, data: { entries, nextOffset: null } };
     }
     return { ok: false, error: { code: 'NOT_SUPPORTED', message: 'unexpected request' } };
-  }, onChanged: () => () {},
+  }, onChanged: () => () => {},
 } } } });
 await assert.rejects(
   () => findLatestBoundDocument('project-fixture', {
