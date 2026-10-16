@@ -131,7 +131,30 @@ try {
     screenshots.push({ state, width, theme, path: shot, bytes: stat.size });
     const geometry = await page.evaluate(() => ({ width: innerWidth, scrollWidth: document.documentElement.scrollWidth }));
     assert.ok(geometry.scrollWidth <= geometry.width + 1, `${state}/${theme}/${width}: horizontal overflow ${JSON.stringify(geometry)}`);
+    // Интерактивные проверки идут после снимков, чтобы не менять утверждённый набор из 14 изображений.
     if (state === 'block') await page.getByTestId('equipment-compact-navigation').waitFor();
+    if (state === 'block' && width === 1440 && theme === 'light') {
+      const navigation = page.getByTestId('equipment-compact-navigation');
+      await navigation.getByTestId('equipment-compact-child-comp-3').click();
+      await page.getByTestId('equipment-selected-comp-3').waitFor();
+      await navigation.getByTestId('equipment-compact-child-comp-4').click();
+      await page.getByTestId('equipment-selected-comp-4').waitFor();
+      await navigation.locator('button[data-equipment-id="comp-2"]').first().click();
+      const selectedPanel = page.getByTestId('equipment-selected-comp-2');
+      await selectedPanel.waitFor();
+
+      const search = selectedPanel.getByTestId('equipment-spec-search');
+      await search.fill('Аэродинамическое сопротивление');
+      await selectedPanel.getByText('Аэродинамическое сопротивление', { exact: true }).first().waitFor();
+      await selectedPanel.getByText('Характеристики · 1', { exact: true }).waitFor();
+      await search.fill('параметр-которого-нет');
+      await selectedPanel.getByText('Характеристики · 0', { exact: true }).waitFor();
+      await search.fill('');
+      await selectedPanel.getByText('Аэродинамическое сопротивление', { exact: true }).first().waitFor();
+      await selectedPanel.getByRole('button', { name: 'Установка' }).click();
+      await page.getByTestId('equipment-unit-overview').waitFor();
+      assert.equal(await page.locator('[role="alert"]').count(), 0, 'panel navigation and parameter search should not show an error');
+    }
     await page.close();
   }
   for (const width of [1440, 1100]) for (const theme of ['light', 'dark']) for (const state of ['unit', 'block', 'valve']) await open(theme, width, state);
