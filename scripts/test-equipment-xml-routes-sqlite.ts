@@ -80,8 +80,8 @@ try {
   await prisma.$executeRawUnsafe(`INSERT INTO ComponentElement(id,name,itemCode,monoblockId,specs) VALUES ('element-b','FAN-1','FAN-1','mono-b',?)`, secondSpecs);
   await prisma.$executeRawUnsafe(`INSERT INTO _ComponentElementToTag(A,B) VALUES ('element-b','tag-b')`);
 
-  // Legacy shared ledger is copied lazily, project by project. Revisions in
-  // those copies can then advance independently; removing A preserves B.
+  // Общий журнал переносится отдельно для каждого проекта. Ревизии копий
+  // изменяются независимо; удаление проекта A сохраняет данные проекта B.
   const legacyBindings = [
     { id: 'legacy-a', projectId: 'legacy-project-a', kind: 'document', equipmentIds: [], fileName: 'a.pdf', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     { id: 'legacy-b', projectId: 'legacy-project-b', kind: 'document', equipmentIds: [], fileName: 'b.pdf', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
@@ -123,6 +123,10 @@ try {
   const largeLedgerRow = await prisma.appSetting.findFirst({ where: {
     key: 'equipment_document_bindings:project:v2:large-project', userId: '__shared__',
   } });
+  if (largeImport.statusCode !== 200 || largeImport.body?.success !== true || !largeLedgerRow?.value) {
+    const bodyDiagnostic = JSON.stringify(largeImport.body ?? null).slice(0, 600);
+    throw new Error(`large import failed: status=${largeImport.statusCode}; body=${bodyDiagnostic}; ledger=${largeLedgerRow ? 'present' : 'missing'}`);
+  }
   const largeLedger = JSON.parse(largeLedgerRow.value);
   const largeSystemIds = largeImport.body?.associations?.systemIds || [];
   const largeMonoblocks = await prisma.monoblock.findMany({ where: { systemId: { in: largeSystemIds } }, select: { id: true } });

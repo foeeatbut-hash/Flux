@@ -85,11 +85,13 @@ async function readSetting(prisma: any, projectId: string) {
   if (!legacy) return null;
   const prior = parseLedger(legacy.value);
   const forProject = (rows: EquipmentDocumentBinding[]) => rows.filter(row => row.projectId === projectId);
-  const migrated: EquipmentDocumentBindingLedger = {
-    revision: prior.revision,
-    bindings: forProject(prior.bindings),
-    undo: prior.undo.map(item => ({ ...item, before: forProject(item.before), after: forProject(item.after) })),
-  };
+  const bindings = forProject(prior.bindings);
+  const undo = prior.undo
+    .map(item => ({ ...item, before: forProject(item.before), after: forProject(item.after) }))
+    .filter(item => item.before.length > 0 || item.after.length > 0);
+  // Не создаём пустую копию журнала для проекта, которого нет в старых данных.
+  if (!bindings.length && !undo.length) return null;
+  const migrated: EquipmentDocumentBindingLedger = { revision: prior.revision, bindings, undo };
   try {
     return await prisma.appSetting.create({ data: { ...where, value: JSON.stringify(migrated) } });
   } catch (error) {
