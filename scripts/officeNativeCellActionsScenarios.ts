@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { makeXlsx } from './officeHarness';
+export { captureNativeDefinedNameEvidence } from './officeNativeDefinedNameEvidence';
 
 type SuiteOptions = {
   fixture: { projectId: string };
@@ -247,7 +248,11 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   check('right-click in the active formula overlay opens a separate dialog with the same cell and live field part', await insertDialog.getByText(/Активная ячейка.*A1/).count() > 0 && await insertDialog.getByText(/DrivePower · equipment/).count() > 0);
   await insertDialog.getByLabel('Параметр из каталога').selectOption({ label: 'MotorPower · equipment' });
   await insertDialog.getByRole('button', { name: 'Вставить метку' }).click();
-  await formulaEditor.waitFor();
+  const motorPowerInserted = await waitFor(async () => {
+    const tokenTexts = await formulaEditor.locator('.flux-sheet-token-chip').allTextContents();
+    return tokenTexts.length === 2 && tokenTexts.some((text: string) => text.includes('MotorPower'));
+  });
+  if (!motorPowerInserted) throw new Error('MotorPower protected token was not inserted into the active formula before trailing text input');
   await formulaEditor.pressSequentially(' end');
   const tokenTexts = await formulaEditor.locator('.flux-sheet-token-chip').allTextContents();
   check('in-cell formula keeps two individually protected parameter aliases and operator/text around them', tokenTexts.length === 2 && tokenTexts.some((text: string) => text.includes('DrivePower')) && tokenTexts.some((text: string) => text.includes('MotorPower')) && (await formulaEditor.innerText()).includes('=') && (await formulaEditor.innerText()).includes('+') && (await formulaEditor.innerText()).includes('end'), { tokenTexts, text: await formulaEditor.innerText() });

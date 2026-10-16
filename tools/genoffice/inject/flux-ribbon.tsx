@@ -22,11 +22,12 @@ interface RibbonState {
   /** Файл проекта: «Поля проекта» и «Английская версия» работают только с карточкой файла в базе. */
   projectFile: boolean
   projectFileHint: string
+  projectFields: boolean
 }
 
 const NO_TEMPLATE = 'У файла нет шаблона'
 const ISSUE_TIP = 'Выпустить ревизию документа'
-let ribbonState: RibbonState = { resetAvailable: false, resetHint: NO_TEMPLATE, issueAvailable: true, issueHint: ISSUE_TIP, projectFile: true, projectFileHint: '' }
+let ribbonState: RibbonState = { resetAvailable: false, resetHint: NO_TEMPLATE, issueAvailable: true, issueHint: ISSUE_TIP, projectFile: true, projectFileHint: '', projectFields: true }
 const subscribers = new Set<(state: RibbonState) => void>()
 
 const parentOrigin = (): string =>
@@ -59,6 +60,7 @@ if (typeof window !== 'undefined') {
       issueHint: typeof next?.issueHint === 'string' && next.issueHint ? next.issueHint : ISSUE_TIP,
       projectFile: next?.projectFile !== false,
       projectFileHint: typeof next?.projectFileHint === 'string' ? next.projectFileHint : '',
+      projectFields: next?.projectFields === true || (next?.projectFields === undefined && next?.projectFile !== false),
     }
     subscribers.forEach((fn) => fn(ribbonState))
   })
@@ -94,10 +96,6 @@ const GROUPS: Group[] = [
   ] },
   { label: 'Данные', commands: [
     { id: 'project-fields', label: 'Поля проекта', tip: 'Метки {{ключ}} в документе и «Обновить поля»' },
-    { id: 'source-equipment', label: 'Оборудование', tip: 'Данные оборудования проекта' },
-    { id: 'source-tags', label: 'Теги', tip: 'Теги проекта' },
-    { id: 'source-management', label: 'Менеджмент', tip: 'Скоро', soon: true },
-    { id: 'source-e3', label: 'E3Flux', tip: 'Скоро', soon: true },
   ] },
   { label: 'Шаблоны', commands: [
     { id: 'templates', label: 'Шаблоны', tip: 'Библиотека шаблонов шапки' },
@@ -131,8 +129,9 @@ export function FluxRibbonTab({ variant }: { variant: Variant }) {
   const button = (command: Command) => {
     const reset = command.id === 'reset-header'
     const issue = command.id === 'issue'
-    const projectOnly = command.id === 'project-fields' || command.id === 'english'
-    const disabled = command.soon === true || (reset && !state.resetAvailable) || (issue && !state.issueAvailable) || (projectOnly && !state.projectFile)
+    const projectOnly = command.id === 'english'
+    const fieldsOnly = command.id === 'project-fields'
+    const disabled = command.soon === true || (reset && !state.resetAvailable) || (issue && !state.issueAvailable) || (projectOnly && !state.projectFile) || (fieldsOnly && !state.projectFields)
     const tip = reset ? (state.resetAvailable ? state.resetHint : NO_TEMPLATE) : issue ? state.issueHint : projectOnly && !state.projectFile ? state.projectFileHint || 'Недоступно для этого файла' : command.tip
     const onClick = () => { if (!disabled) sendFluxCommand(command.id) }
     if (variant === 'docs') {
