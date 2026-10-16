@@ -270,7 +270,7 @@ export function registerEquipmentSourceImportRoutes(app: Express): void {
           } });
         const associationInput: EquipmentDocumentBindingInput = {
           id: source.id, kind: 'cad-xml', xmlSourceId: source.id,
-          equipmentIds: summary.associations?.equipmentIds || [root.id], systemId: system.id, tag: input.identifier,
+          equipmentIds: [root.id], systemId: system.id, tag: input.identifier,
           ...(input.locator ? { locator: input.locator as any } : {}), fileName: input.fileName, rule: input.rule,
           ...(sourceBaselineApplied ? { latestRevision: { revision: input.revision, sha256: input.sha256, updatedAt: now.toISOString() } } : {}),
         };

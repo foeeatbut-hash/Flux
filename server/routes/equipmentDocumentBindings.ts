@@ -7,8 +7,10 @@ import { canSeeProject, roleGrantsOf } from './members.js';
 import type { EquipmentDocumentBinding, EquipmentDocumentBindingInput, EquipmentDocumentBindingLedger, EquipmentDocumentBindingsView } from '../../equipment/documentBindings.js';
 import type { PortableFolderLocator } from '../../filesystem/contracts.js';
 
-const LEDGER_KEY = 'equipment_document_bindings:shared:v1';
+const LEGACY_LEDGER_KEY = 'equipment_document_bindings:shared:v1';
+const LEDGER_KEY_PREFIX = 'equipment_document_bindings:project:v2:';
 const LEDGER_OWNER = '__shared__';
+const ledgerKey = (projectId: string) => `${LEDGER_KEY_PREFIX}${encodeURIComponent(projectId)}`;
 const MAX_BINDINGS = 1000;
 const MAX_UNDO = 20;
 const MAX_BYTES = 256_000;
@@ -19,8 +21,8 @@ const isLocationKey = (value: unknown): value is string => typeof value === 'str
 function parseLedger(raw: string | null | undefined): EquipmentDocumentBindingLedger {
   if (!raw) return EMPTY();
   const parsed = JSON.parse(raw);
-  if (!parsed || !Number.isSafeInteger(parsed.revision) || parsed.revision < 0 || !Array.isArray(parsed.bindings) || !Array.isArray(parsed.undo)) throw new Error('Повреждён общий журнал источников оборудования');
-  if (parsed.bindings.length > MAX_BINDINGS || parsed.undo.length > MAX_UNDO) throw new Error('Общий журнал источников превышает допустимый размер');
+  if (!parsed || !Number.isSafeInteger(parsed.revision) || parsed.revision < 0 || !Array.isArray(parsed.bindings) || !Array.isArray(parsed.undo)) throw new Error('Повреждён журнал источников оборудования проекта');
+  if (parsed.bindings.length > MAX_BINDINGS || parsed.undo.length > MAX_UNDO) throw new Error('Журнал источников проекта превышает допустимый размер');
   return parsed as EquipmentDocumentBindingLedger;
 }
 
@@ -72,23 +74,60 @@ function normalizeInput(projectId: string, input: EquipmentDocumentBindingInput,
   };
 }
 
-async function readSetting(prisma: any) {
-  return prisma.appSetting.findFirst({ where: { key: LEDGER_KEY, userId: LEDGER_OWNER } });
+async function readSetting(prisma: any, projectId: string) {
+  const where = { key: ledgerKey(projectId), userId: LEDGER_OWNER };
+  const existing = await prisma.appSetting.findFirst({ where });
+  if (existing) return existing;
+
+  // Переносим только данные текущего проекта из общего журнала. Старый журнал
+  // остаётся источником для проектов, которые ещё не открывали экран привязок.
+  const legacy = await prisma.appSetting.findFirst({ where: { key: LEGACY_LEDGER_KEY, userId: LEDGER_OWNER } });
+  if (!legacy) return null;
+  const prior = parseLedger(legacy.value);
+  const forProject = (rows: EquipmentDocumentBinding[]) => rows.filter(row => row.projectId === projectId);
+  const migrated: EquipmentDocumentBindingLedger = {
+    revision: prior.revision,
+    bindings: forProject(prior.bindings),
+    undo: prior.undo.map(item => ({ ...item, before: forProject(item.before), after: forProject(item.after) })),
+  };
+  try {
+    return await prisma.appSetting.create({ data: { ...where, value: JSON.stringify(migrated) } });
+  } catch (error) {
+    // Параллельный первый запрос мог уже создать проектный журнал.
+    const concurrent = await prisma.appSetting.findFirst({ where });
+    if (concurrent) return concurrent;
+    throw error;
+  }
 }
 
-export async function readEquipmentDocumentBindingLedger(prisma: any): Promise<EquipmentDocumentBindingLedger> {
-  const row = await readSetting(prisma);
+export async function readEquipmentDocumentBindingLedger(prisma: any, projectId: string): Promise<EquipmentDocumentBindingLedger> {
+  const row = await readSetting(prisma, projectId);
   return parseLedger(row?.value);
 }
 
-/** При импорте оборудования передаём клиент текущей транзакции, чтобы привязка записалась вместе с ним. */
+export async function cleanupEquipmentDocumentBindingLedger(prisma: any, projectId: string): Promise<void> {
+  await prisma.appSetting.deleteMany({ where: { key: ledgerKey(projectId), userId: LEDGER_OWNER } });
+  const legacy = await prisma.appSetting.findFirst({ where: { key: LEGACY_LEDGER_KEY, userId: LEDGER_OWNER } });
+  if (!legacy) return;
+  const prior = parseLedger(legacy.value);
+  const forOtherProjects = (rows: EquipmentDocumentBinding[]) => rows.filter(row => row.projectId !== projectId);
+  const next: EquipmentDocumentBindingLedger = {
+    revision: prior.revision + 1,
+    bindings: forOtherProjects(prior.bindings),
+    undo: prior.undo.map(item => ({ ...item, before: forOtherProjects(item.before), after: forOtherProjects(item.after) })),
+  };
+  const changed = await prisma.appSetting.updateMany({ where: { id: legacy.id, value: legacy.value }, data: { value: JSON.stringify(next) } });
+  if (changed.count !== 1) throw Object.assign(new Error('Журнал источников оборудования изменился параллельно при удалении проекта'), { status: 409 });
+}
+
+/** Клиент транзакции нужен там, где запись привязки должна быть атомарна с импортом. */
 export async function upsertEquipmentDocumentBindingInTransaction(
   prisma: any,
   projectId: string,
   input: EquipmentDocumentBindingInput,
   expectedRevision?: number,
 ): Promise<{ binding: EquipmentDocumentBinding; ledger: EquipmentDocumentBindingLedger }> {
-  const stored = await readSetting(prisma);
+  const stored = await readSetting(prisma, projectId);
   const current = parseLedger(stored?.value);
   if (expectedRevision !== undefined && expectedRevision !== current.revision) throw Object.assign(new Error('Источники оборудования изменились в другом окне. Обновите список и повторите импорт.'), { status: 409, revision: current.revision });
 
@@ -105,7 +144,7 @@ export async function upsertEquipmentDocumentBindingInTransaction(
   const bindings = current.bindings.slice();
   if (byId >= 0) bindings[byId] = binding;
   else {
-    if (bindings.length >= MAX_BINDINGS) throw Object.assign(new Error('Достигнут предел общих источников оборудования'), { status: 413 });
+    if (bindings.length >= MAX_BINDINGS) throw Object.assign(new Error('Достигнут предел источников оборудования в проекте'), { status: 413 });
     bindings.push(binding);
   }
   const revision = current.revision + 1;
@@ -119,7 +158,7 @@ export async function upsertEquipmentDocumentBindingInTransaction(
     next.undo.shift();
     value = JSON.stringify(next);
   }
-  if (Buffer.byteLength(value, 'utf8') > MAX_BYTES) throw Object.assign(new Error('Общий журнал источников превышает 256 КБ; активные привязки не удалены'), { status: 413 });
+  if (Buffer.byteLength(value, 'utf8') > MAX_BYTES) throw Object.assign(new Error('Журнал источников проекта превышает 256 КБ; активные привязки не удалены'), { status: 413 });
   if (stored) {
     const result = await prisma.appSetting.updateMany({ where: { id: stored.id, value: stored.value }, data: { value } });
     if (result.count !== 1) throw Object.assign(new Error('Источники оборудования изменились параллельно. Обновите список.'), { status: 409 });
@@ -162,7 +201,7 @@ export function registerEquipmentDocumentBindingRoutes(app: Express): void {
     try {
       const projectId = String(req.params.projectId || '');
       const actor = await visibleProject(req, projectId);
-      const ledger = await readEquipmentDocumentBindingLedger(getPrisma());
+      const ledger = await readEquipmentDocumentBindingLedger(getPrisma(), projectId);
       res.json(await viewFor(projectId, ledger, await actorMay(actor, roleGrantsOf, 'equipment.manage')));
     } catch (error: any) { res.status(error.status || 500).json({ error: error.message || 'Не удалось прочитать источники оборудования' }); }
   });
@@ -175,7 +214,7 @@ export function registerEquipmentDocumentBindingRoutes(app: Express): void {
       const { expectedRevision, operation } = req.body || {};
       if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0 || !operation || !['upsert', 'remove'].includes(operation.kind)) return res.status(400).json({ error: 'Некорректный план изменения источников' });
       const prisma = getPrisma();
-      const stored = await readSetting(prisma);
+      const stored = await readSetting(prisma, projectId);
       const ledger = parseLedger(stored?.value);
       if (ledger.revision !== expectedRevision) return res.status(409).json({ error: 'Источники оборудования изменились. Обновите список.', revision: ledger.revision });
       if (operation.kind === 'remove') {
@@ -186,7 +225,7 @@ export function registerEquipmentDocumentBindingRoutes(app: Express): void {
         const next: EquipmentDocumentBindingLedger = { revision, bindings: nextBindings, undo: [...ledger.undo, { id: randomUUID(), beforeRevision: ledger.revision, afterRevision: revision, before: ledger.bindings, after: nextBindings }].slice(-MAX_UNDO) };
         let value = JSON.stringify(next);
         while (Buffer.byteLength(value, 'utf8') > MAX_BYTES && next.undo.length) { next.undo.shift(); value = JSON.stringify(next); }
-        if (Buffer.byteLength(value, 'utf8') > MAX_BYTES) return res.status(413).json({ error: 'Общий журнал источников превышает 256 КБ' });
+        if (Buffer.byteLength(value, 'utf8') > MAX_BYTES) return res.status(413).json({ error: 'Журнал источников проекта превышает 256 КБ' });
         if (!stored) return res.status(409).json({ error: 'Источники оборудования изменились параллельно. Обновите список.' });
         const updated = await prisma.appSetting.updateMany({ where: { id: stored.id, value: stored.value }, data: { value } });
         if (updated.count !== 1) return res.status(409).json({ error: 'Источники оборудования изменились параллельно. Обновите список.' });
@@ -211,7 +250,7 @@ export function registerEquipmentDocumentBindingRoutes(app: Express): void {
       if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0 || !Array.isArray(bindings) || !bindings.length || bindings.length > 250) return res.status(400).json({ error: 'Некорректный список переноса привязок' });
       const prisma = getPrisma();
       const result = await prisma.$transaction(async (tx: any) => {
-        const stored = await readSetting(tx);
+        const stored = await readSetting(tx, projectId);
         const current = parseLedger(stored?.value);
         if (current.revision !== expectedRevision) throw Object.assign(new Error('Источники оборудования изменились. Обновите список.'), { status: 409, revision: current.revision });
         let ledger = current;

@@ -55,7 +55,33 @@ export interface EquipmentDocumentBindingInput {
   latestRevision?: { revision: string; sha256: string; updatedAt?: string };
 }
 
-/** Повторный импорт документа несёт общую привязку и ревизию CAS журнала. */
+/** Общая привязка документа хранит установку, а не каждый импортированный компонент. */
+export function draftDocumentBindingTargets(
+  associations: { systemIds?: string[]; equipmentIds?: string[] } | null | undefined,
+  preferredSystemId?: string,
+): { equipmentIds: string[]; systemId?: string } {
+  const systemIds = [...new Set((associations?.systemIds || []).filter(id => typeof id === 'string' && id))];
+  const systemId = preferredSystemId || (systemIds.length === 1 ? systemIds[0] : undefined);
+  return { equipmentIds: [], ...(systemId ? { systemId } : {}) };
+}
+
+/** Запись данных импорта независима от best-effort обновления источника. */
+export async function importWithBestEffortBinding<TSummary, TBinding>(
+  importData: () => Promise<TSummary>,
+  saveBinding: (summary: TSummary) => Promise<TBinding>,
+  attachBinding: (summary: TSummary, binding: TBinding) => void,
+): Promise<{ summary: TSummary; bindingWarning: string | null }> {
+  const summary = await importData();
+  try {
+    const binding = await saveBinding(summary);
+    attachBinding(summary, binding);
+    return { summary, bindingWarning: null };
+  } catch (error: any) {
+    return { summary, bindingWarning: error?.message || 'Данные сохранены, но привязку источника создать не удалось.' };
+  }
+}
+
+/** Повторный импорт документа несёт проектную привязку и ревизию CAS журнала. */
 export interface EquipmentDocumentImportSource {
   id?: string;
   kind: 'document';
