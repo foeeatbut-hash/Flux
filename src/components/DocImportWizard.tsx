@@ -18,7 +18,7 @@ import FileBadge from './ui/FileBadge';
 import { ICON_SIZE } from '../lib/metrics';
 import type { SelectionProvenance } from '../lib/windowsFiles';
 import type { EquipmentDocumentBinding, FilenameMatchRule } from '../../equipment/documentBindings';
-import { canonicalDocumentSourceFolder, equipmentDocumentImportSource, equipmentDocumentRevisionFolder, getLocalEquipmentDocumentRef, loadEquipmentDocumentBindings, saveLocalEquipmentDocumentRef } from '../lib/equipmentDocumentBindings';
+import { canonicalDocumentSourceFolder, equipmentDocumentImportSource, equipmentDocumentRevisionFolder, findExistingEquipmentDocumentBinding, loadEquipmentDocumentBindings, saveLocalEquipmentDocumentRef } from '../lib/equipmentDocumentBindings';
 import { base64ToBytes, takeWindowsDrop, windowsFilesRequest } from '../lib/windowsFiles';
 import { WINDOWS_IMPORT_READ_BYTES, type ImportedFileRef } from '../../filesystem/contracts';
 import { listEquipmentSourceBindings, removeEquipmentSourceBinding, scanEquipmentSource, type EquipmentSourceCandidate, type LocalEquipmentSourceBinding } from '../lib/equipmentSourcesLocal';
@@ -113,8 +113,8 @@ async function documentSourceProvenance(provenance: SelectionProvenance): Promis
       action: 'selectionProvenance', ref: canonical.sourceFolder, fileRef: provenance.fileRef,
     });
     if (resolved.ok) return { ...resolved.data, ...(provenance.suggestedTag ? { suggestedTag: provenance.suggestedTag } : {}) };
-  } catch { /* Provenance is optional; file parsing must still work. */ }
-  // Keep local matching possible if the shared locator cannot be derived.
+  } catch { /* Привязка необязательна: при её ошибке разбор файла продолжается. */ }
+  // Сохраняем локальный поиск, если общий locator для родительской папки получить не удалось.
   return { ...provenance, sourceFolder: canonical.sourceFolder, portableLocator: undefined, folderKey: undefined };
 }
 
@@ -125,20 +125,6 @@ function revisionFromSource(file: File, provenance: SelectionProvenance): string
   const folderRevision = rest.length > 1 ? rest[0] : '';
   if (equipmentDocumentRevisionFolder(folderRevision)) return folderRevision;
   return file.lastModified ? new Date(file.lastModified).toISOString() : 'без ревизии';
-}
-
-function findExistingDocumentBinding(
-  bindings: EquipmentDocumentBinding[], provenance: SelectionProvenance, fileName: string,
-): EquipmentDocumentBinding | undefined {
-  if (!provenance.sourceFolder) return undefined;
-  const shared = provenance.portableLocator?.folderKey;
-  if (shared) return bindings.find(item => item.kind === 'document' && item.fileName === fileName && item.locator?.folderKey === shared);
-  return bindings.find(item => {
-    if (item.kind !== 'document' || item.fileName !== fileName) return false;
-    const local = getLocalEquipmentDocumentRef(item.projectId, item.id);
-    return !!local && local.sourceFolder.rootId === provenance.sourceFolder?.rootId
-      && local.sourceFolder.relativePath.replace(/\\/gu, '/') === provenance.sourceFolder?.relativePath.replace(/\\/gu, '/');
-  });
 }
 
 export default function DocImportWizard({ projectId, categories, onClose, onImported, allowDrop = true, canManage = false, initialDocument = null }: DocImportWizardProps) {
@@ -246,7 +232,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
       const digest = await crypto.subtle.digest('SHA-256', data);
       const sourceSha256 = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
       const sourceRevision = revisionFromSource(file, normalizedProvenance);
-      const sourceBinding = forcedBinding || findExistingDocumentBinding(documentBindings, normalizedProvenance, file.name);
+      const sourceBinding = forcedBinding || findExistingEquipmentDocumentBinding(documentBindings, normalizedProvenance, file.name);
       updateJob(id, { sourceSha256, sourceRevision, sourceBinding, provenance: normalizedProvenance });
       const ext = (file.name.split('.').pop() || '').toLowerCase();
 

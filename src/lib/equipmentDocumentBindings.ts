@@ -138,7 +138,7 @@ export function equipmentDocumentRevisionFolder(name: string): boolean {
   return /^[A-Z]$/iu.test(name) || /^\d{1,20}$/u.test(name);
 }
 
-/** A picked file inside a revision directory belongs to the parent source binding. */
+/** Файл в папке ревизии относится к привязке родительской папки источника. */
 export function canonicalDocumentSourceFolder(sourceFolder: WindowsFileRef, fileRef: WindowsFileRef): { sourceFolder: WindowsFileRef; revision?: string } {
   const sourcePath = sourceFolder.relativePath.replace(/\\/gu, '/').replace(/\/$/u, '');
   const filePath = fileRef.relativePath.replace(/\\/gu, '/');
@@ -148,6 +148,27 @@ export function canonicalDocumentSourceFolder(sourceFolder: WindowsFileRef, file
   if (rest.length !== 1 || !equipmentDocumentRevisionFolder(leaf)) return { sourceFolder };
   const parentPath = parts.slice(0, -1).join('/');
   return { sourceFolder: { rootId: sourceFolder.rootId, relativePath: parentPath, ...(sourceFolder.draftId ? { draftId: sourceFolder.draftId } : {}) }, revision: leaf };
+}
+
+/** Ищет существующую привязку по общей папке или локальной capability устройства. */
+export function findExistingEquipmentDocumentBinding(
+  bindings: EquipmentDocumentBinding[], provenance: { sourceFolder?: WindowsFileRef; fileRef?: WindowsFileRef; portableLocator?: { folderKey: string } }, fileName: string,
+): EquipmentDocumentBinding | undefined {
+  if (!provenance.sourceFolder) return undefined;
+  const sourceFolder = provenance.fileRef
+    ? canonicalDocumentSourceFolder(provenance.sourceFolder, provenance.fileRef).sourceFolder
+    : provenance.sourceFolder;
+  const shared = provenance.portableLocator?.folderKey;
+  if (shared) {
+    const match = bindings.find(item => item.kind === 'document' && item.fileName === fileName && item.locator?.folderKey === shared);
+    if (match) return match;
+  }
+  return bindings.find(item => {
+    if (item.kind !== 'document' || item.fileName !== fileName) return false;
+    const local = getLocalEquipmentDocumentRef(item.projectId, item.id);
+    return !!local && local.sourceFolder.rootId === sourceFolder.rootId
+      && local.sourceFolder.relativePath.replace(/\\/gu, '/') === sourceFolder.relativePath.replace(/\\/gu, '/');
+  });
 }
 
 export async function findLatestBoundDocument(projectId: string, binding: EquipmentDocumentBinding): Promise<{ fileRef: WindowsFileRef; sourceFolder: WindowsFileRef; revision: string; sha256: string; modifiedAt: string } | null> {

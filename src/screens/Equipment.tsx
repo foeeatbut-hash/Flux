@@ -192,6 +192,7 @@ export default function Equipment() {
         let latest: Awaited<ReturnType<typeof findLatestBoundDocument>> = null;
         try { latest = await findLatestBoundDocument(pid, binding); }
         catch (error) {
+          if (generation !== sourceScanGeneration.current) return;
           docs[binding.id] = { status: 'source-unavailable' };
           if (!documentScanErrorNotified) {
             documentScanErrorNotified = true;

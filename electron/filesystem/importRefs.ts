@@ -48,7 +48,7 @@ export class ImportRefStore {
     try {
       for (const filename of paths) {
         let provenance: SelectionProvenance | undefined;
-        try { provenance = await provenanceForPath?.(filename); } catch { /* Provenance is optional; file selection remains usable. */ }
+        try { provenance = await provenanceForPath?.(filename); } catch { /* Привязка необязательна: при её ошибке файл всё равно можно выбрать. */ }
         result.push(await this.snapshot(owner, filename, path.basename(filename), provenance));
       }
       return result;
@@ -63,7 +63,9 @@ export class ImportRefStore {
         const entry = await service.entry(ref);
         if (entry.kind !== 'file') throw new WindowsFilesError('NOT_FILE', 'Выберите файл, а не папку.');
         const folder = { rootId: ref.rootId, relativePath: ref.relativePath.split('/').slice(0, -1).join('/'), ...(ref.draftId ? { draftId: ref.draftId } : {}) };
-        result.push(await this.snapshot(owner, await service.filename(ref), entry.name, await provenanceForFolder?.(folder, ref)));
+        let provenance: SelectionProvenance | undefined;
+        try { provenance = await provenanceForFolder?.(folder, ref); } catch { /* Привязка необязательна: при её ошибке файл всё равно можно выбрать. */ }
+        result.push(await this.snapshot(owner, await service.filename(ref), entry.name, provenance));
       }
       return result;
     } catch (error) { this.release(owner, result.map(item => item.ticket)); throw error; }

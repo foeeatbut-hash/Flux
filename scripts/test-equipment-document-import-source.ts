@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { canonicalDocumentSourceFolder, equipmentDocumentImportSource, equipmentDocumentRevisionFolder, findLatestBoundDocument, getLocalEquipmentDocumentRef, resolveEquipmentSourceBinding, saveLocalEquipmentDocumentRef } from '../src/lib/equipmentDocumentBindings';
+import { canonicalDocumentSourceFolder, equipmentDocumentImportSource, equipmentDocumentRevisionFolder, findExistingEquipmentDocumentBinding, findLatestBoundDocument, getLocalEquipmentDocumentRef, resolveEquipmentSourceBinding, saveLocalEquipmentDocumentRef } from '../src/lib/equipmentDocumentBindings';
 import { saveEquipmentSourceBinding } from '../src/lib/equipmentSourcesLocal';
 import { useStore } from '../src/store/store';
 
@@ -27,6 +27,17 @@ const canonicalRevisionSource = canonicalDocumentSourceFolder(revisionFolder, re
 assert.deepEqual(canonicalRevisionSource, {
   sourceFolder: { rootId: 'equipment-root', relativePath: 'Plant' }, revision: 'B',
 }, 'a document selected inside revision B maps to the existing parent source binding');
+saveLocalEquipmentDocumentRef({
+  projectId: 'project-fixture', bindingId: 'document-root-binding', sourceFolder: { rootId: 'equipment-root', relativePath: 'Plant' },
+});
+const existingDocumentBinding = {
+  id: 'document-root-binding', projectId: 'project-fixture', kind: 'document', fileName: 'doc.pdf',
+} as any;
+assert.equal(findExistingEquipmentDocumentBinding(
+  [existingDocumentBinding],
+  { sourceFolder: revisionFolder, fileRef: revisionFile },
+  'doc.pdf',
+), existingDocumentBinding, 'wizard lookup reuses the binding attached to the revision parent folder');
 assert.equal(equipmentDocumentRevisionFolder('B'), true);
 assert.equal(equipmentDocumentRevisionFolder('2026'), true);
 assert.equal(equipmentDocumentRevisionFolder('Archive'), false, 'ordinary folder names are not revisions');
