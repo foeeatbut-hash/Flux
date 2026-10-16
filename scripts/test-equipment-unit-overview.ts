@@ -1,5 +1,5 @@
-/** Запуск: npx tsx scripts/test-unit-schematic.ts */
-import { buildUnitSchematic, displayParentLinks } from '../src/lib/unitSchematic';
+/** Запуск: npx tsx scripts/test-equipment-unit-overview.ts */
+import { buildEquipmentOverview, displayParentLinks } from '../src/lib/equipmentUnitOverview';
 
 const order = { ВОЗДУХОПРИЁМНЫЙ: 10, КЛАПАН: 20, ФИЛЬТР: 30, ВЕНТИЛЯТОР: 80 };
 const items = [
@@ -23,7 +23,8 @@ const ok = (name: string, condition: boolean, detail?: unknown) => condition
   ? console.log('  ✓', name)
   : (failed++, console.error('  ✗', name, detail === undefined ? '' : JSON.stringify(detail)));
 
-const tree = buildUnitSchematic(items, order);
+const tree = buildEquipmentOverview(items, order);
+ok('общие характеристики доступны отдельно от физического дерева', tree.generalItems.length === 1 && tree.generalItems[0].id === 'common');
 const allTree = [...tree.roots, ...tree.unassigned.map(({ node }) => node)];
 const flatten = (nodes: typeof allTree): string[] => nodes.flatMap(({ item, children }) => [item.id, ...flatten(children)]);
 const ids = flatten(allTree);
@@ -55,14 +56,14 @@ const tagItems = [
   { id: 'tag-explicit', itemCode: 'explicit', equipType: 'ПРИВОД', parentElementId: 'tag-owner', tags: [{ id: 'explicit-tag', metadata: { parentId: 'parent-a-tag' } }] },
 ];
 const displayItems = displayParentLinks(tagItems);
-const tagTree = buildUnitSchematic(tagItems, order);
+const tagTree = buildEquipmentOverview(tagItems, order);
 const tagRoots = [...tagTree.roots, ...tagTree.unassigned.map(({ node }) => node)];
 const findTagNode = (id: string) => tagRoots.flatMap(function walk(current): typeof current[] {
   return [current, ...current.children.flatMap(walk)];
 }).find((current) => current.item.id === id);
 ok('родительский тег создаёт ветвь при пустом parentElementId', displayItems.find((item) => item.id === 'tag-child')?.parentElementId === 'tag-owner' && findTagNode('tag-owner')?.children.some(({ item }) => item.id === 'tag-child'));
-ok('ссылка на отсутствующий родительский тег уходит в нераспределённые', displayItems.find((item) => item.id === 'tag-orphan')?.parentElementId === 'tag-parent:absent-tag' && tagTree.unassigned.some(({ node }) => node.item.id === 'tag-orphan'));
-ok('разные владельцы родительских тегов помечаются неоднозначными', displayItems.find((item) => item.id === 'tag-conflict')?.parentElementId === 'tag-ambiguous:tag-conflict' && tagTree.unassigned.some(({ node }) => node.item.id === 'tag-conflict'));
+ok('ссылка на отсутствующий родительский тег уходит в нераспределённые', displayItems.find((item) => item.id === 'tag-orphan')?.parentElementId === 'tag-parent:absent-tag' && tagTree.unassigned.some(({ node, reason }) => node.item.id === 'tag-orphan' && reason === 'tag-parent'));
+ok('разные владельцы родительских тегов помечаются неоднозначными', displayItems.find((item) => item.id === 'tag-conflict')?.parentElementId === 'tag-ambiguous:tag-conflict' && tagTree.unassigned.some(({ node, reason }) => node.item.id === 'tag-conflict' && reason === 'tag-ambiguous'));
 ok('родительский тег на той же позиции не создаёт самоссылку', !displayItems.find((item) => item.id === 'tag-self')?.parentElementId && tagTree.roots.some(({ item }) => item.id === 'tag-self'));
 ok('явная связь позиции сильнее metadata родительского тега', displayItems.find((item) => item.id === 'tag-explicit')?.parentElementId === 'tag-owner');
 ok('восстановление связей не меняет исходные позиции', tagItems.find((item) => item.id === 'tag-child')?.parentElementId === undefined);

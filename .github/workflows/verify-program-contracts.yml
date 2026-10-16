@@ -111,45 +111,61 @@ jobs:
         env:
           FLUX_CHROME: /usr/bin/google-chrome
         run: node scripts/test-entity-id-migration-ui.mjs
-      - name: Источники XML и общий импорт документов в светлой и тёмной темах
+      - name: Equipment overview grouping regression
+        run: node --import tsx scripts/test-equipment-unit-overview.ts
+      - name: Equipment panel preview
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: node scripts/fixtures/equipment-panel/check.mjs
+      - name: Existing Equipment screen scenarios
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+          FLUX_FIXTURE_URL: http://127.0.0.1:4191
+        run: |
+          set -euo pipefail
+          fixture_log="${{ runner.temp }}/equipment-ui-vite.log"
+          node ./node_modules/vite/bin/vite.js --config scripts/fixtures/equipment-ui/vite.config.ts --host 127.0.0.1 --port 4191 --strictPort >"$fixture_log" 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$FLUX_FIXTURE_URL" --output /dev/null 2>/dev/null; then break; fi
+            if [[ "$attempt" == 60 ]]; then cat "$fixture_log"; exit 1; fi
+            sleep 1
+          done
+          node scripts/fixtures/equipment-ui/check.mjs
+      - name: Equipment catalog UI
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: node scripts/test-equipment-catalog-ui.mjs
+      - name: Equipment XML and import UI scenarios
         env:
           FLUX_CHROME: /usr/bin/google-chrome
           FLUX_FIXTURE_URL: http://127.0.0.1:4192
         run: |
           set -euo pipefail
           fixture_log="${{ runner.temp }}/equipment-xml-source-vite.log"
-          node ./node_modules/vite/bin/vite.js \
-            --config scripts/fixtures/equipment-xml-source-ui/vite.config.ts \
-            --host 127.0.0.1 --port 4192 --strictPort >"$fixture_log" 2>&1 &
+          node ./node_modules/vite/bin/vite.js --config scripts/fixtures/equipment-xml-source-ui/vite.config.ts --host 127.0.0.1 --port 4192 --strictPort >"$fixture_log" 2>&1 &
           fixture_pid=$!
-          cleanup() {
-            if kill -0 "$fixture_pid" 2>/dev/null; then
-              kill "$fixture_pid" 2>/dev/null || true
-              wait "$fixture_pid" 2>/dev/null || true
-            fi
-          }
-          trap cleanup EXIT
-
-          ready=false
+          trap 'kill "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 60); do
-            if ! kill -0 "$fixture_pid" 2>/dev/null; then
-              cat "$fixture_log"
-              exit 1
-            fi
-            if curl --fail --silent --show-error "$FLUX_FIXTURE_URL/importer.html" --output /dev/null 2>/dev/null; then
-              ready=true
-              break
-            fi
+            if curl --fail --silent "$FLUX_FIXTURE_URL/importer.html" --output /dev/null 2>/dev/null; then break; fi
+            if [[ "$attempt" == 60 ]]; then cat "$fixture_log"; exit 1; fi
             sleep 1
           done
-          if [[ "$ready" != true ]]; then
-            cat "$fixture_log"
-            echo "Equipment import UI fixture did not become ready" >&2
-            exit 1
-          fi
-
           node scripts/fixtures/equipment-xml-source-ui/check.mjs
           node scripts/fixtures/equipment-xml-source-ui/importer.check.mjs
+          node scripts/fixtures/equipment-xml-source-ui/wizard.check.mjs
+      - name: Equipment preview screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: equipment-panel-preview
+          path: |
+            /tmp/equipment-panel-*.png
+            /tmp/flux-equipment-*.png
+            /tmp/flux-equipment-ui-*.png
+            /tmp/equipment-import-wizard-*.png
+          if-no-files-found: warn
       - name: Артефакты с явно указанной областью проверки
         if: always()
         uses: actions/upload-artifact@v4
@@ -210,59 +226,4 @@ jobs:
           path: |
             /tmp/office-addon-native-*.png
             /tmp/guide-tours-native-*.png
-          if-no-files-found: warn
-
-  equipment-import-wizard:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Зависимости
-        run: npm ci
-      - name: Общий мастер импорта оборудования в настоящем браузере
-        env:
-          FLUX_CHROME: /usr/bin/google-chrome
-          FLUX_FIXTURE_URL: http://127.0.0.1:4192
-        run: |
-          set -euo pipefail
-          fixture_log="${{ runner.temp }}/equipment-import-wizard-vite.log"
-          node ./node_modules/vite/bin/vite.js \
-            --config scripts/fixtures/equipment-xml-source-ui/vite.config.ts \
-            --host 127.0.0.1 --port 4192 --strictPort >"$fixture_log" 2>&1 &
-          fixture_pid=$!
-          cleanup() {
-            if kill -0 "$fixture_pid" 2>/dev/null; then
-              kill "$fixture_pid" 2>/dev/null || true
-              wait "$fixture_pid" 2>/dev/null || true
-            fi
-          }
-          trap cleanup EXIT
-
-          ready=false
-          for attempt in $(seq 1 60); do
-            if ! kill -0 "$fixture_pid" 2>/dev/null; then
-              cat "$fixture_log"
-              exit 1
-            fi
-            if curl --fail --silent --show-error "$FLUX_FIXTURE_URL/wizard.html" --output /dev/null 2>/dev/null; then
-              ready=true
-              break
-            fi
-            sleep 1
-          done
-          if [[ "$ready" != true ]]; then
-            cat "$fixture_log"
-            echo "Equipment import wizard fixture did not become ready" >&2
-            exit 1
-          fi
-
-          node scripts/fixtures/equipment-xml-source-ui/wizard.check.mjs
-      - name: Снимки мастера импорта оборудования
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: equipment-import-wizard-evidence
-          path: /tmp/equipment-import-wizard-*.png
           if-no-files-found: warn
