@@ -1,3 +1,4 @@
+import { prepareStandaloneXlsxForIssue, saveAndWaitForIssueReady } from './officeNativeIssuePreflight';
 /**
  * End-to-end checks of Flux Office's real add-on against rebuilt GenOffice.
  * The fixture is disposable: `node --import tsx scripts/test-guide-server.ts --fixture`.
@@ -14,7 +15,6 @@ import { captureNativeDefinedNameEvidence, runNativeSheetCellActions } from './o
 import { runNativeDefinedNamesReloadMode } from './officeNativeDefinedNamesPreflight';
 import { createNativeCheck, waitFor } from './officeNativeTestRuntime';
 import { runNativeWordCellActions } from './officeNativeWordCellActionsScenarios';
-
 void (async () => {
 type Fixture = { baseUrl: string; projectId: string; dataDir: string; admin: { symbol: string; password: string } };
 const metadataPath = resolve(process.argv[2] || process.env.FLUX_FIXTURE_META || '');
@@ -238,7 +238,6 @@ const capture = async (page: any, frame: any, suffix: string) => {
   await page.screenshot({ path: `/tmp/office-addon-native-${suffix}.png`, fullPage: true });
   return metrics;
 };
-
 let folderId = '';
 const created: string[] = [];
 let browser: any;
@@ -252,7 +251,6 @@ try {
   folderId = String(folder.json?.folder?.id || '');
   check('isolated files folder belongs to fixture project', folder.status === 200 && !!folderId, folder.json);
   if (!folderId) throw new Error('Could not create fixture project folder');
-
   const stamp = Date.now().toString(36);
   const docxId = await upload(folderId, `__native_${stamp}.docx`, 'DOCX', await makeDocxWithTable());
   const templateTargetId = await upload(folderId, `__native_template_target_${stamp}.docx`, 'DOCX', await makeDocxWithTable());
@@ -1078,6 +1076,7 @@ try {
   check('dark narrow A1 parameter chip and typed formula suffix stay inside the host, clear of Done', !!darkTokenGeometry && darkTokenGeometry.theme === 'dark' && darkTokenGeometry.chipRight <= darkTokenGeometry.hostRight + 1 && darkTokenGeometry.hostRight <= darkTokenGeometry.saveLeft + 1 && darkTokenGeometry.text.endsWith('=+DARK_GEOMETRY_CHECK') && (darkTokenGeometry.viewportWidth < 320 || darkTokenGeometry.hostWidth >= 150) && darkTokenGeometry.suffixLines <= 3, darkTokenGeometry);
   await page.screenshot({ path: '/tmp/office-addon-native-sheets-chip-dark.png', fullPage: true });
   if (darkOverlayOpened) await page.keyboard.press('Escape');
+  await saveAndWaitForIssueReady({ page, fileId: xlsxId, api, waitFor });
   await context.close();
   await runNativeWordCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
 
@@ -1126,6 +1125,7 @@ try {
   } // конец разделов 1–4 (FLUX_NATIVE_ONLY=issued их пропускает)
 
   console.log('\n5. Issued XLSX is read-only in the native grid; its draft remains writable');
+  if (nativeOnly === 'issued') await prepareStandaloneXlsxForIssue({ page, fileId: xlsxId, api, waitFor, navigateOffice, openPanel, waitForSheetFile });
   const xlsxBeforeIssue = await raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`);
   const xlsxSourceSha = sha256(xlsxBeforeIssue.bytes);
   const xlsxIssued = await api('POST', `/api/office/revisions/${encodeURIComponent(xlsxId)}/issue`, { sourceSha: xlsxSourceSha });
