@@ -37,15 +37,19 @@ export default function BlockCard(props: any) {
   const specs = normalizeSpecs(comp?.specs);
   const paramSearch = String(props.paramSearch || '').trim().toLocaleLowerCase('ru');
   const noiseKeys = /^(тип блока|позиция|ярус|наименование|состав установки|задача расчёта|подпись|факс|ptract|ptcoilsgeom|ptcoilsnono|ptcoilsadjustfactor|ptlfr|ptx1|ptx2|ptdthe|ptdtcc|ptdte|pttanktrap)$/iu;
-  const displayGroups = specs.groups.map((group: any) => ({
-    ...group,
-    params: (group.params || []).filter((param: any) => !props.hideNoiseKeys || showAllParams || !noiseKeys.test(String(param.key || '').trim())),
-  })).filter((group: any) => {
+  // Счётчик и карточки используют один набор найденных характеристик.
+  const displayGroups = specs.groups.map((group: any) => {
+    const params = (group.params || []).filter((param: any) => !props.hideNoiseKeys || showAllParams || !noiseKeys.test(String(param.key || '').trim()));
+    const titleMatches = !!paramSearch && String(group.title || '').toLocaleLowerCase('ru').includes(paramSearch);
+    return {
+      ...group,
+      params: paramSearch && !titleMatches
+        ? params.filter((param: any) => `${param.key || ''} ${param.value || ''}`.toLocaleLowerCase('ru').includes(paramSearch))
+        : params,
+    };
+  }).filter((group: any) => {
     if (props.hideNoteGroups && !showAllParams && /^(состав|примечания|особые условия)$/iu.test(String(group.title || '').trim())) return false;
-    if (!group.params.length) return false;
-    if (!paramSearch) return true;
-    return String(group.title || '').toLocaleLowerCase('ru').includes(paramSearch)
-      || (group.params || []).some((param: any) => `${param.key || ''} ${param.value || ''}`.toLocaleLowerCase('ru').includes(paramSearch));
+    return group.params.length > 0;
   });
   const groupTitles = displayGroups.filter((group: any) => Array.isArray(group.params) && group.params.length > 0).map((group: any) => String(group.title || 'Параметры'));
   const groupStorageKey = `flux.equipment.expanded-groups:${comp?.id || ''}`;
@@ -196,9 +200,7 @@ export default function BlockCard(props: any) {
           if (!showAllParams && props.composition?.hiddenGroups?.includes(g.title)) return null;
           const groupHidden = isHidden(comp.equipType, `g:${g.title}`);
           if (groupHidden && !showAllParams) return null;
-          const params = paramSearch && !String(g.title || '').toLocaleLowerCase('ru').includes(paramSearch)
-            ? (g.params || []).filter((p: any) => `${p.key || ''} ${p.value || ''}`.toLocaleLowerCase('ru').includes(paramSearch))
-            : (g.params || []);
+          const params = g.params || [];
           const visibleParams = params.filter(p => showAllParams || !isHidden(comp.equipType, `p:${g.title}||${p.key}`));
           if ((g.params || []).length === 0 || (visibleParams.length === 0 && !showAllParams)) return null;
           return (
