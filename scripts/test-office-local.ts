@@ -44,7 +44,7 @@ const prisma: any = {
   catalogComponent: { findMany: async () => [] },
   catalogTagRule: { findMany: async () => [] },
   blankTemplate: { count: async () => 1 },
-  componentElement: { count: async () => 0, aggregate: async () => ({ _max: { updatedAt: null } }) },
+  componentElement: { findMany: async () => [], count: async () => 0, aggregate: async () => ({ _max: { updatedAt: null } }) },
   appSetting: { findFirst: async () => null },
   // Каталог проверяет индексы через PRAGMA: хватает запомнить созданные
   $queryRawUnsafe: async (sql: string) => {
