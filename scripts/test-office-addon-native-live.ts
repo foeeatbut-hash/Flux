@@ -11,6 +11,8 @@ import JSZip from 'jszip';
 import { chromium } from 'playwright-core';
 import { makeDocxWithTable, makeXlsxWithBlankFormula, makeXlsxWithManualRow, loginPage } from './officeHarness';
 import { captureNativeDefinedNameEvidence, runNativeSheetCellActions } from './officeNativeCellActionsScenarios';
+import { runNativeDefinedNamesReloadMode } from './officeNativeDefinedNamesPreflight';
+import { createNativeCheck, waitFor } from './officeNativeTestRuntime';
 import { runNativeWordCellActions } from './officeNativeWordCellActionsScenarios';
 
 void (async () => {
@@ -31,10 +33,7 @@ await chmod(metadataPath, 0o600);
 const BASE = fixture.baseUrl.replace(/\/$/, '');
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 let failures = 0;
-const check = (label: string, good: unknown, detail?: unknown) => {
-  if (good) console.log(`  ✓ ${label}`);
-  else { failures++; console.error(`  ✗ ${label}`, detail === undefined ? '' : JSON.stringify(detail).slice(0, 500)); }
-};
+const check = createNativeCheck(() => { failures++; });
 let token = '';
 const api = async (method: string, route: string, body?: unknown) => {
   const response = await fetch(BASE + route, {
@@ -88,11 +87,6 @@ const sheetCell = async (frame: any, address: string) => frame.locator('body').e
   if (!sheet) return undefined;
   return sheet.getRange(cellAddress)?.getValues?.()?.[0]?.[0] ?? '';
 }, address).catch(() => undefined);
-const waitFor = async (probe: () => Promise<boolean>, timeout = 15000) => {
-  const end = Date.now() + timeout;
-  while (Date.now() < end) { if (await probe()) return true; await new Promise((r) => setTimeout(r, 250)); }
-  return probe();
-};
 let browserErrors: string[] = [];
 let browserErrorEvents: any[] = [];
 let browserErrorLogWrite: Promise<void> = Promise.resolve();
@@ -393,6 +387,10 @@ try {
     await loginPage(page, BASE, fixture.admin, dark);
   };
   await loginPage(page, BASE, fixture.admin, false);
+
+  const nativeOnly = process.env.FLUX_NATIVE_ONLY || '';
+  // Имена проверяются до Word только в полном прогоне; names-reload закрывает браузер штатно.
+  if (await runNativeDefinedNamesReloadMode(nativeOnly, { fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page }, () => context.close())) return;
 
   // FLUX_NATIVE_ONLY=cells — только разделы 5 и 6 (действия с заголовочными ячейками): они сами
   // создают свои файлы, и узкий прогон идёт в разы быстрее полного
