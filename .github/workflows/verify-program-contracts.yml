@@ -23,6 +23,8 @@ jobs:
           npx prisma generate --schema=prisma/schema.mariadb.prisma
       - name: Типы
         run: npm run lint
+      - name: Архитектурные ограничения проекта
+        run: node --import tsx scripts/test-architecture.ts
       - name: Guide, демонстрации, мессенджер и модель дополнения Office
         run: |
           set -euo pipefail
