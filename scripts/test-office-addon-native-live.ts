@@ -1,4 +1,4 @@
-import { prepareStandaloneXlsxForIssue, saveAndWaitForIssueReady } from './officeNativeIssuePreflight';
+import { installInitialReplayObserver, prepareStandaloneXlsxForIssue, saveAndWaitForIssueReady, waitForInitialReplayApplied } from './officeNativeIssuePreflight';
 /**
  * End-to-end checks of Flux Office's real add-on against rebuilt GenOffice.
  * The fixture is disposable: `node --import tsx scripts/test-guide-server.ts --fixture`.
@@ -1132,12 +1132,14 @@ try {
   const xlsxRevision = xlsxIssued.json?.revision;
   check('disposable XLSX can be issued as an immutable revision', xlsxIssued.status === 201 && xlsxRevision?.status === 'ISSUED' && xlsxRevision.sha256 === xlsxSourceSha, xlsxIssued.json);
   await resetPage(false);
+  await installInitialReplayObserver(page);
   await navigateOffice(page, `/office-sheet?file=${encodeURIComponent(xlsxId)}`);
   const issuedSheetFrame = await openPanel(page, 'Flux Office — Таблица');
   const issuedSheetPanel = page.getByRole('complementary', { name: 'Flux Office' });
   check('issued XLSX opens in the actual native grid and announces read-only mode', await waitForSheetFile(issuedSheetFrame) && await waitFor(async () => await issuedSheetPanel.getByText(/Документ открыт только для просмотра/).count() > 0, 15000));
   // Без подгрузки A1 пустая ячейка равна пустой, и запрет записи прошёл бы впустую.
   const issuedHeaderLoaded = await loadSheetAddress(issuedSheetFrame, 'A1');
+  check('issued XLSX initial collaboration replay is applied before typing', await waitForInitialReplayApplied(page, waitFor));
   const issuedHeader = await sheetCell(issuedSheetFrame, 'A1');
   check('issued XLSX header is loaded before the read-only typing check', issuedHeaderLoaded && typeof issuedHeader === 'string' && issuedHeader !== '', issuedHeader);
   await issuedSheetFrame.locator('input.univer-box-border').first().fill('A1');
