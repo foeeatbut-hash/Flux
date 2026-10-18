@@ -151,10 +151,9 @@ async function gotoCell(page: any, ref: string): Promise<void> {
     await page.keyboard.press('Enter');
     await page.waitForTimeout(500);
     await page.keyboard.press('Control+Shift+S');
-    const prompt = page.getByRole('dialog');
+    const prompt = page.getByRole('dialog', { name: 'Сохранить копию книги', exact: true });
     const logCtrlShiftSDialogs = async () => {
       const dialogs = page.locator('[role="dialog"]:visible');
-      const selectorCount = await dialogs.count().catch(() => null);
       const visibleDialogs = await dialogs.evaluateAll((nodes: any[]) => nodes.map((node: HTMLElement) => {
         const labelledBy = node.getAttribute('aria-labelledby');
         const labelledText = labelledBy ? labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ').trim() : '';
@@ -167,6 +166,7 @@ async function gotoCell(page: any, ref: string): Promise<void> {
           text: (node.innerText || node.textContent || '').trim().slice(0, 500),
         };
       })).catch(() => []);
+      const selectorCount = visibleDialogs.length;
       console.log('NATIVE_SHEETS_CTRLSHIFTS_DIALOGS', JSON.stringify({ url: page.url(), selectorCount, visibleDialogs }));
     };
     await logCtrlShiftSDialogs();
@@ -186,7 +186,7 @@ async function gotoCell(page: any, ref: string): Promise<void> {
 
     await gotoCell(page, 'B2');
     await page.keyboard.press('Control+Shift+S');
-    const savePrompt = page.getByRole('dialog');
+    const savePrompt = page.getByRole('dialog', { name: 'Сохранить копию книги', exact: true });
     await logCtrlShiftSDialogs();
     try {
       await savePrompt.waitFor({ state: 'visible', timeout: 8000 });
