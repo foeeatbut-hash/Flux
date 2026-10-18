@@ -358,9 +358,9 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
               className={`relative rounded-lg shrink-0 cursor-pointer flex items-center justify-center
                           text-xs whitespace-nowrap transition-colors ${
                 b.active
-                  ? 'bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-white font-medium'
+                  ? 'bg-slate-300 dark:bg-slate-700 text-slate-900 dark:text-white font-medium ring-1 ring-inset ring-slate-400 dark:ring-slate-600'
                   : b.running
-                    ? 'text-slate-700 dark:text-slate-100 hover:bg-slate-200/60 dark:hover:bg-slate-800'
+                    ? 'bg-slate-100 dark:bg-slate-900/60 text-slate-700 dark:text-slate-100 hover:bg-slate-200/60 dark:hover:bg-slate-800'
                     : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800'
               }`}
             >

@@ -9,7 +9,7 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { RefreshCw, AlertTriangle, History, Check, Pencil, Eye, EyeOff, Settings, Network, ChevronRight, ChevronDown, Trash2, Tag as TagIcon, X, Plus, Boxes, Layers, Wind, ScanLine, Fan, Filter, Flame, Snowflake, Droplets, Recycle, Volume2, SlidersHorizontal, Box, Square, ArrowRight, LayoutGrid, List, Search, Save, Download, Upload } from 'lucide-react';
 import DocImportWizard from '../components/DocImportWizard';
-import UnitSchematic from '../components/equipment/UnitSchematic';
+import EquipmentDetailPanel from '../components/equipment/EquipmentDetailPanel';
 import { useModalStore } from '../store/modalStore';
 import NoProject from '../components/NoProject';
 import { useEscapeClose } from '../lib/useDismiss';
@@ -769,71 +769,67 @@ export default function Equipment() {
         sourceStatuses={xmlSourceStatuses}
       />
 
-      {/* КАРТОЧКА БЛОКА */}
+      {/* Правая карточка сохраняет существующие операции, меняя только расположение вида установки. */}
       <div className="zone flex-1 min-w-[280px] overflow-hidden flex flex-col">
         {listMode ? (
           <PositionList systems={sourceFilteredSystems as any} types={types} sourceStatuses={xmlSourceStatuses} onOpen={openBlock} onClose={() => setListMode(false)} />
-        ) : selected ? (
-          <>
-          <EquipmentXmlSourcePanel key={`${pid}:${selected.block.tags?.[0]?.id || 'untagged'}:${selected.block.id}:component`} projectId={pid} tag={selected.block.tags?.[0]} elementId={selected.block.id} targetType="component" canManage={canManageEquipment} onChanged={() => { loadSystems(); void checkProjectXmlSources(); }} />
-          <BlockCard
-            composition={compositionView(selected.block as any, selected.unit.monoblocks.flatMap(m => m.components) as any, types, blockLabel as any)}
-            onOpenPosition={openBlock}
-            classTitle={classTitle}
-            arrangeGroups={(g: any[]) => arrange(g, cvOf(selected.block))}
-            typed={types.get(selected.block.id)}
-            say={addToast}
-            comp={selected.block}
-            unitName={selected.unit.name}
-            showAllParams={showAllParams}
-            setShowAllParams={setShowAllParams}
-            isHidden={isHidden}
-            toggleHidden={toggleHidden}
-            onReload={loadSystems}
-            onResolve={resolveConflict}
-            onOverride={overrideParam}
-            onHistory={() => openHistory(selected.block)}
-            onSaveView={() => {
-              const groups = normalizeSpecs(selected.block.specs).groups;
-              const params = groups.flatMap((g: any) => (g.params || []).map((p: any) => ({ group: g.title, key: p.key, unit: p.unit || '' })));
-              // Отмечено заранее то, что человек сейчас видит: профиль
-              // видимости — это уже ответ на вопрос «какие поля нужны»
-              const preselected = params
-                .filter((p: any) => !isHidden(selected.block.equipType, `p:${p.group}||${p.key}`)
-                  && !isHidden(selected.block.equipType, `g:${p.group}`))
-                .map((p: any) => `${p.group}||${p.key}`);
-              setSaveViewOf({ role: selected.block.role, equipType: selected.block.equipType, params, preselected });
-            }}
-            onPickTag={() => setTagPickerFor(selected.block)}
-            onAddInside={() => addInside(selected.block)}
-            onUnlinkTag={(tid: string) => unlinkTag(selected.block, tid)}
-            blockLabel={blockLabel}
-            onBackToUnit={selected.unit.category === 'AHU' || (selected.unit.monoblocks || []).some(mb => (mb.components || []).length > 1)
-              ? () => { setSelectedUnitId(selected.unit.id); setSelectedBlockId(null); }
-              : null}
-            highlightKey={highlightKey}
-          />
-          </>
-        ) : selectedUnit ? (
-          <>
-            {(() => {
-              const unitPosition = selectedUnit.monoblocks.flatMap(mb => mb.components).find(component => component.itemCode === '__unit__');
+        ) : (
+          <EquipmentDetailPanel
+            unit={(selected?.unit || selectedUnit) as any}
+            selectedComponent={selected?.block as any}
+            onSelectComponent={openBlock}
+            onBackToUnit={() => { if (selected) setSelectedUnitId(selected.unit.id); setSelectedBlockId(null); }}
+            onPickTag={(component: any) => setTagPickerFor(component)}
+            onUnlinkTag={(component: any, tagId: string) => unlinkTag(component, tagId)}
+            overviewHeader={!selected && selectedUnit ? (() => {
+              const unitPosition = selectedUnit.monoblocks.flatMap(monoblock => monoblock.components).find(component => component.itemCode === '__unit__');
               const unitTag = unitPosition?.tags?.[0];
               return unitPosition ? <EquipmentXmlSourcePanel key={`${pid}:${unitTag?.id || 'untagged'}:${unitPosition.id}:system:${selectedUnit.id}`} projectId={pid} tag={unitTag} elementId={unitPosition.id} targetType="system" systemId={selectedUnit.id} canManage={canManageEquipment} onChanged={() => { loadSystems(); void checkProjectXmlSources(); }} /> : null;
-            })()}
-            <UnitSchematic
-              unit={selectedUnit}
-              blockLabel={blockLabel}
-              onSelectBlock={(id: string) => { setSelectedBlockId(id); setSelectedUnitId(null); setShowAllParams(false); }}
-              onPickTag={(comp: Component) => setTagPickerFor(comp)}
-              onUnlinkTag={(comp: Component, tid: string) => unlinkTag(comp, tid)}
-            />
-          </>
-        ) : (
-          <div className="blank">
-              <div className="blank-title">Ничего не выбрано</div>
-              <div className="blank-text">Выберите установку в дереве слева — здесь появятся её схема, характеристики и связанные теги.</div>
-            </div>
+            })() : null}
+            renderSelectedContent={(panelComponent: any, specSearch: string, setSpecSearch: (value: string) => void) => {
+              const entry = allBlocks[panelComponent.id];
+              if (!entry) return null;
+              const component = entry.block;
+              return <>
+                <EquipmentXmlSourcePanel key={`${pid}:${component.tags?.[0]?.id || 'untagged'}:${component.id}:component`} projectId={pid} tag={component.tags?.[0]} elementId={component.id} targetType="component" canManage={canManageEquipment} onChanged={() => { loadSystems(); void checkProjectXmlSources(); }} />
+                <BlockCard
+                  composition={compositionView(component as any, entry.unit.monoblocks.flatMap(monoblock => monoblock.components) as any, types, blockLabel as any)}
+                  onOpenPosition={openBlock}
+                  classTitle={classTitle}
+                  arrangeGroups={(groups: any[]) => arrange(groups, cvOf(component))}
+                  typed={types.get(component.id)}
+                  say={addToast}
+                  comp={component}
+                  unitName={entry.unit.name}
+                  showAllParams={showAllParams}
+                  setShowAllParams={setShowAllParams}
+                  isHidden={isHidden}
+                  toggleHidden={toggleHidden}
+                  onReload={loadSystems}
+                  onResolve={resolveConflict}
+                  onOverride={overrideParam}
+                  onHistory={() => openHistory(component)}
+                  onSaveView={() => {
+                    const groups = normalizeSpecs(component.specs).groups;
+                    const params = groups.flatMap((group: any) => (group.params || []).map((param: any) => ({ group: group.title, key: param.key, unit: param.unit || '' })));
+                    const preselected = params.filter((param: any) => !isHidden(component.equipType, `p:${param.group}||${param.key}`) && !isHidden(component.equipType, `g:${param.group}`)).map((param: any) => `${param.group}||${param.key}`);
+                    setSaveViewOf({ role: component.role, equipType: component.equipType, params, preselected });
+                  }}
+                  onPickTag={() => setTagPickerFor(component)}
+                  onAddInside={() => addInside(component)}
+                  onUnlinkTag={(tagId: string) => unlinkTag(component, tagId)}
+                  blockLabel={blockLabel}
+                  onBackToUnit={null}
+                  highlightKey={highlightKey}
+                  paramSearch={specSearch}
+                  onParamSearch={setSpecSearch}
+                  hideNoteGroups
+                  hideNoiseKeys
+                  groupCards
+                />
+              </>;
+            }}
+          />
         )}
       </div>
 

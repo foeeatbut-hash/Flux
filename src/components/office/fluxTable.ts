@@ -17,7 +17,7 @@ export type ExportFormat = 'csv' | 'xlsx' | 'office';
 /** Сколько строк уходит в документ за одну вставку; остальные — только выгрузкой. */
 export const INSERT_LIMIT = 500;
 
-export const SOURCE_TITLES: Record<string, string> = { tags: 'Теги', equipment: 'Оборудование', management: 'Менеджмент', e3: 'E3Flux' };
+export const SOURCE_TITLES: Record<string, string> = { tags: 'Теги', equipment: 'Оборудование', management: 'Менеджмент', e3: 'E3Flux', e3flux: 'E3Flux' };
 export const sourceTitle = (sourceId: string): string => SOURCE_TITLES[sourceId] || 'Данные';
 
 /** Столбцы выгрузки источника: поля каталога в порядке каталога, без повторов. */

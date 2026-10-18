@@ -33,6 +33,7 @@ import { createSheetsTokenOverlay } from './sheets-token-overlay'
 import { createSheetsIdleChips } from './sheets-idle-chips'
 import { installSheetsHistoryMarks } from './sheets-history-marks'
 import { partChipLabel } from './parameter-chip-style'
+import { isDefinedNameMutation, isLocalOnlyCollabMutation, mapDefinedNameScope, resolveDefinedNameMutation } from './sheets-collab-policy'
 
 interface Ipc {
   invoke(channel: string, ...args: unknown[]): Promise<any>
@@ -43,8 +44,7 @@ interface Op { id: string; params: unknown; sheets?: Record<string, string> }
 interface Remote { seq: number; op: Op }
 
 const MUTATION = 2 // CommandType.MUTATION
-/** Производное: каждый считает сам (формулы) — рассылать нечего */
-const LOCAL = /^(formula\.|formula-ui\.|sheet\.mutation\.set-worksheet-row-auto-height)/
+/** Производные формулы остаются локальными; политика отдельно разрешает имена книги */
 /** Правки «записать значение»: переигрывать поверх чужой безопасно */
 const IDEMPOTENT = /^sheet\.mutation\.(set-range-values|set-numfmt|set-col-width|set-row-height|set-worksheet-name)/
 /** Ключи параметров, внутри которых — содержимое ячеек, а не ссылки на книгу и лист */
@@ -106,11 +106,29 @@ function walk(v: any, depth: number, fn: (o: any) => void): void {
 
 function sheetsOf(params: unknown): Record<string, string> {
   const out: Record<string, string> = {}
-  walk(params, 0, (o) => { if (typeof o.subUnitId === 'string' && names.has(o.subUnitId)) out[o.subUnitId] = names.get(o.subUnitId)! })
+  walk(params, 0, (o) => {
+    if (typeof o.subUnitId === 'string' && names.has(o.subUnitId)) out[o.subUnitId] = names.get(o.subUnitId)!
+    if (typeof o.localSheetId === 'string' && names.has(o.localSheetId)) out[o.localSheetId] = names.get(o.localSheetId)!
+  })
   return out
 }
 
-function localize(op: Op): unknown {
+function definedNameIdentities(wb: any): Array<{ id: string; name: string; localSheetId?: string }> {
+  const out: Array<{ id: string; name: string; localSheetId?: string }> = []
+  try {
+    for (const item of wb?.getDefinedNames?.() || []) {
+      try {
+        const params = item?.toBuilder?.()?.build?.()
+        if (typeof params?.id !== 'string' || typeof item?.getName?.() !== 'string') continue
+        const localSheetId = item.getLocalSheetId?.()
+        out.push({ id: params.id, name: item.getName(), ...(typeof localSheetId === 'string' ? { localSheetId } : {}) })
+      } catch { /* пропускаем имя, которое временно не удалось прочитать */ }
+    }
+  } catch { /* часть имён может быть недоступна во время перестройки книги */ }
+  return out
+}
+
+function localize(op: Op): unknown | null {
   const params = JSON.parse(JSON.stringify(op.params ?? {}))
   const wb = workbook()
   const unitId = wb?.getId()
@@ -123,7 +141,16 @@ function localize(op: Op): unknown {
       const local = n ? byName.get(n) : undefined
       if (local) o.subUnitId = local
     }
+    if (typeof o.localSheetId === 'string') o.localSheetId = mapDefinedNameScope(o.localSheetId, op.sheets, byName)
   })
+  if (isDefinedNameMutation(op.id)) {
+    const result = resolveDefinedNameMutation(op.id, params, definedNameIdentities(wb))
+    if (!result.ok) {
+      console.warn('[flux] мутация имени пропущена: ' + result.reason)
+      return null
+    }
+    return result.params
+  }
   return params
 }
 
@@ -426,8 +453,10 @@ function columnNumber(letters: string): number {
 function run(op: Op): void {
   const a = api()
   if (!a) return
+  const params = localize(op)
+  if (params === null) return
   applying = true
-  try { a.syncExecuteCommand(op.id, localize(op), { fromCollab: true }) } catch (err) { console.warn('[flux] чужая правка не применилась', op.id, err) }
+  try { a.syncExecuteCommand(op.id, params, { fromCollab: true }) } catch (err) { console.warn('[flux] чужая правка не применилась', op.id, err) }
   finally { applying = false }
   refreshNames()
 }
@@ -455,7 +484,7 @@ function drain(): void {
     applied++
     // Моя правка дошла до сервера позже этой — у всех она последняя
     const later = mine.filter((m) => m.seq > r.seq).map((m) => m.op).concat(Array.from(pending.values()))
-    for (const op of later) if (IDEMPOTENT.test(op.id)) run(op)
+    for (const op of later) if (IDEMPOTENT.test(op.id) || isDefinedNameMutation(op.id)) run(op)
   }
   mine = mine.filter((m) => m.seq > maxRemote)
   if (applied) ipc()?.send('flux:x-applied', applied)
@@ -466,7 +495,7 @@ function onCommand(ev: { id: string; type: number; params: unknown; options?: Re
   const o = ev.options || {}
   if (o.onlyLocal || o.fromCollab || o.fromChangeset || o.fromFormula || o.syncOnly) return
   // Подгрузка книги и служебная перестройка — не правки человека
-  if (journalSuppression.active || LOCAL.test(ev.id)) return
+  if (journalSuppression.active || isLocalOnlyCollabMutation(ev.id)) return
   // Текст, который человек набирает в окне редактирования ячейки, живёт в служебном документе Univer.
   // В общую книгу уходит готовое значение ячейки, а не этот черновик: иначе журнал вечно «не сохранён»
   // и выпуск ревизии отвечает «есть несохранённые общие правки»

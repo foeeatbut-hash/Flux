@@ -73,6 +73,32 @@ const sizes = (page: Page, selector: string) => page.locator(selector).evaluateA
       const first = await buttons.first().evaluate((element) => { const r = element.getBoundingClientRect(); const s = element.querySelector('svg')!.getBoundingClientRect(); return { bw: r.width, bh: r.height, sw: s.width, sh: s.height, inside: s.left >= r.left && s.right <= r.right && s.top >= r.top && s.bottom <= r.bottom }; });
       ok(`[${t}] Панель задач: значок ${BAR_ICON} в кнопке ${BAR_BTN}`, Math.round(first.sw) === BAR_ICON && Math.round(first.sh) === BAR_ICON && Math.round(first.bw) === BAR_BTN && Math.round(first.bh) === BAR_BTN && first.inside, first);
       ok(`[${t}] Горизонтальной прокрутки нет`, await desk.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
+      const registryButton = desk.locator('button[data-tour="nav-/registry"]');
+      const mailButton = desk.locator('button[data-tour="nav-/mail"]');
+      const closedButton = desk.locator('button[data-tour="nav-/chat"]');
+      const taskbarState = async (button: typeof registryButton) => button.evaluate((element) => {
+        const mark = element.querySelector<HTMLElement>(':scope > span[aria-hidden="true"]');
+        const rect = mark?.getBoundingClientRect();
+        return {
+          current: element.getAttribute('aria-current'),
+          background: getComputedStyle(element).backgroundColor,
+          markerWidth: rect ? rect.width : 0,
+        };
+      });
+      const closedState = await taskbarState(closedButton);
+      ok(`[${t}] Закрытое закреплённое приложение не подсвечено`, closedState.current === null && closedState.markerWidth === 0);
+      await registryButton.click();
+      await desk.waitForFunction(() => document.querySelector('button[data-tour="nav-/registry"]')?.getAttribute('aria-current') === 'true');
+      await mailButton.click();
+      await mailButton.click();
+      await desk.waitForFunction(() => document.querySelector('button[data-tour="nav-/registry"]')?.getAttribute('aria-current') === 'true'
+        && document.querySelector('button[data-tour="nav-/mail"]')?.getAttribute('aria-current') !== 'true');
+      const activeState = await taskbarState(registryButton);
+      const runningState = await taskbarState(mailButton);
+      ok(`[${t}] Открытое активное приложение получает подложку и длинную метку`, activeState.current === 'true' && activeState.markerWidth > 0);
+      ok(`[${t}] Свёрнутое приложение остаётся открытым с короткой меткой`, runningState.current === null && runningState.markerWidth > 0);
+      ok(`[${t}] Активная подложка заметнее подложки свёрнутого приложения`, activeState.background !== runningState.background && runningState.background !== closedState.background, { closedState, runningState, activeState });
+      await desk.screenshot({ path: `/tmp/flux06-taskbar-${theme}.png`, animations: 'disabled' });
       await desk.close();
 
       // ── Пуск ────────────────────────────────────────────────────────────
@@ -122,6 +148,19 @@ const sizes = (page: Page, selector: string) => page.locator(selector).evaluateA
       const iconCalls = await explorer.evaluate(() => (window as any).__windowsFilesCalls.filter((call: any) => call.action === 'placeIcon' || call.action === 'icon').length);
       ok(`[${t}] Проводник не обращается к значкам оболочки (icon, placeIcon)`, iconCalls === 0, iconCalls);
       ok(`[${t}] Горизонтальной прокрутки в Проводнике нет`, await explorer.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
+      await explorer.evaluate(() => (window as any).__go('/explorer'));
+      await explorer.getByRole('heading', { name: 'Быстрый доступ', exact: true }).waitFor();
+      await explorer.evaluate(() => (window as any).__seedExplorerSharedSource());
+      const pinnedButton = explorer.getByRole('button', { name: 'Проекты', exact: true });
+      const sharedButton = explorer.getByRole('button', { name: /Общий доступ · 1/ });
+      const trashButton = explorer.getByRole('button', { name: 'Корзина', exact: true });
+      const iconWidth = (button: import('playwright-core').Locator) => button.locator('svg').first().evaluate((svg) => Math.round(svg.getBoundingClientRect().width));
+      ok(`[${t}] «Быстрый доступ»: значок Flux ${ICON_SIZE.row}`, await iconWidth(pinnedButton) === ICON_SIZE.row);
+      ok(`[${t}] «Общий доступ»: значок Flux ${ICON_SIZE.row}`, await iconWidth(sharedButton) === ICON_SIZE.row);
+      ok(`[${t}] «Корзина»: значок Flux ${ICON_SIZE.row}`, await iconWidth(trashButton) === ICON_SIZE.row);
+      const homeImages = await Promise.all([pinnedButton, sharedButton, trashButton].map((button) => button.locator('img').count()));
+      ok(`[${t}] Главная не использует картинки значков из Windows`, homeImages.every((count) => count === 0));
+      await explorer.screenshot({ path: `/tmp/flux06-home-${theme}.png` });
       await explorer.close();
     }
   } finally { await browser.close(); }

@@ -43,11 +43,14 @@ jobs:
         run: npm ci
       - name: Файловые права, конфликт сохранения и мост оболочки
         run: |
-          $checks = @('test-windows-files', 'test-windows-files-bridge', 'test-equipment-sources-local', 'test-displays-native', 'test-desktop-shell-native', 'test-windows-notifications', 'test-native-desktop-compile')
+          $checks = @('test-windows-files', 'test-windows-files-bridge', 'test-file-sharing-sync', 'test-equipment-sources-local', 'test-displays-native', 'test-desktop-shell-native', 'test-windows-notifications', 'test-native-desktop-compile')
           foreach ($check in $checks) {
             node --import tsx "scripts/$check.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+      - name: Реальный Electron preload и файловый IPC на временной папке
+        timeout-minutes: 12
+        run: node --import tsx scripts/test-windows-files-electron.ts
       - name: Guide и модель дополнения Office на Windows
         run: |
           $checks = @('test-guide-parser', 'test-guide-engine', 'test-guide-store', 'test-guide-tour-runtime', 'test-chat-ux', 'test-office-model', 'test-office-bindings', 'test-office-data', 'test-office-template-store', 'test-office-template-permissions', 'test-office-ui-contract')

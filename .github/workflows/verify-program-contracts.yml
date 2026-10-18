@@ -23,10 +23,12 @@ jobs:
           npx prisma generate --schema=prisma/schema.mariadb.prisma
       - name: Типы
         run: npm run lint
+      - name: Архитектурные ограничения проекта
+        run: node --import tsx scripts/test-architecture.ts
       - name: Guide, демонстрации, мессенджер и модель дополнения Office
         run: |
           set -euo pipefail
-          for check in test-guide-parser test-guide-engine test-guide-store test-guide-tour-runtime test-chat-ux test-office-model test-office-bindings test-office-data test-office-template-store test-office-template-permissions test-office-template-mapping test-office-header-editor test-office-header-native test-office-native-schema test-office-revisions test-office-cell-actions test-office-reply-queue test-office-ui-contract; do
+          for check in test-guide-parser test-guide-engine test-guide-store test-guide-tour-runtime test-chat-ux test-office-model test-office-bindings test-office-data test-office-template-store test-office-template-permissions test-office-template-mapping test-office-header-editor test-office-header-native test-office-sheets-collab-policy test-office-native-schema test-office-revisions test-office-cell-actions test-office-revision-recovery test-office-local test-office-reply-queue test-office-ui-contract; do
             node --import tsx "scripts/$check.ts"
           done
       - name: История Guide и F в одноразовом сервере SQLite
@@ -73,6 +75,12 @@ jobs:
             fi
             if curl --fail --silent --show-error \
               "$FLUX_UI_URL/scripts/fixtures/employee-import-ui.tsx" \
+              --output /dev/null 2>/dev/null && \
+              curl --fail --silent --show-error \
+              "$FLUX_UI_URL/scripts/fixtures/icons-shell.html" \
+              --output /dev/null 2>/dev/null && \
+              curl --fail --silent --show-error \
+              "$FLUX_UI_URL/scripts/fixtures/windows-explorer-ui.html?mix=1" \
               --output /dev/null 2>/dev/null; then
               ready=true
               break
@@ -85,7 +93,7 @@ jobs:
             exit 1
           fi
 
-          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-import-file-chooser-ui test-chat-ui test-chat-screen-ui; do
+          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-icons-shell-ui test-import-file-chooser-ui test-chat-ui test-chat-screen-ui test-owner-login-ui; do
             node --import tsx "scripts/$check.ts"
           done
           for check in test-remaining-identity-import-ui test-remaining-files-notes-ui test-remaining-engineering-registry-ui test-remaining-collaboration-handbook-ui test-remaining-shell-ui; do
@@ -103,6 +111,59 @@ jobs:
         env:
           FLUX_CHROME: /usr/bin/google-chrome
         run: node scripts/test-entity-id-migration-ui.mjs
+      - name: Equipment overview grouping regression
+        run: node --import tsx scripts/test-equipment-unit-overview.ts
+      - name: Equipment panel preview
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: node scripts/fixtures/equipment-panel/check.mjs
+      - name: Existing Equipment screen scenarios
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+          FLUX_FIXTURE_URL: http://127.0.0.1:4191
+        run: |
+          set -euo pipefail
+          fixture_log="${{ runner.temp }}/equipment-ui-vite.log"
+          node ./node_modules/vite/bin/vite.js --config scripts/fixtures/equipment-ui/vite.config.ts --host 127.0.0.1 --port 4191 --strictPort >"$fixture_log" 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$FLUX_FIXTURE_URL" --output /dev/null 2>/dev/null; then break; fi
+            if [[ "$attempt" == 60 ]]; then cat "$fixture_log"; exit 1; fi
+            sleep 1
+          done
+          node scripts/fixtures/equipment-ui/check.mjs
+      - name: Equipment catalog UI
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: node scripts/test-equipment-catalog-ui.mjs
+      - name: Equipment XML and import UI scenarios
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+          FLUX_FIXTURE_URL: http://127.0.0.1:4192
+        run: |
+          set -euo pipefail
+          fixture_log="${{ runner.temp }}/equipment-xml-source-vite.log"
+          node ./node_modules/vite/bin/vite.js --config scripts/fixtures/equipment-xml-source-ui/vite.config.ts --host 127.0.0.1 --port 4192 --strictPort >"$fixture_log" 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent "$FLUX_FIXTURE_URL/importer.html" --output /dev/null 2>/dev/null; then break; fi
+            if [[ "$attempt" == 60 ]]; then cat "$fixture_log"; exit 1; fi
+            sleep 1
+          done
+          node scripts/fixtures/equipment-xml-source-ui/check.mjs
+          node scripts/fixtures/equipment-xml-source-ui/importer.check.mjs
+      - name: Equipment preview screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: equipment-panel-preview
+          path: |
+            /tmp/equipment-panel-*.png
+            /tmp/flux-equipment-*.png
+            /tmp/flux-equipment-ui-*.png
+          if-no-files-found: warn
       - name: Артефакты с явно указанной областью проверки
         if: always()
         uses: actions/upload-artifact@v4
@@ -116,6 +177,10 @@ jobs:
             /tmp/catalog-ui-*.png
             /tmp/employee-import-*.png
             /tmp/flux-desktop-*.png
+            /tmp/flux-owner-login-ui/*
+            /tmp/flux-explorer-shots/*.png
+            /tmp/flux06-home-*.png
+            /tmp/flux06-taskbar-*.png
           if-no-files-found: warn
 
   office-native:
@@ -142,7 +207,12 @@ jobs:
       - name: Заполнение Word и Excel в одноразовом проекте
         env:
           FLUX_CHROME: /usr/bin/google-chrome
-        run: node --import tsx scripts/test-guide-server.ts --office-addon-native
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/test-guide-server.ts --office-sheets-collab
+          FLUX_NATIVE_ONLY=issued node --import tsx scripts/test-guide-server.ts --office-addon-native
+          FLUX_NATIVE_ONLY=field-refresh node --import tsx scripts/test-guide-server.ts --office-addon-native
+          node --import tsx scripts/test-guide-server.ts --office-addon-native
       - name: Совместимость прежних режимов Word, Sheets и совместной правки
         env:
           FLUX_CHROME: /usr/bin/google-chrome
@@ -158,5 +228,8 @@ jobs:
           name: flux-native-office-guide-evidence
           path: |
             /tmp/office-addon-native-*.png
+            /tmp/flux-office-native-errors.json
+            /tmp/office-explorer-*.png
+            /tmp/office-explorer-field-refresh-diagnostic.json
             /tmp/guide-tours-native-*.png
           if-no-files-found: warn
