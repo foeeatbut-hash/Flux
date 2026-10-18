@@ -28,7 +28,7 @@ jobs:
       - name: Guide, демонстрации, мессенджер и модель дополнения Office
         run: |
           set -euo pipefail
-          for check in test-guide-parser test-guide-engine test-guide-store test-guide-tour-runtime test-chat-ux test-office-model test-office-bindings test-office-data test-office-template-store test-office-template-permissions test-office-template-mapping test-office-header-editor test-office-header-native test-office-native-schema test-office-revisions test-office-cell-actions test-office-reply-queue test-office-ui-contract; do
+          for check in test-guide-parser test-guide-engine test-guide-store test-guide-tour-runtime test-chat-ux test-office-model test-office-bindings test-office-data test-office-template-store test-office-template-permissions test-office-template-mapping test-office-header-editor test-office-header-native test-office-sheets-collab-policy test-office-native-schema test-office-revisions test-office-cell-actions test-office-revision-recovery test-office-local test-office-reply-queue test-office-ui-contract; do
             node --import tsx "scripts/$check.ts"
           done
       - name: История Guide и F в одноразовом сервере SQLite
@@ -207,7 +207,12 @@ jobs:
       - name: Заполнение Word и Excel в одноразовом проекте
         env:
           FLUX_CHROME: /usr/bin/google-chrome
-        run: node --import tsx scripts/test-guide-server.ts --office-addon-native
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/test-guide-server.ts --office-sheets-collab
+          FLUX_NATIVE_ONLY=issued node --import tsx scripts/test-guide-server.ts --office-addon-native
+          FLUX_NATIVE_ONLY=field-refresh node --import tsx scripts/test-guide-server.ts --office-addon-native
+          node --import tsx scripts/test-guide-server.ts --office-addon-native
       - name: Совместимость прежних режимов Word, Sheets и совместной правки
         env:
           FLUX_CHROME: /usr/bin/google-chrome
@@ -223,5 +228,8 @@ jobs:
           name: flux-native-office-guide-evidence
           path: |
             /tmp/office-addon-native-*.png
+            /tmp/flux-office-native-errors.json
+            /tmp/office-explorer-*.png
+            /tmp/office-explorer-field-refresh-diagnostic.json
             /tmp/guide-tours-native-*.png
           if-no-files-found: warn

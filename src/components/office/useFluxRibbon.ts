@@ -41,9 +41,10 @@ interface Options {
   issueHint?: string;
   /** «Поля проекта» и «Английская версия» нужны карточке файла в базе: у файла Проводника их нет. */
   projectFile?: boolean;
+  projectFields?: boolean;
 }
 
-export function useFluxRibbon({ send, peek, issueAvailable, issueHint, projectFile = issueAvailable }: Options) {
+export function useFluxRibbon({ send, peek, issueAvailable, issueHint, projectFile = issueAvailable, projectFields = projectFile }: Options) {
   const [open, setOpen] = useState(false);
   const [command, setCommand] = useState<RibbonCommand | null>(null);
   const [template, setTemplate] = useState<OfficeAppliedTemplate | null>(null);
@@ -54,9 +55,9 @@ export function useFluxRibbon({ send, peek, issueAvailable, issueHint, projectFi
     live.current.send({ event: 'fluxRibbonState', payload: {
       resetAvailable: !!applied, resetHint: applied ? resetHintOf(applied) : NO_TEMPLATE_HINT,
       issueAvailable: canIssue, issueHint: canIssue ? 'Выпустить ревизию документа' : hint || 'Недоступно для этого файла',
-      projectFile, projectFileHint: 'Только для файлов проекта: у файла Проводника нет карточки в базе',
+      projectFile, projectFileHint: 'Только для файлов проекта: у файла Проводника нет карточки в базе', projectFields,
     } });
-  }, [projectFile]);
+  }, [projectFile, projectFields]);
   useEffect(() => { publish(template, issueAvailable, issueHint); }, [template, issueAvailable, issueHint, publish]);
 
   /** Лента спросила состояние (открылась вкладка): перечитываем файл, если панель его не знает. */

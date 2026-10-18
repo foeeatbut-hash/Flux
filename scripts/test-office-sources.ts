@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import net from 'node:net';
 import { toProjectQuery } from '../src/components/office/fluxData.js';
+import { sourceTitle } from '../src/components/office/fluxTable.js';
 import { officeEntityId } from '../src/lib/officeModel.js';
 
 const require = createRequire(import.meta.url);
@@ -172,6 +173,7 @@ async function main() {
   db.prepare('UPDATE AppSetting SET value = ? WHERE id = ?').run(originalSolutionBook, solutionSettingId);
   const adapter = toProjectQuery({ projectId, sources: ['e3flux'], types: ['e3'], filters: [], sort: [{ fieldKey: 'element.name', direction: 'desc' }], excludedEntityIds: ['skip-me'], limit: 17, columns: ['element.name'] });
   pass('client adapter forwards source types and query options for E3Flux', adapter.entity === 'e3flux' && JSON.stringify(adapter.types) === JSON.stringify(['e3']) && adapter.limit === 17 && Array.isArray(adapter.excludedEntityIds) && (adapter.excludedEntityIds as string[])[0] === 'skip-me', adapter);
+  pass('source labels accept canonical e3flux and legacy e3 binding IDs', sourceTitle('e3flux') === 'E3Flux' && sourceTitle('e3') === 'E3Flux', [sourceTitle('e3flux'), sourceTitle('e3')]);
 
   console.log('3. Filters, ordering, empty and ambiguous source data');
   const before = Date.now();

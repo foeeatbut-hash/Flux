@@ -11,10 +11,11 @@ import JSZip from 'jszip';
 import { setPrisma } from '../server/context.js';
 import { registerProjectOfficeRoutes } from '../server/routes/projectOffice.js';
 import { registerProjectOfficeLocalRoutes } from '../server/routes/projectOfficeLocal.js';
+import { docxFieldXml, insertXlsxField, listDocxFields, listXlsxAnchors } from '../server/officeFields.js';
 import { readOfficeBindings } from '../server/officeBindings.js';
 import { registerSchemaClient } from '../server/schemaRuntime.js';
 import { carryFluxPart } from '../office/fluxPart.js';
-import { makeDocx } from './officeHarness';
+import { makeDocx, makeXlsx } from './officeHarness';
 
 const tags = [
   { id: '42', projectId: 'project-1', identifier: 'P-42', brand: 'Flux', metadata: null, componentElements: [] },
@@ -43,7 +44,7 @@ const prisma: any = {
   catalogComponent: { findMany: async () => [] },
   catalogTagRule: { findMany: async () => [] },
   blankTemplate: { count: async () => 1 },
-  componentElement: { count: async () => 0, aggregate: async () => ({ _max: { updatedAt: null } }) },
+  componentElement: { findMany: async () => [], count: async () => 0, aggregate: async () => ({ _max: { updatedAt: null } }) },
   appSetting: { findFirst: async () => null },
   // Каталог проверяет индексы через PRAGMA: хватает запомнить созданные
   $queryRawUnsafe: async (sql: string) => {
@@ -208,6 +209,73 @@ void (async () => {
   const defaultProject = await call('state', { projectId: 'default', base64 });
   assert.equal(defaultProject.statusCode, 400, 'проект «по умолчанию» не подставляется');
   console.log('  ✓ права по проекту: участник и админ читают, посторонний получает 404');
+
+  // Локальный DOCX не знает контекста файла, поэтому doc.name и подпись остаются как есть.
+  const docxZip = await JSZip.loadAsync(docx);
+  const docxXml = await docxZip.file('word/document.xml')!.async('string');
+  const nonPlainField = docxFieldXml('tag[43].identifier', 'Ссылка').replace('<w:r><w:t xml:space="preserve">Ссылка</w:t></w:r>', '<w:hyperlink r:id="rId1"><w:r><w:t>Ссылка</w:t></w:r></w:hyperlink>');
+  const refreshFields = `<w:p><w:r><w:t>Непомеченный текст {{tag[42].identifier}}</w:t></w:r></w:p><w:p>${docxFieldXml('tag[42].identifier', 'Старый шифр')}</w:p><w:p>${docxFieldXml('doc.name', 'Имя файла')}</w:p><w:p>${docxFieldXml('sign.prepared.name', 'Разработчик')}</w:p><w:p>${nonPlainField}</w:p>`;
+  docxZip.file('word/document.xml', docxXml.replace('<w:sectPr', `${refreshFields}<w:sectPr`));
+  const refreshDocx = await docxZip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  const invalidHash = await call('update-fields', { projectId: 'project-1', base64: refreshDocx.toString('base64'), baseHash: 'short' });
+  assert.equal(invalidHash.statusCode, 400);
+  const staleHash = await call('update-fields', { projectId: 'project-1', base64: refreshDocx.toString('base64'), baseHash: '0'.repeat(64) });
+  assert.equal(staleHash.statusCode, 409);
+  assert.equal(staleHash.body.baseHash, sha(refreshDocx));
+  assert.equal('base64' in staleHash.body, false, 'CAS conflict не возвращает обновлённые байты');
+  const deniedRefresh = await call('update-fields', { projectId: 'closed-project', base64: refreshDocx.toString('base64'), baseHash: sha(refreshDocx) }, { id: 'outsider', role: 'ENGINEER' });
+  assert.equal(deniedRefresh.statusCode, 404);
+
+  const refreshed = await call('update-fields', { projectId: 'project-1', base64: refreshDocx.toString('base64'), baseHash: sha(refreshDocx) });
+  assert.equal(refreshed.statusCode, 200, JSON.stringify(refreshed.body));
+  assert.equal(refreshed.body.changed.length, 2, JSON.stringify(refreshed.body.changed));
+  assert.equal(refreshed.body.unchanged, false);
+  const refreshedDocx = Buffer.from(refreshed.body.base64, 'base64');
+  assert.equal(refreshed.body.sha256, sha(refreshedDocx));
+  const refreshedFields = await listDocxFields(refreshedDocx);
+  assert.equal(refreshedFields.filter(field => field.key === 'tag[42].identifier').every(field => field.text === 'P-42'), true);
+  assert.equal(refreshedFields.find(field => field.key === 'doc.name')?.text, 'Имя файла');
+  assert.equal(refreshedFields.find(field => field.key === 'sign.prepared.name')?.text, 'Разработчик');
+  assert.equal(refreshedFields.find(field => field.key === 'tag[43].identifier')?.text, 'Ссылка');
+  assert.ok(refreshed.body.skipped.some((field: any) => field.key === 'doc.name'));
+  assert.ok(refreshed.body.skipped.some((field: any) => field.key === 'sign.prepared.name'));
+  assert.ok(refreshed.body.skipped.some((field: any) => field.key === 'tag[43].identifier' && field.why.includes('не только текст')));
+  const refreshedDocxZip = await JSZip.loadAsync(refreshedDocx);
+  assert.ok((await refreshedDocxZip.file('word/document.xml')!.async('string')).includes('Непомеченный текст'));
+  const unchangedDocx = await call('update-fields', { projectId: 'project-1', base64: refreshed.body.base64, baseHash: refreshed.body.sha256 });
+  assert.equal(unchangedDocx.statusCode, 200);
+  assert.equal(unchangedDocx.body.unchanged, true);
+  assert.deepEqual(unchangedDocx.body.changed, []);
+  assert.equal(unchangedDocx.body.sha256, refreshed.body.sha256);
+  console.log('  ✓ update-fields DOCX: метки и поля обновлены, контекстные пропуски и CAS проверены');
+
+  const xlsxSource = await makeXlsx();
+  const xlsxAnchor = await insertXlsxField(xlsxSource, 'Перечень', 'B5', 'tag[42].identifier', 'Старый шифр');
+  const refreshedXlsxResult = await call('update-fields', { projectId: 'project-1', base64: xlsxAnchor.bytes.toString('base64'), baseHash: sha(xlsxAnchor.bytes) });
+  assert.equal(refreshedXlsxResult.statusCode, 200, JSON.stringify(refreshedXlsxResult.body));
+  assert.equal(refreshedXlsxResult.body.changed.length, 1);
+  assert.equal(refreshedXlsxResult.body.changed[0].key, 'tag[42].identifier');
+  assert.equal(refreshedXlsxResult.body.changed[0].to, 'P-42');
+  const refreshedXlsx = Buffer.from(refreshedXlsxResult.body.base64, 'base64');
+  assert.equal(refreshedXlsxResult.body.sha256, sha(refreshedXlsx));
+  const anchors = await listXlsxAnchors(refreshedXlsx);
+  assert.equal(anchors.fields.find(field => field.key === 'tag[42].identifier')?.text, 'P-42');
+  const xlsxBeforeZip = await JSZip.loadAsync(xlsxAnchor.bytes);
+  const xlsxAfterZip = await JSZip.loadAsync(refreshedXlsx);
+  const beforeSheet = await xlsxBeforeZip.file('xl/worksheets/sheet1.xml')!.async('string');
+  const afterSheet = await xlsxAfterZip.file('xl/worksheets/sheet1.xml')!.async('string');
+  assert.ok(afterSheet.includes('<c r="A1" t="s"><v>0</v></c>'), 'немаркированная ячейка сохранена');
+  assert.ok(afterSheet.includes('<c r="B4"><f>SUM(B2:B3)</f><v>7</v></c>'), 'формула вне якоря сохранена');
+  assert.ok(beforeSheet.includes('<c r="A1" t="s"><v>0</v></c>'));
+  const unsupportedZip = new JSZip();
+  unsupportedZip.file('[Content_Types].xml', '<Types/>');
+  unsupportedZip.file('custom/data.xml', '<data/>');
+  const unsupported = await unsupportedZip.generateAsync({ type: 'nodebuffer' });
+  const rejectedPackage = await call('update-fields', { projectId: 'project-1', base64: unsupported.toString('base64'), baseHash: sha(unsupported) });
+  assert.equal(rejectedPackage.statusCode, 400, 'ZIP без DOCX/XLSX схемы отклонён');
+  assert.equal((await call('update-fields', { projectId: 'project-1', base64: Buffer.from('CSV,текст').toString('base64'), baseHash: sha(Buffer.from('CSV,текст')) })).statusCode, 400);
+  assert.equal((await call('update-fields', { projectId: 'project-1', base64: 'A'.repeat(42 * 1024 * 1024), baseHash: '0'.repeat(64) })).statusCode, 413);
+  console.log('  ✓ update-fields XLSX и границы пакета: якоря обновлены, прочие ячейки и формулы сохранены');
 
   // Содержимое: пусто, не пакет, слишком большое
   assert.equal((await call('state', { projectId: 'project-1' })).statusCode, 400);

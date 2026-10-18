@@ -145,6 +145,6 @@ function partLabel(part: OfficePart, fields: OfficeField[]): string {
 }
 
 function sourceTitle(source: string) {
-  const labels: Record<string, string> = { tags: 'Теги', equipment: 'Оборудование', management: 'Менеджмент', e3: 'E3Flux' };
+  const labels: Record<string, string> = { tags: 'Теги', equipment: 'Оборудование', management: 'Менеджмент', e3: 'E3Flux', e3flux: 'E3Flux' };
   return labels[source] || source;
 }

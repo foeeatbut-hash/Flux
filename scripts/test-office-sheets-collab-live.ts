@@ -79,6 +79,28 @@ const column = async (x: Who, col: string, rows: number) => {
   for (let i = 1; i <= rows; i++) out.push(await cell(x, `${col}${i}`));
   return out;
 };
+const definedNameRef = async (x: Who, name: string): Promise<string | null> => {
+  const fr = frameOf(x);
+  if (!fr) return null;
+  return fr.evaluate((n: string) => {
+    const wb = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
+    const item = wb?.getDefinedNames?.().find((entry: any) => entry.getName?.() === n);
+    const ref = item && String(item.getRef?.() ?? item.getFormulaOrRefString?.() ?? '').replace(/^=/, '').replaceAll('$', '').toUpperCase();
+    return ref || null;
+  }, name).catch(() => null);
+};
+const definedNameState = async (x: Who, name: string): Promise<{ count: number; id: string | null; localSheetId?: string } | null> => {
+  const fr = frameOf(x);
+  if (!fr) return null;
+  return fr.evaluate((n: string) => {
+    const wb = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
+    const items = (wb?.getDefinedNames?.() || []).filter((entry: any) => entry.getName?.() === n);
+    const item = items[0];
+    const params = item?.toBuilder?.()?.build?.();
+    const localSheetId = item?.getLocalSheetId?.();
+    return { count: items.length, id: typeof params?.id === 'string' ? params.id : null, ...(typeof localSheetId === 'string' ? { localSheetId } : {}) };
+  }, name).catch(() => null);
+};
 /** Перейти к ячейке, как в Excel: адрес в поле имени и Enter */
 const gotoCell = async (x: Who, ref: string) => {
   const box = x.page.frameLocator(FRAME).locator('input.univer-box-border').first();
@@ -130,6 +152,8 @@ const strip = (x: Who) => x.page.getByRole('status', { name: 'Кто в файл
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   const outside: string[] = [];
   const seen: boolean[] = [];
+  let definedNameTraceOwner: Who | null = null;
+  let definedNameTraceSnapshot: unknown = null;
   const openAs = async (who: typeof ADMIN, fileId = id, base = BASE): Promise<Who> => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 860 } });
     const page = await ctx.newPage();
@@ -142,6 +166,48 @@ const strip = (x: Who) => x.page.getByRole('status', { name: 'Кто в файл
     await page.goto(`${base}/#/office-sheet?file=${fileId}`, { waitUntil: 'domcontentloaded' });
     await page.frameLocator(FRAME).getByText('Книга полностью загружена', { exact: false }).first().waitFor({ timeout: 40000 }).catch(() => {});
     return { ctx, page };
+  };
+  const installDefinedNameTrace = async (x: Who) => {
+    const frame = frameOf(x);
+    if (!frame) return { available: false, reason: 'sheets-frame-missing' };
+    return frame.evaluate(() => {
+      const win = window as any;
+      const api = win.__fluxSheets?.univerRef?.current?.univerAPI;
+      if (!api || api.Event?.CommandExecuted === undefined || typeof api.addEvent !== 'function') {
+        return { available: false, reason: 'command-event-unavailable' };
+      }
+      const trace: { available: boolean; events: Array<Record<string, unknown>> } = { available: true, events: [] };
+      win.__fluxSheetsDefinedNameCollabTrace = trace;
+      const mutationIds = new Set(['formula.mutation.set-defined-name', 'formula.mutation.remove-defined-name']);
+      const flags = ['onlyLocal', 'fromCollab', 'fromChangeset', 'fromFormula', 'syncOnly'];
+      const refPattern = /^(?:'[^']+'|[^'!]+)!\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?$/i;
+      api.addEvent(api.Event.CommandExecuted, (event: any) => {
+        if (!event || !mutationIds.has(String(event.id)) || event.params?.name !== 'Итого' || trace.events.length >= 20) return;
+        const ref = typeof event.params?.formulaOrRefString === 'string' && refPattern.test(event.params.formulaOrRefString)
+          ? event.params.formulaOrRefString
+          : undefined;
+        const options: Record<string, boolean> = {};
+        for (const flag of flags) if (typeof event.options?.[flag] === 'boolean') options[flag] = event.options[flag];
+        trace.events.push({
+          id: String(event.id),
+          type: typeof event.type === 'number' ? event.type : null,
+          params: {
+            ...(typeof event.params?.id === 'string' ? { id: event.params.id } : {}),
+            name: 'Итого',
+            ...(typeof event.params?.localSheetId === 'string' ? { localSheetId: event.params.localSheetId } : {}),
+            ...(ref ? { formulaOrRefString: ref } : { formulaOrRefString: '[omitted]' }),
+          },
+          options,
+        });
+      });
+      return { available: true, reason: null };
+    }).catch(() => ({ available: false, reason: 'trace-install-failed' }));
+  };
+  const readDefinedNameTrace = async (x: Who) => {
+    const frame = frameOf(x);
+    if (!frame) return { available: false, reason: 'sheets-frame-missing', events: [] };
+    return frame.evaluate(() => (window as any).__fluxSheetsDefinedNameCollabTrace || null)
+      .catch(() => ({ available: false, reason: 'trace-read-failed', events: [] }));
   };
 
   /** Закрыть окно, сперва спросив, не мелькал ли в нём диалог конфликта */
@@ -160,6 +226,46 @@ const strip = (x: Who) => x.page.getByRole('status', { name: 'Кто в файл
     const b = await openAs(mate, id, BASE2);
     ok('первый видит, что правят вместе', await until(async () => /Правите вместе/.test(await strip(a)), 15000), await strip(a));
     ok('второй тоже', await until(async () => /Правите вместе/.test(await strip(b)), 15000), await strip(b));
+
+    console.log('\n1a. Imported defined-name updates, renames and removes resolve by logical identity');
+    const importedName = 'Итого';
+    const initialA = await definedNameState(a, importedName);
+    const initialB = await definedNameState(b, importedName);
+    ok('both participants imported the fixture defined name', initialA?.count === 1 && initialB?.count === 1, { a: initialA, b: initialB });
+    ok('independent imports have different opaque IDs', !!initialA?.id && !!initialB?.id && initialA.id !== initialB.id, { a: initialA?.id, b: initialB?.id });
+    definedNameTraceOwner = a;
+    const traceInstall = await installDefinedNameTrace(a);
+    if (!traceInstall.available) definedNameTraceSnapshot = { ...traceInstall, events: [] };
+
+    const nameUpdated = await frameOf(a).evaluate(({ name, ref }: { name: string; ref: string }) => {
+      const wb = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
+      const item = wb?.getDefinedNames?.().find((entry: any) => entry.getName?.() === name);
+      if (!item || typeof item.setRef !== 'function') return false;
+      item.setRef(ref);
+      return true;
+    }, { name: importedName, ref: "'Перечень'!$B$5" }).catch(() => false);
+    ok('defined-name ref update was dispatched', nameUpdated);
+    ok('ref update resolves the receiver imported ID without duplicates', await until(async () => (await definedNameRef(b, importedName)) === "'ПЕРЕЧЕНЬ'!B5" && (await definedNameState(b, importedName))?.count === 1, 5000), { ref: await definedNameRef(b, importedName), state: await definedNameState(b, importedName) });
+
+    const renamed = await frameOf(a).evaluate(({ from, to }: { from: string; to: string }) => {
+      const wb = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
+      const item = wb?.getDefinedNames?.().find((entry: any) => entry.getName?.() === from);
+      if (!item || typeof item.setName !== 'function') return false;
+      item.setName(to);
+      return true;
+    }, { from: importedName, to: 'Итого_Соавтор' }).catch(() => false);
+    ok('defined-name rename was dispatched', renamed);
+    ok('rename replays as one logical name on the second participant', await until(async () => (await definedNameRef(b, 'Итого_Соавтор')) === "'ПЕРЕЧЕНЬ'!B5" && (await definedNameState(b, importedName))?.count === 0 && (await definedNameState(b, 'Итого_Соавтор'))?.count === 1, 5000), { old: await definedNameState(b, importedName), renamed: await definedNameState(b, 'Итого_Соавтор'), ref: await definedNameRef(b, 'Итого_Соавтор') });
+
+    const nameRemoved = await frameOf(a).evaluate((name: string) => {
+      const wb = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
+      const item = wb?.getDefinedName?.(name);
+      if (!item || typeof item.delete !== 'function') return false;
+      item.delete();
+      return true;
+    }, 'Итого_Соавтор').catch(() => false);
+    ok('defined-name remove was dispatched', nameRemoved);
+    ok('remove resolves the receiver-local ID and leaves no duplicate', await until(async () => (await definedNameState(b, 'Итого_Соавтор'))?.count === 0, 5000), await definedNameState(b, 'Итого_Соавтор'));
 
     console.log('\n2. Значение появляется после Enter');
     const t0 = Date.now();
@@ -219,6 +325,9 @@ const strip = (x: Who) => x.page.getByRole('status', { name: 'Кто в файл
     ok('записал держатель', await until(async () => fileCell((await fileSheet()).ws, 'E1') === 'по просьбе', 8000));
 
     console.log('\n8. Держатель ушёл — записывает второй');
+    const traceBeforeClose = await readDefinedNameTrace(a);
+    if (traceBeforeClose) definedNameTraceSnapshot = traceBeforeClose;
+    definedNameTraceOwner = null;
     await a.page.getByRole('button', { name: 'Закрыть' }).last().click();
     ok('окно первого закрылось сразу', await until(async () => !(await a.page.locator(FRAME).count()), 15000));
     await closeWin(a);
@@ -256,6 +365,11 @@ const strip = (x: Who) => x.page.getByRole('status', { name: 'Кто в файл
   } catch (e: any) {
     ok('проба оборвалась', false, String(e?.message || e));
   } finally {
+    if (definedNameTraceOwner) {
+      const finalTrace = await readDefinedNameTrace(definedNameTraceOwner);
+      if (finalTrace) definedNameTraceSnapshot = finalTrace;
+    }
+    console.log('SHEETS_DEFINED_NAME_COLLAB_TRACE', JSON.stringify(definedNameTraceSnapshot ?? { available: false, reason: 'not-installed', events: [] }));
     await browser.close();
     for (const x of created) await api('DELETE', `/api/files/${x}`, admin).catch(() => {});
     if (mateId) await api('DELETE', `/api/users/${mateId}`, admin).catch(() => {});

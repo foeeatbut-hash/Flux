@@ -156,7 +156,8 @@ async function main() {
 
   const stamp = crypto.randomBytes(5).toString('hex');
   const legacyOfficeChecks = ['docs', 'sheets', 'collab'].filter((name) => process.argv.includes(`--office-${name}`));
-  const officeFilesMode = process.argv.includes('--office-files') || legacyOfficeChecks.includes('collab');
+  const officeSheetsCollabMode = process.argv.includes('--office-sheets-collab');
+  const officeFilesMode = process.argv.includes('--office-files') || legacyOfficeChecks.includes('collab') || officeSheetsCollabMode;
   const users = [
     { id: `guide_admin_${stamp}`, symbol: `GA${stamp}`, password: crypto.randomBytes(16).toString('hex'), name: 'Synthetic Guide Admin', role: 'ADMIN' },
     { id: `guide_peer_${stamp}`, symbol: `GP${stamp}`, password: crypto.randomBytes(16).toString('hex'), name: 'Synthetic Guide Peer', role: 'ENGINEER_VENT' },
@@ -190,8 +191,9 @@ async function main() {
     }), users[0].id);
   }
 
-  if (legacyOfficeChecks.length) {
+  if (legacyOfficeChecks.length || officeSheetsCollabMode) {
     await assertNativeOfficeAssets();
+    let officeCheckFailed = false;
     for (const name of legacyOfficeChecks) {
       const office = spawn(process.execPath, ['--import', 'tsx', `scripts/test-office-${name}-live.ts`], {
         cwd,
@@ -199,7 +201,16 @@ async function main() {
         stdio: 'inherit',
       });
       const [code] = await once(office, 'exit');
-      if (code !== 0) { process.exitCode = typeof code === 'number' ? code : 1; break; }
+      if (code !== 0) { process.exitCode = typeof code === 'number' ? code : 1; officeCheckFailed = true; break; }
+    }
+    if (officeSheetsCollabMode && !officeCheckFailed) {
+      const office = spawn(process.execPath, ['--import', 'tsx', 'scripts/test-office-sheets-collab-live.ts'], {
+        cwd,
+        env: { ...process.env, FLUX_API: base, FLUX_API2: base, FLUX_USER: users[0].symbol, FLUX_PASS: users[0].password, FLUX_TEST_FIXTURE: '1', FLUX_PG: '' },
+        stdio: 'inherit',
+      });
+      const [code] = await once(office, 'exit');
+      process.exitCode = typeof code === 'number' ? code : 1;
     }
     await stop();
     db?.close();
@@ -263,16 +274,51 @@ async function main() {
   if (process.argv.includes('--office-addon-native')) {
     await assertNativeOfficeAssets();
     const fixturePath = await writeFixtureMetadata(users, projectId, systemId);
-    const office = spawn(process.execPath, ['--import', 'tsx', 'scripts/test-office-addon-native-live.ts', fixturePath], {
+    const explorerOnly = process.env.FLUX_NATIVE_ONLY === 'local-panel' || process.env.FLUX_NATIVE_ONLY === 'field-refresh';
+    const restoreExplorerFixture = !process.env.FLUX_NATIVE_ONLY;
+    let fanHighBaseline: any = null;
+    if (restoreExplorerFixture) {
+      const baselineRows = db.prepare(`
+        SELECT ce.id, ce.specs, ce.overrides
+        FROM ComponentElement ce
+        JOIN Monoblock mb ON mb.id = ce.monoblockId
+        JOIN EquipmentSystem es ON es.id = mb.systemId
+        WHERE es.projectId = ? AND ce.name = ?
+      `).all(projectId, 'FAN_HIGH');
+      if (baselineRows.length !== 1) throw new Error(`Expected one FAN_HIGH in disposable project ${projectId}, found ${baselineRows.length}`);
+      fanHighBaseline = baselineRows[0];
+    }
+    const office = explorerOnly ? null : spawn(process.execPath, ['--import', 'tsx', 'scripts/test-office-addon-native-live.ts', fixturePath], {
       cwd,
       env: { ...process.env, FLUX_OFFICE_NATIVE_READY: '1' },
       stdio: 'inherit',
     });
-    const [code] = await once(office, 'exit');
+    const [code] = office ? await once(office, 'exit') : [0];
+    if (code === 0 && restoreExplorerFixture && fanHighBaseline) {
+      const restored = db.prepare(`
+        UPDATE ComponentElement
+        SET specs = ?, overrides = ?, version = version + 1, updatedAt = ?
+        WHERE id = ? AND EXISTS (
+          SELECT 1 FROM Monoblock mb
+          JOIN EquipmentSystem es ON es.id = mb.systemId
+          WHERE mb.id = ComponentElement.monoblockId AND es.projectId = ?
+        )
+      `).run(fanHighBaseline.specs, fanHighBaseline.overrides, new Date().toISOString(), fanHighBaseline.id, projectId);
+      if (restored.changes !== 1) throw new Error(`Could not restore FAN_HIGH baseline for disposable project ${projectId}`);
+    }
+    let explorerCode = 0;
+    if (code === 0 && (!process.env.FLUX_NATIVE_ONLY || explorerOnly)) {
+      const explorer = spawn(process.execPath, ['--import', 'tsx', 'scripts/test-office-explorer-live.ts', fixturePath], {
+        cwd,
+        env: { ...process.env, FLUX_OFFICE_NATIVE_READY: '1', ...(process.env.FLUX_NATIVE_ONLY === 'field-refresh' ? { FLUX_OFFICE_EXPLORER_ONLY: 'field-refresh' } : {}) },
+        stdio: 'inherit',
+      });
+      [explorerCode] = await once(explorer, 'exit');
+    }
     await stop();
     db?.close();
     await rm(dataDir, { recursive: true, force: true });
-    process.exitCode = typeof code === 'number' ? code : 1;
+    process.exitCode = typeof code === 'number' && code === 0 ? explorerCode : (typeof code === 'number' ? code : 1);
     return;
   }
 

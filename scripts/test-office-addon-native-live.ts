@@ -1,18 +1,20 @@
+import { prepareStandaloneXlsxForIssue, saveAndWaitForIssueReady } from './officeNativeIssuePreflight';
 /**
  * End-to-end checks of Flux Office's real add-on against rebuilt GenOffice.
  * The fixture is disposable: `node --import tsx scripts/test-guide-server.ts --fixture`.
  * Run only after Office bridge freeze and editor rebuild:
  * `FLUX_OFFICE_NATIVE_READY=1 node --import tsx scripts/test-office-addon-native-live.ts /tmp/.../fixture.json`
  */
-import { chmod, readFile, stat } from 'node:fs/promises';
+import { chmod, readFile, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { chromium } from 'playwright-core';
 import { makeDocxWithTable, makeXlsxWithBlankFormula, makeXlsxWithManualRow, loginPage } from './officeHarness';
-import { runNativeSheetCellActions } from './officeNativeCellActionsScenarios';
+import { captureNativeDefinedNameEvidence, runNativeSheetCellActions } from './officeNativeCellActionsScenarios';
+import { runNativeDefinedNamesReloadMode } from './officeNativeDefinedNamesPreflight';
+import { createNativeCheck, waitFor } from './officeNativeTestRuntime';
 import { runNativeWordCellActions } from './officeNativeWordCellActionsScenarios';
-
 void (async () => {
 type Fixture = { baseUrl: string; projectId: string; dataDir: string; admin: { symbol: string; password: string } };
 const metadataPath = resolve(process.argv[2] || process.env.FLUX_FIXTURE_META || '');
@@ -31,10 +33,7 @@ await chmod(metadataPath, 0o600);
 const BASE = fixture.baseUrl.replace(/\/$/, '');
 const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 let failures = 0;
-const check = (label: string, good: unknown, detail?: unknown) => {
-  if (good) console.log(`  ✓ ${label}`);
-  else { failures++; console.error(`  ✗ ${label}`, detail === undefined ? '' : JSON.stringify(detail).slice(0, 500)); }
-};
+const check = createNativeCheck(() => { failures++; });
 let token = '';
 const api = async (method: string, route: string, body?: unknown) => {
   const response = await fetch(BASE + route, {
@@ -88,12 +87,32 @@ const sheetCell = async (frame: any, address: string) => frame.locator('body').e
   if (!sheet) return undefined;
   return sheet.getRange(cellAddress)?.getValues?.()?.[0]?.[0] ?? '';
 }, address).catch(() => undefined);
-const waitFor = async (probe: () => Promise<boolean>, timeout = 15000) => {
-  const end = Date.now() + timeout;
-  while (Date.now() < end) { if (await probe()) return true; await new Promise((r) => setTimeout(r, 250)); }
-  return probe();
-};
 let browserErrors: string[] = [];
+let browserErrorEvents: any[] = [];
+let browserErrorLogWrite: Promise<void> = Promise.resolve();
+let contextSequence = 0;
+let pageSequence = 0;
+let currentContextSequence = 0;
+let currentOfficeRoute = '(not navigated)';
+const pageOfficeRoutes = new WeakMap<object, string>();
+const contextOfficeRoutes = new WeakMap<object, string>();
+const browserErrorLogPath = '/tmp/flux-office-native-errors.json';
+const persistBrowserErrorEvents = async () => {
+  browserErrorLogWrite = browserErrorLogWrite.then(() => writeFile(browserErrorLogPath, `${JSON.stringify({ events: browserErrorEvents }, null, 2)}\n`));
+  await browserErrorLogWrite;
+};
+const recordBrowserEvent = (kind: string, target: any, detail?: unknown, contextId?: number, pageId?: number) => {
+  const capturedRoute = target && pageOfficeRoutes.get(target)
+    || (() => { try { return target?.context?.() ? contextOfficeRoutes.get(target.context()) : undefined; } catch { return undefined; } })()
+    || (target && contextOfficeRoutes.get(target))
+    || currentOfficeRoute;
+  browserErrorEvents.push({
+    timestamp: new Date().toISOString(), kind, contextSequence: contextId ?? null, pageSequence: pageId ?? null,
+    pageUrl: (() => { try { return target?.url?.() || null; } catch { return null; } })(),
+    officeRoute: capturedRoute, detail,
+  });
+  browserErrorLogWrite = browserErrorLogWrite.then(() => writeFile(browserErrorLogPath, `${JSON.stringify({ events: browserErrorEvents }, null, 2)}\n`));
+};
 const openPanel = async (page: any, title: string) => {
   const frame = page.frameLocator(`iframe[title="${title}"]`);
   try {
@@ -128,10 +147,15 @@ const ribbonCommand = async (page: any, command: string) => {
   await editor.evaluate((name: string) => window.parent.postMessage({ flux: 'office', op: 'flux:open-panel', command: name }, location.origin), command);
 };
 const navigateOffice = async (page: any, route: string) => {
+  currentOfficeRoute = route;
+  pageOfficeRoutes.set(page, route);
+  try { contextOfficeRoutes.set(page.context(), route); } catch { /* detached pages have no current context */ }
   const url = `${BASE}/#${route}`;
+  recordBrowserEvent('office-navigation-start', page, { route, requestedUrl: url }, currentContextSequence);
   // Use a fresh app page/context for each editor so the window manager consumes
   // exactly one initial hash and never restores duplicate office windows.
   await page.goto(url, { waitUntil: 'domcontentloaded' });
+  recordBrowserEvent('office-navigation-complete', page, { route }, currentContextSequence);
 };
 const waitForSheetFile = async (frame: any) => {
   return waitFor(async () => frame.locator('body').evaluate(() => {
@@ -214,7 +238,6 @@ const capture = async (page: any, frame: any, suffix: string) => {
   await page.screenshot({ path: `/tmp/office-addon-native-${suffix}.png`, fullPage: true });
   return metrics;
 };
-
 let folderId = '';
 const created: string[] = [];
 let browser: any;
@@ -228,7 +251,6 @@ try {
   folderId = String(folder.json?.folder?.id || '');
   check('isolated files folder belongs to fixture project', folder.status === 200 && !!folderId, folder.json);
   if (!folderId) throw new Error('Could not create fixture project folder');
-
   const stamp = Date.now().toString(36);
   const docxId = await upload(folderId, `__native_${stamp}.docx`, 'DOCX', await makeDocxWithTable());
   const templateTargetId = await upload(folderId, `__native_template_target_${stamp}.docx`, 'DOCX', await makeDocxWithTable());
@@ -309,21 +331,44 @@ try {
   ]);
   if (!publicDocs.equals(distDocs) || !publicSheets.equals(distSheets)) throw new Error('Served dist/ editors differ from rebuilt public/ assets; run npm build after GenOffice rebuild');
   browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
+  browserErrors = [];
+  browserErrorEvents = [];
+  browserErrorLogWrite = Promise.resolve();
+  await writeFile(browserErrorLogPath, '{"events":[]}\n');
   let context: any = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+  const watchContext = (targetContext: any) => {
+    const id = ++contextSequence;
+    contextOfficeRoutes.set(targetContext, currentOfficeRoute);
+    recordBrowserEvent('context-created', null, undefined, id);
+    targetContext.on('close', () => recordBrowserEvent('context-closed', null, undefined, id));
+    return id;
+  };
+  currentContextSequence = watchContext(context);
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
   page = await context.newPage();
   const outside: string[] = [];
-  browserErrors = [];
   const monitorPage = async (target: any) => {
-    await target.addInitScript(`window.__fluxPlanReplies = []; window.addEventListener('message', (event) => {
+    const contextId = currentContextSequence;
+    const pageId = ++pageSequence;
+    if (!pageOfficeRoutes.has(target)) pageOfficeRoutes.set(target, contextOfficeRoutes.get(context) || currentOfficeRoute);
+    recordBrowserEvent('page-created', target, undefined, contextId, pageId);
+    target.on('close', () => recordBrowserEvent('page-closed', target, undefined, contextId, pageId));
+    await target.addInitScript(`window.__fluxSheetsCollabReady = false; window.__fluxPlanReplies = []; window.__fluxHeaderSchemaTrace = []; window.addEventListener('message', (event) => {
       if (event.origin !== location.origin) return;
-      const data = event.data || {};
+      const data = event.data || {}, trace = window.__fluxHeaderSchemaTrace, channel = data.payload?.channel, payload = data.payload?.args?.[0], request = data.event === 'ipc' && channel === 'flux:get-header-schema', reply = data.op === 'ipc-send' && channel === 'flux:header-schema-read';
+      if (trace.length < 32 && (request || reply)) { const result = reply ? payload : payload?.schema, anchors = reply ? result?.headers : result?.anchors; trace.push({ at: Date.now(), direction: request ? 'request' : 'reply', op: data.event || data.op, channel, ok: reply ? result?.ok === true : undefined, anchorCount: Array.isArray(anchors) ? anchors.length : null, anchorIds: Array.isArray(anchors) ? anchors.map((item) => String(item?.id || item?.anchorId || '')).slice(0, 100) : [] }); }
+      if ((data.event === 'ipc' || data.op === 'ipc-send') && channel === 'flux:x-ready') window.__fluxSheetsCollabReady = true;
       if (data.payload && data.payload.channel === 'flux:office-plan-applied') window.__fluxPlanReplies.push(data.payload.args[0]);
     });`);
-    target.on('console', (message: any) => { if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`.slice(0, 500)); });
-    target.on('pageerror', (error: any) => browserErrors.push(`pageerror: ${error?.stack || error?.message || error}`.slice(0, 1000)));
-    target.on('requestfailed', (request: any) => browserErrors.push(`requestfailed: ${request.url()} ${request.failure()?.errorText || ''}`.slice(0, 500)));
-    target.on('response', async (response: any) => { if (response.status() >= 400) { browserErrors.push(`http-${response.status()}: ${response.url()}`.slice(0, 500)); if (response.url().includes('/office-state')) console.error('OFFICE_STATE_SAVE_FAILURE', JSON.stringify({ status: response.status(), request: response.request().postData(), response: await response.text().catch(() => '') })); } });
+    target.on('console', (message: any) => { if (message.type() === 'error') { browserErrors.push(`console: ${message.text()}`.slice(0, 500)); recordBrowserEvent('console-error', target, { text: message.text(), location: message.location?.() }, contextId, pageId); } });
+    target.on('pageerror', (error: any) => {
+      const frames = (() => { try { return target.frames().map((frame: any) => ({ url: frame.url() })); } catch { return []; } })();
+      const stack = String(error?.stack || error?.message || error);
+      browserErrors.push(`pageerror: ${stack}`.slice(0, 1000));
+      recordBrowserEvent('pageerror', target, { name: error?.name, message: error?.message, stack, frames }, contextId, pageId);
+    });
+    target.on('requestfailed', (request: any) => { const detail = { url: request.url(), failure: request.failure()?.errorText || '' }; browserErrors.push(`requestfailed: ${detail.url} ${detail.failure}`.slice(0, 500)); recordBrowserEvent('requestfailed', target, detail, contextId, pageId); });
+    target.on('response', async (response: any) => { if (response.status() >= 400) { const detail = { status: response.status(), url: response.url() }; browserErrors.push(`http-${detail.status}: ${detail.url}`.slice(0, 500)); recordBrowserEvent('http-error', target, detail, contextId, pageId); if (response.url().includes('/office-state')) console.error('OFFICE_STATE_SAVE_FAILURE', JSON.stringify({ status: response.status(), request: response.request().postData(), response: await response.text().catch(() => '') })); } });
     target.on('request', (request: any) => {
       const url = String(request.url());
       if (!url.startsWith(BASE) && !url.startsWith('blob:') && !url.startsWith('data:') && !url.startsWith('ws://127.0.0.1') && !url.startsWith('ws://localhost')) outside.push(url);
@@ -332,7 +377,9 @@ try {
   await monitorPage(page);
   const resetPage = async (dark = false) => {
     await context.close().catch(() => {});
+    await persistBrowserErrorEvents();
     context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+    currentContextSequence = watchContext(context);
     await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
     page = await context.newPage();
     await monitorPage(page);
@@ -340,6 +387,10 @@ try {
   };
   await loginPage(page, BASE, fixture.admin, false);
 
+  const nativeOnly = process.env.FLUX_NATIVE_ONLY || '';
+  // Имена проверяются до Word только в полном прогоне; names-reload закрывает браузер штатно.
+  if (await runNativeDefinedNamesReloadMode(nativeOnly, { fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page }, () => context.close())) return;
+  if (!nativeOnly) await resetPage(false); // Закрываем окно Sheets перед основным сценарием Word.
   // FLUX_NATIVE_ONLY=cells — только разделы 5 и 6 (действия с заголовочными ячейками): они сами
   // создают свои файлы, и узкий прогон идёт в разы быстрее полного
   if (process.env.FLUX_NATIVE_ONLY === 'cells') {
@@ -735,17 +786,38 @@ try {
   await sheets.locator('input.univer-box-border').first().press('Enter');
   await sheets.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
   // Набор в привязанной ячейке идёт в окне ввода поверх неё: метка защищена, текст рядом свободный
-  await page.keyboard.type('FORBIDDEN_HEADER');
+  await page.keyboard.type('=+FORBIDDEN_HEADER');
   const inCellInput = await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-edit').waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
   const inCellChips = inCellInput ? await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-chip').count() : 0;
   const inCellText = inCellInput ? await sheets.locator('#flux-sheet-token-overlay .flux-sheet-token-edit').innerText() : '';
+  const tokenOverlayGeometry = inCellInput ? await sheets.locator('#flux-sheet-token-overlay').evaluate((root) => {
+    const host = root.querySelector('.flux-sheet-token-edit') as HTMLElement;
+    const chip = root.querySelector('.flux-sheet-token-chip') as HTMLElement;
+    const save = root.querySelector('button[data-action="save"]') as HTMLElement;
+    const hostRect = host.getBoundingClientRect();
+    const chipRect = chip.getBoundingClientRect();
+    const saveRect = save.getBoundingClientRect();
+    const suffix = host.innerText.slice(host.innerText.lastIndexOf('=+'));
+    const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = []; let text = ''; let current: Node | null;
+    while ((current = walker.nextNode())) { nodes.push(current as Text); text += current.textContent || ''; }
+    const start = text.lastIndexOf(suffix), tops: number[] = []; let offset = 0;
+    for (const node of nodes) {
+      const length = node.textContent?.length || 0, from = Math.max(0, start - offset), to = Math.min(length, start + suffix.length - offset);
+      if (to > from) { const range = document.createRange(); range.setStart(node, from); range.setEnd(node, to); tops.push(...Array.from(range.getClientRects()).map(rect => Math.round(rect.top))); }
+      offset += length;
+    }
+    return { chipRight: chipRect.right, hostRight: hostRect.right, hostWidth: hostRect.width, saveLeft: saveRect.left, text: host.innerText, suffix, suffixLines: new Set(tops).size, viewportWidth: window.innerWidth };
+  }) : null;
+  check('narrow A1 parameter chip and typed formula suffix stay inside the host, clear of Done', !!tokenOverlayGeometry && tokenOverlayGeometry.chipRight <= tokenOverlayGeometry.hostRight + 1 && tokenOverlayGeometry.hostRight <= tokenOverlayGeometry.saveLeft + 1 && tokenOverlayGeometry.text.endsWith('=+FORBIDDEN_HEADER') && (tokenOverlayGeometry.viewportWidth < 320 || tokenOverlayGeometry.hostWidth >= 150) && tokenOverlayGeometry.suffixLines <= 3, tokenOverlayGeometry);
+  await page.screenshot({ path: '/tmp/office-addon-native-sheets-chip-light.png', fullPage: true });
   await page.keyboard.press('Escape');
   await sheets.locator('#flux-sheet-token-overlay').waitFor({ state: 'detached', timeout: 10000 }).catch(() => undefined);
   const headerAfterEdit = await sheets.locator('body').evaluate(() => {
     const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
     return api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень')?.getRange('A1')?.getValues?.()?.[0]?.[0];
   });
-  check('ordinary typing cannot replace the persisted protected Excel header', typeof protectedHeader === 'string' && protectedHeader.includes('Расход воздуха') && headerAfterEdit === protectedHeader && inCellInput && inCellChips === 1 && inCellText.endsWith('FORBIDDEN_HEADER'), { protectedHeader, headerAfterEdit, inCellInput, inCellChips, inCellText });
+  check('formula suffix =,+ remains editable beside the protected chip and Escape preserves the persisted Excel header', typeof protectedHeader === 'string' && protectedHeader.includes('Расход воздуха') && headerAfterEdit === protectedHeader && inCellInput && inCellChips === 1 && inCellText.endsWith('=+FORBIDDEN_HEADER'), { protectedHeader, headerAfterEdit, inCellInput, inCellChips, inCellText });
   await page.keyboard.press('Escape');
   await sheetPanel.getByRole('button', { name: 'Удалить привязку поля' }).click();
   await sheetPanel.getByRole('button', { name: 'Сохранить схему' }).click();
@@ -771,8 +843,8 @@ try {
   check('field token can be rebound to the same real A1 anchor after removal', reboundSheetField && reboundHeaderLoaded && await waitFor(async () => await sheetCell(sheets, 'A1') === 'Аэродинамика · Расход воздуха'));
   const reboundManualCellLoaded = await loadSheetAddress(sheets, 'A5');
   check('rebind preserves unrelated manual and formula cells', reboundManualCellLoaded && await sheetCell(sheets, 'A5') === 'MANUAL_KEEP' && await hasEmptyFormulaTarget(formulaId));
-  await page.keyboard.press('Control+s');
-  await capture(page, sheets, 'sheets-light');
+  await page.keyboard.press('Control+s'); await waitForSheetFile(sheets);
+  console.log('NATIVE_DEFINED_NAME_CHECKPOINT', JSON.stringify({ stage: 'after-last-header-save-before-fill', evidence: await captureNativeDefinedNameEvidence(sheets, () => raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`)) })); await capture(page, sheets, 'sheets-light');
   let beforeRepeat = (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json;
   check('saved schema has a stable anchor id and project binding', beforeRepeat?.schema?.anchors?.some((a: any) => a.id && a.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey)), beforeRepeat?.schema);
 
@@ -809,6 +881,7 @@ try {
     // Confirmation is a deliberate UI action against only the disposable file.
     const sheetApply = await confirmPreview(page, sheetPanel, sheetConfirm, 'SHEETS');
     const sheetRowsReady = sheetApply.ok && await waitFor(async () => (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json?.rows?.length > 0, 10000);
+    if (sheetRowsReady) console.log('NATIVE_DEFINED_NAME_CHECKPOINT', JSON.stringify({ stage: 'after-first-fill-before-followup-save', evidence: await captureNativeDefinedNameEvidence(sheets, () => raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`)) }));
     if (!sheetRowsReady) console.error('SHEETS_APPLY_RESULT_DIAGNOSTIC', JSON.stringify({ ...sheetApply.details, officeState: (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json, workbookXml: (await archiveText(xlsxId, 'xl/worksheets/sheet1.xml')).slice(0, 2500) }));
     let state = (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json;
     check('first fill wrote stable row metadata', state?.rows?.some((r: any) => r.entityId && !String(r.entityId).startsWith('manual:')), state?.rows);
@@ -828,7 +901,7 @@ try {
       await sheets.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
       await page.keyboard.type('NATIVE_MANUAL_EDIT'); await page.keyboard.press('Enter'); await page.keyboard.press('Control+s');
       await waitFor(async () => (await archiveText(xlsxId, 'xl/worksheets/sheet1.xml')).includes('NATIVE_MANUAL_EDIT'), 15000);
-      const editedXml = await archiveText(xlsxId, 'xl/worksheets/sheet1.xml');
+      console.log('NATIVE_DEFINED_NAME_CHECKPOINT', JSON.stringify({ stage: 'after-first-fill-and-save', evidence: await captureNativeDefinedNameEvidence(sheets, () => raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`)) })); const editedXml = await archiveText(xlsxId, 'xl/worksheets/sheet1.xml');
       check('manual edit to generated row persisted in actual OOXML cell', editedXml.includes('NATIVE_MANUAL_EDIT'), editedXml.match(/<row[^>]*>[\s\S]*?NATIVE_MANUAL_EDIT[\s\S]*?<\/row>/)?.[0]);
       const sourceQuery = await api('POST', '/api/project-data/office/query', { projectId: fixture.projectId, query: { entity: 'element', columns: ['name', 'param:Аэродинамика|Расход воздуха'], filters: [], sort: [], limit: 20, excludedEntityIds: [] } });
       const changedSource = sourceQuery.json?.rows?.find((item: any) => item.values?.name?.value === 'FAN_HIGH');
@@ -877,8 +950,7 @@ try {
     check('native fill preview enabled for selected fixture row', false, await sheetPanel.innerText().catch(() => ''));
   }
 
-  console.log('\n3. Empty-result formula target remains protected');
-  await resetPage(false);
+  console.log('NATIVE_DEFINED_NAME_CHECKPOINT', JSON.stringify({ stage: 'before-next-workbook-reload-after-repeat-fill', evidence: await captureNativeDefinedNameEvidence(sheets, () => raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`)) })); console.log('\n3. Empty-result formula target remains protected'); await resetPage(false);
   await navigateOffice(page, `/office-sheet?file=${encodeURIComponent(formulaId)}`);
   const formulaFrame = page.frameLocator('iframe[title="Flux Office — Таблица"]');
   check('formula editor loaded the actual workbook', await waitForSheetFile(formulaFrame));
@@ -922,7 +994,6 @@ try {
   check('formula refusal keeps exactly the original entity-to-A2 row identity', formulaAfter?.rows?.length === 1 && formulaAfter.rows[0].entityId === formulaEntity?.entityId && formulaAfter.rows[0].cells?.[formulaAnchor?.id] === 'A2', formulaAfter?.rows);
 
   await runNativeSheetCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page });
-  await runNativeWordCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
 
   // Theme screenshot is a second actual editor session; does not alter the workbook.
   await resetPage(true);
@@ -935,7 +1006,79 @@ try {
   const darkFrame = await openPanel(page, 'Flux Office — Таблица');
   const darkMetrics = await capture(page, darkFrame, 'sheets-dark');
   check('dark theme uses a dark actual add-on surface', darkMetrics.background !== 'rgb(255, 255, 255)' && darkMetrics.background !== 'rgba(0, 0, 0, 0)');
+  check('dark Excel editor loaded the actual workbook before cell activation', await waitForSheetFile(darkFrame));
+  await clickSheetGrid(darkFrame);
+  check('dark native A1 range is loaded before editing', await loadSheetAddress(darkFrame, 'A1'));
+  await darkFrame.locator('input.univer-box-border').first().fill('A1');
+  await darkFrame.locator('input.univer-box-border').first().press('Enter');
+  const darkCellPoint = await darkFrame.locator('body').evaluate(() => {
+    const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
+    const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
+    const canvas = document.querySelector('canvas[id^="univer-sheet-main-canvas_"]') as HTMLCanvasElement | null;
+    const cell = sheet?.getRange('A1')?.getCellRect?.();
+    const bounds = canvas?.getBoundingClientRect();
+    return canvas && cell && bounds ? { x: (Number(cell.left) + Number(cell.width) / 2) * bounds.width / canvas.width, y: (Number(cell.top) + Number(cell.height) / 2) * bounds.height / canvas.height } : null;
+  });
+  if (!darkCellPoint) throw new Error('Could not locate dark native grid cell A1');
+  const darkDefinedNameProbe = await captureNativeDefinedNameEvidence(darkFrame, () => raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`), true);
+  await darkFrame.locator('body').evaluate(() => {
+    const events: any[] = [];
+    const win = window as any;
+    win.__fluxDarkNativeEditProbe = events;
+    document.addEventListener('keydown', (event) => {
+      if (events.length >= 20) return;
+      const target = event.target as HTMLElement | null;
+      events.push({ kind: 'keydown', at: Date.now(), key: event.key, target: target ? { tag: target.tagName, id: target.id, className: String(target.className || '').slice(0, 160) } : null, active: document.activeElement ? { tag: document.activeElement.tagName, id: (document.activeElement as HTMLElement).id, className: String((document.activeElement as HTMLElement).className || '').slice(0, 160) } : null, defaultPrevented: event.defaultPrevented });
+    }, true);
+    const api = win.__fluxSheets?.univerRef?.current?.univerAPI;
+    const eventType = api?.Event?.BeforeSheetEditStart;
+    if (api && eventType !== undefined) api.addEvent(eventType, (params: any) => { if (events.length < 20) events.push({ kind: 'BeforeSheetEditStart', at: Date.now(), row: params?.row, column: params?.column, sheet: params?.worksheet?.getSheetName?.(), isZenEditor: params?.isZenEditor ?? null, cancel: params?.cancel ?? null }); });
+  });
+  const darkHostReadiness = async () => ({ capturedAt: new Date().toISOString(), panelText: await page.getByRole('complementary', { name: 'Flux Office' }).innerText().catch(() => ''), presenceText: await page.locator('body').innerText().then((text: string) => text.split('\n').filter((line: string) => /Подключение к (общему документу|серверу)|Правите вместе|Только просмотр|Документ открыт только для просмотра|Правка свободна|Открываю свежую версию/.test(line)).slice(0, 12)).catch(() => []) });
+  await darkFrame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().click({ position: darkCellPoint, timeout: 10000 });
+  const darkReadinessBeforeKey = await darkHostReadiness();
+  await page.keyboard.type('=+DARK_GEOMETRY_CHECK');
+  const darkTokenOverlay = darkFrame.locator('#flux-sheet-token-overlay');
+  const darkOverlayOpened = await darkTokenOverlay.waitFor({ timeout: 10000 }).then(() => true).catch(() => false);
+  if (!darkOverlayOpened) {
+    const darkProbe = await darkFrame.locator('body').evaluate(() => {
+      const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
+      const workbook = api?.getActiveWorkbook?.();
+      const sheet = workbook?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
+      const active = sheet?.getActiveRange?.();
+      return { url: location.href, activeElement: document.activeElement ? { tag: document.activeElement.tagName, id: (document.activeElement as HTMLElement).id, className: String((document.activeElement as HTMLElement).className || '').slice(0, 160) } : null, activeAddress: active?.getA1Notation?.() || null, cellA1: sheet?.getRange('A1')?.getValues?.()?.[0]?.[0] ?? null, overlayPresent: !!document.querySelector('#flux-sheet-token-overlay'), probeEvents: (window as any).__fluxDarkNativeEditProbe || [] };
+    }).catch((error: unknown) => ({ error: String(error) }));
+    const screenshot = '/tmp/office-addon-native-sheets-dark-edit-failure.png';
+    await page.screenshot({ path: screenshot, fullPage: true }).catch(() => {});
+    console.error('NATIVE_DARK_EDIT_DIAGNOSTIC', JSON.stringify({ darkReadinessBeforeKey, darkReadinessAfterWait: await darkHostReadiness(), darkDefinedNameProbe, darkProbe, screenshot }));
+  }
+  check('typing into the natively activated dark A1 cell opens the protected-token editor', darkOverlayOpened);
+  if (!darkOverlayOpened) throw new Error('Typing into dark native A1 did not open the protected-token editor');
+  const darkTokenGeometry = await darkTokenOverlay.evaluate((root) => {
+    const host = root.querySelector('.flux-sheet-token-edit') as HTMLElement;
+    const chip = root.querySelector('.flux-sheet-token-chip') as HTMLElement;
+    const save = root.querySelector('button[data-action="save"]') as HTMLElement;
+    const hostRect = host.getBoundingClientRect();
+    const chipRect = chip.getBoundingClientRect();
+    const saveRect = save.getBoundingClientRect();
+    const suffix = host.innerText.slice(host.innerText.lastIndexOf('=+'));
+    const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = []; let text = ''; let current: Node | null;
+    while ((current = walker.nextNode())) { nodes.push(current as Text); text += current.textContent || ''; }
+    const start = text.lastIndexOf(suffix), tops: number[] = []; let offset = 0;
+    for (const node of nodes) {
+      const length = node.textContent?.length || 0, from = Math.max(0, start - offset), to = Math.min(length, start + suffix.length - offset);
+      if (to > from) { const range = document.createRange(); range.setStart(node, from); range.setEnd(node, to); tops.push(...Array.from(range.getClientRects()).map(rect => Math.round(rect.top))); }
+      offset += length;
+    }
+    return { theme: (root as HTMLElement).dataset.theme, chipRight: chipRect.right, hostRight: hostRect.right, hostWidth: hostRect.width, saveLeft: saveRect.left, text: host.innerText, suffix, suffixLines: new Set(tops).size, viewportWidth: window.innerWidth };
+  });
+  check('dark narrow A1 parameter chip and typed formula suffix stay inside the host, clear of Done', !!darkTokenGeometry && darkTokenGeometry.theme === 'dark' && darkTokenGeometry.chipRight <= darkTokenGeometry.hostRight + 1 && darkTokenGeometry.hostRight <= darkTokenGeometry.saveLeft + 1 && darkTokenGeometry.text.endsWith('=+DARK_GEOMETRY_CHECK') && (darkTokenGeometry.viewportWidth < 320 || darkTokenGeometry.hostWidth >= 150) && darkTokenGeometry.suffixLines <= 3, darkTokenGeometry);
+  await page.screenshot({ path: '/tmp/office-addon-native-sheets-chip-dark.png', fullPage: true });
+  if (darkOverlayOpened) await page.keyboard.press('Escape');
+  await saveAndWaitForIssueReady({ page, fileId: xlsxId, api, waitFor });
   await context.close();
+  await runNativeWordCellActions({ fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, page: () => page });
 
   console.log('\n4. Issued Office revision is immutable and draft is an exact copy');
   const beforeIssue = await raw('GET', `/api/files/${encodeURIComponent(docxId)}/raw`);
@@ -982,6 +1125,7 @@ try {
   } // конец разделов 1–4 (FLUX_NATIVE_ONLY=issued их пропускает)
 
   console.log('\n5. Issued XLSX is read-only in the native grid; its draft remains writable');
+  if (nativeOnly === 'issued') await prepareStandaloneXlsxForIssue({ page, fileId: xlsxId, api, waitFor, navigateOffice, openPanel, waitForSheetFile });
   const xlsxBeforeIssue = await raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`);
   const xlsxSourceSha = sha256(xlsxBeforeIssue.bytes);
   const xlsxIssued = await api('POST', `/api/office/revisions/${encodeURIComponent(xlsxId)}/issue`, { sourceSha: xlsxSourceSha });
@@ -1040,12 +1184,13 @@ try {
     })).catch((reason: any) => ({ error: String(reason) }));
     const path = '/tmp/office-addon-native-scenario-failure.png';
     await page.screenshot({ path, fullPage: true }).catch(() => {});
-    console.error('NATIVE_SCENARIO_FAILURE_DIAGNOSTIC', JSON.stringify({ diagnostic, browserErrors: browserErrors.slice(-30), screenshot: path }));
+    console.error('NATIVE_SCENARIO_FAILURE_DIAGNOSTIC', JSON.stringify({ diagnostic, headerSchemaTrace: await Promise.all(page.frames().map((frame: any) => frame.evaluate(() => (window as any).__fluxHeaderSchemaTrace || []).catch(() => []))), browserErrors: browserErrors.slice(-30), screenshot: path }));
   }
   console.error('NATIVE_SCENARIO_STACK', String(error?.stack || error).replace(/\u001b\[[0-9;]*m/g, ''));
   check('native Office add-on scenario completed', false, String(error?.stack || error));
 } finally {
   if (browser) await browser.close().catch(() => {});
+  await persistBrowserErrorEvents().catch((error) => console.error('NATIVE_ERROR_ARTIFACT_WRITE_FAILURE', String(error)));
   for (const id of created) await api('DELETE', `/api/files/${encodeURIComponent(id)}`).catch(() => {});
   if (folderId) await api('DELETE', `/api/folders/${encodeURIComponent(folderId)}`).catch(() => {});
 }

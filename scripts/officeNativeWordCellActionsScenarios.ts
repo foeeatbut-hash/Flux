@@ -199,10 +199,46 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   // Своё имя объединённой колонки Word: в тексте шапки, в схеме, после повторного открытия; данные по ключам
   const mergedCell = success.editor.locator('table tr').first().locator('td,th').nth(0);
   await mergedCell.click({ position: { x: 6, y: 6 } });
-  await mergedCell.evaluate((cell: HTMLElement) => {
+  const wordRenameContext = await mergedCell.evaluate((cell: HTMLElement) => {
     const box = cell.getBoundingClientRect();
-    cell.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: box.left + 6, clientY: box.top + box.height / 2 }));
+    const win = window as any;
+    const editor = win.__fluxCtxRef?.current?.editor;
+    const view = editor?.view;
+    let clickedPath: any[] = [];
+    let clickedPos: number | null = null;
+    try {
+      clickedPos = view.posAtDOM(cell, 0);
+      const $clicked = editor.state.doc.resolve(clickedPos);
+      for (let depth = 0; depth <= $clicked.depth; depth++) { const node = $clicked.node(depth); clickedPath.push({ type: node?.type?.name || '', text: String(node?.textContent || '').slice(0, 160), attrs: Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|anchor|colspan|rowspan/i.test(key))) }); }
+    } catch (error) { clickedPath = [{ error: String(error).slice(0, 240) }]; }
+    const selection = editor?.state?.selection;
+    const selectedCells: any[] = [];
+    try { selection?.forEachCell?.((node: any, pos: number) => selectedCells.push({ pos, type: node?.type?.name || '', text: String(node?.textContent || '').slice(0, 160), attrs: Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|anchor|colspan|rowspan/i.test(key))) })); } catch { /* Not a cell selection */ }
+    const rowCells = Array.from(cell.parentElement?.children || []).slice(0, 3).map((item) => ({
+      tag: item.tagName,
+      text: String(item.textContent || '').slice(0, 160),
+      html: item.outerHTML.slice(0, 1200),
+    }));
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: box.left + 6, clientY: box.top + box.height / 2 });
+    const dispatchResult = cell.dispatchEvent(event);
+    return {
+      target: { tag: cell.tagName, text: String(cell.textContent || '').slice(0, 160), html: cell.outerHTML.slice(0, 1600), rect: { x: box.x, y: box.y, width: box.width, height: box.height } },
+      rowCells,
+      clickedPos,
+      clickedPath,
+      selection: { type: selection?.toJSON?.().type || '', from: selection?.from, to: selection?.to, selectedCells },
+      activeElement: document.activeElement instanceof HTMLElement ? { tag: document.activeElement.tagName, className: String(document.activeElement.className || '').slice(0, 180) } : null,
+      menus: Array.from(document.querySelectorAll('[role="menu"], [role="menuitem"]')).slice(0, 8).map((item) => ({ role: item.getAttribute('role'), text: String(item.textContent || '').slice(0, 120), className: String((item as HTMLElement).className || '').slice(0, 180) })),
+      bodyTail: document.body.innerText.slice(-1000),
+      dispatch: { defaultPrevented: event.defaultPrevented, dispatchResult },
+    };
   });
+  const wordRenameState = (await api('GET', `/api/project-data/files/${success.fileId}/office-state`)).json;
+  console.log('NATIVE_WORD_RENAME_CONTEXT_DIAGNOSTIC', JSON.stringify({
+    fileId: success.fileId,
+    native: wordRenameContext,
+    storedAnchors: wordRenameState?.schema?.anchors?.map((anchor: any) => ({ id: anchor.id, parts: anchor.parts?.map((part: any) => ({ kind: part.kind, fieldKey: part.binding?.fieldKey, alternatives: part.alternatives?.map((item: any) => item.fieldKey) })) })),
+  }));
   await page().getByRole('button', { name: /^Переименовать/ }).click();
   const wordRename = page().getByRole('dialog', { name: 'Переименовать' });
   await wordRename.getByLabel('Отображаемое имя').fill('Мощность, кВт');
@@ -227,17 +263,27 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   const nativeEditor = formula.editor.locator('table tr').first().locator('td,th').nth(0);
   const nativeToken = nativeEditor.locator('[data-instr-field*="flux:"]');
   await nativeToken.first().waitFor();
-  // Фокус в редакторе: выделение, заданное из страницы, без фокуса не принимает набор
+  // Выделяем префикс через позицию ProseMirror: DOM-диапазон рядом с защищённой меткой
+  // может оставить исходный заголовок на месте.
   await nativeEditor.click({ position: { x: 6, y: 6 } });
   await nativeEditor.evaluate((cell: HTMLElement) => {
-    const field = cell.querySelector('[data-instr-field*="flux:"]');
-    if (!field) return;
-    // Исходная подпись ячейки «Drive Power» выделена и заменяется набранным «=», метка остаётся
-    const range = document.createRange(); range.setStart(field.closest('p') || field.parentNode!, 0); range.setEndBefore(field);
-    const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
+    const editor = (window as any).__fluxCtxRef?.current?.editor;
+    if (!editor) return;
+    let fieldFrom: number | undefined;
+    let prefixFrom: number | undefined;
+    editor.state.doc.descendants((node: any, pos: number) => {
+      if (node.isText && node.marks.some((mark: any) => mark.type.name === 'instrField') && fieldFrom === undefined) {
+        fieldFrom = pos;
+        const paragraphStart = editor.state.doc.resolve(pos).start();
+        prefixFrom = paragraphStart;
+      }
+    });
+    if (fieldFrom === undefined || prefixFrom === undefined) return;
+    editor.commands.setTextSelection({ from: prefixFrom, to: fieldFrom });
+    editor.view.focus();
   });
   await page().keyboard.type('=');
-  check('Word cell takes a leading equals sign typed directly before the protected field mark', await waitFor(async () => (await nativeEditor.innerText()).startsWith('=') && await nativeToken.count() === 1), { text: await nativeEditor.innerText(), tokens: await nativeToken.count() });
+  check('Word native typing replaces the unmarked source prefix with an equals sign and keeps the protected field', await waitFor(async () => (await nativeEditor.innerText()).startsWith('=') && !(await nativeEditor.innerText()).includes('Drive Power') && await nativeToken.count() === 1), { text: await nativeEditor.innerText(), tokens: await nativeToken.count() });
   const stateBeforeInsert = (await api('GET', `/api/project-data/files/${formula.fileId}/office-state`)).json;
   const anchorId = stateBeforeInsert?.schema?.anchors?.find((anchor: any) => anchor.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey === 'param:@DrivePower'))?.id;
   // Метка встаёт в позицию курсора: ставим его в конец текста ячейки и открываем диалог оттуда
