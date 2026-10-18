@@ -505,10 +505,22 @@ void (async () => {
       const refreshedFan = freshAirflowQuery.json?.rows?.find((row: any) => row.values?.name?.value === 'FAN_HIGH');
       const refreshedAirflow = String(refreshedFan?.values?.[airflowFieldKey]?.value ?? '');
       check('свежий запрос видит новую ревизию и расход воздуха 1500', freshAirflowQuery.status === 200 && freshAirflowQuery.json?.revision !== initialAirflowRevision && refreshedAirflow === '1500', { status: freshAirflowQuery.status, revisionChanged: freshAirflowQuery.json?.revision !== initialAirflowRevision, refreshedAirflow });
+      const uiQueryPayloadPromise = page.waitForResponse((response: any) => {
+        const request = response.request();
+        if (request.method() !== 'POST' || new URL(response.url()).pathname !== '/api/project-data/office/query') return false;
+        try {
+          const body = request.postDataJSON();
+          return response.status() === 200 && body?.projectId === fixture.projectId;
+        } catch { return false; }
+      }, { timeout: 20000 }).then((response: any) => response.json()).catch(() => null);
       await panel().getByRole('button', { name: 'Обновить выборку' }).click();
-      const fieldRefreshSourcePassed = await waitFor(async () =>
+      const uiQueryPayload = await uiQueryPayloadPromise;
+      const uiFan = uiQueryPayload?.rows?.find((row: any) => row.values?.name?.value === 'FAN_HIGH');
+      const uiAirflow = String(uiFan?.values?.[airflowFieldKey]?.value ?? '');
+      const uiRevisionValid = typeof uiQueryPayload?.revision === 'string' && uiQueryPayload.revision.length > 0;
+      const fieldRefreshSourcePassed = uiAirflow === '1500' && uiRevisionValid && await waitFor(async () =>
         (await panel().getByRole('status').filter({ hasText: 'Данные обновлены' }).count()) > 0
-        && (await panel().getByRole('grid', { name: 'Предпросмотр выборки' }).getByText('1500').count()) > 0, 20000);
+        && (await panel().getByRole('grid', { name: 'Предпросмотр выборки' }).getByText(/FAN_HIGH/).count()) > 0, 20000);
       if (!fieldRefreshSourcePassed) {
         const fieldRefreshSourceState = await evaluateBrowserCode(page, `(() => {
           const statusText = Array.from(document.querySelectorAll('[role="status"]')).map(element => element.textContent || '').join(' ').slice(-300);
@@ -522,11 +534,11 @@ void (async () => {
             has1500: gridText.includes('1500'),
           };
         })()`).catch(() => ({ updatedStatusVisible: false, gridRowCount: null, has900: false, has1200: false, has1500: false }));
-        const fieldRefreshSourceDetails = { phase: 'source-409-preview', fieldRefreshSourceState, recentServerCalls: serverCalls.slice(-6).map(call => call.slice(0, 240)), ...(await fieldRefreshFailureDetails(docs, false)) };
+        const fieldRefreshSourceDetails = { phase: 'source-409-preview', uiPayload: { present: uiQueryPayload !== null, airflow: uiAirflow, revisionValid: uiRevisionValid }, fieldRefreshSourceState, recentServerCalls: serverCalls.slice(-6).map(call => call.slice(0, 240)), ...(await fieldRefreshFailureDetails(docs, false)) };
         console.error('OFFICE_FIELD_REFRESH_DIAGNOSTIC', JSON.stringify(fieldRefreshSourceDetails));
         await writeFile('/tmp/office-explorer-field-refresh-diagnostic.json', JSON.stringify(fieldRefreshSourceDetails, null, 2), { mode: 0o600 });
       }
-      check('открытый DOCX перечитал изменившийся источник после 409', fieldRefreshSourcePassed);
+      check('открытый DOCX перечитал изменившийся источник после 409', fieldRefreshSourcePassed, { uiAirflow, uiRevisionValid });
       if (fieldRefreshOnly) throw fieldRefreshDone;
       const staleConfirm = await fillFromProject('DOCX после изменения источника', async () => {
         await changeFanHighAirflow('1600', currentFanAirflow);
