@@ -275,12 +275,37 @@ async function main() {
     await assertNativeOfficeAssets();
     const fixturePath = await writeFixtureMetadata(users, projectId, systemId);
     const explorerOnly = process.env.FLUX_NATIVE_ONLY === 'local-panel' || process.env.FLUX_NATIVE_ONLY === 'field-refresh';
+    const restoreExplorerFixture = !process.env.FLUX_NATIVE_ONLY;
+    let fanHighBaseline: any = null;
+    if (restoreExplorerFixture) {
+      const baselineRows = db.prepare(`
+        SELECT ce.id, ce.specs, ce.overrides
+        FROM ComponentElement ce
+        JOIN Monoblock mb ON mb.id = ce.monoblockId
+        JOIN EquipmentSystem es ON es.id = mb.systemId
+        WHERE es.projectId = ? AND ce.name = ?
+      `).all(projectId, 'FAN_HIGH');
+      if (baselineRows.length !== 1) throw new Error(`Expected one FAN_HIGH in disposable project ${projectId}, found ${baselineRows.length}`);
+      fanHighBaseline = baselineRows[0];
+    }
     const office = explorerOnly ? null : spawn(process.execPath, ['--import', 'tsx', 'scripts/test-office-addon-native-live.ts', fixturePath], {
       cwd,
       env: { ...process.env, FLUX_OFFICE_NATIVE_READY: '1' },
       stdio: 'inherit',
     });
     const [code] = office ? await once(office, 'exit') : [0];
+    if (code === 0 && restoreExplorerFixture && fanHighBaseline) {
+      const restored = db.prepare(`
+        UPDATE ComponentElement
+        SET specs = ?, overrides = ?, version = version + 1, updatedAt = ?
+        WHERE id = ? AND EXISTS (
+          SELECT 1 FROM Monoblock mb
+          JOIN EquipmentSystem es ON es.id = mb.systemId
+          WHERE mb.id = ComponentElement.monoblockId AND es.projectId = ?
+        )
+      `).run(fanHighBaseline.specs, fanHighBaseline.overrides, new Date().toISOString(), fanHighBaseline.id, projectId);
+      if (restored.changes !== 1) throw new Error(`Could not restore FAN_HIGH baseline for disposable project ${projectId}`);
+    }
     let explorerCode = 0;
     if (code === 0 && (!process.env.FLUX_NATIVE_ONLY || explorerOnly)) {
       const explorer = spawn(process.execPath, ['--import', 'tsx', 'scripts/test-office-explorer-live.ts', fixturePath], {
