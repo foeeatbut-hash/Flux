@@ -1121,9 +1121,7 @@ try {
   check('revision comparison reads immutable issued bytes and current draft bytes', compare.status === 200 && compare.json?.documentChanged === true && compare.json?.sourceChanged === false && compare.json?.beforeSha === issuedRevision?.sha256 && compare.json?.afterSha === sha256(changedDraftBytes) && Array.isArray(compare.json?.bindings?.changed), compare.json);
   const originalFinal = await raw('GET', `/api/files/${encodeURIComponent(docxId)}/raw`);
   check('editing the new draft never mutates the issued source document', sha256(originalFinal.bytes) === sourceSha);
-
   } // конец разделов 1–4 (FLUX_NATIVE_ONLY=issued их пропускает)
-
   console.log('\n5. Issued XLSX is read-only in the native grid; its draft remains writable');
   if (nativeOnly === 'issued') await prepareStandaloneXlsxForIssue({ page, fileId: xlsxId, api, waitFor, navigateOffice, openPanel, waitForSheetFile });
   const xlsxBeforeIssue = await raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`);
