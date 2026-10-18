@@ -59,6 +59,7 @@ export default function ProjectDataPanel({ fileId, projectId, kind, onInsert, on
   }, [q, fileId, projectId]);
 
   useEffect(() => {
+    if (!fileId) { setSigners({}); setUsers([]); return; }
     fetch(`/api/project-data/signers?fileId=${encodeURIComponent(fileId)}`).then((r) => r.json()).then((d) => setSigners(d.signers || {})).catch(() => {});
     fetch('/api/users').then((r) => r.json()).then((d) => {
       const list = Array.isArray(d) ? d : d.users || [];
@@ -67,6 +68,7 @@ export default function ProjectDataPanel({ fileId, projectId, kind, onInsert, on
   }, [fileId]);
 
   const setSigner = async (role: SignRole, userId: string) => {
+    if (!fileId) return;
     const r = await fetch('/api/project-data/signers', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId, role, userId: userId || null }),
     });
@@ -142,7 +144,8 @@ export default function ProjectDataPanel({ fileId, projectId, kind, onInsert, on
             <div key={role} className="fx-li">
               <PenLine className="h-3.5 w-3.5 text-slate-400" />
               <span className="w-20 shrink-0 text-sm">{SIGN_TITLES[role]}</span>
-              <select className="fx-input min-w-0 flex-1" aria-label={SIGN_TITLES[role]} disabled={readOnly}
+              <select className="fx-input min-w-0 flex-1" aria-label={SIGN_TITLES[role]} disabled={readOnly || !fileId}
+                title={!fileId ? 'Подписанты назначаются в файлах проекта Flux' : undefined}
                 value={signers[role]?.userId || ''} onChange={(e) => void setSigner(role, e.target.value)}>
                 <option value="">—</option>
                 {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}

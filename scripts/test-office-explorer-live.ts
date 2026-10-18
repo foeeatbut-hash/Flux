@@ -64,6 +64,25 @@ void (async () => {
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });
   const errors: string[] = [];
   const failed: string[] = [];
+  const emptySignerFileIdRequests: string[] = [];
+  type ExpectedConflictWindow = { expected: Record<string, number>; observed: Record<string, number> };
+  let expectedConflictWindow: ExpectedConflictWindow | null = null;
+  const beginExpectedConflictWindow = (expected: Record<string, number>): ExpectedConflictWindow => {
+    if (expectedConflictWindow) throw new Error('Окно ожидаемых конфликтов уже открыто');
+    const window = { expected, observed: {} as Record<string, number> };
+    expectedConflictWindow = window;
+    return window;
+  };
+  const finishExpectedConflictWindow = (window: ExpectedConflictWindow, recoveryPassed: boolean) => {
+    if (expectedConflictWindow === window) expectedConflictWindow = null;
+    const routes = new Set([...Object.keys(window.expected), ...Object.keys(window.observed)]);
+    const countsMatch = [...routes].every((route) => (window.observed[route] || 0) === (window.expected[route] || 0));
+    check('ожидаемые 409 ограничены сценарием и восстановление источника прошло', recoveryPassed && countsMatch, {
+      recoveryPassed,
+      expected: window.expected,
+      observed: window.observed,
+    });
+  };
   const serverCalls: string[] = [];
   const fieldRefreshResponses: Array<{
     status: number;
@@ -99,7 +118,20 @@ void (async () => {
     page = await context.newPage();
     page.on('pageerror', (error: any) => errors.push(`pageerror: ${error?.message || error}`.slice(0, 500)));
     page.on('response', async (response: any) => {
-      if (response.status() >= 400 && !/\/api\/(license|auth|presence)/.test(response.url())) failed.push(`${response.status()} ${response.url()}`);
+      const status = response.status();
+      const request = response.request();
+      const route = request.method() + ' ' + new URL(response.url()).pathname;
+      let requestProjectId = '';
+      try { requestProjectId = String(request.postDataJSON()?.projectId || ''); } catch { requestProjectId = ''; }
+      if (status === 409 && expectedConflictWindow && requestProjectId === fixture.projectId) {
+        const expected = expectedConflictWindow.expected[route] || 0;
+        const observed = expectedConflictWindow.observed[route] || 0;
+        if (observed < expected) {
+          expectedConflictWindow.observed[route] = observed + 1;
+          return;
+        }
+      }
+      if (status >= 400 && !/\/api\/(license|auth|presence)/.test(response.url())) failed.push(String(status) + ' ' + response.url());
       if (new URL(response.url()).pathname === '/api/project-data/office-local/update-fields') {
         let error: string | undefined;
         let result: any = null;
@@ -134,6 +166,10 @@ void (async () => {
       }
     });
     page.on('request', (request: any) => {
+      const requestUrl = new URL(request.url());
+      if (request.method() === 'GET' && requestUrl.pathname === '/api/project-data/signers' && requestUrl.searchParams.get('fileId') === '') {
+        emptySignerFileIdRequests.push(requestUrl.toString());
+      }
       if (/office-local|office-state|\/api\/files/.test(request.url())) serverCalls.push(`${request.method()} ${new URL(request.url()).pathname}`);
       if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/project-data/office-local/update-fields') {
         try { fieldRefreshRequestBaseHash = String(request.postDataJSON()?.baseHash || ''); } catch { fieldRefreshRequestBaseHash = ''; }
@@ -412,10 +448,12 @@ void (async () => {
     await panel().getByRole('button', { name: /1\. Выборка/ }).click();
     await panel().getByRole('button', { name: 'Обновить выборку' }).click();
     await docs.locator('.ProseMirror').first().click();
+    const signerRequestsBeforeProjectPanel = emptySignerFileIdRequests.length;
     await ribbonClick(docs, 'project-fields');
     const projectFields = page.getByRole('complementary', { name: 'Данные проекта' });
     const insertProjectFieldButton = projectFields.locator('[title="project.name"]').getByRole('button', { name: 'Вставить' });
     await insertProjectFieldButton.waitFor({ timeout: 15000 });
+    check('локальная панель проекта не запрашивает подписантов с пустым fileId', signerRequestsBeforeProjectPanel === 0 && emptySignerFileIdRequests.length === signerRequestsBeforeProjectPanel, { before: signerRequestsBeforeProjectPanel, after: emptySignerFileIdRequests.length, requests: emptySignerFileIdRequests });
     await evaluateBrowserCode(page, `(() => {
       const w = window;
       w.__fluxFieldRefreshToastMessages = [];
@@ -505,47 +543,65 @@ void (async () => {
       const refreshedFan = freshAirflowQuery.json?.rows?.find((row: any) => row.values?.name?.value === 'FAN_HIGH');
       const refreshedAirflow = String(refreshedFan?.values?.[airflowFieldKey]?.value ?? '');
       check('свежий запрос видит новую ревизию и расход воздуха 1500', freshAirflowQuery.status === 200 && freshAirflowQuery.json?.revision !== initialAirflowRevision && refreshedAirflow === '1500', { status: freshAirflowQuery.status, revisionChanged: freshAirflowQuery.json?.revision !== initialAirflowRevision, refreshedAirflow });
-      const uiQueryPayloadPromise = page.waitForResponse((response: any) => {
-        const request = response.request();
-        if (request.method() !== 'POST' || new URL(response.url()).pathname !== '/api/project-data/office/query') return false;
-        try {
-          const body = request.postDataJSON();
-          return response.status() === 200 && body?.projectId === fixture.projectId;
-        } catch { return false; }
-      }, { timeout: 20000 }).then((response: any) => response.json()).catch(() => null);
-      await panel().getByRole('button', { name: 'Обновить выборку' }).click();
-      const uiQueryPayload = await uiQueryPayloadPromise;
-      const uiFan = uiQueryPayload?.rows?.find((row: any) => row.values?.name?.value === 'FAN_HIGH');
-      const uiAirflow = String(uiFan?.values?.[airflowFieldKey]?.value ?? '');
-      const uiRevisionValid = typeof uiQueryPayload?.revision === 'string' && uiQueryPayload.revision.length > 0;
-      const fieldRefreshSourcePassed = uiAirflow === '1500' && uiRevisionValid && await waitFor(async () =>
-        (await panel().getByRole('status').filter({ hasText: 'Данные обновлены' }).count()) > 0
-        && (await panel().getByRole('grid', { name: 'Предпросмотр выборки' }).getByText(/FAN_HIGH/).count()) > 0, 20000);
-      if (!fieldRefreshSourcePassed) {
-        const fieldRefreshSourceState = await evaluateBrowserCode(page, `(() => {
-          const statusText = Array.from(document.querySelectorAll('[role="status"]')).map(element => element.textContent || '').join(' ').slice(-300);
-          const grid = document.querySelector('[role="grid"][aria-label="Предпросмотр выборки"]');
-          const gridText = grid?.textContent || '';
-          return {
-            updatedStatusVisible: statusText.includes('Данные обновлены'),
-            gridRowCount: grid?.querySelectorAll('[role="row"]').length ?? null,
-            has900: gridText.includes('900'),
-            has1200: gridText.includes('1200'),
-            has1500: gridText.includes('1500'),
-          };
-        })()`).catch(() => ({ updatedStatusVisible: false, gridRowCount: null, has900: false, has1200: false, has1500: false }));
-        const fieldRefreshSourceDetails = { phase: 'source-409-preview', uiPayload: { present: uiQueryPayload !== null, airflow: uiAirflow, revisionValid: uiRevisionValid }, fieldRefreshSourceState, recentServerCalls: serverCalls.slice(-6).map(call => call.slice(0, 240)), ...(await fieldRefreshFailureDetails(docs, false)) };
-        console.error('OFFICE_FIELD_REFRESH_DIAGNOSTIC', JSON.stringify(fieldRefreshSourceDetails));
-        await writeFile('/tmp/office-explorer-field-refresh-diagnostic.json', JSON.stringify(fieldRefreshSourceDetails, null, 2), { mode: 0o600 });
-      }
-      check('открытый DOCX перечитал изменившийся источник после 409', fieldRefreshSourcePassed, { uiAirflow, uiRevisionValid });
-      if (fieldRefreshOnly) throw fieldRefreshDone;
-      const staleConfirm = await fillFromProject('DOCX после изменения источника', async () => {
-        await changeFanHighAirflow('1600', currentFanAirflow);
-        currentFanAirflow = '1600';
+      const expectedFieldRefreshConflicts = beginExpectedConflictWindow({
+        'POST /api/project-data/office/query': 1,
       });
-      check('409 предпросмотра перестроил свежий план и оставил подтверждение человеку', await staleConfirm.isVisible());
-      check('свежий предпросмотр не записывает файл до подтверждения', before.equals(await disk('one.docx')));
+      let fieldRefreshSourcePassed = false;
+      try {
+        const uiQueryPayloadPromise = page.waitForResponse((response: any) => {
+          const request = response.request();
+          if (request.method() !== 'POST' || new URL(response.url()).pathname !== '/api/project-data/office/query') return false;
+          try {
+            const body = request.postDataJSON();
+            return response.status() === 200 && body?.projectId === fixture.projectId;
+          } catch { return false; }
+        }, { timeout: 20000 }).then((response: any) => response.json()).catch(() => null);
+        await panel().getByRole('button', { name: 'Обновить выборку' }).click();
+        const uiQueryPayload = await uiQueryPayloadPromise;
+        const uiFan = uiQueryPayload?.rows?.find((row: any) => row.values?.name?.value === 'FAN_HIGH');
+        const uiAirflow = String(uiFan?.values?.[airflowFieldKey]?.value ?? '');
+        const uiRevisionValid = typeof uiQueryPayload?.revision === 'string' && uiQueryPayload.revision.length > 0;
+        fieldRefreshSourcePassed = uiAirflow === '1500' && uiRevisionValid && await waitFor(async () =>
+          (await panel().getByRole('status').filter({ hasText: 'Данные обновлены' }).count()) > 0
+          && (await panel().getByRole('grid', { name: 'Предпросмотр выборки' }).getByText(/FAN_HIGH/).count()) > 0, 20000);
+        if (!fieldRefreshSourcePassed) {
+          const fieldRefreshSourceState = await evaluateBrowserCode(page, `(() => {
+            const statusText = Array.from(document.querySelectorAll('[role="status"]')).map(element => element.textContent || '').join(' ').slice(-300);
+            const grid = document.querySelector('[role="grid"][aria-label="Предпросмотр выборки"]');
+            const gridText = grid?.textContent || '';
+            return {
+              updatedStatusVisible: statusText.includes('Данные обновлены'),
+              gridRowCount: grid?.querySelectorAll('[role="row"]').length ?? null,
+              has900: gridText.includes('900'),
+              has1200: gridText.includes('1200'),
+              has1500: gridText.includes('1500'),
+            };
+          })()`).catch(() => ({ updatedStatusVisible: false, gridRowCount: null, has900: false, has1200: false, has1500: false }));
+          const fieldRefreshSourceDetails = { phase: 'source-409-preview', uiPayload: { present: uiQueryPayload !== null, airflow: uiAirflow, revisionValid: uiRevisionValid }, fieldRefreshSourceState, recentServerCalls: serverCalls.slice(-6).map(call => call.slice(0, 240)), ...(await fieldRefreshFailureDetails(docs, false)) };
+          console.error('OFFICE_FIELD_REFRESH_DIAGNOSTIC', JSON.stringify(fieldRefreshSourceDetails));
+          await writeFile('/tmp/office-explorer-field-refresh-diagnostic.json', JSON.stringify(fieldRefreshSourceDetails, null, 2), { mode: 0o600 });
+        }
+        check('открытый DOCX перечитал изменившийся источник после 409', fieldRefreshSourcePassed, { uiAirflow, uiRevisionValid });
+      } finally {
+        finishExpectedConflictWindow(expectedFieldRefreshConflicts, fieldRefreshSourcePassed);
+      }
+      if (fieldRefreshOnly) throw fieldRefreshDone;
+      const expectedPreviewConflicts = beginExpectedConflictWindow({
+        'POST /api/project-data/office/query': 1,
+        'POST /api/project-data/office-local/preview': 1,
+      });
+      let stalePreviewRecovered = false;
+      try {
+        const staleConfirm = await fillFromProject('DOCX после изменения источника', async () => {
+          await changeFanHighAirflow('1600', currentFanAirflow);
+          currentFanAirflow = '1600';
+        });
+        stalePreviewRecovered = await staleConfirm.isVisible();
+        check('409 предпросмотра перестроил свежий план и оставил подтверждение человеку', stalePreviewRecovered);
+        check('свежий предпросмотр не записывает файл до подтверждения', before.equals(await disk('one.docx')));
+      } finally {
+        finishExpectedConflictWindow(expectedPreviewConflicts, stalePreviewRecovered);
+      }
     } finally {
       await changeFanHighAirflow(originalFanAirflow, currentFanAirflow);
     }
@@ -640,3 +696,4 @@ void (async () => {
   console.log(failures ? `\nФайлы Проводника: провалов ${failures}` : '\nФайлы Проводника: всё прошло');
   process.exit(failures ? 1 : 0);
 })();
+
