@@ -44,7 +44,7 @@ export default function FluxSelectionPanel({ query, fields, result, loading, err
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="shrink-0 space-y-3 p-3">
         <label className="block text-xs text-slate-600 dark:text-slate-300">Источник
-        <select className="fx-input mt-1 w-full" value={query.sources[0] || ''} onChange={(e) => onQueryChange({ ...query, sources: e.target.value ? [e.target.value] : [], filters: [], sort: [], types: [] })}>
+        <select aria-label="Источник данных" className="fx-input mt-1 w-full" value={query.sources[0] || ''} onChange={(e) => onQueryChange({ ...query, sources: e.target.value ? [e.target.value] : [], columns: undefined, filters: [], sort: [], types: [], excludedEntityIds: [] })}>
             <option value="">Выберите источник</option>
             {[...new Set(fields.map((field) => field.sourceId))].map((source) => <option key={source} value={source}>{sourceTitle(source)}</option>)}
           </select>
@@ -135,7 +135,7 @@ export default function FluxSelectionPanel({ query, fields, result, loading, err
 }
 
 function sourceTitle(source: string) {
-  const names: Record<string, string> = { tags: 'Теги', equipment: 'Оборудование', management: 'Менеджмент', e3: 'E3Flux' };
+  const names: Record<string, string> = { tags: 'Теги', equipment: 'Оборудование', management: 'Менеджмент', e3: 'E3Flux', e3flux: 'E3Flux' };
   return names[source] || source;
 }
 

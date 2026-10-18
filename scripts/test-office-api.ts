@@ -28,7 +28,7 @@ const prisma: any = {
   catalogComponent: { findMany: async () => [] },
   catalogTagRule: { findMany: async () => [] },
   blankTemplate: { count: async () => 1 },
-  componentElement: { count: async () => 0, aggregate: async () => ({ _max: { updatedAt: null } }) },
+  componentElement: { findMany: async () => [], count: async () => 0, aggregate: async () => ({ _max: { updatedAt: null } }) },
   appSetting: {
     findFirst: async ({ where }: any) => settingRows.get(keyOf(where.key, where.userId)) || null,
     create: async ({ data }: any) => {

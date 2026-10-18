@@ -11,6 +11,7 @@ import type { Express, Request, Response } from 'express';
 import { createHash } from 'node:crypto';
 import { canApplyOfficePlan } from '../../src/lib/officeModel.js';
 import { officeStateOfContent, planOfficeContent, rebindOfficeContent, requireProjectRead } from './projectOffice.js';
+import { refreshOfficeLocalFields } from '../officeLocalFields.js';
 
 /** Общий предел тела запроса сервера — 50 МБ, base64 прибавляет треть. */
 export const LOCAL_OFFICE_MAX_BYTES = 30 * 1024 * 1024;
@@ -40,6 +41,21 @@ function fail(res: Response, err: any, extra: Record<string, unknown> = {}) {
 }
 
 export function registerProjectOfficeLocalRoutes(app: Express): void {
+  app.post('/api/project-data/office-local/update-fields', async (req: Request, res: Response) => {
+    try {
+      const projectId = projectOf(req.body);
+      await requireProjectRead(req, projectId);
+      const before = contentOf(req.body);
+      const baseHash = req.body?.baseHash;
+      if (typeof baseHash !== 'string' || !/^[a-f\d]{64}$/i.test(baseHash)) return res.status(400).json({ error: 'Некорректный хеш исходного файла' });
+      const actualHash = createHash('sha256').update(before).digest('hex');
+      if (baseHash.toLowerCase() !== actualHash) return res.status(409).json({ error: 'Документ изменился после чтения полей', baseHash: actualHash });
+      const result = await refreshOfficeLocalFields(before, projectId);
+      if (Buffer.byteLength(result.base64, 'base64') > LOCAL_OFFICE_MAX_BYTES) return res.status(413).json({ error: 'Обновлённый файл слишком велик для Flux Office' });
+      res.json(result);
+    } catch (err: any) { fail(res, err); }
+  });
+
   app.post('/api/project-data/office-local/state', async (req: Request, res: Response) => {
     try {
       const projectId = projectOf(req.body);
