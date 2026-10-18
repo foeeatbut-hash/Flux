@@ -103,7 +103,7 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
       await panel.getByRole('button', { name: new RegExp(`^${alias}(\\s|$)`) }).click();
       await waitFor(async () => panel.getByRole('button', { name: 'Привязать поле' }).isEnabled());
       try {
-        const bindPrestate = await frame.locator('body').evaluate((context: { fileId: string; suffix: string; address: string; alias: string }) => {
+        const bindPrestate = await frame.locator('body').evaluate((_body: HTMLElement, context: { fileId: string; suffix: string; address: string; alias: string }) => {
           const hooks = (window as any).__fluxSheets;
           const workbook = hooks?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
           const sheet = workbook?.getSheets?.().find((item: any) => item.getSheetName?.() === 'Перечень');
