@@ -43,10 +43,45 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   const page = options.page;
   console.log('\n6. Native Word cell actions, merge conflicts, fallback, formula marks');
 
+  const attachApiResponseTracker = (trackedPage: any, fileId: string) => {
+    const tracker: any = { latest: null, sequence: 0 };
+    const listener = (response: any) => {
+      const url = response.url();
+      if (!/\/api\//.test(url)) return;
+      const sequence = ++tracker.sequence;
+      const record: any = {
+        timestamp: new Date().toISOString(),
+        url: url.slice(0, 1200),
+        method: response.request().method(),
+        status: response.status(),
+        fileId,
+        body: null,
+        bodyPending: true,
+      };
+      tracker.latest = record;
+      void (async () => {
+        try {
+          const body = await response.text();
+          record.body = body.slice(0, 8000);
+          if (body.length > 8000) record.bodyTruncated = true;
+        } catch (error) {
+          record.bodyError = String(error).slice(0, 300);
+        } finally {
+          record.bodyPending = false;
+          if (sequence === tracker.sequence) tracker.latest = record;
+        }
+      })();
+    };
+    trackedPage.on('response', listener);
+    trackedPage.once('close', () => trackedPage.removeListener('response', listener));
+    return tracker;
+  };
+
   const makeBoundDoc = async (suffix: string, conflict: boolean) => {
     const fileId = await upload(folderId, `__native_word_actions_${stamp}_${suffix}.docx`, 'DOCX', await makeMergeDocx(conflict));
     if (fileId) created.push(fileId);
     await resetPage(false);
+    const responseTracker = attachApiResponseTracker(page(), fileId);
     await navigateOffice(page(), `/office-doc?file=${encodeURIComponent(fileId)}`);
     const frame = await openPanel(page(), 'Flux Office — Документ');
     const editor = frame.locator('.ProseMirror').first();
@@ -81,7 +116,7 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
       check(`${suffix}: native Word redo returns the inserted mark`, await waitFor(async () => await marks() === 1));
     }
     await bind(1, 'MotorPower');
-    return { fileId, frame, editor };
+    return { fileId, frame, editor, responseTracker };
   };
 
   const selectAndOpen = async (editor: any) => {
@@ -239,7 +274,51 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
     native: wordRenameContext,
     storedAnchors: wordRenameState?.schema?.anchors?.map((anchor: any) => ({ id: anchor.id, parts: anchor.parts?.map((part: any) => ({ kind: part.kind, fieldKey: part.binding?.fieldKey, alternatives: part.alternatives?.map((item: any) => item.fieldKey) })) })),
   }));
-  await page().getByRole('button', { name: /^Переименовать/ }).click();
+  const renamePage = page();
+  const captureRenameFailure = async (originalError: unknown) => {
+    const safe = async (fn: () => Promise<any>) => {
+      try { return await fn(); } catch (error) { return { diagnosticError: String(error).slice(0, 500) }; }
+    };
+    const surfaces: any[] = [];
+    try {
+      const frames = renamePage.frames();
+      for (const frame of frames) {
+        surfaces.push(await safe(async () => ({
+          name: frame.name() || 'main',
+          url: frame.url().slice(0, 1000),
+          dom: await frame.evaluate(() => {
+            const visible = (el: Element) => {
+              const style = getComputedStyle(el);
+              const rect = el.getBoundingClientRect();
+              return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;
+            };
+            const label = (el: Element) => String((el as HTMLElement).innerText || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().slice(0, 240);
+            return {
+              buttons: Array.from(document.querySelectorAll('button,[role="button"]')).filter(visible).slice(0, 100).map((el) => ({ role: el.getAttribute('role') || 'button', label: label(el), className: String((el as HTMLElement).className || '').slice(0, 180) })),
+              menus: Array.from(document.querySelectorAll('[role="menu"],[role="menuitem"],[role="listbox"],[role="option"]')).filter(visible).slice(0, 80).map((el) => ({ role: el.getAttribute('role'), label: label(el), className: String((el as HTMLElement).className || '').slice(0, 180) })),
+              contextMenuNodes: Array.from(document.querySelectorAll('[class]')).filter(visible).filter((el) => /context.?menu|native.?menu|menu.?popup/i.test(String((el as HTMLElement).className || ''))).slice(0, 40).map((el) => ({ tag: el.tagName, label: label(el), className: String((el as HTMLElement).className || '').slice(0, 240) })),
+              hasOpenContextMenu: Array.from(document.querySelectorAll('[role="menu"],[role="menuitem"],[class]')).some((el) => visible(el) && (el.getAttribute('role') === 'menu' || el.getAttribute('role') === 'menuitem' || /context.?menu|native.?menu|menu.?popup/i.test(String((el as HTMLElement).className || '')))),
+              bodyTail: document.body?.innerText.slice(-1800) || '',
+            };
+          }),
+        })));
+      }
+    } catch (error) { surfaces.push({ diagnosticError: String(error).slice(0, 500) }); }
+    try {
+      console.log('NATIVE_WORD_RENAME_TIMEOUT_DIAGNOSTIC', JSON.stringify({
+        fileId: success.fileId,
+        error: String(originalError).slice(0, 1200),
+        surfaces,
+        lastApiResponse: success.responseTracker.latest,
+      }));
+    } catch { /* Diagnostics must not replace the original Playwright error. */ }
+  };
+  try {
+    await renamePage.getByRole('button', { name: /^Переименовать/ }).click();
+  } catch (error) {
+    try { await captureRenameFailure(error); } catch { /* Preserve the original Playwright error. */ }
+    throw error;
+  }
   const wordRename = page().getByRole('dialog', { name: 'Переименовать' });
   await wordRename.getByLabel('Отображаемое имя').fill('Мощность, кВт');
   await wordRename.getByRole('button', { name: 'Сохранить' }).click();

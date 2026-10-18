@@ -152,7 +152,31 @@ async function gotoCell(page: any, ref: string): Promise<void> {
     await page.waitForTimeout(500);
     await page.keyboard.press('Control+Shift+S');
     const prompt = page.getByRole('dialog');
-    await prompt.getByRole('textbox').waitFor({ state: 'visible', timeout: 8000 });
+    const logCtrlShiftSDialogs = async () => {
+      const dialogs = page.locator('[role="dialog"]:visible');
+      const selectorCount = await dialogs.count().catch(() => null);
+      const visibleDialogs = await dialogs.evaluateAll((nodes: any[]) => nodes.map((node: HTMLElement) => {
+        const labelledBy = node.getAttribute('aria-labelledby');
+        const labelledText = labelledBy ? labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ').trim() : '';
+        return {
+          ariaLabel: node.getAttribute('aria-label'),
+          ariaLabelledBy: labelledBy,
+          labelledText: labelledText.slice(0, 300),
+          headingText: [...node.querySelectorAll('h1,h2,h3,h4,[role="heading"]')].map((el) => el.textContent?.trim() || '').filter(Boolean).join(' ').slice(0, 300),
+          title: node.getAttribute('title'),
+          text: (node.innerText || node.textContent || '').trim().slice(0, 500),
+        };
+      })).catch(() => []);
+      console.log('NATIVE_SHEETS_CTRLSHIFTS_DIALOGS', JSON.stringify({ url: page.url(), selectorCount, visibleDialogs }));
+    };
+    await logCtrlShiftSDialogs();
+    try {
+      await prompt.getByRole('textbox').waitFor({ state: 'visible', timeout: 8000 });
+    } catch (error: any) {
+      await logCtrlShiftSDialogs().catch(() => {});
+      console.error('NATIVE_SHEETS_CTRLSHIFTS_WAIT_ERROR', error?.stack || String(error));
+      throw error;
+    }
     const promptText = await prompt.innerText().catch(() => '');
     ok('Ctrl+Shift+S открыл диалог с вводом имени и отменой', await prompt.getByRole('textbox').isVisible().catch(() => false) && await prompt.getByRole('button', { name: 'Отмена', exact: true }).isVisible().catch(() => false), promptText);
     await prompt.getByRole('button', { name: 'Отмена', exact: true }).click();
@@ -163,7 +187,14 @@ async function gotoCell(page: any, ref: string): Promise<void> {
     await gotoCell(page, 'B2');
     await page.keyboard.press('Control+Shift+S');
     const savePrompt = page.getByRole('dialog');
-    await savePrompt.waitFor({ state: 'visible', timeout: 8000 });
+    await logCtrlShiftSDialogs();
+    try {
+      await savePrompt.waitFor({ state: 'visible', timeout: 8000 });
+    } catch (error: any) {
+      await logCtrlShiftSDialogs().catch(() => {});
+      console.error('NATIVE_SHEETS_CTRLSHIFTS_WAIT_ERROR', error?.stack || String(error));
+      throw error;
+    }
     await savePrompt.getByRole('textbox').fill(copyName);
     await savePrompt.getByRole('button', { name: 'Сохранить', exact: true }).click();
     ok('копия сохранена с заданным именем', await until(async () => (await projectFiles()).some((file: any) => file.name === copyName), 20000));

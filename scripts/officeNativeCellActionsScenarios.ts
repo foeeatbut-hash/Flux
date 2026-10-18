@@ -102,6 +102,30 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
       await panel.getByLabel('Найти поле Flux').fill(alias);
       await panel.getByRole('button', { name: new RegExp(`^${alias}(\\s|$)`) }).click();
       await waitFor(async () => panel.getByRole('button', { name: 'Привязать поле' }).isEnabled());
+      try {
+        const bindPrestate = await frame.locator('body').evaluate((context: { fileId: string; suffix: string; address: string; alias: string }) => {
+          const hooks = (window as any).__fluxSheets;
+          const workbook = hooks?.univerRef?.current?.univerAPI?.getActiveWorkbook?.();
+          const sheet = workbook?.getSheets?.().find((item: any) => item.getSheetName?.() === 'Перечень');
+          const lazy = hooks?.lazyWorkbookRef?.current;
+          const ranges = lazy?.loadedRanges ?? lazy?.loadedRangesMap;
+          const loadedRange = ranges instanceof Map ? ranges.get(sheet?.getSheetId?.()) : ranges?.[sheet?.getSheetId?.()];
+          return {
+            fileId: context.fileId,
+            suffix: context.suffix,
+            address: context.address,
+            alias: context.alias,
+            workbookId: workbook?.getId?.() ?? workbook?.getWorkbookId?.() ?? null,
+            sheetId: sheet?.getSheetId?.() ?? null,
+            a1Values: sheet?.getRange?.('A1')?.getValues?.() ?? null,
+            preloadComplete: lazy?.flags?.preloadComplete ?? null,
+            loadedRange: loadedRange ?? null,
+          };
+        }, { fileId, suffix, address, alias });
+        console.log('NATIVE_SHEETS_BIND_PRESTATE', JSON.stringify(bindPrestate));
+      } catch (error) {
+        console.log('NATIVE_SHEETS_BIND_PRESTATE', JSON.stringify({ fileId, suffix, address, alias, workbookId: null, sheetId: null, a1Values: null, preloadComplete: null, loadedRange: null, diagnosticError: String(error) }));
+      }
       await panel.getByRole('button', { name: 'Привязать поле' }).click();
       const boundOk = await waitFor(async () => (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.some((anchor: any) => anchor.address === address && anchor.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey === 'param:@' + alias)));
       if (!boundOk) console.error('BIND_DIAGNOSTIC', address, JSON.stringify({ state: (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema, toasts: await page().locator('[role="status"],[role="alert"]').allTextContents().catch(() => []), cell: await nativeCell(frame, address) }));
