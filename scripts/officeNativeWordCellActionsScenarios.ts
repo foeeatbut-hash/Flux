@@ -286,21 +286,7 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
         surfaces.push(await safe(async () => ({
           name: frame.name() || 'main',
           url: frame.url().slice(0, 1000),
-          dom: await frame.evaluate(() => {
-            const visible = (el: Element) => {
-              const style = getComputedStyle(el);
-              const rect = el.getBoundingClientRect();
-              return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;
-            };
-            const label = (el: Element) => String((el as HTMLElement).innerText || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().slice(0, 240);
-            return {
-              buttons: Array.from(document.querySelectorAll('button,[role="button"]')).filter(visible).slice(0, 100).map((el) => ({ role: el.getAttribute('role') || 'button', label: label(el), className: String((el as HTMLElement).className || '').slice(0, 180) })),
-              menus: Array.from(document.querySelectorAll('[role="menu"],[role="menuitem"],[role="listbox"],[role="option"]')).filter(visible).slice(0, 80).map((el) => ({ role: el.getAttribute('role'), label: label(el), className: String((el as HTMLElement).className || '').slice(0, 180) })),
-              contextMenuNodes: Array.from(document.querySelectorAll('[class]')).filter(visible).filter((el) => /context.?menu|native.?menu|menu.?popup/i.test(String((el as HTMLElement).className || ''))).slice(0, 40).map((el) => ({ tag: el.tagName, label: label(el), className: String((el as HTMLElement).className || '').slice(0, 240) })),
-              hasOpenContextMenu: Array.from(document.querySelectorAll('[role="menu"],[role="menuitem"],[class]')).some((el) => visible(el) && (el.getAttribute('role') === 'menu' || el.getAttribute('role') === 'menuitem' || /context.?menu|native.?menu|menu.?popup/i.test(String((el as HTMLElement).className || '')))),
-              bodyTail: document.body?.innerText.slice(-1800) || '',
-            };
-          }),
+          dom: await frame.evaluate("(() => {\n  const visible = (el) => {\n    const style = getComputedStyle(el);\n    const rect = el.getBoundingClientRect();\n    return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;\n  };\n  const label = (el) => String(el.innerText || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().slice(0, 240);\n  return {\n    buttons: Array.from(document.querySelectorAll('button,[role=\"button\"]')).filter(visible).slice(0, 100).map((el) => ({ role: el.getAttribute('role') || 'button', label: label(el), className: String(el.className || '').slice(0, 180) })),\n    menus: Array.from(document.querySelectorAll('[role=\"menu\"],[role=\"menuitem\"],[role=\"listbox\"],[role=\"option\"]')).filter(visible).slice(0, 80).map((el) => ({ role: el.getAttribute('role'), label: label(el), className: String(el.className || '').slice(0, 180) })),\n    contextMenuNodes: Array.from(document.querySelectorAll('[class]')).filter(visible).filter((el) => /context.?menu|native.?menu|menu.?popup/i.test(String(el.className || ''))).slice(0, 40).map((el) => ({ tag: el.tagName, label: label(el), className: String(el.className || '').slice(0, 240) })),\n    hasOpenContextMenu: Array.from(document.querySelectorAll('[role=\"menu\"],[role=\"menuitem\"],[class]')).some((el) => visible(el) && (el.getAttribute('role') === 'menu' || el.getAttribute('role') === 'menuitem' || /context.?menu|native.?menu|menu.?popup/i.test(String(el.className || '')))),\n    bodyTail: document.body?.innerText.slice(-1800) || '',\n  };\n})()")
         })));
       }
     } catch (error) { surfaces.push({ diagnosticError: String(error).slice(0, 500) }); }
