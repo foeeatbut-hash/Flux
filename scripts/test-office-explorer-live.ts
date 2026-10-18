@@ -587,7 +587,6 @@ void (async () => {
       }
       if (fieldRefreshOnly) throw fieldRefreshDone;
       const expectedPreviewConflicts = beginExpectedConflictWindow({
-        'POST /api/project-data/office/query': 1,
         'POST /api/project-data/office-local/preview': 1,
       });
       let stalePreviewRecovered = false;
@@ -605,9 +604,31 @@ void (async () => {
     } finally {
       await changeFanHighAirflow(originalFanAirflow, currentFanAirflow);
     }
-    await panel().getByRole('button', { name: /1\. Выборка/ }).click();
-    await panel().getByRole('button', { name: 'Обновить выборку' }).click();
-    await waitFor(async () => (await panel().getByRole('status').filter({ hasText: 'Данные обновлены' }).count()) > 0, 20000);
+    const expectedRestoreConflicts = beginExpectedConflictWindow({
+      'POST /api/project-data/office/query': 1,
+    });
+    let baselineSourceRecovered = false;
+    try {
+      const baselineUiQueryPromise = page.waitForResponse((response: any) => {
+        const request = response.request();
+        let requestProjectId = '';
+        try { requestProjectId = String(request.postDataJSON()?.projectId || ''); } catch { requestProjectId = ''; }
+        return request.method() === 'POST' && requestProjectId === fixture.projectId
+          && new URL(response.url()).pathname === '/api/project-data/office/query' && response.status() === 200;
+      }, { timeout: 20000 }).then((response: any) => response.json()).catch(() => null);
+      await panel().getByRole('button', { name: /1\. Выборка/ }).click();
+      await panel().getByRole('button', { name: 'Обновить выборку' }).click();
+      const baselineUiQuery = await baselineUiQueryPromise;
+      const baselineFan = baselineUiQuery?.rows?.find((row: any) => row.values?.name?.value === 'FAN_HIGH');
+      const baselineAirflow = String(baselineFan?.values?.[airflowFieldKey]?.value ?? '');
+      const baselineRevisionValid = typeof baselineUiQuery?.revision === 'string' && baselineUiQuery.revision.length > 0;
+      baselineSourceRecovered = baselineAirflow === originalFanAirflow && baselineRevisionValid && await waitFor(async () =>
+        (await panel().getByRole('status').filter({ hasText: 'Данные обновлены' }).count()) > 0
+        && (await panel().getByRole('grid', { name: 'Предпросмотр выборки' }).getByText(/FAN_HIGH/).count()) > 0, 20000);
+      check('после восстановления исходного значения обновилась выборка FAN_HIGH', baselineSourceRecovered, { baselineAirflow, baselineRevisionValid });
+    } finally {
+      finishExpectedConflictWindow(expectedRestoreConflicts, baselineSourceRecovered);
+    }
     const confirm = await fillFromProject('DOCX');
     check('предпросмотр не меняет файл на диске', before.equals(await disk('one.docx')));
     await applied(confirm, 'DOCX');
@@ -696,4 +717,3 @@ void (async () => {
   console.log(failures ? `\nФайлы Проводника: провалов ${failures}` : '\nФайлы Проводника: всё прошло');
   process.exit(failures ? 1 : 0);
 })();
-
