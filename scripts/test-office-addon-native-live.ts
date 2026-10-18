@@ -1144,7 +1144,8 @@ try {
   await issuedSheetFrame.locator('input.univer-box-border').first().press('Enter');
   await issuedSheetFrame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
   await page.keyboard.type('FORBIDDEN_ISSUED_XLSX'); await page.keyboard.press('Enter');
-  check('native grid typing cannot modify an issued XLSX header', await sheetCell(issuedSheetFrame, 'A1') === issuedHeader && await waitFor(async () => sha256((await raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`)).bytes) === xlsxSourceSha));
+  const a1AfterTyping = await sheetCell(issuedSheetFrame, 'A1'); let issuedSha = ''; const fileUnchanged = await waitFor(async () => (issuedSha = sha256((await raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`)).bytes)) === xlsxSourceSha); // раздельно: запись в файл, правка сетки или перезагрузка (undefined)
+  check('native grid typing cannot modify an issued XLSX header', a1AfterTyping === issuedHeader && fileUnchanged, { issuedHeader, a1AfterTyping: a1AfterTyping ?? '<нет листа>', a1Later: (await sheetCell(issuedSheetFrame, 'A1')) ?? '<нет листа>', fileUnchanged, sha: issuedSha.slice(0, 12) });
   const issuedNameBox = issuedSheetFrame.locator('input.univer-box-border').first();
   await issuedNameBox.fill('B1'); await issuedNameBox.press('Enter');
   const activeRange = await issuedSheetFrame.locator('body').evaluate(() => {
