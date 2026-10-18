@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { makeXlsx } from './officeHarness';
+import { installNativeUndoDiagnostics } from './officeNativeUndoDiagnostics';
 export { captureNativeDefinedNameEvidence } from './officeNativeDefinedNameEvidence';
 
 type SuiteOptions = {
@@ -95,6 +96,7 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
     check(`${suffix}: actual merge workbook opened in native Sheets`, await waitForSheetFile(frame));
     await clickSheetGrid(frame);
     const nameBox = frame.locator('input.univer-box-border').first();
+    const undoTrace = suffix === 'conflict' ? await installNativeUndoDiagnostics(frame) : null;
     const bind = async (address: string, alias: string) => {
       await nameBox.fill(address); await nameBox.press('Enter');
       await clickCell(frame, address);
@@ -126,6 +128,7 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
       } catch (error) {
         console.log('NATIVE_SHEETS_BIND_PRESTATE', JSON.stringify({ fileId, suffix, address, alias, workbookId: null, sheetId: null, a1Values: null, preloadComplete: null, loadedRange: null, diagnosticError: String(error) }));
       }
+      if (suffix === 'conflict' && address === 'A1') await undoTrace?.mark('beforeBindA1');
       await panel.getByRole('button', { name: 'Привязать поле' }).click();
       const boundOk = await waitFor(async () => (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.some((anchor: any) => anchor.address === address && anchor.parts?.some((part: any) => part.kind === 'field' && part.binding?.fieldKey === 'param:@' + alias)));
       if (!boundOk) console.error('BIND_DIAGNOSTIC', address, JSON.stringify({ state: (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema, toasts: await page().locator('[role="status"],[role="alert"]').allTextContents().catch(() => []), cell: await nativeCell(frame, address) }));
@@ -135,18 +138,27 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
     };
     await bind('A1', 'DrivePower');
     if (suffix === 'conflict') {
+      await undoTrace?.mark('afterBindA1');
       // Окно не переоткрывалось, и история «назад» цела: Ctrl+Z отменяет вставку метки в ячейке
       check(`${suffix}: A1 holds the inserted alias label before undo`, await waitFor(async () => await nativeCell(frame, 'A1') === 'DrivePower'), await nativeCell(frame, 'A1'));
       // Фокус — щелчком по соседней ячейке: повторный щелчок по уже выделенной метке открывает редактор ячейки
       await clickCell(frame, 'D3');
+      await undoTrace?.mark('beforeUndo');
       await page().keyboard.press('Control+z');
+      await undoTrace?.mark('afterUndoKeypress');
       check(`${suffix}: native Ctrl+Z after binding restores the cell text from before the label`, await waitFor(async () => await nativeCell(frame, 'A1') === 'Drive Power'), await nativeCell(frame, 'A1'));
+      await undoTrace?.mark('afterUndoObserved');
       // «Назад» возвращает и схему в файле: привязки A1 в office-state больше нет
       const a1Bound = async () => (await api('GET', `/api/project-data/files/${fileId}/office-state`)).json?.schema?.anchors?.some((anchor: any) => anchor.address === 'A1' && anchor.parts?.some((part: any) => part.kind === 'field'));
       check(`${suffix}: Ctrl+Z after binding also takes the binding out of office-state`, await waitFor(async () => !(await a1Bound())));
+      await undoTrace?.mark('beforeRedo');
       await page().keyboard.press('Control+Shift+z');
+      await undoTrace?.mark('afterRedoKeypress');
       check(`${suffix}: native redo returns the inserted label`, await waitFor(async () => await nativeCell(frame, 'A1') === 'DrivePower'), await nativeCell(frame, 'A1'));
       check(`${suffix}: redo returns the binding to office-state`, await waitFor(async () => !!(await a1Bound())));
+      await undoTrace?.mark('afterRedo');
+      await undoTrace?.mark('beforeB1');
+      await undoTrace?.emit();
     }
     await bind('B1', 'MotorPower');
     await page().keyboard.press('Control+s');
