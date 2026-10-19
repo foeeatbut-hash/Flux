@@ -43,10 +43,45 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   const page = options.page;
   console.log('\n6. Native Word cell actions, merge conflicts, fallback, formula marks');
 
+  const attachApiResponseTracker = (trackedPage: any, fileId: string) => {
+    const tracker: any = { latest: null, sequence: 0 };
+    const listener = (response: any) => {
+      const url = response.url();
+      if (!/\/api\//.test(url)) return;
+      const sequence = ++tracker.sequence;
+      const record: any = {
+        timestamp: new Date().toISOString(),
+        url: url.slice(0, 1200),
+        method: response.request().method(),
+        status: response.status(),
+        fileId,
+        body: null,
+        bodyPending: true,
+      };
+      tracker.latest = record;
+      void (async () => {
+        try {
+          const body = await response.text();
+          record.body = body.slice(0, 8000);
+          if (body.length > 8000) record.bodyTruncated = true;
+        } catch (error) {
+          record.bodyError = String(error).slice(0, 300);
+        } finally {
+          record.bodyPending = false;
+          if (sequence === tracker.sequence) tracker.latest = record;
+        }
+      })();
+    };
+    trackedPage.on('response', listener);
+    trackedPage.once('close', () => trackedPage.removeListener('response', listener));
+    return tracker;
+  };
+
   const makeBoundDoc = async (suffix: string, conflict: boolean) => {
     const fileId = await upload(folderId, `__native_word_actions_${stamp}_${suffix}.docx`, 'DOCX', await makeMergeDocx(conflict));
     if (fileId) created.push(fileId);
     await resetPage(false);
+    const responseTracker = attachApiResponseTracker(page(), fileId);
     await navigateOffice(page(), `/office-doc?file=${encodeURIComponent(fileId)}`);
     const frame = await openPanel(page(), 'Flux Office — Документ');
     const editor = frame.locator('.ProseMirror').first();
@@ -81,7 +116,7 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
       check(`${suffix}: native Word redo returns the inserted mark`, await waitFor(async () => await marks() === 1));
     }
     await bind(1, 'MotorPower');
-    return { fileId, frame, editor };
+    return { fileId, frame, editor, responseTracker };
   };
 
   const selectAndOpen = async (editor: any) => {
@@ -199,6 +234,24 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   // Своё имя объединённой колонки Word: в тексте шапки, в схеме, после повторного открытия; данные по ключам
   const mergedCell = success.editor.locator('table tr').first().locator('td,th').nth(0);
   await mergedCell.click({ position: { x: 6, y: 6 } });
+  const wordRenameSelectionReady = await waitFor(async () => await mergedCell.evaluate((cell: HTMLElement) => {
+    try {
+      const editor = (window as any).__fluxCtxRef?.current?.editor;
+      const doc = editor?.state?.doc;
+      if (!doc || !editor?.view || !editor.state.selection) return false;
+      const $clicked = doc.resolve(editor.view.posAtDOM(cell, 0));
+      const selection = editor.state.selection;
+      const $from = doc.resolve(selection.from);
+      const $to = doc.resolve(selection.to);
+      for (let depth = $clicked.depth; depth >= 0; depth--) {
+        const clickedCell = $clicked.node(depth);
+        if (/(?:docTableCell|docTableHeader|tableCell|tableHeader)$/i.test(clickedCell?.type?.name || '')) {
+          return depth <= $from.depth && depth <= $to.depth && clickedCell === $from.node(depth) && clickedCell === $to.node(depth);
+        }
+      }
+      return false;
+    } catch { return false; }
+  }));
   const wordRenameContext = await mergedCell.evaluate((cell: HTMLElement) => {
     const box = cell.getBoundingClientRect();
     const win = window as any;
@@ -212,6 +265,36 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
       for (let depth = 0; depth <= $clicked.depth; depth++) { const node = $clicked.node(depth); clickedPath.push({ type: node?.type?.name || '', text: String(node?.textContent || '').slice(0, 160), attrs: Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|anchor|colspan|rowspan/i.test(key))) }); }
     } catch (error) { clickedPath = [{ error: String(error).slice(0, 240) }]; }
     const selection = editor?.state?.selection;
+    let selectionPath: any[] = [];
+    let clickedCellBookmarks: any[] = [];
+    let selectionCellBookmarks: any[] = [];
+    try {
+      const $selection = selection && editor?.state?.doc?.resolve(selection.from);
+      if ($selection) for (let depth = 0; depth <= $selection.depth; depth++) { const node = $selection.node(depth); selectionPath.push({ type: node?.type?.name || '', text: String(node?.textContent || '').slice(0, 160), attrs: Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|anchor|colspan|rowspan/i.test(key))) }); }
+      let clickedCellDepth = -1;
+      for (let depth = clickedPath.length - 1; depth >= 0; depth--) {
+        if (/(?:docTableCell|docTableHeader|tableCell|tableHeader)$/i.test(String(clickedPath[depth]?.type || ''))) { clickedCellDepth = depth; break; }
+      }
+      const clickedNode = clickedCellDepth >= 0 ? editor?.state?.doc?.resolve(clickedPos)?.node(clickedCellDepth) : null;
+      clickedNode?.descendants?.((node: any, pos: number) => {
+        const attrs = Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|hiddenBookmark/i.test(key)));
+        const marks = (node?.marks || []).map((mark: any) => ({ type: mark?.type?.name || '', attrs: Object.fromEntries(Object.entries(mark?.attrs || {}).filter(([key]) => /bookmark|hiddenBookmark/i.test(key))) })).filter((mark: any) => Object.keys(mark.attrs).length > 0);
+        if (Object.keys(attrs).length || marks.length) clickedCellBookmarks.push({ pos, type: node?.type?.name || '', text: String(node?.textContent || '').slice(0, 160), attrs, marks, anchorIds: Object.values(attrs).flatMap((value: any) => (Array.isArray(value) ? value : [value])).filter((value: any) => typeof value === 'string').flatMap((value: string) => Array.from(value.matchAll(/FLUX_([0-9a-f]{32})/ig), (match) => match[1])) });
+      });
+      if ($selection) {
+        for (let depth = $selection.depth; depth >= 0; depth--) {
+          const node = $selection.node(depth);
+          if (/(?:docTableCell|docTableHeader|tableCell|tableHeader)$/i.test(node?.type?.name || '')) {
+            node.descendants?.((descendant: any, pos: number) => {
+              const attrs = Object.fromEntries(Object.entries(descendant?.attrs || {}).filter(([key]) => /bookmark|hiddenBookmark/i.test(key)));
+              const marks = (descendant?.marks || []).map((mark: any) => ({ type: mark?.type?.name || '', attrs: Object.fromEntries(Object.entries(mark?.attrs || {}).filter(([key]) => /bookmark|hiddenBookmark/i.test(key))) })).filter((mark: any) => Object.keys(mark.attrs).length > 0);
+              if (Object.keys(attrs).length || marks.length) selectionCellBookmarks.push({ pos, type: descendant?.type?.name || '', text: String(descendant?.textContent || '').slice(0, 160), attrs, marks, anchorIds: Object.values(attrs).flatMap((value: any) => (Array.isArray(value) ? value : [value])).filter((value: any) => typeof value === 'string').flatMap((value: string) => Array.from(value.matchAll(/FLUX_([0-9a-f]{32})/ig), (match) => match[1])) });
+            });
+            break;
+          }
+        }
+      }
+    } catch { /* Diagnostics must not affect the scenario. */ }
     const selectedCells: any[] = [];
     try { selection?.forEachCell?.((node: any, pos: number) => selectedCells.push({ pos, type: node?.type?.name || '', text: String(node?.textContent || '').slice(0, 160), attrs: Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|anchor|colspan|rowspan/i.test(key))) })); } catch { /* Not a cell selection */ }
     const rowCells = Array.from(cell.parentElement?.children || []).slice(0, 3).map((item) => ({
@@ -226,7 +309,8 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
       rowCells,
       clickedPos,
       clickedPath,
-      selection: { type: selection?.toJSON?.().type || '', from: selection?.from, to: selection?.to, selectedCells },
+      clickedCellBookmarks,
+      selection: { type: selection?.toJSON?.().type || '', from: selection?.from, to: selection?.to, selectionPath, selectionCellBookmarks, selectedCells },
       activeElement: document.activeElement instanceof HTMLElement ? { tag: document.activeElement.tagName, className: String(document.activeElement.className || '').slice(0, 180) } : null,
       menus: Array.from(document.querySelectorAll('[role="menu"], [role="menuitem"]')).slice(0, 8).map((item) => ({ role: item.getAttribute('role'), text: String(item.textContent || '').slice(0, 120), className: String((item as HTMLElement).className || '').slice(0, 180) })),
       bodyTail: document.body.innerText.slice(-1000),
@@ -237,9 +321,40 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   console.log('NATIVE_WORD_RENAME_CONTEXT_DIAGNOSTIC', JSON.stringify({
     fileId: success.fileId,
     native: wordRenameContext,
+    selectionReady: wordRenameSelectionReady,
     storedAnchors: wordRenameState?.schema?.anchors?.map((anchor: any) => ({ id: anchor.id, parts: anchor.parts?.map((part: any) => ({ kind: part.kind, fieldKey: part.binding?.fieldKey, alternatives: part.alternatives?.map((item: any) => item.fieldKey) })) })),
   }));
-  await page().getByRole('button', { name: /^Переименовать/ }).click();
+  const renamePage = page();
+  const captureRenameFailure = async (originalError: unknown) => {
+    const safe = async (fn: () => Promise<any>) => {
+      try { return await fn(); } catch (error) { return { diagnosticError: String(error).slice(0, 500) }; }
+    };
+    const surfaces: any[] = [];
+    try {
+      const frames = renamePage.frames();
+      for (const frame of frames) {
+        surfaces.push(await safe(async () => ({
+          name: frame.name() || 'main',
+          url: frame.url().slice(0, 1000),
+          dom: await frame.evaluate("(() => {\n  const visible = (el) => {\n    const style = getComputedStyle(el);\n    const rect = el.getBoundingClientRect();\n    return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;\n  };\n  const label = (el) => String(el.innerText || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().slice(0, 240);\n  return {\n    buttons: Array.from(document.querySelectorAll('button,[role=\"button\"]')).filter(visible).slice(0, 100).map((el) => ({ role: el.getAttribute('role') || 'button', label: label(el), className: String(el.className || '').slice(0, 180) })),\n    menus: Array.from(document.querySelectorAll('[role=\"menu\"],[role=\"menuitem\"],[role=\"listbox\"],[role=\"option\"]')).filter(visible).slice(0, 80).map((el) => ({ role: el.getAttribute('role'), label: label(el), className: String(el.className || '').slice(0, 180) })),\n    contextMenuNodes: Array.from(document.querySelectorAll('[class]')).filter(visible).filter((el) => /context.?menu|native.?menu|menu.?popup/i.test(String(el.className || ''))).slice(0, 40).map((el) => ({ tag: el.tagName, label: label(el), className: String(el.className || '').slice(0, 240) })),\n    hasOpenContextMenu: Array.from(document.querySelectorAll('[role=\"menu\"],[role=\"menuitem\"],[class]')).some((el) => visible(el) && (el.getAttribute('role') === 'menu' || el.getAttribute('role') === 'menuitem' || /context.?menu|native.?menu|menu.?popup/i.test(String(el.className || '')))),\n    bodyTail: document.body?.innerText.slice(-1800) || '',\n  };\n})()")
+        })));
+      }
+    } catch (error) { surfaces.push({ diagnosticError: String(error).slice(0, 500) }); }
+    try {
+      console.log('NATIVE_WORD_RENAME_TIMEOUT_DIAGNOSTIC', JSON.stringify({
+        fileId: success.fileId,
+        error: String(originalError).slice(0, 1200),
+        surfaces,
+        lastApiResponse: success.responseTracker.latest,
+      }));
+    } catch { /* Diagnostics must not replace the original Playwright error. */ }
+  };
+  try {
+    await renamePage.getByRole('button', { name: /^Переименовать/ }).click();
+  } catch (error) {
+    try { await captureRenameFailure(error); } catch { /* Preserve the original Playwright error. */ }
+    throw error;
+  }
   const wordRename = page().getByRole('dialog', { name: 'Переименовать' });
   await wordRename.getByLabel('Отображаемое имя').fill('Мощность, кВт');
   await wordRename.getByRole('button', { name: 'Сохранить' }).click();
