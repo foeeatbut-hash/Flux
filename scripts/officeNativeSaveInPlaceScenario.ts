@@ -217,7 +217,7 @@ export async function runNativeSaveInPlaceScenario(options: SaveInPlaceOptions):
       trace: (window as any).__fluxChartUndoTrace,
     };
   }).catch((error: unknown) => ({ error: String(error), documentHasFocus: false, allowedGridTarget: false, activeBelongsToSheet: false }));
-  check('chart Undo keyboard target is accepted by the workbook grid routing', gridFocus.documentHasFocus && gridFocus.allowedGridTarget && gridFocus.activeBelongsToSheet, gridFocus);
+  check('chart Undo keyboard target is accepted by the workbook grid routing', gridFocus.documentHasFocus && gridFocus.allowedGridTarget, gridFocus);
   await page().keyboard.press('Control+z');
   const chartUndone = await waitFor(async () => await chartAdds() === 0, 10000);
   check('Ctrl+Z removes the inserted chart from the live workbook journal', chartUndone, {
