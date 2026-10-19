@@ -166,14 +166,35 @@ export async function runNativeSaveInPlaceScenario(options: SaveInPlaceOptions):
   const beforeChartAdds = await chartAdds();
   check('chart fixture has a live edit journal before insertion', beforeChartAdds === 0, { beforeChartAdds });
   if (beforeChartAdds !== 0) throw new Error('Chart fixture edit journal is not ready');
+  await frame.locator('body').evaluate(() => {
+    const w = window as any;
+    w.__fluxChartUndoTrace = { keys: [], commands: [] };
+    window.addEventListener('keydown', (event) => {
+      const target = event.target as HTMLElement | null;
+      const record = { key: event.key, code: event.code, ctrl: event.ctrlKey, target: target?.tagName, targetId: target?.id, prevented: false };
+      w.__fluxChartUndoTrace.keys.push(record);
+      queueMicrotask(() => { record.prevented = event.defaultPrevented; });
+    }, true);
+    const api = w.__fluxSheets?.univerRef?.current?.univerAPI;
+    if (api?.addEvent && api?.Event?.CommandExecuted) api.addEvent(api.Event.CommandExecuted, (event: any) => {
+      w.__fluxChartUndoTrace.commands.push({ id: event.id, params: event.params });
+      if (w.__fluxChartUndoTrace.commands.length > 30) w.__fluxChartUndoTrace.commands.shift();
+    });
+  });
   await insertChart.click();
   const inserted = await waitFor(async () => await chartAdds() === 1, 10000);
   check('ribbon insertion adds a chart to the live workbook journal', inserted, { chartAdds: await chartAdds() });
   if (!inserted) throw new Error('Ribbon chart insertion did not reach the edit journal');
 
+  await frame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
+  check('chart Undo keyboard target is the workbook grid', await frame.locator('body').evaluate(() =>
+    document.activeElement?.id.startsWith('univer-sheet-main-canvas_') === true));
   await page().keyboard.press('Control+z');
   const chartUndone = await waitFor(async () => await chartAdds() === 0, 10000);
-  check('Ctrl+Z removes the inserted chart from the live workbook journal', chartUndone, { chartAdds: await chartAdds() });
+  check('Ctrl+Z removes the inserted chart from the live workbook journal', chartUndone, {
+    chartAdds: await chartAdds(),
+    trace: await frame.locator('body').evaluate(() => (window as any).__fluxChartUndoTrace).catch(() => null),
+  });
   if (!chartUndone) throw new Error('Ctrl+Z did not undo the chart insertion');
 
   const relativePart = (from: string, target: string): string => {
@@ -239,9 +260,13 @@ export async function runNativeSaveInPlaceScenario(options: SaveInPlaceOptions):
   };
   await saveChartState(false, 'Save after Ctrl+Z');
 
+  await frame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
   await page().keyboard.press('Control+y');
   const chartRedone = await waitFor(async () => await chartAdds() === 1, 10000);
-  check('Ctrl+Y restores the inserted chart to the live workbook journal', chartRedone, { chartAdds: await chartAdds() });
+  check('Ctrl+Y restores the inserted chart to the live workbook journal', chartRedone, {
+    chartAdds: await chartAdds(),
+    trace: await frame.locator('body').evaluate(() => (window as any).__fluxChartUndoTrace).catch(() => null),
+  });
   if (!chartRedone) throw new Error('Ctrl+Y did not redo the chart insertion');
   await saveChartState(true, 'Save after Ctrl+Y');
 }
