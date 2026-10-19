@@ -234,6 +234,24 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   // Своё имя объединённой колонки Word: в тексте шапки, в схеме, после повторного открытия; данные по ключам
   const mergedCell = success.editor.locator('table tr').first().locator('td,th').nth(0);
   await mergedCell.click({ position: { x: 6, y: 6 } });
+  const wordRenameSelectionReady = await waitFor(async () => await mergedCell.evaluate((cell: HTMLElement) => {
+    try {
+      const editor = (window as any).__fluxCtxRef?.current?.editor;
+      const doc = editor?.state?.doc;
+      if (!doc || !editor?.view || !editor.state.selection) return false;
+      const $clicked = doc.resolve(editor.view.posAtDOM(cell, 0));
+      const selection = editor.state.selection;
+      const $from = doc.resolve(selection.from);
+      const $to = doc.resolve(selection.to);
+      for (let depth = $clicked.depth; depth >= 0; depth--) {
+        const clickedCell = $clicked.node(depth);
+        if (/(?:docTableCell|docTableHeader|tableCell|tableHeader)$/i.test(clickedCell?.type?.name || '')) {
+          return depth <= $from.depth && depth <= $to.depth && clickedCell === $from.node(depth) && clickedCell === $to.node(depth);
+        }
+      }
+      return false;
+    } catch { return false; }
+  }));
   const wordRenameContext = await mergedCell.evaluate((cell: HTMLElement) => {
     const box = cell.getBoundingClientRect();
     const win = window as any;
@@ -303,6 +321,7 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   console.log('NATIVE_WORD_RENAME_CONTEXT_DIAGNOSTIC', JSON.stringify({
     fileId: success.fileId,
     native: wordRenameContext,
+    selectionReady: wordRenameSelectionReady,
     storedAnchors: wordRenameState?.schema?.anchors?.map((anchor: any) => ({ id: anchor.id, parts: anchor.parts?.map((part: any) => ({ kind: part.kind, fieldKey: part.binding?.fieldKey, alternatives: part.alternatives?.map((item: any) => item.fieldKey) })) })),
   }));
   const renamePage = page();
