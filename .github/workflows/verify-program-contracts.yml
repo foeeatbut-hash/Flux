@@ -204,12 +204,21 @@ jobs:
           node tools/genoffice/build.mjs all
           npm run build
           node scripts/test-office-no-ai.cjs
+      - name: Контракты сохранения Excel в текущей сессии
+        env:
+          GENOFFICE_SRC: .cache/genoffice
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/test-office-sheets-save-checkpoint.ts
+          node scripts/test-office-sheets-save-gateway.mjs
+          node --import tsx scripts/test-office-sheets-save-renderer.mjs
       - name: Заполнение Word и Excel в одноразовом проекте
         env:
           FLUX_CHROME: /usr/bin/google-chrome
         run: |
           set -euo pipefail
           node --import tsx scripts/test-guide-server.ts --office-sheets-collab
+          FLUX_NATIVE_ONLY=save-in-place node --import tsx scripts/test-guide-server.ts --office-addon-native
           FLUX_NATIVE_ONLY=issued node --import tsx scripts/test-guide-server.ts --office-addon-native
           FLUX_NATIVE_ONLY=field-refresh node --import tsx scripts/test-guide-server.ts --office-addon-native
           node --import tsx scripts/test-guide-server.ts --office-addon-native

@@ -12,9 +12,9 @@ import JSZip from 'jszip';
 import { chromium } from 'playwright-core';
 import { makeDocxWithTable, makeXlsxWithBlankFormula, makeXlsxWithManualRow, loginPage } from './officeHarness';
 import { captureNativeDefinedNameEvidence, runNativeSheetCellActions } from './officeNativeCellActionsScenarios';
-import { runNativeDefinedNamesReloadMode } from './officeNativeDefinedNamesPreflight';
 import { createNativeCheck, waitFor } from './officeNativeTestRuntime';
 import { runNativeWordCellActions } from './officeNativeWordCellActionsScenarios';
+import { runNativePreflightModes } from './officeNativeSaveInPlaceScenario';
 void (async () => {
 type Fixture = { baseUrl: string; projectId: string; dataDir: string; admin: { symbol: string; password: string } };
 const metadataPath = resolve(process.argv[2] || process.env.FLUX_FIXTURE_META || '');
@@ -387,9 +387,9 @@ try {
   };
   await loginPage(page, BASE, fixture.admin, false);
 
-  const nativeOnly = process.env.FLUX_NATIVE_ONLY || '';
   // Имена проверяются до Word только в полном прогоне; names-reload закрывает браузер штатно.
-  if (await runNativeDefinedNamesReloadMode(nativeOnly, { fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page }, () => context.close())) return;
+  const nativeOnly = process.env.FLUX_NATIVE_ONLY || '';
+  if (await runNativePreflightModes(nativeOnly, { fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page }, () => context.close())) return;
   if (!nativeOnly) await resetPage(false); // Закрываем окно Sheets перед основным сценарием Word.
   // FLUX_NATIVE_ONLY=cells — только разделы 5 и 6 (действия с заголовочными ячейками): они сами
   // создают свои файлы, и узкий прогон идёт в разы быстрее полного
