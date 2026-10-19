@@ -112,6 +112,7 @@ function harness({ failWrite = false, failPostWriteSha = false, failPostWriteSha
   let diskSha = 'open-snapshot-sha'
   let nextSha = 0
   let tempId = 0
+  let postWriteShaFailureConsumed = false
   const deps = {
     sessionFor: () => entry,
     resolveTransferredEdits: (_entry, request) => request,
@@ -124,7 +125,11 @@ function harness({ failWrite = false, failPostWriteSha = false, failPostWriteSha
       return { touchedEntries: ['xl/worksheets/sheet1.xml'] }
     },
     sha256File: async () => {
-      if ((failPostWriteSha && writes.length > 0) || (failPostWriteShaAt !== null && writes.length === failPostWriteShaAt)) throw new Error('simulated digest failure')
+      if (failPostWriteSha && writes.length > 0) throw new Error('simulated digest failure')
+      if (!postWriteShaFailureConsumed && failPostWriteShaAt !== null && writes.length === failPostWriteShaAt) {
+        postWriteShaFailureConsumed = true
+        throw new Error('simulated digest failure')
+      }
       return diskSha
     },
     openWorkbookSession: async (_client, target, sessions) => {
@@ -232,7 +237,7 @@ const request = (sessionId, extra = {}) => ({ sessionId, mode: 'save', edits: []
   await assert.rejects(failed.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true })), /simulated writer failure/)
   assert.strictEqual(failed.entry.sessions.get('original-session'), failed.original)
   assert.equal(failed.closed.length, 0)
-  const digestFailure = harness({ failPostWriteSha: true })
+  const digestFailure = harness({ failPostWriteShaAt: 1 })
   const recovered = await digestFailure.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true }))
   assert.equal(recovered.sessionRetained, undefined)
   assert.notEqual(recovered.file.sessionId, 'original-session')
