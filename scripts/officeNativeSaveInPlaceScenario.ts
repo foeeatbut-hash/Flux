@@ -143,14 +143,20 @@ export async function runNativeSaveInPlaceScenario(options: SaveInPlaceOptions):
   await selectB3();
   await nameBox.fill('B2:B3');
   await nameBox.press('Enter');
-  const insertTab = frame.getByRole('tab', { name: 'Вставка', exact: true });
-  const insertTabReady = await insertTab.isVisible().catch(() => false);
-  check('chart regression can reach the Insert ribbon tab', insertTabReady);
+  const insertTab = frame.locator('nav.ribbon-tabs').getByRole('button', { name: 'Вставка', exact: true });
+  const insertTabReady = await waitFor(async () => await insertTab.isVisible().catch(() => false), 5000);
+  check('chart regression can reach the Insert ribbon tab', insertTabReady, {
+    buttons: await frame.locator('nav.ribbon-tabs button').evaluateAll((items: Element[]) =>
+      items.map((item) => ({ text: item.textContent, label: item.getAttribute('aria-label'), role: item.getAttribute('role') }))).catch(() => []),
+  });
   if (!insertTabReady) throw new Error('Insert ribbon tab is unavailable');
   await insertTab.click();
   const insertChart = frame.getByRole('button', { name: 'Гистограмма — из текущего выделения', exact: true });
-  const chartButtonReady = await insertChart.isVisible().catch(() => false);
-  check('chart regression can reach the column chart insertion button', chartButtonReady);
+  const chartButtonReady = await waitFor(async () => await insertChart.isVisible().catch(() => false), 5000);
+  check('chart regression can reach the column chart insertion button', chartButtonReady, {
+    buttons: await frame.locator('.chart-grid button').evaluateAll((items: Element[]) =>
+      items.map((item) => ({ label: item.getAttribute('aria-label'), title: item.getAttribute('data-tip'), rect: [item.getBoundingClientRect().x, item.getBoundingClientRect().width] }))).catch(() => []),
+  });
   if (!chartButtonReady) throw new Error('Column chart insertion button is unavailable');
 
   const chartAdds = async () => await frame.locator('body').evaluate(() => {
