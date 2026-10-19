@@ -25,7 +25,7 @@ export function patchSheetsApp(source) {
     result,
     "import { handleSave as handleSaveImpl, type SaveContext, type SaveOutcome } from './save-actions'\n",
     "import { handleSave as handleSaveImpl, type SaveContext, type SaveOutcome } from './save-actions'\n" +
-    "import { initializeSheetsSaveCheckpoint, markSheetsJournalChanged, pendingSheetsJournalSize, serializeSheetsSave } from './flux/sheets-save-checkpoint'\n",
+    "import { initializeSheetsSaveCheckpoint, markSheetsJournalChanged, pendingSheetsJournalSize, serializeSheetsSave, subscribeSheetsJournalChanges } from './flux/sheets-save-checkpoint'\n",
     'app-helper-import',
   )
   result = replaceOnce(
@@ -119,6 +119,35 @@ export function patchSheetsApp(source) {
     '      const liveSheets = univerRef.current?.univerAPI.getActiveWorkbook()?.getSheets()\n' +
       '      const candidate = (liveSheets?.map((sheet) => String(sheet.getSheetName()).trim()) ?? after.file.sheets.map((sheet) => sheet.name.trim()))\n',
     'app-ai-rename-live-sheet-names',
+  )
+
+  result = replaceOnce(
+    result,
+    '  }, [pendingEdits])\n',
+    '  }, [pendingEdits])\n' +
+      '  useEffect(() => {\n' +
+      '    const state = lazyWorkbookRef.current\n' +
+      '    if (!state) return\n' +
+      '    return subscribeSheetsJournalChanges(state.editJournal, () => {\n' +
+      '      if (lazyWorkbookRef.current !== state) return\n' +
+      '      const pending = pendingSheetsJournalSize(state.editJournal, journalSize(state.editJournal))\n' +
+      '      window.desktopApi?.notifyPendingEdits?.(pending)\n' +
+      '      setPendingEditsRaw(pending)\n' +
+      '    })\n' +
+      '  }, [workbookFile])\n',
+    'app-journal-change-subscription',
+  )
+  result = replaceOnce(
+    result,
+    '        const rowColumn = ROW_COLUMN_MUTATIONS[event.id]\n',
+    '        // Visual undo/redo belongs to this runtime but has no unitId.\n' +
+      '        if (event.id === \'sheets.mutation.visual-edit-step\') {\n' +
+      '          const visualState = lazyWorkbookRef.current\n' +
+      '          if (visualState) setPendingEdits(journalSize(visualState.editJournal))\n' +
+      '          return\n' +
+      '        }\n' +
+      '        const rowColumn = ROW_COLUMN_MUTATIONS[event.id]\n',
+    'app-visual-history-before-unit-filter',
   )
   return result
 }

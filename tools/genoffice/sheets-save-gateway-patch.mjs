@@ -41,6 +41,80 @@ export function transformSheetsMain(source) {
         session.csvImport === true || session.csvSourcePath !== undefined || session.baselineFile === undefined)) {
       throw new Error('Session retention is unavailable for this workbook session.')
     }
+    const capturedSaveSessions = new Map<string, typeof session>([
+      [request.sessionId, session],
+      ...(retainedSessionId !== undefined && retainedWorkingSession
+        ? [[retainedSessionId, retainedWorkingSession] as const]
+        : []),
+    ])
+    const recoverSavedWorkbookAfterDigestFailure = async (staleIds: readonly string[]) => {
+      const stale = staleIds.map((id) => {
+        const captured = capturedSaveSessions.get(id)
+        if (!captured || entry.sessions.get(id) !== captured) throw new Error('Workbook session closed during save.')
+        return [id, captured] as const
+      })
+      let replacement: WorkbookFile | undefined
+      let replacementSession: typeof session | undefined
+      try {
+        for (const [id, captured] of stale) {
+          if (entry.sessions.get(id) !== captured) throw new Error('Workbook session closed during save.')
+        }
+        replacement = await openWorkbookSession(client, targetPath, entry.sessions)
+        for (const [id, captured] of stale) {
+          if (entry.sessions.get(id) !== captured) throw new Error('Workbook session closed during save.')
+        }
+        replacementSession = entry.sessions.get(replacement.sessionId)
+        if (!replacementSession) throw new Error('Could not establish saved workbook baseline.')
+        await commitFluxSave()
+        for (const [id, captured] of stale) {
+          if (entry.sessions.get(id) !== captured) throw new Error('Workbook session closed during save.')
+        }
+        if (!replacementSession || entry.sessions.get(replacement.sessionId) !== replacementSession) {
+          throw new Error('Recovered workbook session closed during save.')
+        }
+      } catch (error) {
+        if (replacement) {
+          const failedReplacementId = replacement.sessionId
+          const failedReplacementSession = entry.sessions.get(failedReplacementId)
+          if (failedReplacementSession) {
+            entry.sessions.delete(failedReplacementId)
+            await cleanupSessionResources({
+              tempRoot: app.getPath('temp'),
+              snapshotPath: failedReplacementSession.snapshotPath,
+              importTempDir: failedReplacementSession.importTempDir,
+              closeSidecar: () => client.close(failedReplacementId),
+            }).catch(() => undefined)
+          }
+        }
+        for (const [id, captured] of stale) {
+          if (entry.sessions.get(id) !== captured) continue
+          entry.sessions.delete(id)
+          await cleanupSessionResources({
+            tempRoot: app.getPath('temp'),
+            snapshotPath: captured.snapshotPath,
+            importTempDir: captured.importTempDir,
+            closeSidecar: () => client.close(id),
+          }).catch(() => undefined)
+        }
+        throw error
+      }
+      if (!replacement || !replacementSession) throw new Error('Could not establish saved workbook baseline.')
+      for (const [id] of stale) entry.sessions.delete(id)
+      for (const [id, captured] of stale) {
+        await cleanupSessionResources({
+          tempRoot: app.getPath('temp'),
+          snapshotPath: captured.snapshotPath,
+          importTempDir: captured.importTempDir,
+          closeSidecar: () => client.close(id),
+        }).catch(() => undefined)
+      }
+      if (entry.sessions.get(replacement.sessionId) !== replacementSession) {
+        throw new Error('Recovered workbook session closed during save.')
+      }
+      workbookOpenedHook?.(event.sender, targetPath)
+      clearWorkbookRecovery(targetPath)
+      return replacement
+    }
 `,
     'split-save retained session validation')
   out = replaceExactly(out,
@@ -49,7 +123,10 @@ export function transformSheetsMain(source) {
 
     if (request.saveContinuation === true) {
       const savedDiskSha = await sha256File(targetPath).catch(() => undefined)
-      if (savedDiskSha === undefined) throw new Error('Could not verify saved workbook.')
+      if (savedDiskSha === undefined) {
+        const recoveredFile = await recoverSavedWorkbookAfterDigestFailure([request.sessionId])
+        return { canceled: false, file: recoveredFile, touchedEntries: mutation.touchedEntries }
+      }
       if (entry.sessions.get(request.sessionId) !== session) throw new Error('Workbook session closed during save.')
       entry.sessions.set(request.sessionId, { ...session, lastSavedSha256: savedDiskSha })
       await commitFluxSave()
@@ -62,7 +139,10 @@ export function transformSheetsMain(source) {
 
     if (retainedSessionId !== undefined && retainedWorkingSession) {
       const savedDiskSha = await sha256File(targetPath).catch(() => undefined)
-      if (savedDiskSha === undefined) throw new Error('Could not verify saved workbook.')
+      if (savedDiskSha === undefined) {
+        const recoveredFile = await recoverSavedWorkbookAfterDigestFailure([request.sessionId, retainedSessionId])
+        return { canceled: false, file: recoveredFile, touchedEntries: mutation.touchedEntries }
+      }
       if (entry.sessions.get(request.sessionId) !== session || entry.sessions.get(retainedSessionId) !== retainedWorkingSession) {
         throw new Error('Workbook session closed during save.')
       }
@@ -101,7 +181,10 @@ export function transformSheetsMain(source) {
       // writeWorkbookTo has committed successfully. Advance only the disk CAS
       // digest; snapshotPath, sha256, sidecar reader, and journal stay intact.
       const savedDiskSha = await sha256File(targetPath).catch(() => undefined)
-      if (savedDiskSha === undefined) throw new Error('Could not verify saved workbook.')
+      if (savedDiskSha === undefined) {
+        const recoveredFile = await recoverSavedWorkbookAfterDigestFailure([request.sessionId])
+        return { canceled: false, file: recoveredFile, touchedEntries: mutation.touchedEntries }
+      }
       if (entry.sessions.get(request.sessionId) !== session) throw new Error('Workbook session closed during save.')
       entry.sessions.set(request.sessionId, { ...session, lastSavedSha256: savedDiskSha })
       // The native cache is written; the capability commit must also succeed before acknowledgement.

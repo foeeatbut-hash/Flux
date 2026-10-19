@@ -366,4 +366,28 @@ function retained(file = { sessionId: 'session-original', path: '/files/book.xls
   assert.match(readFileSync(resolve('tools/genoffice/shims/electron-renderer.js'), 'utf8'), /sessionRetained:\s*r\?\.sessionRetained\s*===\s*true/)
 }
 
+
+// Independent signature protection: an unmarked graph/sparkline redo must write
+// even after the empty journal was acknowledged by the preceding Save.
+for (const [field, payload] of [['visualAdds', 'visualAdditions'], ['sparklineAdds', 'sparklineAdditions']]) {
+  const h = harness({ state: makeState({ edits: [] }) })
+  const object = { id: field + '-1', sheetId: 'sheet-1' }
+  h.state.editJournal[field].push(object)
+  assert.equal((await h.calls.invoke()).ok, true)
+  h.state.editJournal[field].pop()
+  assert.equal((await h.calls.invoke()).ok, true)
+  h.state.editJournal[field].push(object)
+  assert.equal((await h.calls.invoke()).ok, true)
+  assert.equal(h.calls.requests.length, 3, field + ' undo/redo must not short-circuit')
+  assert.equal(h.calls.requests[2][payload].length, 1)
+  assert.equal(h.calls.opened.length, 0)
+}
+{
+  const h = harness({ onSave: async (_request, _index, state) => {
+    state.editJournal.visualAdds.push({ id: 'during-save', sheetId: 'sheet-1' })
+  } })
+  assert.equal((await h.calls.invoke()).ok, true)
+  assert.ok(pendingSheetsJournalSize(h.state.editJournal, 1) > 0, 'unmarked collection edit during IPC stays dirty')
+}
+
 console.log('Office sheets save renderer tests passed')

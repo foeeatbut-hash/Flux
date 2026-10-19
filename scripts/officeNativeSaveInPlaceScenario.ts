@@ -25,11 +25,14 @@ export async function runNativeSaveInPlaceScenario(options: SaveInPlaceOptions):
   console.log('\nNative Sheets ordinary Save retains the live workbook and Undo history');
 
   const fileId = await upload(folderId, `__native_save_in_place_${stamp}.xlsx`, 'XLSX', await makeXlsx());
-  if (fileId) created.push(fileId);
+  if (!fileId) throw new Error('Save-in-place XLSX fixture upload did not return a file id');
+  created.push(fileId);
   await resetPage(false);
   await navigateOffice(page(), `/office-sheet?file=${encodeURIComponent(fileId)}`);
   const frame = await openPanel(page(), 'Flux Office — Таблица');
-  check('save-in-place fixture opened in the native Sheets grid', await waitForSheetFile(frame));
+  const fixtureReady = await waitForSheetFile(frame);
+  check('save-in-place fixture opened in the native Sheets grid', fixtureReady);
+  if (!fixtureReady) throw new Error('Save-in-place XLSX fixture did not open in the native Sheets grid');
 
   const unitAndSelection = () => frame.locator('body').evaluate(() => {
     const hooks = (window as any).__fluxSheets;
@@ -135,6 +138,106 @@ export async function runNativeSaveInPlaceScenario(options: SaveInPlaceOptions):
   }).catch(() => false));
   await selectB3();
   await save('41', 'final Save after Undo');
+  // Exercise the actual Insert ribbon command and the workbook's undo journal.
+  // The fixture's B2:B3 cells are numeric, so the column chart has valid data.
+  await selectB3();
+  await nameBox.fill('B2:B3');
+  await nameBox.press('Enter');
+  const insertTab = frame.getByRole('tab', { name: 'Вставка', exact: true });
+  const insertTabReady = await insertTab.isVisible().catch(() => false);
+  check('chart regression can reach the Insert ribbon tab', insertTabReady);
+  if (!insertTabReady) throw new Error('Insert ribbon tab is unavailable');
+  await insertTab.click();
+  const insertChart = frame.getByRole('button', { name: 'Гистограмма — из текущего выделения', exact: true });
+  const chartButtonReady = await insertChart.isVisible().catch(() => false);
+  check('chart regression can reach the column chart insertion button', chartButtonReady);
+  if (!chartButtonReady) throw new Error('Column chart insertion button is unavailable');
+
+  const chartAdds = async () => await frame.locator('body').evaluate(() => {
+    const state = (window as any).__fluxSheets?.lazyWorkbookRef?.current;
+    return (state?.editJournal?.visualAdds || []).filter((item: any) => item.kind === 'chart').length;
+  }).catch(() => -1);
+  const beforeChartAdds = await chartAdds();
+  check('chart fixture has a live edit journal before insertion', beforeChartAdds === 0, { beforeChartAdds });
+  if (beforeChartAdds !== 0) throw new Error('Chart fixture edit journal is not ready');
+  await insertChart.click();
+  const inserted = await waitFor(async () => await chartAdds() === 1, 10000);
+  check('ribbon insertion adds a chart to the live workbook journal', inserted, { chartAdds: await chartAdds() });
+  if (!inserted) throw new Error('Ribbon chart insertion did not reach the edit journal');
+
+  await page().keyboard.press('Control+z');
+  const chartUndone = await waitFor(async () => await chartAdds() === 0, 10000);
+  check('Ctrl+Z removes the inserted chart from the live workbook journal', chartUndone, { chartAdds: await chartAdds() });
+  if (!chartUndone) throw new Error('Ctrl+Z did not undo the chart insertion');
+
+  const relativePart = (from: string, target: string): string => {
+    const parts = target.startsWith('/') ? [] : from.split('/').slice(0, -1);
+    for (const part of target.split('/')) {
+      if (part === '..') parts.pop();
+      else if (part && part !== '.') parts.push(part);
+    }
+    return parts.join('/');
+  };
+  const relationshipTarget = (xml: string, type: string): string => {
+    const entries = xml.match(/<Relationship\b[^>]*>/g) || [];
+    const entry = entries.find((value) => value.match(/\bType="([^"]+)"/)?.[1]?.endsWith('/' + type));
+    return entry?.match(/\bTarget="([^"]+)"/)?.[1] || '';
+  };
+  const saveChartState = async (wantChart: boolean, label: string) => {
+    const eventsBefore = await frame.locator('body').evaluate(() => {
+      const w = window as any;
+      if (!w.__fluxSaveRegressionEvents) {
+        w.__fluxSaveRegressionEvents = [];
+        window.addEventListener('flux-sheets-save', (event) => {
+          w.__fluxSaveRegressionEvents.push((event as CustomEvent).detail);
+        });
+      }
+      return w.__fluxSaveRegressionEvents.length;
+    });
+    await page().keyboard.press('Control+s');
+    const completed = await waitFor(async () => await frame.locator('body').evaluate((before: number) => {
+      const events = (window as any).__fluxSaveRegressionEvents || [];
+      return events.slice(before).some((event: any) => event.phase === 'end');
+    }, eventsBefore).catch(() => false), 20000);
+    const saveEvents = await frame.locator('body').evaluate((before: number) =>
+      ((window as any).__fluxSaveRegressionEvents || []).slice(before), eventsBefore).catch(() => []);
+    const successful = completed && saveEvents.some((event: any) =>
+      event.phase === 'end' && event.ok === true && event.sessionRetained === true);
+    check(label + ': Ctrl+S completed through retained save IPC', successful, { saveEvents });
+    if (!successful) throw new Error(label + ': retained save IPC did not complete successfully');
+    const response = await raw('GET', '/api/files/' + encodeURIComponent(fileId) + '/raw');
+    if (response.status !== 200) throw new Error(label + ': saved XLSX download failed');
+    const zip = await JSZip.loadAsync(response.bytes);
+    const names = Object.keys(zip.files).filter((name) => !zip.files[name]?.dir);
+    const sheetXml = await zip.file('xl/worksheets/sheet1.xml')?.async('string') || '';
+    const sheetRels = await zip.file('xl/worksheets/_rels/sheet1.xml.rels')?.async('string') || '';
+    const hasDrawing = /<drawing\b/.test(sheetXml) && !!relationshipTarget(sheetRels, 'drawing');
+    if (wantChart) {
+      const drawingTarget = relationshipTarget(sheetRels, 'drawing');
+      const drawingPath = drawingTarget ? relativePart('xl/worksheets/sheet1.xml', drawingTarget) : '';
+      const drawingRelsPath = drawingPath ? drawingPath.replace('drawings/', 'drawings/_rels/') + '.rels' : '';
+      const drawingRels = drawingRelsPath ? await zip.file(drawingRelsPath)?.async('string') || '' : '';
+      const chartTarget = relationshipTarget(drawingRels, 'chart');
+      const chartPath = chartTarget ? relativePart(drawingPath, chartTarget) : '';
+      const chartExists = !!chartPath && !!zip.file(chartPath);
+      check(label + ': actual XLSX contains a drawing with chart relationship and chart part',
+        hasDrawing && chartExists && names.some((name) => /^xl\/drawings\/[^/]+\.xml$/.test(name)) &&
+        names.some((name) => /^xl\/charts\/[^/]+\.xml$/.test(name)),
+        { drawingPath, drawingRelsPath, chartPath, names: names.filter((name) => /xl\/(drawings|charts)\//.test(name)) });
+      if (!hasDrawing || !chartExists) throw new Error(label + ': chart/drawing parts or relationships are missing');
+    } else {
+      const noChart = !names.some((name) => /^xl\/charts\/[^/]+\.xml$/.test(name)) && !/<drawing\b/.test(sheetXml);
+      check(label + ': undone chart is absent from the saved XLSX', noChart, { names: names.filter((name) => /xl\/(drawings|charts)\//.test(name)) });
+      if (!noChart) throw new Error(label + ': undone chart remained in saved XLSX');
+    }
+  };
+  await saveChartState(false, 'Save after Ctrl+Z');
+
+  await page().keyboard.press('Control+y');
+  const chartRedone = await waitFor(async () => await chartAdds() === 1, 10000);
+  check('Ctrl+Y restores the inserted chart to the live workbook journal', chartRedone, { chartAdds: await chartAdds() });
+  if (!chartRedone) throw new Error('Ctrl+Y did not redo the chart insertion');
+  await saveChartState(true, 'Save after Ctrl+Y');
 }
 
 export async function runNativeSaveInPlaceMode(

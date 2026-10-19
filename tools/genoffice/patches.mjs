@@ -13,6 +13,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { applyGatewaySavePatches } from './sheets-save-gateway-patch.mjs';
 import { applyRendererSavePatches } from './sheets-save-renderer-patch.mjs';
+import { applyJournalSavePatches } from './sheets-save-journal-patch.mjs';
 
 /** Прежняя одна кнопка Flux: кэш уже патченного исходника обновляется до вкладки (поле prior). */
 const OPEN_PANEL_CLICK = "window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, (window.location.origin === 'null' || window.location.origin === 'file://' ? '*' : window.location.origin))";
@@ -439,5 +440,6 @@ export function applyPatches(src) {
   }
   done.push(...applyGatewaySavePatches(src));
   done.push(...applyRendererSavePatches(src));
+  done.push(...applyJournalSavePatches(src));
   return done;
 }

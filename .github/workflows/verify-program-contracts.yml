@@ -212,6 +212,7 @@ jobs:
           node --import tsx scripts/test-office-sheets-save-checkpoint.ts
           node scripts/test-office-sheets-save-gateway.mjs
           node --import tsx scripts/test-office-sheets-save-renderer.mjs
+          node --import tsx scripts/test-office-sheets-save-journal.mjs
       - name: Заполнение Word и Excel в одноразовом проекте
         env:
           FLUX_CHROME: /usr/bin/google-chrome
@@ -222,6 +223,10 @@ jobs:
           FLUX_NATIVE_ONLY=issued node --import tsx scripts/test-guide-server.ts --office-addon-native
           FLUX_NATIVE_ONLY=field-refresh node --import tsx scripts/test-guide-server.ts --office-addon-native
           node --import tsx scripts/test-guide-server.ts --office-addon-native
+      - name: Полный office-native — повтор 2 из 2
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: node --import tsx scripts/test-guide-server.ts --office-addon-native
       - name: Совместимость прежних режимов Word, Sheets и совместной правки
         env:
           FLUX_CHROME: /usr/bin/google-chrome

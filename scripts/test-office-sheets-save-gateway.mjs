@@ -97,7 +97,7 @@ assert.throws(() => parseSaveResult({ ...successfulSave, sessionRetained: 'yes' 
 assert.throws(() => parseSaveResult({ ok: false, error: 'disk changed' }), /disk changed/)
 assert.deepEqual(parseSaveResult({ canceled: true }), { canceled: true })
 
-function harness({ failWrite = false, failPostWriteSha = false, closeDuringWrite = false, failCommitOnce = false } = {}) {
+function harness({ failWrite = false, failPostWriteSha = false, failPostWriteShaAt = null, failOpen = false, closeDuringOpen = false, closeDuringCommit = false, closeDuringWrite = false, failCommitOnce = false } = {}) {
   const originalId = 'original-session'
   const path = '/files/book.xlsx'
   const baselineFile = { sessionId: originalId, path, sha256: 'open-snapshot-sha', fileBytes: 20, readOnly: false, needsSaveAs: false }
@@ -124,13 +124,15 @@ function harness({ failWrite = false, failPostWriteSha = false, closeDuringWrite
       return { touchedEntries: ['xl/worksheets/sheet1.xml'] }
     },
     sha256File: async () => {
-      if (failPostWriteSha && writes.length > 0) throw new Error('simulated digest failure')
+      if ((failPostWriteSha && writes.length > 0) || (failPostWriteShaAt !== null && writes.length === failPostWriteShaAt)) throw new Error('simulated digest failure')
       return diskSha
     },
     openWorkbookSession: async (_client, target, sessions) => {
+      if (failOpen) throw new Error('simulated recovery open failure')
       const id = `continuation-${++tempId}`
       const file = { sessionId: id, path: target, sha256: diskSha, fileBytes: 30, readOnly: false, needsSaveAs: false }
       sessions.set(id, { path: target, snapshotPath: `/snapshots/${id}.xlsx`, sha256: diskSha, baselineFile: file, sheetNames: new Map(), automaticRecoveryDisabled: false })
+      if (closeDuringOpen) sessions.delete(originalId)
       opened.push(id)
       return file
     },
@@ -139,6 +141,7 @@ function harness({ failWrite = false, failPostWriteSha = false, closeDuringWrite
     clearWorkbookRecovery: (target) => hooks.push(`clear:${target}`),
     commitFluxSave: async () => {
       commits.push(diskSha)
+      if (closeDuringCommit) entry.sessions.delete(originalId)
       if (commitFailures > 0) { commitFailures -= 1; throw new Error('simulated capability commit failure') }
     },
     isFluxCopySave: () => false,
@@ -230,10 +233,55 @@ const request = (sessionId, extra = {}) => ({ sessionId, mode: 'save', edits: []
   assert.strictEqual(failed.entry.sessions.get('original-session'), failed.original)
   assert.equal(failed.closed.length, 0)
   const digestFailure = harness({ failPostWriteSha: true })
-  await assert.rejects(digestFailure.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true })), /Could not verify saved workbook/)
-  assert.strictEqual(digestFailure.entry.sessions.get('original-session'), digestFailure.original)
-  assert.equal(digestFailure.opened.length, 0)
-  assert.equal(digestFailure.closed.length, 0)
+  const recovered = await digestFailure.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true }))
+  assert.equal(recovered.sessionRetained, undefined)
+  assert.notEqual(recovered.file.sessionId, 'original-session')
+  assert.equal(digestFailure.entry.sessions.has('original-session'), false)
+  assert.equal(digestFailure.entry.sessions.get(recovered.file.sessionId).sha256, 'saved-1')
+  assert.deepEqual(digestFailure.closed, ['original-session'])
+  const retry = await digestFailure.invoke({ sender: { id: 7 } }, request(recovered.file.sessionId, { retainSession: true }))
+  assert.equal(retry.sessionRetained, true)
+  assert.equal(digestFailure.writes.length, 2)
+  digestFailure.diskSha = 'external-after-recovery'
+  await assert.rejects(digestFailure.invoke({ sender: { id: 7 } }, request(recovered.file.sessionId, { retainSession: true })), /errDiskChanged/)
+  assert.equal(digestFailure.writes.length, 2)
+
+  const phaseOneDigestFailure = harness({ failPostWriteShaAt: 1 })
+  const phaseOneRecovered = await phaseOneDigestFailure.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true, saveContinuation: true }))
+  assert.equal(phaseOneRecovered.sessionRetained, undefined)
+  assert.equal(phaseOneDigestFailure.entry.sessions.has('original-session'), false)
+  assert.equal(phaseOneDigestFailure.entry.sessions.get(phaseOneRecovered.file.sessionId).sha256, 'saved-1')
+  const phaseOneRetry = await phaseOneDigestFailure.invoke({ sender: { id: 7 } }, request(phaseOneRecovered.file.sessionId, { retainSession: true }))
+  assert.equal(phaseOneRetry.sessionRetained, true)
+  assert.equal(phaseOneDigestFailure.writes.length, 2)
+
+  const phaseTwoDigestFailure = harness({ failPostWriteShaAt: 2 })
+  const phaseTwoFirst = await phaseTwoDigestFailure.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true, saveContinuation: true }))
+  const phaseTwoTemp = phaseTwoFirst.file.sessionId
+  const phaseTwoRecovered = await phaseTwoDigestFailure.invoke({ sender: { id: 7 } }, request(phaseTwoTemp, { retainSession: true, retainedSessionId: 'original-session' }))
+  assert.equal(phaseTwoRecovered.sessionRetained, undefined)
+  assert.equal(phaseTwoDigestFailure.entry.sessions.has('original-session'), false)
+  assert.equal(phaseTwoDigestFailure.entry.sessions.has(phaseTwoTemp), false)
+  assert.equal(phaseTwoDigestFailure.entry.sessions.get(phaseTwoRecovered.file.sessionId).sha256, 'saved-2')
+  const phaseTwoRetry = await phaseTwoDigestFailure.invoke({ sender: { id: 7 } }, request(phaseTwoRecovered.file.sessionId, { retainSession: true }))
+  assert.equal(phaseTwoRetry.sessionRetained, true)
+  assert.equal(phaseTwoDigestFailure.writes.length, 3)
+
+  const doubleFailure = harness({ failPostWriteSha: true, failOpen: true })
+  await assert.rejects(doubleFailure.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true })), /simulated recovery open failure/)
+  assert.equal(doubleFailure.entry.sessions.has('original-session'), false)
+  assert.ok(doubleFailure.closed.includes('original-session'))
+  await assert.rejects(doubleFailure.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true })), /Unknown workbook session/)
+
+  const closeDuringRecoveryOpen = harness({ failPostWriteSha: true, closeDuringOpen: true })
+  await assert.rejects(closeDuringRecoveryOpen.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true })), /Workbook session closed during save/)
+  assert.equal(closeDuringRecoveryOpen.entry.sessions.has('original-session'), false)
+  assert.equal(closeDuringRecoveryOpen.entry.sessions.size, 0)
+
+  const closeDuringRecoveryCommit = harness({ failPostWriteSha: true, closeDuringCommit: true })
+  await assert.rejects(closeDuringRecoveryCommit.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true })), /Workbook session closed during save/)
+  assert.equal(closeDuringRecoveryCommit.entry.sessions.has('original-session'), false)
+  assert.equal(closeDuringRecoveryCommit.entry.sessions.size, 0)
   const closedDuringSave = harness({ closeDuringWrite: true })
   await assert.rejects(closedDuringSave.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true })), /Workbook session closed during save/)
   assert.equal(closedDuringSave.entry.sessions.has('original-session'), false)
