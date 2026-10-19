@@ -2,7 +2,12 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ts from 'typescript'
-import {
+import * as checkpointExports from '../tools/genoffice/inject/sheets-save-checkpoint.ts'
+
+// tsx loads .ts as CommonJS in this repository; native ESM has no default wrapper.
+const checkpointApi = checkpointExports.default ?? checkpointExports
+assert.equal(typeof checkpointApi.acknowledgeSheetsSaveCheckpoint, 'function', 'checkpoint exports are available through the active module loader')
+const {
   acknowledgeSheetsSaveCheckpoint,
   captureSheetsSaveCheckpoint,
   initializeSheetsSaveCheckpoint,
@@ -10,7 +15,7 @@ import {
   markSheetsJournalChanged,
   pendingSheetsJournalSize,
   serializeSheetsSave,
-} from '../tools/genoffice/inject/sheets-save-checkpoint.ts'
+} = checkpointApi
 import { patchSheetsApp, patchSheetsSaveActions } from '../tools/genoffice/sheets-save-renderer-patch.mjs'
 
 const configuredRoot = process.env.GENOFFICE_SRC || resolve('.cache/genoffice')
