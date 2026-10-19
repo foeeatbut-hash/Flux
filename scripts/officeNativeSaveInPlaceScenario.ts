@@ -187,7 +187,7 @@ export async function runNativeSaveInPlaceScenario(options: SaveInPlaceOptions):
   check('ribbon insertion adds a chart to the live workbook journal', inserted, { chartAdds: await chartAdds() });
   if (!inserted) throw new Error('Ribbon chart insertion did not reach the edit journal');
 
-  await clickSheetGrid(frame);
+  await frame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
   const gridFocus = await frame.locator('body').evaluate(() => {
     const active = document.activeElement as HTMLElement | null;
     const skipHosts = [
@@ -220,9 +220,12 @@ export async function runNativeSaveInPlaceScenario(options: SaveInPlaceOptions):
   check('chart Undo keyboard target is accepted by the workbook grid routing', gridFocus.documentHasFocus && gridFocus.allowedGridTarget, gridFocus);
   await page().keyboard.press('Control+z');
   const chartUndone = await waitFor(async () => await chartAdds() === 0, 10000);
+  const undoTrace = await frame.locator('body').evaluate(() => (window as any).__fluxChartUndoTrace).catch(() => null);
+  if (!chartUndone) await writeFile('/tmp/office-native-save-in-place-undo-failure.json', JSON.stringify({ gridFocus, chartAdds: await chartAdds(), trace: undoTrace }, null, 2));
   check('Ctrl+Z removes the inserted chart from the live workbook journal', chartUndone, {
     chartAdds: await chartAdds(),
-    trace: await frame.locator('body').evaluate(() => (window as any).__fluxChartUndoTrace).catch(() => null),
+    commandIds: undoTrace?.commands?.map((command: any) => command.id),
+    keys: undoTrace?.keys,
   });
   if (!chartUndone) throw new Error('Ctrl+Z did not undo the chart insertion');
 
@@ -328,9 +331,12 @@ export async function runNativeSaveInPlaceScenario(options: SaveInPlaceOptions):
   await frame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
   await page().keyboard.press('Control+y');
   const chartRedone = await waitFor(async () => await chartAdds() === 1, 10000);
+  const redoTrace = await frame.locator('body').evaluate(() => (window as any).__fluxChartUndoTrace).catch(() => null);
+  if (!chartRedone) await writeFile('/tmp/office-native-save-in-place-redo-failure.json', JSON.stringify({ chartAdds: await chartAdds(), trace: redoTrace }, null, 2));
   check('Ctrl+Y restores the inserted chart to the live workbook journal', chartRedone, {
     chartAdds: await chartAdds(),
-    trace: await frame.locator('body').evaluate(() => (window as any).__fluxChartUndoTrace).catch(() => null),
+    commandIds: redoTrace?.commands?.map((command: any) => command.id),
+    keys: redoTrace?.keys,
   });
   if (!chartRedone) throw new Error('Ctrl+Y did not redo the chart insertion');
   await saveChartState(true, 'Save after Ctrl+Y');
