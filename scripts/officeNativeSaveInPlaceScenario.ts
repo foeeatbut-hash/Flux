@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises';
 import JSZip from 'jszip';
 import { makeXlsx } from './officeHarness';
 import { runNativeDefinedNamesReloadMode } from './officeNativeDefinedNamesPreflight';
@@ -186,9 +187,37 @@ export async function runNativeSaveInPlaceScenario(options: SaveInPlaceOptions):
   check('ribbon insertion adds a chart to the live workbook journal', inserted, { chartAdds: await chartAdds() });
   if (!inserted) throw new Error('Ribbon chart insertion did not reach the edit journal');
 
-  await frame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().focus();
-  check('chart Undo keyboard target is the workbook grid', await frame.locator('body').evaluate(() =>
-    document.activeElement?.id.startsWith('univer-sheet-main-canvas_') === true));
+  await clickSheetGrid(frame);
+  const gridFocus = await frame.locator('body').evaluate(() => {
+    const active = document.activeElement as HTMLElement | null;
+    const skipHosts = [
+      '[data-u-comp="formula-bar"]', '[data-u-comp="input"]', '[data-u-comp="textarea"]',
+      '[data-u-comp="panel"]', '[data-u-comp="panel-field"]', '[data-u-comp="cell-popup"]',
+      '[data-u-comp="defined-name"]', '[data-u-comp="defined-name-container"]',
+      '[data-u-comp="select"]', '[data-u-comp="multiple-select"]', '[data-u-comp="sheets-dropdown-list"]',
+      '[data-u-comp="gallery"]', '[data-u-comp="slide-tab-item"]', '.shape-editable', '.chart-editor',
+      '.dialog-backdrop', '[role="dialog"]',
+    ].join(', ');
+    const inContainer = !!active?.closest('#univer-container');
+    const isNativeField = !!active?.closest('input, textarea, select');
+    const isSkippedHost = !!active?.closest(skipHosts);
+    const isEditableOutsideGrid = !!active?.closest('[contenteditable="true"]') && !inContainer;
+    const activeBelongsToSheet = inContainer || !!active?.closest('canvas[id^="univer-sheet-main-canvas_"]');
+    const chain = [];
+    let node: HTMLElement | null = active;
+    while (node && chain.length < 6) {
+      chain.push({ tag: node.tagName, id: node.id, className: String(node.className || '').slice(0, 120), contentEditable: node.getAttribute('contenteditable') });
+      node = node.parentElement;
+    }
+    return {
+      documentHasFocus: document.hasFocus(),
+      allowedGridTarget: !isNativeField && !isSkippedHost && !isEditableOutsideGrid,
+      activeElement: active ? { tag: active.tagName, id: active.id, className: String(active.className || '').slice(0, 160), contentEditable: active.getAttribute('contenteditable') } : null,
+      inContainer, activeBelongsToSheet, isNativeField, isSkippedHost, isEditableOutsideGrid, chain,
+      trace: (window as any).__fluxChartUndoTrace,
+    };
+  }).catch((error: unknown) => ({ error: String(error), documentHasFocus: false, allowedGridTarget: false, activeBelongsToSheet: false }));
+  check('chart Undo keyboard target is accepted by the workbook grid routing', gridFocus.documentHasFocus && gridFocus.allowedGridTarget && gridFocus.activeBelongsToSheet, gridFocus);
   await page().keyboard.press('Control+z');
   const chartUndone = await waitFor(async () => await chartAdds() === 0, 10000);
   check('Ctrl+Z removes the inserted chart from the live workbook journal', chartUndone, {
@@ -216,7 +245,7 @@ export async function runNativeSaveInPlaceScenario(options: SaveInPlaceOptions):
       if (!w.__fluxSaveRegressionEvents) {
         w.__fluxSaveRegressionEvents = [];
         window.addEventListener('flux-sheets-save', (event) => {
-          w.__fluxSaveRegressionEvents.push((event as CustomEvent).detail);
+          w.__fluxSaveRegressionEvents.push({ observedAt: new Date().toISOString(), performanceNow: performance.now(), detail: (event as CustomEvent).detail });
         });
       }
       return w.__fluxSaveRegressionEvents.length;
@@ -224,22 +253,31 @@ export async function runNativeSaveInPlaceScenario(options: SaveInPlaceOptions):
     await page().keyboard.press('Control+s');
     const completed = await waitFor(async () => await frame.locator('body').evaluate((before: number) => {
       const events = (window as any).__fluxSaveRegressionEvents || [];
-      return events.slice(before).some((event: any) => event.phase === 'end');
+      return events.slice(before).some((event: any) => event.detail?.phase === 'end');
     }, eventsBefore).catch(() => false), 20000);
     const saveEvents = await frame.locator('body').evaluate((before: number) =>
       ((window as any).__fluxSaveRegressionEvents || []).slice(before), eventsBefore).catch(() => []);
     const successful = completed && saveEvents.some((event: any) =>
-      event.phase === 'end' && event.ok === true && event.sessionRetained === true);
+      event.detail?.phase === 'end' && event.detail?.ok === true && event.detail?.sessionRetained === true);
     check(label + ': Ctrl+S completed through retained save IPC', successful, { saveEvents });
     if (!successful) throw new Error(label + ': retained save IPC did not complete successfully');
-    const response = await raw('GET', '/api/files/' + encodeURIComponent(fileId) + '/raw');
-    if (response.status !== 200) throw new Error(label + ': saved XLSX download failed');
-    const zip = await JSZip.loadAsync(response.bytes);
-    const names = Object.keys(zip.files).filter((name) => !zip.files[name]?.dir);
-    const sheetXml = await zip.file('xl/worksheets/sheet1.xml')?.async('string') || '';
-    const sheetRels = await zip.file('xl/worksheets/_rels/sheet1.xml.rels')?.async('string') || '';
-    const hasDrawing = /<drawing\b/.test(sheetXml) && !!relationshipTarget(sheetRels, 'drawing');
-    if (wantChart) {
+    let firstArchive: unknown = null;
+    let lastArchive: any = null;
+    let lastArchiveBytes: Buffer | undefined;
+    const archiveMatchesExpectation = async (): Promise<boolean> => {
+      const response = await raw('GET', '/api/files/' + encodeURIComponent(fileId) + '/raw');
+      const observedAt = new Date().toISOString();
+      if (response.status === 200) lastArchiveBytes = response.bytes;
+      if (response.status !== 200) {
+        const metadata = { observedAt, status: response.status, bytesLength: response.bytes?.length ?? null };
+        firstArchive ??= metadata;
+        lastArchive = metadata;
+        return false;
+      }
+      const zip = await JSZip.loadAsync(response.bytes);
+      const names = Object.keys(zip.files).filter((name) => !zip.files[name]?.dir);
+      const sheetXml = await zip.file('xl/worksheets/sheet1.xml')?.async('string') || '';
+      const sheetRels = await zip.file('xl/worksheets/_rels/sheet1.xml.rels')?.async('string') || '';
       const drawingTarget = relationshipTarget(sheetRels, 'drawing');
       const drawingPath = drawingTarget ? relativePart('xl/worksheets/sheet1.xml', drawingTarget) : '';
       const drawingRelsPath = drawingPath ? drawingPath.replace('drawings/', 'drawings/_rels/') + '.rels' : '';
@@ -247,16 +285,43 @@ export async function runNativeSaveInPlaceScenario(options: SaveInPlaceOptions):
       const chartTarget = relationshipTarget(drawingRels, 'chart');
       const chartPath = chartTarget ? relativePart(drawingPath, chartTarget) : '';
       const chartExists = !!chartPath && !!zip.file(chartPath);
-      check(label + ': actual XLSX contains a drawing with chart relationship and chart part',
-        hasDrawing && chartExists && names.some((name) => /^xl\/drawings\/[^/]+\.xml$/.test(name)) &&
-        names.some((name) => /^xl\/charts\/[^/]+\.xml$/.test(name)),
-        { drawingPath, drawingRelsPath, chartPath, names: names.filter((name) => /xl\/(drawings|charts)\//.test(name)) });
-      if (!hasDrawing || !chartExists) throw new Error(label + ': chart/drawing parts or relationships are missing');
-    } else {
+      const hasDrawing = /<drawing\b/.test(sheetXml) && !!drawingTarget && !!drawingPath && !!zip.file(drawingPath);
+      const hasChart = hasDrawing && !!chartTarget && chartExists && names.some((name) => /^xl\/drawings\/[^/]+\.xml$/.test(name)) && names.some((name) => /^xl\/charts\/[^/]+\.xml$/.test(name));
       const noChart = !names.some((name) => /^xl\/charts\/[^/]+\.xml$/.test(name)) && !/<drawing\b/.test(sheetXml);
-      check(label + ': undone chart is absent from the saved XLSX', noChart, { names: names.filter((name) => /xl\/(drawings|charts)\//.test(name)) });
-      if (!noChart) throw new Error(label + ': undone chart remained in saved XLSX');
+      const metadata = {
+        observedAt, status: response.status, bytesLength: response.bytes?.length ?? null,
+        names, partNames: names.filter((name) => /xl\/(drawings|charts)\//.test(name)),
+        sheetHasDrawingTag: /<drawing\b/.test(sheetXml), drawingTarget, drawingPath, drawingExists: !!drawingPath && !!zip.file(drawingPath),
+        sheetRels, drawingRelsPath, chartTarget, chartPath, chartExists, hasChart, noChart,
+        sheetXmlDrawingExcerpt: sheetXml.match(/<drawing\b[^>]*\/?\s*>/)?.[0] || '',
+      };
+      firstArchive ??= metadata;
+      lastArchive = metadata;
+      return wantChart ? hasChart : noChart;
+    };
+    const probe = async (): Promise<boolean> => {
+      try { return await archiveMatchesExpectation(); }
+      catch (error) {
+        const metadata = { observedAt: new Date().toISOString(), error: String(error) };
+        firstArchive ??= metadata;
+        lastArchive = metadata;
+        return false;
+      }
+    };
+    const archiveReady = await waitFor(probe, 20000);
+    // Keep one final observation after timeout so the failure reports the latest bytes.
+    if (!archiveReady) await probe();
+    const finalSaveEvents = await frame.locator('body').evaluate((before: number) =>
+      ((window as any).__fluxSaveRegressionEvents || []).slice(before), eventsBefore).catch(() => []);
+    if (!archiveReady) {
+      if (lastArchiveBytes) await writeFile('/tmp/office-native-save-in-place-failure.xlsx', lastArchiveBytes);
+      await writeFile('/tmp/office-native-save-in-place-failure.json',
+        JSON.stringify({ label, wantChart, firstArchive, lastArchive, saveEvents: finalSaveEvents }, null, 2));
     }
+    check(label + ': expected chart state is present in the saved XLSX archive', archiveReady, {
+      firstArchive, lastArchive, saveEvents: finalSaveEvents,
+    });
+    if (!archiveReady) throw new Error(label + ': saved XLSX archive did not reach the expected chart state');
   };
   await saveChartState(false, 'Save after Ctrl+Z');
 

@@ -218,8 +218,8 @@ jobs:
           FLUX_CHROME: /usr/bin/google-chrome
         run: |
           set -euo pipefail
-          node --import tsx scripts/test-guide-server.ts --office-sheets-collab
           FLUX_NATIVE_ONLY=save-in-place node --import tsx scripts/test-guide-server.ts --office-addon-native
+          node --import tsx scripts/test-guide-server.ts --office-sheets-collab
           FLUX_NATIVE_ONLY=issued node --import tsx scripts/test-guide-server.ts --office-addon-native
           FLUX_NATIVE_ONLY=field-refresh node --import tsx scripts/test-guide-server.ts --office-addon-native
           node --import tsx scripts/test-guide-server.ts --office-addon-native
@@ -241,6 +241,7 @@ jobs:
         with:
           name: flux-native-office-guide-evidence
           path: |
+            /tmp/office-native-save-in-place-*
             /tmp/office-addon-native-*.png
             /tmp/flux-office-native-errors.json
             /tmp/office-explorer-*.png
