@@ -253,7 +253,10 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
     try {
       const $selection = selection && editor?.state?.doc?.resolve(selection.from);
       if ($selection) for (let depth = 0; depth <= $selection.depth; depth++) { const node = $selection.node(depth); selectionPath.push({ type: node?.type?.name || '', text: String(node?.textContent || '').slice(0, 160), attrs: Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|anchor|colspan|rowspan/i.test(key))) }); }
-      const clickedCellDepth = clickedPath.findLastIndex((entry: any) => /(?:docTableCell|docTableHeader|tableCell|tableHeader)$/i.test(String(entry?.type || '')));
+      let clickedCellDepth = -1;
+      for (let depth = clickedPath.length - 1; depth >= 0; depth--) {
+        if (/(?:docTableCell|docTableHeader|tableCell|tableHeader)$/i.test(String(clickedPath[depth]?.type || ''))) { clickedCellDepth = depth; break; }
+      }
       const clickedNode = clickedCellDepth >= 0 ? editor?.state?.doc?.resolve(clickedPos)?.node(clickedCellDepth) : null;
       clickedNode?.descendants?.((node: any, pos: number) => {
         const attrs = Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|hiddenBookmark/i.test(key)));
