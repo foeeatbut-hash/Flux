@@ -104,6 +104,13 @@ export function getEquipmentSourceBinding(projectId: string, sourceId: string, t
   return all[keyOf({ projectId, sourceId, tagId, elementId }, userId)] || all[legacyKeyOf({ projectId, sourceId, tagId, elementId }, userId)] || null;
 }
 
+/** Возвращает только локальные capability проекта для подтверждённого переноса на общий реестр. */
+export function listEquipmentSourceBindings(projectId: string): LocalEquipmentSourceBinding[] {
+  const userId = useStore.getState().user?.id;
+  if (!userId) return [];
+  return Object.values(readAllBindings()).filter(binding => binding.projectId === projectId && (!binding.userId || binding.userId === userId));
+}
+
 /** Меняет capability-пути выбранных источников одним localStorage commit. */
 export interface EquipmentSourceBindingSnapshot { storageKey: string; userId: string; sourceId: string; binding: LocalEquipmentSourceBinding | null }
 

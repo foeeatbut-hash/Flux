@@ -1,4 +1,4 @@
-import type { WindowsFileRef, WindowsFilesRequest, WindowsSearchEvent } from '../../filesystem/contracts';
+import type { PortableFolderLocator, SelectionProvenance, WindowsFileRef, WindowsFilesRequest, WindowsSearchEvent } from '../../filesystem/contracts';
 import { WindowsFilesError } from './paths';
 import type { WindowsFilesService } from './service';
 import { SearchRegistry } from './search';
@@ -8,7 +8,7 @@ import { DropTickets, importDropped } from './importPaths';
 import { planPublication } from './publishing';
 import { undoLast, redoLast } from './undo';
 import type { ShellCommands } from './shellCommands';
-import { LocationKeys, MAX_LOCATION_REFS } from './locationKeys';
+import { LocationKeys, MAX_LOCATION_REFS, resolvePortableFolder } from './locationKeys';
 import { mappedDriveUnc } from './network';
 
 /**
@@ -25,7 +25,7 @@ export const EXPLORER_WRITE_ACTIONS: ReadonlySet<string> = new Set([
   'startDrag', 'importPaths', 'undo', 'redo',
 ]);
 const READ_ACTIONS = new Set(['search', 'searchCancel', 'children', 'quickAccess', 'cloudRoots', 'thumbnail', 'openWithList', 'openWith', 'shellMenu', 'shellMenuClose',
-  'recycleBin', 'systemProperties', 'resolveAddress', 'locationKeys', 'placeIcon', 'undoState', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete']);
+  'recycleBin', 'systemProperties', 'resolveAddress', 'locationKeys', 'selectionProvenance', 'resolvePortableFolder', 'placeIcon', 'undoState', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete']);
 export const isExplorerAction = (action: string) => READ_ACTIONS.has(action) || EXPLORER_WRITE_ACTIONS.has(action);
 
 export interface ExplorerBridgeDeps {
@@ -78,6 +78,8 @@ export class ExplorerBridge {
       case 'systemProperties': return shell.fileProperties(ref(r.ref), signal);
       case 'resolveAddress': return service.resolveAddress(r.text);
       case 'locationKeys': return this.locations.resolve(Array.isArray(r.refs) && r.refs.length <= MAX_LOCATION_REFS ? r.refs.map(ref) : []);
+      case 'selectionProvenance': return this.selectionProvenance(ref(r.ref), r.suggestedTag, r.fileRef ? ref(r.fileRef) : undefined);
+      case 'resolvePortableFolder': return this.resolvePortableFolder(r.locator);
       case 'placeIcon': return shell.placeIcon(r.place, r.size);
       case 'thumbnail': return shell.thumbnail(ref(r.ref), r.size, r.thumbnailOnly === true, signal);
       case 'openWithList': return shell.openWithList(owner, ref(r.ref));
@@ -100,6 +102,28 @@ export class ExplorerBridge {
       case 'viewStateDelete': return viewState.delete(r.keys);
       default: throw new WindowsFilesError('INVALID_ACTION', 'Команда проводника неизвестна.');
     }
+  }
+
+  async selectionProvenance(sourceFolder: WindowsFileRef, suggestedTag?: unknown, fileRef?: WindowsFileRef): Promise<SelectionProvenance> {
+    if ((await this.deps.service.entry(sourceFolder)).kind !== 'directory') throw new WindowsFilesError('NOT_DIRECTORY', 'Папка источника больше недоступна. Выберите файл повторно.');
+    if (fileRef) {
+      if ((await this.deps.service.entry(fileRef)).kind !== 'file' || fileRef.rootId !== sourceFolder.rootId || fileRef.draftId !== sourceFolder.draftId) throw new WindowsFilesError('INVALID_REF', 'Файл не находится в выбранной папке источника.');
+      const folderPath = sourceFolder.relativePath.replace(/\\/gu, '/').replace(/\/$/u, '').toLocaleLowerCase();
+      const filePath = fileRef.relativePath.replace(/\\/gu, '/').toLocaleLowerCase();
+      if (folderPath && !filePath.startsWith(`${folderPath}/`)) throw new WindowsFilesError('INVALID_REF', 'Файл не находится в выбранной папке источника.');
+    }
+    const provenance: SelectionProvenance = { sourceFolder, ...(fileRef ? { fileRef } : {}) };
+    if (typeof suggestedTag === 'string' && suggestedTag.trim()) provenance.suggestedTag = suggestedTag.trim().slice(0, 128);
+    const portableLocator = await this.locations.portable(sourceFolder);
+    if (portableLocator) {
+      provenance.folderKey = portableLocator.folderKey;
+      provenance.portableLocator = portableLocator;
+    }
+    return provenance;
+  }
+
+  async resolvePortableFolder(locator: PortableFolderLocator): Promise<WindowsFileRef | null> {
+    return resolvePortableFolder(locator, await this.deps.service.roots(), this.locations, ref => this.deps.service.entry(ref));
   }
 }
 

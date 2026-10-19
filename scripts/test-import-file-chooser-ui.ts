@@ -23,7 +23,7 @@ void (async () => {
         : originalFetch(input, init);
       window.electron = { windowsFiles: { invoke: async request => {
         window.__requests.push(request);
-        if (request.action === 'pickImportRefs') return { ok: true, data: { canceled: false, files: [{ name: 'native.xlsx', size: nativeBytes.length, lastModified: 1_700_000_000_000, ticket: 'native-1' }] } };
+        if (request.action === 'pickImportRefs') return { ok: true, data: { canceled: false, files: [{ name: 'native.xlsx', size: nativeBytes.length, lastModified: 1_700_000_000_000, ticket: 'native-1', provenance: { sourceFolder: { rootId: 'native-root', relativePath: 'Documents' }, fileRef: { rootId: 'native-root', relativePath: 'Documents/native.xlsx' }, folderKey: 'a'.repeat(64) } }] } };
         if (request.action === 'readImportRef' && request.ticket === 'native-1') return { ok: true, data: { name: 'native.xlsx', size: nativeBytes.length, offset: request.offset, base64: encode(nativeBytes.slice(request.offset, request.offset + request.length)) } };
         if (request.action === 'releaseImportRefs') return { ok: true, data: { released: request.tickets } };
         if (request.action === 'roots') return { ok: true, data: [{ id: 'network-root', name: 'Общая папка', kind: 'custom', network: true, available: true }] };
@@ -32,7 +32,7 @@ void (async () => {
         if (request.action === 'stat' && request.ref.relativePath === 'Импорты/mirror.xlsx') return { ok: true, data: { name: 'mirror.xlsx', relativePath: request.ref.relativePath, rootId: 'network-root', storage: 'flux', draftId: 'draft-7', kind: 'file', fileId: 'file-7', size: mirrorBytes.length, modifiedAt: '', linked: false } };
         if (request.action === 'prepareImportRefs') {
           window.__readRefs.push(...request.refs);
-          return { ok: true, data: { files: request.refs.map((ref, index) => ({ name: ref.relativePath.endsWith('copy.xlsx') ? 'mirror-copy.xlsx' : 'mirror.xlsx', size: mirrorBytes.length, lastModified: 1_700_000_000_000, ticket: 'mirror-' + (index + 1) })) } };
+          return { ok: true, data: { files: request.refs.map((ref, index) => ({ name: ref.relativePath.endsWith('copy.xlsx') ? 'mirror-copy.xlsx' : 'mirror.xlsx', size: mirrorBytes.length, lastModified: 1_700_000_000_000, ticket: 'mirror-' + (index + 1), provenance: { sourceFolder: { rootId: ref.rootId, relativePath: 'Импорты' }, fileRef: ref } })) } };
         }
         if (request.action === 'readImportRef' && request.ticket.startsWith('mirror-')) {
           return { ok: true, data: { name: 'mirror.xlsx', size: mirrorBytes.length, offset: request.offset, base64: encode(mirrorBytes.slice(request.offset, request.offset + request.length)) } };
@@ -52,6 +52,7 @@ void (async () => {
   await page.getByRole('button', { name: 'Выбрать файл' }).click();
   await page.getByLabel('Полученные файлы').getByText('native.xlsx|application/vnd.openxmlformats-officedocument.spreadsheetml.sheet|1700000000000|0,255,128,65').waitFor({ timeout: 5000 });
   check('native picker preserves XLSX MIME, modification time and byte content', await page.getByLabel('Полученные файлы').textContent() === 'native.xlsx|application/vnd.openxmlformats-officedocument.spreadsheetml.sheet|1700000000000|0,255,128,65');
+  check('native file keeps folder and opaque key provenance beside its file capability', await page.evaluate(() => (window as any).__receivedProvenance?.[0]?.sourceFolder?.relativePath === 'Documents' && (window as any).__receivedProvenance?.[0]?.fileRef?.relativePath === 'Documents/native.xlsx' && (window as any).__receivedProvenance?.[0]?.folderKey === 'a'.repeat(64)));
 
   await page.getByRole('button', { name: 'Проводник' }).click();
   await page.getByRole('dialog', { name: 'Выбрать файл из Проводника' }).waitFor();
@@ -64,6 +65,7 @@ void (async () => {
   await page.getByLabel('Полученные файлы').getByText('mirror.xlsx|application/vnd.openxmlformats-officedocument.spreadsheetml.sheet|1700000000000|1,2,0,128').waitFor();
   const received = await page.getByLabel('Полученные файлы').textContent();
   check('mirrored refs preserve exact bytes, XLSX MIME and mtime', received === 'mirror.xlsx|application/vnd.openxmlformats-officedocument.spreadsheetml.sheet|1700000000000|1,2,0,128;mirror-copy.xlsx|application/vnd.openxmlformats-officedocument.spreadsheetml.sheet|1700000000000|1,2,0,128');
+  check('Flux ticket provenance stays aligned with each selected file capability', await page.evaluate(() => (window as any).__receivedProvenance?.length === 2 && (window as any).__receivedProvenance?.[0]?.fileRef?.draftId === 'draft-7' && (window as any).__receivedProvenance?.[1]?.fileRef?.relativePath === 'Импорты/mirror-copy.xlsx'));
   check('mirrored reads keep distinct paths, canonical alias and draft capability', await page.evaluate(() => (window as any).__readRefs.length === 2 && (window as any).__readRefs[0]?.rootId === 'network-root' && (window as any).__readRefs[0]?.draftId === 'draft-7' && (window as any).__readRefs[0]?.relativePath === 'Импорты/mirror.xlsx' && (window as any).__readRefs[1]?.relativePath === 'Импорты/mirror-copy.xlsx'));
   check('chooser produces no browser errors', errors.length === 0);
   } finally { await browser.close(); }

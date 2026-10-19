@@ -4,6 +4,7 @@ import { getPrisma } from '../context.js';
 import { canSeeProject, registerProjectAccessGuard } from './members.js';
 import { forgetProjectSelections } from './builder.js';
 import { nextProjectId } from '../entityIds.js';
+import { cleanupEquipmentDocumentBindingLedger } from './equipmentDocumentBindings.js';
 
 // Проекты: список с учётом состава, создание, правка и удаление.
 //
@@ -94,8 +95,9 @@ export function registerProjectRoutes(app: Express, deps: ProjectDeps): void {
     try {
       const { id } = req.params;
       const doomed = await prisma.project.findUnique({ where: { id } });
-      await prisma.project.delete({
-        where: { id }
+      await prisma.$transaction(async (tx: any) => {
+        await tx.project.delete({ where: { id } });
+        await cleanupEquipmentDocumentBindingLedger(tx, id);
       });
       await forgetProjectSelections(id);
       if (doomed) {

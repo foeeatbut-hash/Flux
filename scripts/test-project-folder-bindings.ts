@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict';
 import { effectiveProjectIds, isLocationKey, nearestBinding, resolveBoundProject, validateBinding, type ProjectFolderBinding } from '../src/lib/projectFolderBindings.js';
-import { LocationKeys, hashLocation, normalizeLocationPath, parseNetUse, parseProviderName, uncChain, type LocationKeyDeps } from '../electron/filesystem/locationKeys.js';
+import { LocationKeys, hashLocation, normalizeLocationPath, parseNetUse, parseProviderName, resolvePortableFolder, uncChain, type LocationKeyDeps } from '../electron/filesystem/locationKeys.js';
 
 const key = (path: string) => hashLocation(normalizeLocationPath(path)!);
 const base: ProjectFolderBinding = { id: 'b1', locationKey: key('\\\\srv\\share\\Engineering'), projectId: 'p1', label: 'Engineering', actorId: 'u1', at: '2026-10-14T10:00:00.000Z' };
@@ -104,6 +104,20 @@ const checks: Array<[string, () => void | Promise<void>]> = [
     assert.deepEqual(ca, cb); assert.deepEqual(ca, cc);
     assert.deepEqual(ca, chainOf('\\\\srv\\share\\projects\\unit 1\\plan.xlsx'));
     assert.equal(resolveBoundProject([{ ...base, locationKey: key('\\\\srv\\share\\Projects\\Unit 1') }], cb), 'p1');
+  }],
+  ['portable folder locator resolves Z and P mappings at different root depths without scanning', async () => {
+    const z = computer({ rZ: 'Z:\\Projects' }, { 'Z:\\': '\\\\srv\\share' });
+    const p = computer({ rP: 'P:\\' }, { 'P:\\': '\\\\srv\\share' });
+    const locator = await z.portable({ rootId: 'rZ', relativePath: 'Unit' });
+    assert.ok(locator);
+    assert.ok(!JSON.stringify(locator).includes('srv'));
+    const tried: string[] = [];
+    const resolved = await resolvePortableFolder(locator, [{ id: 'rP', available: true }], p, async ref => {
+      tried.push(ref.relativePath);
+      return { kind: 'directory' };
+    });
+    assert.deepEqual(tried, ['projects/unit']);
+    assert.deepEqual(resolved, { rootId: 'rP', relativePath: 'projects/unit' });
   }],
   ['a drive mapped to a subfolder of a share keeps the share root at the end of the chain', async () => {
     const l = computer({ r: 'Q:\\' }, { 'Q:\\': '\\\\srv\\share\\Projects' });

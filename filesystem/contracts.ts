@@ -1,7 +1,20 @@
 export interface WindowsFileRef { rootId: string; relativePath: string; draftId?: string }
+export interface PortableFolderLocator {
+  /** Хеш точной папки; первый anchor повторяет его и имеет пустой относительный путь. */
+  folderKey: string;
+  /** Якоря от выбранной папки до корня UNC-ресурса: другой rootId может начинаться с любого из них. */
+  anchors: Array<{ key: string; relativePath: string }>;
+}
+export interface SelectionProvenance {
+  fileRef?: WindowsFileRef;
+  sourceFolder?: WindowsFileRef;
+  suggestedTag?: string;
+  folderKey?: string;
+  portableLocator?: PortableFolderLocator;
+}
 export type WindowsEquipmentSourcePick =
   | { canceled: true }
-  | { canceled: false; selectedFile: { ref: WindowsFileRef; name: string }; sourceFolder: WindowsFileRef; suggestedTag?: string };
+  | { canceled: false; selectedFile: { ref: WindowsFileRef; name: string }; sourceFolder: WindowsFileRef; suggestedTag?: string; provenance?: SelectionProvenance };
 export type WindowsEquipmentSourceFolderPick =
   | { canceled: true }
   | { canceled: false; folder: WindowsFileRef };
@@ -41,6 +54,9 @@ export type WindowsFilesRequest =
   | { action: 'draftTrash' }
   | { action: 'pickImport'; extensions?: string[]; multiple?: boolean }
   | { action: 'pickImportRefs'; extensions?: string[]; multiple?: boolean }
+  | { action: 'prepareDroppedImportRefs'; ticket: string }
+  | { action: 'selectionProvenance'; ref: WindowsFileRef; fileRef?: WindowsFileRef; suggestedTag?: string }
+  | { action: 'resolvePortableFolder'; locator: PortableFolderLocator }
   | { action: 'prepareImportRefs'; refs: WindowsFileRef[] }
   | { action: 'readImportRef'; ticket: string; offset: number; length: number }
   | { action: 'releaseImportRefs'; tickets: string[] }
@@ -77,7 +93,7 @@ export type WindowsFilesRequest =
   | WindowsExplorerRequest;
 export type WindowsFilesResponse<T = unknown> = { ok: true; data: T } | { ok: false; error: { code: string; message: string; nativeDiagnostic?: { stage?: string; hresult?: string } } };
 export interface ImportedFileBytes { name: string; size: number; base64: string }
-export interface ImportedFileRef { ticket: string; name: string; size: number; lastModified: number }
+export interface ImportedFileRef { ticket: string; name: string; size: number; lastModified: number; provenance?: SelectionProvenance }
 export const WINDOWS_IMPORT_READ_BYTES = 1024 * 1024;
 export const WINDOWS_IMPORT_REFS_PER_PICK = 128;
 export const WINDOWS_FILES_CHANNEL = 'windows-files:invoke';

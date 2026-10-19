@@ -19,6 +19,8 @@ import { validateTag } from '../../equipment/tagPolicy.js';
 import { recordTagCreated, TAG_SOURCE } from '../tagHistory.js';
 import { blockKey } from '../specUtils.js';
 import { nextProjectEntityId } from '../entityIds.js';
+import { upsertEquipmentDocumentBindingInTransaction } from './equipmentDocumentBindings.js';
+import type { EquipmentDocumentBindingInput } from '../../equipment/documentBindings.js';
 
 const authUserOf = (req: Request) => (req as any).authUser || null;
 const parseJson = (raw: unknown, fallback: any) => { try { return typeof raw === 'string' ? JSON.parse(raw) : raw ?? fallback; } catch { return fallback; } };
@@ -258,13 +260,24 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       // Выбор XML создаёт привязку, но не является импортом. Baseline можно
       // поставить только если уже сохранённые характеристики совпадают с ним.
       const alreadyImported = equipmentSourceSpecsEqual(element.specs ?? null, JSON.stringify({ groups }));
-      const source = await prisma.equipmentXmlSource.create({ data: {
-        id: randomUUID(), projectId, tagId: tagId || '', targetType, systemId: targetType === 'system' ? systemId : null,
+      const sourceId = randomUUID();
+      const source = await prisma.$transaction(async (tx: any) => {
+        const created = await tx.equipmentXmlSource.create({ data: {
+        id: sourceId, projectId, tagId: tagId || '', targetType, systemId: targetType === 'system' ? systemId : null,
         elementId, tagIdentifier: tag?.identifier || '', xmlTargetIdentity: tag ? null : JSON.stringify(xmlTargetIdentity), revisionOrder: JSON.stringify(Array.isArray(req.body?.revisionOrder) ? req.body.revisionOrder.slice(0, 30).map(String) : ['A','B','C','D','E','F','G','H','I','J']),
         selectedRule: JSON.stringify(selectedRule),
         ...(alreadyImported ? { lastImportedRevision: String(req.body?.revision || ''), lastImportedSha256: String(req.body?.sha256 || ''), lastImportedAt: new Date(), lastReviewedRevision: String(req.body?.revision || ''), lastReviewedSha256: String(req.body?.sha256 || ''), lastReviewedAt: new Date() } : {}),
         createdById: String(actor.id),
-      } });
+        } });
+        const binding: EquipmentDocumentBindingInput = {
+          id: sourceId, kind: 'cad-xml', xmlSourceId: sourceId, equipmentIds: [elementId],
+          ...(targetType === 'system' ? { systemId } : {}), ...(tag ? { tag: String(tag.identifier) } : {}),
+          ...(req.body?.locator ? { locator: req.body.locator } : {}), fileName,
+          rule: selectedRule, ...(alreadyImported ? { latestRevision: { revision: String(req.body?.revision || ''), sha256, updatedAt: new Date().toISOString() } } : {}),
+        };
+        await upsertEquipmentDocumentBindingInTransaction(tx, projectId, binding);
+        return created;
+      });
       emitSourceChanged(projectId, source.id);
       res.status(201).json({ source: sourceDto(source, tag) });
     } catch (err: any) {
@@ -751,6 +764,17 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
           if (updated.count !== 1) throw Object.assign(new Error('Снимок операции XML параллельно изменился.'), { status: 409 });
         } else await tx.equipmentXmlApplication.create({ data: { id: randomUUID(), batchId, ...applicationData } });
         for (const update of updates) if (update.changed) await tx.equipmentHistory.create({ data: { elementId: update.element.id, version: update.oldVersion, oldSpecs: update.oldSpecs, newSpecs: update.newSpecs, changeType: 'XML_REVISION', batchId } });
+        if (importedBaselineChanged) {
+          const rule = parseJson(source.selectedRule, null) as EquipmentSourceFilenameRule | null;
+          const binding: EquipmentDocumentBindingInput = {
+            id: source.id, kind: 'cad-xml', xmlSourceId: source.id,
+            equipmentIds: [source.elementId], ...(source.systemId ? { systemId: source.systemId } : {}),
+            ...(source.tagIdentifier ? { tag: source.tagIdentifier } : {}),
+            fileName: candidate.fileName || source.fileName || 'Источник.xml', rule: rule || undefined,
+            latestRevision: { revision: String(candidate.revision), sha256: String(candidate.sha256), updatedAt: now.toISOString() },
+          };
+          await upsertEquipmentDocumentBindingInTransaction(tx, projectId, binding);
+        }
       });
       for (const update of updates) if (update.changed) emitEntityChanged('element', update.element.id, req);
       for (const created of createdSnapshots) emitEntityChanged('element', created.elementId, req);

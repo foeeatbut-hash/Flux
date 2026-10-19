@@ -60,6 +60,8 @@ export interface ImportSummary {
   removedBlocks?: number;
   /** Снятые ранее позиции, вернувшиеся в расчёт: запись и ID те же */
   restoredBlocks?: number;
+  /** Точные сущности, к которым применён этот источник; используется его общей привязкой. */
+  associations?: { bindingId?: string; systemIds: string[]; equipmentIds: string[] };
 }
 
 /** Выбор инженера по спорным строкам плана и расчёт целиком, по которому они строились */
@@ -78,6 +80,8 @@ export interface IdentityInput {
   deferEntityChanged?: boolean;
   /** Вызывающий передал интерактивный транзакционный клиент Prisma. */
   inTransaction?: boolean;
+  /** Побочные уведомления отправит вызывающий после фиксации транзакции. */
+  deferNotifications?: boolean;
 }
 
 /**
@@ -108,6 +112,7 @@ export async function importEquipmentToDB(
   // Адрес позиции → её элемент в базе: по нему решения инженера о тегах
   // ложатся на те самые блоки, которые он видел в предпросмотре
   const componentIdByKey = new Map<string, string>();
+  const systemIds = new Set<string>();
   // itemCode внутри моноблока → id: по нему подпозиция находит своего владельца
   const idByItemCode = new Map<string, string>();
   // Позиции, заведённые этим ввозом: их версия 1 остаётся единицей, даже если тег лёг сразу
@@ -151,6 +156,7 @@ export async function importEquipmentToDB(
       existingSystems.push(system);
       ctx.claimed.add(system.id);
     }
+    systemIds.add(String(system.id));
 
     // Параметры самой установки храним отдельным служебным блоком "__unit__"
     const unitBlocks = unitBlocksOf(unitData);
@@ -341,14 +347,21 @@ export async function importEquipmentToDB(
   }
 
   // Позиции, стоящие в схеме E3, изменились: тому, кто выгружал, — одно уведомление на ввоз (9.4)
-  try { summary.e3Notified = await notifyExporters(prisma, projectId, batchId, actor.userId); }
-  catch (e: any) { console.error('[E3] Уведомление о смене выгруженных позиций не отправлено:', e?.message || e); }
+  if (!identity.deferNotifications) {
+    try { summary.e3Notified = await notifyExporters(prisma, projectId, batchId, actor.userId); }
+    catch (e: any) { console.error('[E3] Уведомление о смене выгруженных позиций не отправлено:', e?.message || e); }
+  }
 
   if (!identity.deferEntityChanged) {
     if (summary.newBlocks || summary.updatedBlocks || summary.movedBlocks || summary.supersededBlocks
       || summary.removedBlocks || summary.restoredBlocks) emitProjectDataChanged('element', projectId, actor);
     if (summary.tagsLinked || summary.tagsCreated || summary.tagParents) emitProjectDataChanged('tag', projectId, actor);
   }
+
+  summary.associations = {
+    systemIds: [...systemIds],
+    equipmentIds: [...new Set(componentIdByKey.values())],
+  };
 
   return summary;
 }
