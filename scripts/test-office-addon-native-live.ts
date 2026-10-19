@@ -1,4 +1,4 @@
-import { prepareStandaloneXlsxForIssue, saveAndWaitForIssueReady } from './officeNativeIssuePreflight';
+import { installInitialReplayObserver, prepareStandaloneXlsxForIssue, saveAndWaitForIssueReady, waitForInitialReplayApplied } from './officeNativeIssuePreflight';
 /**
  * End-to-end checks of Flux Office's real add-on against rebuilt GenOffice.
  * The fixture is disposable: `node --import tsx scripts/test-guide-server.ts --fixture`.
@@ -12,9 +12,9 @@ import JSZip from 'jszip';
 import { chromium } from 'playwright-core';
 import { makeDocxWithTable, makeXlsxWithBlankFormula, makeXlsxWithManualRow, loginPage } from './officeHarness';
 import { captureNativeDefinedNameEvidence, runNativeSheetCellActions } from './officeNativeCellActionsScenarios';
-import { runNativeDefinedNamesReloadMode } from './officeNativeDefinedNamesPreflight';
 import { createNativeCheck, waitFor } from './officeNativeTestRuntime';
 import { runNativeWordCellActions } from './officeNativeWordCellActionsScenarios';
+import { runNativePreflightModes } from './officeNativeSaveInPlaceScenario';
 void (async () => {
 type Fixture = { baseUrl: string; projectId: string; dataDir: string; admin: { symbol: string; password: string } };
 const metadataPath = resolve(process.argv[2] || process.env.FLUX_FIXTURE_META || '');
@@ -387,9 +387,9 @@ try {
   };
   await loginPage(page, BASE, fixture.admin, false);
 
-  const nativeOnly = process.env.FLUX_NATIVE_ONLY || '';
   // Имена проверяются до Word только в полном прогоне; names-reload закрывает браузер штатно.
-  if (await runNativeDefinedNamesReloadMode(nativeOnly, { fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page }, () => context.close())) return;
+  const nativeOnly = process.env.FLUX_NATIVE_ONLY || '';
+  if (await runNativePreflightModes(nativeOnly, { fixture, folderId, stamp, created, api, raw, upload, check, waitFor, resetPage, navigateOffice, openPanel, waitForSheetFile, clickSheetGrid, page: () => page }, () => context.close())) return;
   if (!nativeOnly) await resetPage(false); // Закрываем окно Sheets перед основным сценарием Word.
   // FLUX_NATIVE_ONLY=cells — только разделы 5 и 6 (действия с заголовочными ячейками): они сами
   // создают свои файлы, и узкий прогон идёт в разы быстрее полного
@@ -1121,9 +1121,7 @@ try {
   check('revision comparison reads immutable issued bytes and current draft bytes', compare.status === 200 && compare.json?.documentChanged === true && compare.json?.sourceChanged === false && compare.json?.beforeSha === issuedRevision?.sha256 && compare.json?.afterSha === sha256(changedDraftBytes) && Array.isArray(compare.json?.bindings?.changed), compare.json);
   const originalFinal = await raw('GET', `/api/files/${encodeURIComponent(docxId)}/raw`);
   check('editing the new draft never mutates the issued source document', sha256(originalFinal.bytes) === sourceSha);
-
   } // конец разделов 1–4 (FLUX_NATIVE_ONLY=issued их пропускает)
-
   console.log('\n5. Issued XLSX is read-only in the native grid; its draft remains writable');
   if (nativeOnly === 'issued') await prepareStandaloneXlsxForIssue({ page, fileId: xlsxId, api, waitFor, navigateOffice, openPanel, waitForSheetFile });
   const xlsxBeforeIssue = await raw('GET', `/api/files/${encodeURIComponent(xlsxId)}/raw`);
@@ -1132,12 +1130,14 @@ try {
   const xlsxRevision = xlsxIssued.json?.revision;
   check('disposable XLSX can be issued as an immutable revision', xlsxIssued.status === 201 && xlsxRevision?.status === 'ISSUED' && xlsxRevision.sha256 === xlsxSourceSha, xlsxIssued.json);
   await resetPage(false);
+  await installInitialReplayObserver(page);
   await navigateOffice(page, `/office-sheet?file=${encodeURIComponent(xlsxId)}`);
   const issuedSheetFrame = await openPanel(page, 'Flux Office — Таблица');
   const issuedSheetPanel = page.getByRole('complementary', { name: 'Flux Office' });
   check('issued XLSX opens in the actual native grid and announces read-only mode', await waitForSheetFile(issuedSheetFrame) && await waitFor(async () => await issuedSheetPanel.getByText(/Документ открыт только для просмотра/).count() > 0, 15000));
   // Без подгрузки A1 пустая ячейка равна пустой, и запрет записи прошёл бы впустую.
   const issuedHeaderLoaded = await loadSheetAddress(issuedSheetFrame, 'A1');
+  check('issued XLSX initial collaboration replay is applied before typing', await waitForInitialReplayApplied(page, waitFor));
   const issuedHeader = await sheetCell(issuedSheetFrame, 'A1');
   check('issued XLSX header is loaded before the read-only typing check', issuedHeaderLoaded && typeof issuedHeader === 'string' && issuedHeader !== '', issuedHeader);
   await issuedSheetFrame.locator('input.univer-box-border').first().fill('A1');
