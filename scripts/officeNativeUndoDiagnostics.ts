@@ -139,7 +139,7 @@ export async function installNativeUndoDiagnostics(frame: any, page: any): Promi
           };
         } catch (error) { return { point, at: Date.now(), snapshotError: String(error?.stack || error) }; }
       };
-      const commandFilter = /undo|redo|set-range-values|mutation/i;
+      const commandFilter = /undo|redo|set-range-values/i;
       const commandRecord = (phase, wb, command) => {
         try {
           if (!commandFilter.test(String(command?.id || ''))) return;
@@ -148,7 +148,7 @@ export async function installNativeUndoDiagnostics(frame: any, page: any): Promi
             hookedWorkbookId: wb?.getId?.() ?? null, commandId: String(command?.id || ''),
             type: command?.type ?? null, params: state.bounded(command?.params),
             current: snapshot('command-' + phase),
-          }, 36);
+          }, 100);
         } catch (error) { state.push(state.errors, String(error?.stack || error), 8); }
       };
       const attachments = new Map();

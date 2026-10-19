@@ -247,6 +247,33 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
       for (let depth = 0; depth <= $clicked.depth; depth++) { const node = $clicked.node(depth); clickedPath.push({ type: node?.type?.name || '', text: String(node?.textContent || '').slice(0, 160), attrs: Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|anchor|colspan|rowspan/i.test(key))) }); }
     } catch (error) { clickedPath = [{ error: String(error).slice(0, 240) }]; }
     const selection = editor?.state?.selection;
+    let selectionPath: any[] = [];
+    let clickedCellBookmarks: any[] = [];
+    let selectionCellBookmarks: any[] = [];
+    try {
+      const $selection = selection && editor?.state?.doc?.resolve(selection.from);
+      if ($selection) for (let depth = 0; depth <= $selection.depth; depth++) { const node = $selection.node(depth); selectionPath.push({ type: node?.type?.name || '', text: String(node?.textContent || '').slice(0, 160), attrs: Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|anchor|colspan|rowspan/i.test(key))) }); }
+      const clickedCellDepth = clickedPath.findLastIndex((entry: any) => /(?:docTableCell|docTableHeader|tableCell|tableHeader)$/i.test(String(entry?.type || '')));
+      const clickedNode = clickedCellDepth >= 0 ? editor?.state?.doc?.resolve(clickedPos)?.node(clickedCellDepth) : null;
+      clickedNode?.descendants?.((node: any, pos: number) => {
+        const attrs = Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|hiddenBookmark/i.test(key)));
+        const marks = (node?.marks || []).map((mark: any) => ({ type: mark?.type?.name || '', attrs: Object.fromEntries(Object.entries(mark?.attrs || {}).filter(([key]) => /bookmark|hiddenBookmark/i.test(key))) })).filter((mark: any) => Object.keys(mark.attrs).length > 0);
+        if (Object.keys(attrs).length || marks.length) clickedCellBookmarks.push({ pos, type: node?.type?.name || '', text: String(node?.textContent || '').slice(0, 160), attrs, marks, anchorIds: Object.values(attrs).flatMap((value: any) => (Array.isArray(value) ? value : [value])).filter((value: any) => typeof value === 'string').flatMap((value: string) => Array.from(value.matchAll(/FLUX_([0-9a-f]{32})/ig), (match) => match[1])) });
+      });
+      if ($selection) {
+        for (let depth = $selection.depth; depth >= 0; depth--) {
+          const node = $selection.node(depth);
+          if (/(?:docTableCell|docTableHeader|tableCell|tableHeader)$/i.test(node?.type?.name || '')) {
+            node.descendants?.((descendant: any, pos: number) => {
+              const attrs = Object.fromEntries(Object.entries(descendant?.attrs || {}).filter(([key]) => /bookmark|hiddenBookmark/i.test(key)));
+              const marks = (descendant?.marks || []).map((mark: any) => ({ type: mark?.type?.name || '', attrs: Object.fromEntries(Object.entries(mark?.attrs || {}).filter(([key]) => /bookmark|hiddenBookmark/i.test(key))) })).filter((mark: any) => Object.keys(mark.attrs).length > 0);
+              if (Object.keys(attrs).length || marks.length) selectionCellBookmarks.push({ pos, type: descendant?.type?.name || '', text: String(descendant?.textContent || '').slice(0, 160), attrs, marks, anchorIds: Object.values(attrs).flatMap((value: any) => (Array.isArray(value) ? value : [value])).filter((value: any) => typeof value === 'string').flatMap((value: string) => Array.from(value.matchAll(/FLUX_([0-9a-f]{32})/ig), (match) => match[1])) });
+            });
+            break;
+          }
+        }
+      }
+    } catch { /* Diagnostics must not affect the scenario. */ }
     const selectedCells: any[] = [];
     try { selection?.forEachCell?.((node: any, pos: number) => selectedCells.push({ pos, type: node?.type?.name || '', text: String(node?.textContent || '').slice(0, 160), attrs: Object.fromEntries(Object.entries(node?.attrs || {}).filter(([key]) => /bookmark|anchor|colspan|rowspan/i.test(key))) })); } catch { /* Not a cell selection */ }
     const rowCells = Array.from(cell.parentElement?.children || []).slice(0, 3).map((item) => ({
@@ -261,7 +288,8 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
       rowCells,
       clickedPos,
       clickedPath,
-      selection: { type: selection?.toJSON?.().type || '', from: selection?.from, to: selection?.to, selectedCells },
+      clickedCellBookmarks,
+      selection: { type: selection?.toJSON?.().type || '', from: selection?.from, to: selection?.to, selectionPath, selectionCellBookmarks, selectedCells },
       activeElement: document.activeElement instanceof HTMLElement ? { tag: document.activeElement.tagName, className: String(document.activeElement.className || '').slice(0, 180) } : null,
       menus: Array.from(document.querySelectorAll('[role="menu"], [role="menuitem"]')).slice(0, 8).map((item) => ({ role: item.getAttribute('role'), text: String(item.textContent || '').slice(0, 120), className: String((item as HTMLElement).className || '').slice(0, 180) })),
       bodyTail: document.body.innerText.slice(-1000),
