@@ -96,7 +96,7 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
     check(`${suffix}: actual merge workbook opened in native Sheets`, await waitForSheetFile(frame));
     await clickSheetGrid(frame);
     const nameBox = frame.locator('input.univer-box-border').first();
-    const undoTrace = suffix === 'conflict' ? await installNativeUndoDiagnostics(frame) : null;
+    const undoTrace = suffix === 'conflict' ? await installNativeUndoDiagnostics(frame, page()) : null;
     const bind = async (address: string, alias: string) => {
       await nameBox.fill(address); await nameBox.press('Enter');
       await clickCell(frame, address);

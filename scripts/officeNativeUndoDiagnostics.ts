@@ -1,12 +1,12 @@
 type TraceController = {
   mark: (point: string) => Promise<void>;
-  emit: () => Promise<void>;
+  emit: () => Promise<unknown>;
 };
 
 const evaluateRaw = async (target: any, source: string) => target.locator('body').evaluate((_body: HTMLElement, code: string) => (0, eval)(code), source);
 
 /** Passive, bounded trace for the native Sheets bind/undo path. */
-export async function installNativeUndoDiagnostics(frame: any): Promise<TraceController> {
+export async function installNativeUndoDiagnostics(frame: any, page: any): Promise<TraceController> {
   const source = String.raw`(() => {
     const key = '__nativeSheetsUndoTrace';
     const targetTitle = 'Flux Office — Таблица';
@@ -102,7 +102,7 @@ export async function installNativeUndoDiagnostics(frame: any): Promise<TraceCon
           state.disposed = true;
           root.removeEventListener('message', onParentMessage, true);
           for (const cleanup of state.cleanups.splice(0)) { try { cleanup(); } catch {} }
-          console.log('NATIVE_SHEETS_UNDO_TRACE', JSON.stringify({ snapshots: state.snapshots, commands: state.commands, ipc: state.ipc, attachments: state.attachments, errors: state.errors }));
+          return { snapshots: state.snapshots, commands: state.commands, ipc: state.ipc, attachments: state.attachments, errors: state.errors };
         },
       };
       root[key] = stateObject;
@@ -188,7 +188,6 @@ export async function installNativeUndoDiagnostics(frame: any): Promise<TraceCon
     } catch (error) { state.push(state.errors, 'child install: ' + String(error?.stack || error), 8); }
   })()`;
   try {
-    const page = frame.page();
     await page.addInitScript(source);
     await evaluateRaw(page, source);
     await evaluateRaw(frame, source);
@@ -196,7 +195,7 @@ export async function installNativeUndoDiagnostics(frame: any): Promise<TraceCon
     console.error('NATIVE_SHEETS_UNDO_TRACE_INSTALL_ERROR', String((error as any)?.stack || error));
   }
   return {
-    mark: async (point) => { try { await evaluateRaw(frame.page(), `window.__nativeSheetsUndoTrace?.mark?.(\${JSON.stringify(point)});`); } catch (error) { console.error('NATIVE_SHEETS_UNDO_TRACE_MARK_ERROR', String((error as any)?.stack || error)); } },
-    emit: async () => { try { await evaluateRaw(frame.page(), 'window.__nativeSheetsUndoTrace?.emit?.();'); } catch (error) { console.error('NATIVE_SHEETS_UNDO_TRACE_EMIT_ERROR', String((error as any)?.stack || error)); } },
+    mark: async (point) => { try { await evaluateRaw(page, `window.__nativeSheetsUndoTrace?.mark?.(${JSON.stringify(point)});`); } catch (error) { console.error('NATIVE_SHEETS_UNDO_TRACE_MARK_ERROR', String((error as any)?.stack || error)); } },
+    emit: async () => { try { const result = await evaluateRaw(page, 'window.__nativeSheetsUndoTrace?.emit?.();'); console.log('NATIVE_SHEETS_UNDO_TRACE', JSON.stringify(result)); } catch (error) { console.error('NATIVE_SHEETS_UNDO_TRACE_EMIT_ERROR', String((error as any)?.stack || error)); } },
   };
 }
