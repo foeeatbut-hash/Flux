@@ -97,7 +97,7 @@ assert.throws(() => parseSaveResult({ ...successfulSave, sessionRetained: 'yes' 
 assert.throws(() => parseSaveResult({ ok: false, error: 'disk changed' }), /disk changed/)
 assert.deepEqual(parseSaveResult({ canceled: true }), { canceled: true })
 
-function harness({ failWrite = false, failPostWriteSha = false, closeDuringWrite = false } = {}) {
+function harness({ failWrite = false, failPostWriteSha = false, closeDuringWrite = false, failCommitOnce = false } = {}) {
   const originalId = 'original-session'
   const path = '/files/book.xlsx'
   const baselineFile = { sessionId: originalId, path, sha256: 'open-snapshot-sha', fileBytes: 20, readOnly: false, needsSaveAs: false }
@@ -107,6 +107,8 @@ function harness({ failWrite = false, failPostWriteSha = false, closeDuringWrite
   const writes = []
   const opened = []
   const hooks = []
+  const commits = []
+  let commitFailures = failCommitOnce ? 1 : 0
   let diskSha = 'open-snapshot-sha'
   let nextSha = 0
   let tempId = 0
@@ -135,6 +137,11 @@ function harness({ failWrite = false, failPostWriteSha = false, closeDuringWrite
     cleanupSessionResources: async ({ snapshotPath, closeSidecar }) => { hooks.push(`cleanup:${snapshotPath}`); await closeSidecar?.() },
     workbookOpenedHook: (_sender, target) => hooks.push(`opened:${target}`),
     clearWorkbookRecovery: (target) => hooks.push(`clear:${target}`),
+    commitFluxSave: async () => {
+      commits.push(diskSha)
+      if (commitFailures > 0) { commitFailures -= 1; throw new Error('simulated capability commit failure') }
+    },
+    isFluxCopySave: () => false,
     saveFileDialog: async () => ({ canceled: false, filePath: '/files/other.xlsx' }),
     app: { getPath: () => '/tmp' },
     event: { sender: { id: 7 } },
@@ -146,7 +153,7 @@ function harness({ failWrite = false, failPostWriteSha = false, closeDuringWrite
     writeFile: async () => {},
     Buffer,
   }
-  return { invoke: makeHandler(deps), entry, original, baselineFile, closed, writes, opened, hooks, get diskSha() { return diskSha }, set diskSha(value) { diskSha = value } }
+  return { invoke: makeHandler(deps), entry, original, baselineFile, closed, writes, opened, hooks, commits, get diskSha() { return diskSha }, set diskSha(value) { diskSha = value } }
 }
 const request = (sessionId, extra = {}) => ({ sessionId, mode: 'save', edits: [], structuralOps: [], sheetOps: [], sheetOrder: [], chartEdits: [], visualEdits: [], visualAdditions: [], tableAdditions: [], pivotAdditions: [], filterStates: [], hyperlinkEdits: [], cfStates: [], dvStates: [], pageSetupStates: [], noteStates: [], formulaValues: [], pivotCacheRefreshPaths: [], pivotRefreshUpdates: [], sheetProtections: [], sparklineAdditions: [], definedNamesState: null, themeState: null, workbookProtectionState: null, protectedRangeStates: [], ...extra });
 
@@ -240,6 +247,28 @@ const request = (sessionId, extra = {}) => ({ sessionId, mode: 'save', edits: []
   const result = await h.invoke({ sender: { id: 7 } }, request('original-session', { mode: 'save-as' }))
   assert.equal(result.sessionRetained, undefined)
   assert.equal(h.closed[0], 'original-session')
+}
+
+// Capability persistence must complete for every retained phase. A failed commit
+// keeps the original reader and a retryable cache digest, without acknowledging success.
+{
+  const h = harness()
+  await h.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true }))
+  assert.deepEqual(h.commits, ['saved-1'])
+  assert.equal(h.closed.length, 0)
+  const split = harness()
+  const first = await split.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true, saveContinuation: true }))
+  const second = await split.invoke({ sender: { id: 7 } }, request(first.file.sessionId, { retainSession: true, retainedSessionId: 'original-session' }))
+  assert.equal(second.sessionRetained, true)
+  assert.deepEqual(split.commits, ['saved-1', 'saved-2'])
+  const failed = harness({ failCommitOnce: true })
+  await assert.rejects(failed.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true })), /simulated capability commit failure/)
+  assert.equal(failed.closed.length, 0)
+  assert.equal(failed.opened.length, 0)
+  assert.equal(failed.entry.sessions.get('original-session').lastSavedSha256, failed.diskSha)
+  const retried = await failed.invoke({ sender: { id: 7 } }, request('original-session', { retainSession: true }))
+  assert.equal(retried.sessionRetained, true)
+  assert.deepEqual(failed.commits, ['saved-1', 'saved-2'])
 }
 
 console.log('Office sheets save gateway tests passed')

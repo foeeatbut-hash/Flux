@@ -52,6 +52,8 @@ export function transformSheetsMain(source) {
       if (savedDiskSha === undefined) throw new Error('Could not verify saved workbook.')
       if (entry.sessions.get(request.sessionId) !== session) throw new Error('Workbook session closed during save.')
       entry.sessions.set(request.sessionId, { ...session, lastSavedSha256: savedDiskSha })
+      await commitFluxSave()
+      if (!entry.sessions.has(request.sessionId)) throw new Error('Workbook session closed during save.')
       const continuationFile = await openWorkbookSession(client, targetPath, entry.sessions)
       workbookOpenedHook?.(event.sender, targetPath)
       clearWorkbookRecovery(targetPath)
@@ -65,6 +67,8 @@ export function transformSheetsMain(source) {
         throw new Error('Workbook session closed during save.')
       }
       entry.sessions.set(retainedSessionId, { ...retainedWorkingSession, lastSavedSha256: savedDiskSha })
+      await commitFluxSave()
+      if (!entry.sessions.has(request.sessionId) || !entry.sessions.has(retainedSessionId)) throw new Error('Workbook session closed during save.')
       entry.sessions.delete(request.sessionId)
       await cleanupSessionResources({
         tempRoot: app.getPath('temp'),
@@ -100,6 +104,9 @@ export function transformSheetsMain(source) {
       if (savedDiskSha === undefined) throw new Error('Could not verify saved workbook.')
       if (entry.sessions.get(request.sessionId) !== session) throw new Error('Workbook session closed during save.')
       entry.sessions.set(request.sessionId, { ...session, lastSavedSha256: savedDiskSha })
+      // The native cache is written; the capability commit must also succeed before acknowledgement.
+      await commitFluxSave()
+      if (!entry.sessions.has(request.sessionId)) throw new Error('Workbook session closed during save.')
       workbookOpenedHook?.(event.sender, targetPath)
       clearWorkbookRecovery(targetPath)
       return {
