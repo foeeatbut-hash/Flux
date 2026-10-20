@@ -4,7 +4,7 @@ import WindowsFileIcon from './explorer/WindowsFileIcon';
 import { FileIcon } from './icons/FluxIcons';
 import { ICON_SIZE } from '../lib/metrics';
 import { Btn, Dialog } from './ui';
-import { base64ToBytes, windowsFilesRequest, type WindowsEquipmentSourceFolderPick, type WindowsEquipmentSourcePick, type WindowsFileEntry, type WindowsFileRef, type WindowsRoot } from '../lib/windowsFiles';
+import { base64ToBytes, windowsFilesRequest, type WindowsEquipmentSourceFolderPick, type WindowsEquipmentSourcePick, type WindowsFileEntry, type WindowsFileRef, type WindowsRoot, type SelectionProvenance } from '../lib/windowsFiles';
 import { WINDOWS_IMPORT_READ_BYTES, type ImportedFileRef } from '../../filesystem/contracts';
 import { importFileMime } from '../lib/importFileMime';
 
@@ -17,11 +17,11 @@ type Props = {
   trigger?: (open: () => void, disabled: boolean) => React.ReactNode;
   onImportRefs?: (files: ImportedFileRef[]) => void;
   /** Return a verified Explorer capability without reading or converting the file. */
-  onWindowsFile?: (ref: WindowsFileRef, entry: WindowsFileEntry, selection?: { sourceFolder?: WindowsFileRef; suggestedTag?: string }) => void;
+  onWindowsFile?: (ref: WindowsFileRef, entry: WindowsFileEntry, selection?: SelectionProvenance) => void;
   /** Choose the folder currently being browsed, after a fresh identity check. */
   onWindowsFolder?: (ref: WindowsFileRef, entry: WindowsFileEntry) => void;
   selectFolder?: boolean;
-  onFiles: (files: File[]) => void;
+  onFiles: (files: File[], provenance?: SelectionProvenance[]) => void;
 };
 export interface ImportFileChooserHandle { open: () => void }
 type Listing = { entries: WindowsFileEntry[]; nextOffset: number | null };
@@ -105,7 +105,7 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
       try {
         const result = await windowsFilesRequest<WindowsEquipmentSourcePick>({ action: 'pickEquipmentSource' });
         if (result.ok === false) setError(result.error.message);
-        else if ('selectedFile' in result.data) onWindowsFile(result.data.selectedFile.ref, { name: result.data.selectedFile.name, relativePath: result.data.selectedFile.ref.relativePath, rootId: result.data.selectedFile.ref.rootId, storage: 'windows', kind: 'file', fileId: '', size: 0, modifiedAt: '', linked: false }, { sourceFolder: result.data.sourceFolder, suggestedTag: result.data.suggestedTag });
+        else if ('selectedFile' in result.data) onWindowsFile(result.data.selectedFile.ref, { name: result.data.selectedFile.name, relativePath: result.data.selectedFile.ref.relativePath, rootId: result.data.selectedFile.ref.rootId, storage: 'windows', kind: 'file', fileId: '', size: 0, modifiedAt: '', linked: false }, result.data.provenance || { sourceFolder: result.data.sourceFolder, suggestedTag: result.data.suggestedTag });
       } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось открыть окно выбора XML.'); }
       finally { setBusy(false); }
       return;
@@ -134,7 +134,7 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
         const rejected = tickets.filter(ticket => !matches(ticket.name, accept));
         if (rejected.length) { await windowsFilesRequest({ action: 'releaseImportRefs', tickets: rejected.map(item => item.ticket) }); tickets = accepted; }
         if (tickets.length && onImportRefs) { onImportRefs(tickets); transferred = true; }
-        else if (tickets.length) onFiles(await filesFromTickets(tickets));
+        else if (tickets.length) onFiles(await filesFromTickets(tickets), tickets.map(ticket => ticket.provenance || {}));
         else if (rejected.length) setError('Выберите файл поддерживаемого типа.');
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : 'Не удалось открыть окно выбора файла.');
@@ -189,7 +189,10 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
         const stat = await windowsFilesRequest<WindowsFileEntry>({ action: 'stat', ref });
         if (stat.ok === false) throw new Error(stat.error.message);
         if (stat.data.kind !== 'file' || stat.data.fileId !== entry.fileId || selectionKey(stat.data, rootId) !== selectionKey(entry, rootId)) throw new Error('Файл изменился после выбора. Выберите его повторно.');
-        setOpen(false); onWindowsFile(ref, stat.data); transferred = true;
+        const sourceFolder = { rootId, relativePath: ref.relativePath.split('/').slice(0, -1).join('/') };
+        const provenance = await windowsFilesRequest<SelectionProvenance>({ action: 'selectionProvenance', ref: sourceFolder, fileRef: ref });
+        if (provenance.ok === false) throw new Error(provenance.error.message);
+        setOpen(false); onWindowsFile(ref, stat.data, provenance.data); transferred = true;
         return;
       }
       const response = await windowsFilesRequest<{ files: ImportedFileRef[] }>({ action: 'prepareImportRefs', refs: selected.map(entry => refOf(entry, rootId)) });
@@ -203,7 +206,7 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
       }
       const read = await filesFromTickets(tickets);
       setOpen(false);
-      onFiles(read);
+      onFiles(read, tickets.map(ticket => ticket.provenance || {}));
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось прочитать файл.'); }
     finally {
       if (tickets.length && !transferred) await windowsFilesRequest({ action: 'releaseImportRefs', tickets: tickets.map(item => item.ticket) });
@@ -244,7 +247,7 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
   return <>
     <div className="inline-flex flex-wrap items-center gap-2">
       {triggerNode}
-      <input ref={input} type="file" accept={accept} multiple={multiple} className="hidden" disabled={disabled} onChange={event => { const files = [...(event.currentTarget.files || [])]; event.currentTarget.value = ''; if (files.length) onFiles(files); }} />
+      <input ref={input} type="file" accept={accept} multiple={multiple} className="hidden" disabled={disabled} onChange={event => { const files = [...(event.currentTarget.files || [])]; event.currentTarget.value = ''; if (files.length) onFiles(files, files.map(() => ({}))); }} />
       {triggerNode != null && triggerNode !== false && (window as Window & { electron?: { windowsFiles?: unknown } }).electron?.windowsFiles && <button type="button" className="fx-btn fx-btn-quiet" disabled={disabled || busy} onClick={() => setOpen(true)}><FolderOpen className="h-3.5 w-3.5" />Проводник</button>}
     </div>
     {error && !open && <span role="status" className="text-xs text-rose-600 dark:text-rose-400">{error}</span>}

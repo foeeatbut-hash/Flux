@@ -44,5 +44,16 @@ try {
   if (await applyRacePage.getByTestId('import-done').innerText()) throw new Error('A delayed apply callback ran after switching projects');
   if (await applyRacePage.evaluate(() => localStorage.getItem('flux.equipmentSources.local.v1'))) throw new Error('A delayed apply saved a binding after switching projects');
   await applyRacePage.close();
-  console.log(JSON.stringify({ result: 'passed', importer: 'preview-only-until-confirmed, apply payload checked', viewports: [360, 1100], themes: ['light', 'dark'] }));
+  const documentPage = await browser.newPage({ viewport: { width: 900, height: 850 }, colorScheme: 'dark' });
+  await documentPage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?document=1`);
+  await documentPage.getByText('L23.xlsx', { exact: true }).waitFor();
+  const docLogs = () => documentPage.evaluate(() => window.__importLog);
+  if ((await docLogs()).some(entry => entry.url.endsWith('/import-draft'))) throw new Error('Document plan triggered a write before human confirmation');
+  await documentPage.getByRole('button', { name: 'Импортировать 1', exact: true }).click();
+  await documentPage.getByText('Документ импортирован · shared-document-binding-1').waitFor();
+  const docCommit = (await docLogs()).find(entry => entry.url.endsWith('/equipment/import-draft'));
+  const source = docCommit?.body?.sourceBinding;
+  if (source?.kind !== 'document' || source.id !== 'shared-document-binding-1' || source.expectedLedgerRevision !== 7 || source.fileName !== 'L23.xlsx' || source.revision !== 'R2' || source.sha256 !== 'c'.repeat(64) || source.locator?.folderKey !== 'a'.repeat(64) || source.locator?.anchors?.[0]?.relativePath !== 'R2') throw new Error(`Document revision commit lost its typed identity or portable provenance: ${JSON.stringify(source)}`);
+  await documentPage.close();
+  console.log(JSON.stringify({ result: 'passed', importer: 'XML preview-only-until-confirmed and document reimport payload identity/provenance checked', viewports: [360, 1100], themes: ['light', 'dark'] }));
 } finally { await browser.close(); }

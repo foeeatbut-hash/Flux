@@ -81,12 +81,11 @@ export const ipcRenderer = {
       waiting.set(id, { resolve, reject });
       post({ id, op: 'ipc', payload: { channel, args } });
     });
-    // Запись Таблицы: после неё книга перестраивается из файла, и модуль
-    // совместной правки придерживает чужие правки (inject/sheets-collab.ts)
+    // Ordinary retained Saves keep the live workbook, so collaboration can resume immediately.
     if (channel === 'workbook:save') {
       const tell = (detail) => { try { window.dispatchEvent(new CustomEvent('flux-sheets-save', { detail })); } catch (_) {} };
       tell({ phase: 'start' });
-      p.then((r) => tell({ phase: 'end', ok: !!r && !r.canceled && r.ok !== false }), () => tell({ phase: 'end', ok: false }));
+      p.then((r) => tell({ phase: 'end', ok: !!r && !r.canceled && r.ok !== false, sessionRetained: r?.sessionRetained === true }), () => tell({ phase: 'end', ok: false, sessionRetained: false }));
     }
     return p;
   },

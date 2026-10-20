@@ -45,7 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/test-office-no-ai.cjs
-          for check in test-entity-ids test-entity-id-migration-sqlite test-entity-id-migration-routes test-dynamic-field-rename-sqlite test-tag-exchange test-remaining-identity-project-routes test-remaining-files-notes test-remaining-files-explorer-purge test-html-to-markdown test-mail-open-unread; do
+          for check in test-entity-ids test-entity-id-migration-sqlite test-entity-id-migration-routes test-dynamic-field-rename-sqlite test-tag-exchange test-equipment-source-import test-equipment-document-import-source test-equipment-xml-routes-sqlite test-remaining-identity-project-routes test-remaining-files-notes test-remaining-files-explorer-purge test-html-to-markdown test-mail-open-unread; do
             node --import tsx "scripts/$check.ts"
           done
       - name: Компонентные сценарии интерфейса
@@ -154,6 +154,7 @@ jobs:
           done
           node scripts/fixtures/equipment-xml-source-ui/check.mjs
           node scripts/fixtures/equipment-xml-source-ui/importer.check.mjs
+          node scripts/fixtures/equipment-xml-source-ui/wizard.check.mjs
       - name: Equipment preview screenshots
         if: always()
         uses: actions/upload-artifact@v4
@@ -163,6 +164,7 @@ jobs:
             /tmp/equipment-panel-*.png
             /tmp/flux-equipment-*.png
             /tmp/flux-equipment-ui-*.png
+            /tmp/equipment-import-wizard-*.png
           if-no-files-found: warn
       - name: Артефакты с явно указанной областью проверки
         if: always()
@@ -204,15 +206,29 @@ jobs:
           node tools/genoffice/build.mjs all
           npm run build
           node scripts/test-office-no-ai.cjs
+      - name: Контракты сохранения Excel в текущей сессии
+        env:
+          GENOFFICE_SRC: .cache/genoffice
+        run: |
+          set -euo pipefail
+          node --import tsx scripts/test-office-sheets-save-checkpoint.ts
+          node scripts/test-office-sheets-save-gateway.mjs
+          node --import tsx scripts/test-office-sheets-save-renderer.mjs
+          node --import tsx scripts/test-office-sheets-save-journal.mjs
       - name: Заполнение Word и Excel в одноразовом проекте
         env:
           FLUX_CHROME: /usr/bin/google-chrome
         run: |
           set -euo pipefail
+          FLUX_NATIVE_ONLY=save-in-place node --import tsx scripts/test-guide-server.ts --office-addon-native
           node --import tsx scripts/test-guide-server.ts --office-sheets-collab
           FLUX_NATIVE_ONLY=issued node --import tsx scripts/test-guide-server.ts --office-addon-native
           FLUX_NATIVE_ONLY=field-refresh node --import tsx scripts/test-guide-server.ts --office-addon-native
           node --import tsx scripts/test-guide-server.ts --office-addon-native
+      - name: Полный office-native — повтор 2 из 2
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: node --import tsx scripts/test-guide-server.ts --office-addon-native
       - name: Совместимость прежних режимов Word, Sheets и совместной правки
         env:
           FLUX_CHROME: /usr/bin/google-chrome
@@ -227,6 +243,7 @@ jobs:
         with:
           name: flux-native-office-guide-evidence
           path: |
+            /tmp/office-native-save-in-place-*
             /tmp/office-addon-native-*.png
             /tmp/flux-office-native-errors.json
             /tmp/office-explorer-*.png

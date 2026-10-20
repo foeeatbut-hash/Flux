@@ -523,12 +523,12 @@ async function start(): Promise<void> {
     pending.delete(local)
     if (op && typeof seq === 'number') mine.push({ seq, op })
   })
-  // Запись держателем: книга потом перестроится из файла — чужое подождёт
+  // Pause incoming changes during a workbook write; retained Saves keep this live state.
   window.addEventListener('flux-sheets-save', (e: Event) => {
     const d = (e as CustomEvent).detail || {}
     if (d.phase === 'start') saving = { lazy: hooks()?.lazyWorkbookRef.current, until: Date.now() + 60_000 }
     else if (d.phase === 'end') {
-      if (!d.ok) saving = null
+      if (!d.ok || d.sessionRetained === true) saving = null
       else if (saving) saving.until = Date.now() + 15_000
     }
   })

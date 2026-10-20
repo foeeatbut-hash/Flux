@@ -45,6 +45,7 @@ import { registerNotificationRoutes } from './server/routes/notifications.js';
 import { registerEquipmentCatalogRoutes } from './server/routes/equipmentCatalog.js';
 import { registerEquipmentCoreRoutes } from './server/routes/equipmentCore.js';
 import { registerEquipmentXmlSourceRoutes } from './server/routes/equipmentXmlSources.js';
+import { registerEquipmentDocumentBindingRoutes } from './server/routes/equipmentDocumentBindings.js';
 import { registerEquipmentSourceImportRoutes } from './server/routes/equipmentSourceImport.js';
 import { registerTableTemplateRoutes } from './server/routes/tableTemplates.js';
 import { registerCatalogRoutes } from './server/routes/catalog.js';
@@ -1177,6 +1178,7 @@ registerChatRoutes(app, { io });
 
 registerEquipmentCoreRoutes(app);
 registerEquipmentXmlSourceRoutes(app);
+registerEquipmentDocumentBindingRoutes(app);
 registerEquipmentSourceImportRoutes(app);
 registerEquipmentCatalogRoutes(app);
 

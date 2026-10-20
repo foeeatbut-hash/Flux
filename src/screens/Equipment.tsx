@@ -39,8 +39,9 @@ import { normalizeSpecs, type SpecParam, type ParamConflict } from '../lib/specs
 import BlockCard from '../components/equipment/BlockCard';
 import EquipmentXmlSourcePanel from '../components/equipment/EquipmentXmlSourcePanel';
 import EquipmentXmlUpdatesDialog from '../components/equipment/EquipmentXmlUpdatesDialog';
-import EquipmentSourceImportDialog from '../components/equipment/EquipmentSourceImportDialog';
-import { getEquipmentSourceBinding, scanEquipmentSource, type EquipmentSourceCandidate } from '../lib/equipmentSourcesLocal';
+import { scanEquipmentSource, type EquipmentSourceCandidate } from '../lib/equipmentSourcesLocal';
+import { findLatestBoundDocument, loadEquipmentDocumentBindings, resolveEquipmentSourceBinding } from '../lib/equipmentDocumentBindings';
+import type { EquipmentDocumentBinding } from '../../equipment/documentBindings';
 import PositionTree, { blockLabel, type TreeMode } from '../components/equipment/PositionTree';
 import PositionList from '../components/equipment/PositionList';
 import { classifyAll, classTitle } from '../../equipment/classes';
@@ -80,6 +81,8 @@ export default function Equipment() {
   const [loading, setLoading] = useState(false);
   const [tags, setTags] = useState<PickerTag[]>([]);
   const [xmlSourceStatuses, setXmlSourceStatuses] = useState<Record<string, { status: string; revision?: string }>>({});
+  const [documentSourceStatuses, setDocumentSourceStatuses] = useState<Record<string, { status: string; revision?: string; fileRef?: import('../lib/windowsFiles').WindowsFileRef; sourceFolder?: import('../lib/windowsFiles').WindowsFileRef; sha256?: string }>>({});
+  const [documentBindingsForUpdates, setDocumentBindingsForUpdates] = useState<EquipmentDocumentBinding[]>([]);
   const [showXmlUpdatesOnly, setShowXmlUpdatesOnly] = useState(false);
   const sourceScanGeneration = useRef(0);
   const sourceScanBusy = useRef(false);
@@ -87,6 +90,7 @@ export default function Equipment() {
   const sourceScanLatest = useRef<(() => Promise<void>) | null>(null);
   const sourceScanController = useRef<AbortController | null>(null);
   const sourceScanDebounce = useRef<number | null>(null);
+  const notifiedDocumentRevisions = useRef(new Set<string>());
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
@@ -97,8 +101,8 @@ export default function Equipment() {
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [tagPickerFor, setTagPickerFor] = useState<Component | null>(null);
   const [showDocImport, setShowDocImport] = useState(false);
-  const [showSourceImport, setShowSourceImport] = useState(false);
   const [showXmlUpdates, setShowXmlUpdates] = useState(false);
+  const [documentToReview, setDocumentToReview] = useState<{ binding: EquipmentDocumentBinding; fileRef: import('../lib/windowsFiles').WindowsFileRef; sourceFolder: import('../lib/windowsFiles').WindowsFileRef; revision: string; sha256: string } | null>(null);
 
   // Профиль видимости параметров по типу оборудования
   const [visibility, setVisibility] = useState<Record<string, string[]>>({}); // equipType -> ["g:группа","p:группа||ключ"]
@@ -119,6 +123,10 @@ export default function Equipment() {
       if (!response.ok) return;
       const result = await response.json();
       const sources: any[] = Array.isArray(result.sources) ? result.sources : [];
+      const bindingsView = await loadEquipmentDocumentBindings(pid, controller.signal).catch(() => null);
+      const bindings = bindingsView?.bindings || [];
+      const cadBindings = new Map<string, EquipmentDocumentBinding>();
+      for (const binding of bindings) if (binding.kind === 'cad-xml') cadBindings.set(binding.xmlSourceId || binding.id, binding);
       const next: Record<string, { status: string; revision?: string }> = {};
       const setSourceStatus = (source: any, status: string, revision?: string) => {
         const targets: any[] = Array.isArray(source.targetTags) ? source.targetTags : [{ elementId: source.elementId, tagIds: [source.tagId] }];
@@ -135,17 +143,17 @@ export default function Equipment() {
           if (needsReview.has(status)) setSourceStatus(source, status, candidate?.revision);
         }
         if (generation === sourceScanGeneration.current) setXmlSourceStatuses(next);
-        return;
       }
+      if (canManageEquipment) {
       let cursor = 0;
       const workers = Array.from({ length: Math.min(2, sources.length) }, async () => {
         while (cursor < sources.length && generation === sourceScanGeneration.current) {
           const source = sources[cursor++];
           const sharedStatus = source.latestCandidate?.status;
           const hasSharedReview = sharedStatus === 'pending' || sharedStatus === 'partial';
-          const local = getEquipmentSourceBinding(pid, String(source.sourceId), String(source.tagId), String(source.elementId));
-          if (!local) { setSourceStatus(source, hasSharedReview ? sharedStatus : 'source-unavailable', source.latestCandidate?.revision); continue; }
           try {
+            const local = await resolveEquipmentSourceBinding(pid, source, cadBindings.get(String(source.sourceId)));
+            if (!local) { setSourceStatus(source, hasSharedReview ? sharedStatus : 'source-unavailable', source.latestCandidate?.revision); continue; }
             const scan = await scanEquipmentSource(local);
             if (generation !== sourceScanGeneration.current) return;
             if (scan.status !== 'ready') {
@@ -174,6 +182,36 @@ export default function Equipment() {
       });
       await Promise.all(workers);
       if (generation === sourceScanGeneration.current) setXmlSourceStatuses(next);
+      }
+      const documentBindings = bindings.filter(binding => binding.kind === 'document');
+      if (bindingsView && generation === sourceScanGeneration.current) setDocumentBindingsForUpdates(documentBindings);
+      const docs: typeof documentSourceStatuses = {};
+      let documentScanErrorNotified = false;
+      for (const binding of documentBindings) {
+        if (generation !== sourceScanGeneration.current) return;
+        let latest: Awaited<ReturnType<typeof findLatestBoundDocument>> = null;
+        try { latest = await findLatestBoundDocument(pid, binding); }
+        catch (error) {
+          if (generation !== sourceScanGeneration.current) return;
+          docs[binding.id] = { status: 'source-unavailable' };
+          if (canManageEquipment && !documentScanErrorNotified) {
+            documentScanErrorNotified = true;
+            const reason = error instanceof Error ? error.message : 'Неизвестная ошибка.';
+            addToast(`Не удалось проверить ревизии документов: ${reason}`, 'error');
+          }
+          continue;
+        }
+        if (generation !== sourceScanGeneration.current) return;
+        if (!latest) { docs[binding.id] = { status: 'source-unavailable' }; continue; }
+        const isNewRevision = binding.latestRevision?.sha256 !== latest.sha256;
+        docs[binding.id] = { ...latest, status: isNewRevision ? 'pending' : 'noChanges' };
+        const noticeKey = `${pid}:${binding.id}:${latest.sha256}`;
+        if (canManageEquipment && isNewRevision && !notifiedDocumentRevisions.current.has(noticeKey)) {
+          notifiedDocumentRevisions.current.add(noticeKey);
+          addToast(`Новая ревизия документа «${binding.fileName}» готова к проверке.`, 'info');
+        }
+      }
+      if (bindingsView && generation === sourceScanGeneration.current) setDocumentSourceStatuses(docs);
     } catch (_) {
       // Список реестра остаётся доступен, даже если проверка источников офлайн.
     } finally {
@@ -184,7 +222,7 @@ export default function Equipment() {
         void sourceScanLatest.current?.();
       }
     }
-  }, [pid, canManageEquipment]);
+  }, [pid, canManageEquipment, addToast]);
   sourceScanLatest.current = checkProjectXmlSources;
 
   const scheduleProjectXmlCheck = useCallback(() => {
@@ -308,6 +346,8 @@ export default function Equipment() {
   const xmlNeedsReviewCount = new Set(catSystems.flatMap(unit => unit.monoblocks.flatMap(mb => mb.components.filter(component =>
     (component.tags || []).some(tag => ['pending', 'partial'].includes(xmlSourceStatuses[sourceStatusKey(tag.id, component.id)]?.status || ''))
   ).map(component => component.id)))).size;
+  const documentNeedsReviewCount = Object.values(documentSourceStatuses).filter(status => status.status === 'pending').length;
+  const allSourceReviewCount = xmlNeedsReviewCount + documentNeedsReviewCount;
 
   const catCount = useCallback((catId: string) => systems.filter(s => s.category === catId).length, [systems]);
 
@@ -639,14 +679,13 @@ export default function Equipment() {
     <div className="fx-page @container equipment-page">
       <SectionHead title="Оборудование" count={(categories.find(c => c.id === activeCat)?.label || '') + (catCount(activeCat) ? ` · ${catCount(activeCat)}` : '')}
         actions={<>
-          <Btn tone="ghost" onClick={() => setShowXmlUpdates(true)} title="Просмотреть ревизии XML и перепривязать папки источников"><RefreshCw />Обновления XML{xmlNeedsReviewCount > 0 ? ` · ${xmlNeedsReviewCount}` : ''}</Btn>
-          {xmlNeedsReviewCount > 0 && <Btn tone={showXmlUpdatesOnly ? 'primary' : 'ghost'} onClick={() => { setShowXmlUpdatesOnly(value => !value); setListMode(false); }} title="Показать только позиции с найденными XML-ревизиями или проблемами локального источника"><RefreshCw />{showXmlUpdatesOnly ? 'Все позиции' : `Есть обновления · ${xmlNeedsReviewCount}`}</Btn>}
+          <Btn tone="ghost" onClick={() => setShowXmlUpdates(true)} title="Просмотреть новые ревизии XML и документов"><RefreshCw />Обновления источников{allSourceReviewCount > 0 ? ` · ${allSourceReviewCount}` : ''}</Btn>
+          {xmlNeedsReviewCount > 0 && <Btn tone={showXmlUpdatesOnly ? 'primary' : 'ghost'} onClick={() => { setShowXmlUpdatesOnly(value => !value); setListMode(false); }} title="Показать позиции с найденными XML-ревизиями"><RefreshCw />{showXmlUpdatesOnly ? 'Все позиции' : `Есть обновления · ${xmlNeedsReviewCount}`}</Btn>}
           {/* Центр операций рядом с импортом не случайно: сюда идут за ответом
               «а мой ввоз-то как?» — сразу после того, как его отправили в фон */}
           <Btn tone="ghost" onClick={() => { setShowOps(true); loadOps(); }} title="Центр операций: что ввозится в фоне и чем кончилось недавнее"><List />Центр операций</Btn>
-          {canManageEquipment && <Btn tone="ghost" onClick={() => setShowSourceImport(true)} title="Выбрать XML в Проводнике, проверить установку и импортировать ревизию"><Upload />Импорт XML установки</Btn>}
           <Btn tone="primary" data-tour="equipment-import-btn" onClick={() => setShowDocImport(true)}
-            title="Импорт из документов: распознать бланк, ведомость или страницу каталога — PDF, Excel, Word, XML"><ScanLine />Импорт из документов</Btn>
+            title="Загрузить документы и расчёты оборудования"><ScanLine />Загрузить документы</Btn>
           <IconBtn label="Настройки оборудования" onClick={() => setShowSettings(true)}><Settings /></IconBtn>
         </>} />
       {undoable && (
@@ -724,21 +763,18 @@ export default function Equipment() {
         <DocImportWizard
           projectId={pid}
           categories={categories}
-          allowDrop={false}
-          onClose={() => setShowDocImport(false)}
-          onImported={() => { loadSystems(); }}
+          canManage={canManageEquipment}
+          initialDocument={documentToReview}
+          onClose={() => { setShowDocImport(false); setDocumentToReview(null); }}
+          onImported={() => { loadSystems(); loadTags(); void checkProjectXmlSources(); }}
         />
       )}
-      {showSourceImport && <EquipmentSourceImportDialog projectId={pid} categories={categories} canManage={canManageEquipment} onClose={() => setShowSourceImport(false)} onImported={({ source, category: importedCategory }) => {
-        setShowSourceImport(false);
-        setActiveCat(importedCategory);
-        setSelectedBlockId(null);
-        setSelectedUnitId(source.systemId);
-        setListMode(false);
-        void loadSystems();
-        void loadTags();
-      }} />}
-      {showXmlUpdates && <EquipmentXmlUpdatesDialog projectId={pid} canManage={canManageEquipment} localStatuses={xmlSourceStatuses} sourceLabels={xmlSourceLabels} onClose={() => setShowXmlUpdates(false)} onChanged={() => { void checkProjectXmlSources(); void loadSystems(); }} />}
+      {showXmlUpdates && <EquipmentXmlUpdatesDialog projectId={pid} canManage={canManageEquipment} localStatuses={xmlSourceStatuses} sourceLabels={xmlSourceLabels} documentBindings={documentBindingsForUpdates} documentStatuses={documentSourceStatuses} onReviewDocument={binding => {
+        const status = documentSourceStatuses[binding.id];
+        if (!status?.fileRef || !status.sourceFolder || !status.revision || !status.sha256) { addToast('Не удалось открыть новую ревизию. Обновите список источников.', 'error'); return; }
+        setDocumentToReview({ binding, fileRef: status.fileRef, sourceFolder: status.sourceFolder, revision: status.revision, sha256: status.sha256 });
+        setShowXmlUpdates(false); setShowDocImport(true);
+      }} onClose={() => setShowXmlUpdates(false)} onChanged={() => { void checkProjectXmlSources(); void loadSystems(); }} />}
 
       {/* ДЕРЕВО: состав отступом, порядок — по алфавиту тега */}
       <PositionTree
