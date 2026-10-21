@@ -8,7 +8,7 @@ import type { RibbonCommand, RibbonCommandName } from '../../../src/components/o
 import ModalProvider from '../../../src/components/ModalProvider';
 import './fixture.css';
 
-declare global { interface Window { __fluxFixture: { ops: any[]; setTheme: (theme: string) => void; command: (name: RibbonCommandName) => void; setTemplate: (template: OfficeAppliedTemplate | undefined) => void } } }
+declare global { interface Window { __fluxFixture: { ops: any[]; setTheme: (theme: string) => void; command: (name: RibbonCommandName) => void; setTemplate: (template: OfficeAppliedTemplate | undefined) => void; changeHash: () => void } } }
 const editorKind: 'docs' | 'sheets' = new URLSearchParams(location.search).get('kind') === 'docs' ? 'docs' : 'sheets';
 
 const state: OfficeState = {
@@ -18,6 +18,7 @@ const ops: any[] = [];
 let sendCommand: (name: RibbonCommandName) => void = () => undefined;
 window.__fluxFixture = {
   ops,
+  changeHash: () => { state.baseHash += "-external"; },
   setTheme: (theme) => document.getElementById('root')?.classList.toggle('dark', theme === 'dark'),
   // Команда ленты «Flux» — то, что редактор присылает хосту (useFluxRibbon)
   command: (name) => sendCommand(name),
@@ -36,7 +37,7 @@ function Fixture() {
   const anchor: FluxOfficeAnchorSelection = { kind: editorKind === 'docs' ? 'word-row' : 'excel-range', anchorId: 'anchor-a1', ...(editorKind === 'docs' ? { documentPart: 'word/document.xml' } : { sheetName: 'Лист1', address: 'A1' }) };
   return <div className="fixture-shell"><main className="fixture-editor"><h1>GenOffice workbook fixture</h1><p>Штатный холст остаётся видимым за Flux add-on.</p></main>
     <FluxOfficePanel fileId="fixture-file" projectId="fixture-project" fileName={editorKind === 'docs' ? 'Пробный документ.docx' : 'Пробная книга.xlsx'} editorKind={editorKind} readOnly={false} schemaWriteAvailable activeAnchor={anchor}
-      requestState={async () => structuredClone(state)}
+      requestState={async () => { ops.push({ type: 'request-state' }); return structuredClone(state); }}
       insertBinding={async (selected, binding: OfficeBinding, displayText) => { ops.push({ type: 'insert-field', selected, binding, displayText }); return true; }}
       applyWrites={async (plan: OfficeFillPlan, schema: OfficeHeaderSchema, rows) => {
         ops.push({ type: 'apply-plan', plan, schema, rows });

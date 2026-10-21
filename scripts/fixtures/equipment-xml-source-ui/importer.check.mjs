@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import { chromium } from '../../../node_modules/playwright-core/index.mjs';
 const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
 try {
@@ -12,7 +14,7 @@ try {
     await page.getByText(/ручных значений\. Импорт ждёт отдельного разрешения конфликта/).waitFor();
     if ((await logs()).some(entry => entry.url.endsWith('/apply'))) throw new Error('Preview triggered an import write');
     if (await page.evaluate(() => localStorage.getItem('flux.equipmentSources.local.v1'))) throw new Error('Local source capability was saved before import apply');
-    await page.screenshot({ path: `/tmp/equipment-source-import-${width}-${theme}.png`, fullPage: true });
+    await page.screenshot({ path: path.join(os.tmpdir(), `equipment-source-import-${width}-${theme}.png`), fullPage: true });
     const geometry = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
     if (geometry.scroll > geometry.width + 1) throw new Error(`Horizontal overflow: ${JSON.stringify(geometry)}`);
     await page.getByRole('button', { name: 'Подтвердить импорт' }).click();
@@ -24,6 +26,22 @@ try {
     if (!apply || apply.body.tagIdentifier !== 'L23' || apply.body.selection !== undefined || apply.body.previewToken !== 'fixture-preview-token' || apply.body.tagLinks[0]?.action !== 'create') throw new Error(`Apply contract mismatch: ${JSON.stringify(apply)}`);
     await page.close();
   }
+  for (const theme of ['light', 'dark']) {
+    const initialPage = await browser.newPage({ viewport: { width: 900, height: 850 }, colorScheme: theme });
+    initialPage.on('pageerror', error => { throw error; });
+    await initialPage.goto((process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192') + '/importer.html?initial=1&theme=' + theme);
+    await initialPage.getByRole('button', { name: 'Показать план' }).waitFor();
+    if (await initialPage.getByLabel('Тег оборудования').inputValue() !== 'L23') throw new Error('Initial file did not seed the tag after stable reads');
+    await initialPage.getByRole('button', { name: 'Показать план' }).click();
+    await initialPage.getByRole('heading', { name: /Предпросмотр/ }).waitFor();
+    await initialPage.close();
+  }
+  const initialRace = await browser.newPage({ viewport: { width: 900, height: 850 } });
+  await initialRace.goto((process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192') + '/importer.html?initial=1&race=1');
+  await initialRace.getByRole('button', { name: 'Переключить проект' }).click();
+  await initialRace.waitForTimeout(800);
+  if (await initialRace.getByRole('button', { name: 'Показать план' }).count()) throw new Error('Previous project initial file appeared after project change');
+  await initialRace.close();
   const racePage = await browser.newPage({ viewport: { width: 700, height: 850 } });
   await racePage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?race=1`);
   await racePage.getByRole('button', { name: 'Выбрать XML-файл' }).click();

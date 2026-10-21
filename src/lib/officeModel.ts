@@ -317,6 +317,7 @@ export function planOfficeFill(args: {
     for (const anchor of args.anchors) {
       const result = evaluateOfficeParts(anchor.parts, row);
       if (result.conflict) plan.conflicts.push({ entityId, anchorId: anchor.id, candidates: result.conflict });
+      else if (result.error === 'Источник не вернул значение') plan.skips.push({ entityId, anchorId: anchor.id, reason: 'Источник не вернул значение; существующая ячейка сохраняется' });
       else if (result.error) plan.errors.push({ entityId, anchorId: anchor.id, message: result.error });
       else if (result.value?.value !== null && result.value?.value !== undefined) plan.writes.push({ entityId, anchorId: anchor.id, value: result.value.value, unit: result.value.unit });
       else {
