@@ -113,3 +113,15 @@ export function mapOfficeTemplateToTarget(
     pending,
   };
 }
+
+/** Для пустой книги переносит только адреса шапки; содержимое и UUID берутся из шаблона/нового файла. */
+export function seedEmptyOfficeTemplateTarget(
+  template: OfficeHeaderSchema,
+  target: OfficeHeaderSchema,
+  createId: () => string = () => crypto.randomUUID(),
+): OfficeHeaderSchema {
+  if (target.anchors.length || !template.anchors.length || template.anchors.some((anchor) => anchor.kind !== 'excel-range' || !anchor.sheetName || !anchor.address)) return target;
+  return { ...target, anchors: template.anchors.map((anchor) => ({
+    kind: 'excel-range', id: createId(), sheetName: anchor.sheetName, address: anchor.address, parts: [],
+  })) };
+}

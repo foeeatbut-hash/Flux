@@ -178,51 +178,23 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   };
 
   const conflict = await prepare('conflict', true);
-  // В покое привязанная ячейка показывает плашки с названием поверх A1 и держит их над ней при масштабе и прокрутке
-  const chipGeometry = () => conflict.frame.locator('body').evaluate(() => {
-    const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
-    const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
-    const canvas = document.querySelector('canvas[id^="univer-sheet-main-canvas_"]') as HTMLCanvasElement | null;
-    const cell = sheet?.getRange('A1')?.getCellRect?.();
-    const bounds = canvas?.getBoundingClientRect();
-    if (!canvas || !cell || !bounds) return null;
-    const sx = bounds.width / canvas.width, sy = bounds.height / canvas.height;
-    const area = { left: bounds.left + Number(cell.left) * sx, top: bounds.top + Number(cell.top) * sy, right: bounds.left + (Number(cell.left) + Number(cell.width)) * sx, bottom: bounds.top + (Number(cell.top) + Number(cell.height)) * sy };
-    const chips = [...document.querySelectorAll('#flux-sheet-chip-layer .flux-sheet-idle-chip')].map((chip) => {
-      const box = chip.getBoundingClientRect();
-      const layer = chip.closest('#flux-sheet-chip-layer')!.getBoundingClientRect();
-      return { text: chip.textContent, visible: box.width > 0 && box.height > 0 && box.bottom > layer.top && box.top < layer.bottom && box.right > layer.left && box.left < layer.right, left: box.left, top: box.top, right: box.right, bottom: box.bottom, radius: getComputedStyle(chip).borderTopLeftRadius, background: getComputedStyle(chip).backgroundColor };
-    });
-    return { area, chips };
+  // Подпись заголовка остаётся в нативной ячейке при изменении масштаба, ширины и прокрутке.
+  check('native A1 header label exists at rest', await waitFor(async () => /DrivePower/.test(await nativeCell(conflict.frame, 'A1'))), await nativeCell(conflict.frame, 'A1'));
+  const columnWidth = await conflict.frame.locator('body').evaluate(() => {
+    const ws = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.();
+    const was = ws?.getColumnWidth?.(0); ws?.setColumnWidth?.(0, 36); return was;
   });
-  const insideA1 = (g: any) => !!g && g.chips.filter((c: any) => /DrivePower/.test(String(c.text))).length > 0 && g.chips.filter((c: any) => /DrivePower/.test(String(c.text))).every((c: any) => c.left >= g.area.left - 3 && c.right <= g.area.right + 3 && c.top >= g.area.top - 3 && c.bottom <= g.area.bottom + 3);
-  await clickCell(conflict.frame, 'D3');
-  // Узкий столбец: название не теряется (читается из подсказки), а слой закрывает перелив исходного текста ячейки
-  const columnWidth = await conflict.frame.locator('body').evaluate(() => { const ws = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.(); const was = ws?.getColumnWidth?.(0); ws?.setColumnWidth?.(0, 36); return was; });
-  await conflict.frame.locator('#flux-sheet-chip-layer .flux-sheet-idle-chip').first().hover({ force: true });
-  check('hovering a chip in a narrow column shows the full parameter name', await waitFor(async () => /DrivePower/.test(await conflict.frame.locator('#flux-sheet-chip-tip').textContent().catch(() => '') || '') && await conflict.frame.locator('#flux-sheet-chip-tip').isVisible()));
-  await page().screenshot({ path: '/tmp/chips-after.png' });
-  await conflict.frame.locator('body').evaluate((was) => { (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.()?.setColumnWidth?.(0, was || 73); }, columnWidth);
-  await clickCell(conflict.frame, 'D3');
-  const restGeometry = await waitFor(async () => insideA1(await chipGeometry()));
-  const rest = await chipGeometry();
-  check('at rest A1 shows a rounded parameter chip with the label over the cell', restGeometry && rest.chips.some((c: any) => /DrivePower/.test(String(c.text)) && c.visible && c.radius === '4px' && c.background !== 'rgba(0, 0, 0, 0)'), rest);
-  await page().screenshot({ path: '/tmp/office-sheet-chip-light.png' });
-  await conflict.frame.locator('body').evaluate(() => { document.documentElement.setAttribute('data-theme', 'dark'); });
-  await page().waitForTimeout(300);
-  await page().screenshot({ path: '/tmp/office-sheet-chip-dark.png' });
-  await conflict.frame.locator('body').evaluate(() => { document.documentElement.removeAttribute('data-theme'); });
-  await conflict.frame.locator('body').evaluate(() => { const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI; const ws = api?.getActiveWorkbook?.()?.getActiveSheet?.(); ws?.zoom?.(1.5); });
-  const zoomed = await waitFor(async () => { const g = await chipGeometry(); return insideA1(g) && g.area.right - g.area.left > 0; });
-  check('after zoom the chips stay over the same A1 cell', zoomed, await chipGeometry());
-  await conflict.frame.locator('body').evaluate(() => { const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI; const ws = api?.getActiveWorkbook?.()?.getActiveSheet?.(); ws?.zoom?.(1); });
-  await conflict.frame.locator('canvas[id^="univer-sheet-main-canvas_"]').first().hover({ position: { x: 300, y: 200 } });
+  await conflict.frame.locator('body').evaluate(() => { (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.()?.zoom?.(1.5); });
   await page().mouse.wheel(0, 60);
   await page().waitForTimeout(400);
-  const scrolled = await chipGeometry();
-  check('after scrolling the chips either follow A1 or leave with it', !scrolled || scrolled.chips.every((c: any) => !c.visible) || insideA1(scrolled), scrolled);
+  const nativeLabelAfterViewChanges = await nativeCell(conflict.frame, 'A1');
+  const idleLayerAbsent = await conflict.frame.locator('body').evaluate(() => !document.querySelector('#flux-sheet-chip-layer'));
+  check('scroll and zoom keep the exact cell label without a floating chip layer', /DrivePower/.test(nativeLabelAfterViewChanges) && idleLayerAbsent, { nativeLabelAfterViewChanges, idleLayerAbsent });
   await page().mouse.wheel(0, -200);
-  await waitFor(async () => insideA1(await chipGeometry()));
+  await conflict.frame.locator('body').evaluate((was) => {
+    const ws = (window as any).__fluxSheets?.univerRef?.current?.univerAPI?.getActiveWorkbook?.()?.getActiveSheet?.();
+    ws?.setColumnWidth?.(0, was || 73); ws?.zoom?.(1);
+  }, columnWidth);
   // Масштаб и прокрутка сохраняются в книге с задержкой: ждём запись, чтобы она не попала в замер байтов ниже
   await page().keyboard.press('Control+s');
   await page().waitForTimeout(2500);
@@ -411,15 +383,12 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
   const labelOf = async (fid: string) => (await api('GET', `/api/project-data/files/${fid}/office-state`)).json?.schema?.anchors?.find((anchor: any) => anchor.id === named.a?.id)?.parts?.[0]?.binding?.label;
   check('own name is stored in the binding label and shown in the header cell', await waitFor(async () => await labelOf(named.fileId) === 'Мощность привода, кВт' && await nativeCell(named.frame, 'A1') === 'Мощность привода, кВт'), await nativeCell(named.frame, 'A1'));
   await clickCell(named.frame, 'D3');
-  const chipTexts = () => named.frame.locator('body').evaluate(() => [...document.querySelectorAll('#flux-sheet-chip-layer')].flatMap((layer) => [...layer.children].map((box: any) => ({ chips: [...box.querySelectorAll('.flux-sheet-idle-chip')].map((chip) => chip.textContent), title: box.dataset.title }))));
-  check('the idle chip shows the own name and its tooltip holds the programmatic one', await waitFor(async () => (await chipTexts()).some((box: any) => box.chips.includes('Мощность привода, кВт') && /DrivePower · equipment/.test(String(box.title)))), await chipTexts());
-  // Снимок: ячейка A1 в поле зрения, указатель над плашкой — видна подсказка с программным именем
-  await named.frame.locator('body').evaluate(() => { const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI; api?.getActiveWorkbook?.()?.getActiveSheet?.()?.getRange?.('A1')?.activate?.(); });
-  await clickCell(named.frame, 'A1');
-  await page().waitForTimeout(400);
-  await named.frame.locator('#flux-sheet-chip-layer .flux-sheet-idle-chip').first().hover({ force: true });
-  await page().waitForTimeout(300);
-  await page().screenshot({ path: '/tmp/chip-rename.png' });
+  const namedIdleLayerAbsent = await named.frame.locator('body').evaluate(() => {
+    const canvas = document.querySelector('canvas[id^="univer-sheet-main-canvas_"]');
+    canvas?.dispatchEvent(new Event('scroll', { bubbles: true }));
+    return !document.querySelector('#flux-sheet-chip-layer');
+  });
+  check('renamed native cell label has no floating idle overlay', namedIdleLayerAbsent && await nativeCell(named.frame, 'A1') === 'Мощность привода, кВт', { namedIdleLayerAbsent, label: await nativeCell(named.frame, 'A1') });
   await clickCell(named.frame, 'D3');
   const renamedPlan = await planFor(named.fileId, (await api('GET', `/api/project-data/files/${named.fileId}/office-state`)).json);
   check('refresh plan still takes data by the key after the rename', (renamedPlan?.writes || []).filter((write: any) => write.anchorId === named.a?.id).length === 2 && (renamedPlan.writes as any[]).filter((write: any) => write.anchorId === named.a?.id).every((write: any) => /^120\b/.test(String(write.value))), renamedPlan);

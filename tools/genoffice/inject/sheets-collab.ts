@@ -30,7 +30,6 @@ import { CustomCommandExecutionError, ICommandService, IUndoRedoService } from '
 import { IContextMenuService } from '@univerjs/ui'
 import '@univerjs/sheets-ui/facade'
 import { createSheetsTokenOverlay } from './sheets-token-overlay'
-import { createSheetsIdleChips } from './sheets-idle-chips'
 import { installSheetsHistoryMarks } from './sheets-history-marks'
 import { partChipLabel } from './parameter-chip-style'
 import { isDefinedNameMutation, isLocalOnlyCollabMutation, mapDefinedNameScope, resolveDefinedNameMutation } from './sheets-collab-policy'
@@ -681,12 +680,7 @@ async function exportCommands(): Promise<void> {
     applyingFlux = true
     try { range.setValues([[{ v: value }]]); return true } catch { return false } finally { applyingFlux = prior }
   }, () => !fluxReadOnly)
-  createSheetsIdleChips({
-    workbook,
-    bound: () => boundHeaderCells(workbook()),
-    parts: (anchorId) => knownHeaderParts.get(anchorId) || null,
-    isEditing: (anchorId) => !!headerTokenOverlay?.isEditing(anchorId),
-  })
+  // В покое подпись параметра хранится как значение самой ячейки, а не в плавающем DOM-слое.
   // Шаги «назад», помеченные действиями Flux: отмена и повтор возвращают и схему в файле (хост пишет её сам)
   const historyMarks = installSheetsHistoryMarks(() => hooks()?.univerRef.current?.univer?.__getInjector?.().get(IUndoRedoService), (step) => link.send('flux:history-step', step))
   link.on('flux:mark-history', (_e, request: any) => {
@@ -801,14 +795,29 @@ async function exportCommands(): Promise<void> {
     const payload = request?.payload ?? request ?? {}
     const priorApplying = applyingFlux
     let result: any
+    let syncWorkbook: any = null
+    const createdSheets: any[] = []
     try {
       if (fluxReadOnly) throw new Error('Книга Flux открыта только для чтения')
-      const wb = workbook(); const schema = payload.schema; const removed = payload.removedAnchorIds ?? []
+      const wb = workbook(); syncWorkbook = wb; const schema = payload.schema; const removed = payload.removedAnchorIds ?? []
       if (!wb || !schema || schema.version !== 1 || !Array.isArray(schema.anchors) || schema.anchors.length > 500 || !Array.isArray(removed) || removed.length > 500) throw new Error('Схема заголовков имеет неверный формат')
       const labels = payload.displayLabels && typeof payload.displayLabels === 'object' ? payload.displayLabels : {}
       if (Object.values(labels).some((label: any) => typeof label !== 'string' || label.length > 2000)) throw new Error('Подписи заголовков имеют неверный формат')
       const seen = new Set<string>()
-      const targets: Array<{ id: string; sheet: any; row: number; col: number; address: string; name: string; ref: string; value: string }> = []
+      // В режиме применения шаблона создаём только явно названные в его ячейках листы.
+      const availableSheets = wb.getSheets?.() || []
+      const missingSheetNames = [...new Set((schema.anchors || []).filter((anchor: any) => anchor?.kind === 'excel-range' && typeof anchor.sheetName === 'string' && !availableSheets.some((item: any) => String(item.getSheetName()) === anchor.sheetName)).map((anchor: any) => anchor.sheetName))]
+      for (const sheetName of missingSheetNames) {
+        if (sheetName.length > 31 || /[\[\]:*?\/\\]/.test(sheetName) || sheetName.startsWith("'") || sheetName.endsWith("'")) throw new Error('Недопустимое имя листа из шаблона: ' + sheetName)
+        const collision = availableSheets.find((item: any) => String(item.getSheetName()).toLowerCase() === sheetName.toLowerCase())
+        if (collision) throw new Error(`Имя листа шаблона конфликтует с «${collision.getSheetName()}»: ${sheetName}`)
+      }
+      for (const anchor of schema.anchors) {
+        if (anchor?.kind !== 'excel-range' || typeof anchor.sheetName !== 'string' || !anchor.sheetName || typeof anchor.address !== 'string' || !/^\$?[A-Z]{1,3}\$?[1-9]\d*$/i.test(anchor.address)) throw new Error('В шаблоне указан неверный адрес ячейки')
+      }
+      if (missingSheetNames.length && payload.createMissingSheets !== true) throw new Error(`Листы шаблона отсутствуют: ${missingSheetNames.join(', ')}`)
+      if (missingSheetNames.length && typeof wb.insertSheet !== 'function') throw new Error('Редактор не поддерживает создание листа из шаблона')
+      const targets: Array<{ id: string; sheet: any; sheetName: string; row: number; col: number; address: string; name: string; ref: string; value: string }> = []
       const definitions = new Map<string, any>((wb.getDefinedNames?.() || []).map((d: any) => [String(d.getName()), d]))
       const validBinding = (binding: any, anchorId: string): boolean => !!binding && typeof binding.fieldKey === 'string' && binding.fieldKey.length > 0 && binding.fieldKey.length <= 200 && typeof binding.sourceId === 'string' && binding.sourceId.length > 0 && binding.sourceId.length <= 200 && typeof binding.entityType === 'string' && binding.entityType.length > 0 && binding.entityType.length <= 200 && String(binding.anchorId || anchorId) === anchorId
       const columnLetters = (col: number): string => { let s = ''; for (let n = col + 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + (n - 1) % 26) + s; return s }
@@ -835,12 +844,22 @@ async function exportCommands(): Promise<void> {
         const sheet = wb.getSheets?.().find((item: any) => String(item.getSheetName()) === anchor.sheetName)
         const address = anchor.address.replace(/\$/g, '').toUpperCase()
         const match = /^([A-Z]{1,3})([1-9]\d*)$/.exec(address)
-        if (!sheet || !match) throw new Error(`Ячейка заголовка ${anchor.sheetName}!${anchor.address} не найдена`)
+        if ((!sheet && payload.createMissingSheets !== true) || !match) throw new Error(`Ячейка заголовка ${anchor.sheetName}!${anchor.address} не найдена`)
         const col = columnNumber(match[1]!) - 1; const row = Number(match[2]!) - 1
         const name = fluxAnchorName(id); const ref = `'${anchor.sheetName.replace(/'/g, "''")}'!$${match[1]!}$${match[2]!}`
-        targets.push({ id, sheet, row, col, address, name, ref, value: renderParts(anchor.parts) })
+        targets.push({ id, sheet, sheetName: anchor.sheetName, row, col, address, name, ref, value: renderParts(anchor.parts) })
       }
       if (removed.some((id: any) => !/^[0-9a-f-]{36}$/i.test(String(id))) || new Set(removed.map(String)).size !== removed.length || removed.some((id: any) => seen.has(String(id)))) throw new Error('Изменение схемы повторно удаляет или одновременно сохраняет якорь')
+      for (const sheetName of missingSheetNames) {
+        wb.insertSheet(sheetName)
+        const inserted = wb.getSheets?.().find((item: any) => String(item.getSheetName()) === sheetName)
+        if (!inserted) throw new Error(`Не удалось создать лист ${sheetName}`)
+        createdSheets.push(inserted)
+      }
+      for (const target of targets) {
+        target.sheet = target.sheet || wb.getSheets?.().find((item: any) => String(item.getSheetName()) === target.sheetName)
+        if (!target.sheet) throw new Error(`Не удалось создать лист ${target.sheetName}`)
+      }
       const oldCells = targets.map((target) => ({ ...target, value: target.sheet.getRange(target.row, target.col, 1, 1).getValues()?.[0]?.[0] ?? '' }))
       const oldNames = new Map<string, string | null>()
       for (const target of targets) oldNames.set(target.name, definitions.has(target.name) ? String(definitions.get(target.name)?.getRef?.() ?? definitions.get(target.name)?.getFormulaOrRefString?.() ?? '') : null)
@@ -872,7 +891,11 @@ async function exportCommands(): Promise<void> {
       for (const anchor of schema.anchors) knownHeaderParts.set(String(anchor.id), anchor.parts)
       for (const id of removed) knownHeaderParts.delete(String(id))
       result = { ok: true, schemaVersion: schema.version, headers: targets.map(({ id, sheet, address, value }) => ({ anchorId: id, kind: 'excel-range', sheetName: sheet.getSheetName(), address, displayText: value })) }
-    } catch (err: any) { applyingFlux = priorApplying; result = { ok: false, error: String(err?.message || err) } }
+      createdSheets.length = 0
+    } catch (err: any) {
+      for (const sheet of createdSheets.reverse()) { try { syncWorkbook?.deleteSheet?.(sheet) } catch { /* best-effort rollback of template-created sheets */ } }
+      applyingFlux = priorApplying; result = { ok: false, error: String(err?.message || err) }
+    }
     link.send('flux:header-schema-synced', result)
   })
   link.on('flux:merge-header-columns', async (_e, request: any) => {

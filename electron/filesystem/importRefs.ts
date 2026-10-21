@@ -4,9 +4,46 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { WINDOWS_IMPORT_READ_BYTES, WINDOWS_IMPORT_REFS_PER_PICK, type SelectionProvenance, type WindowsFileRef } from '../../filesystem/contracts';
 import { WindowsFilesError } from './paths';
+import { resolveEquipmentSourceSelection } from './equipmentSourcePicker';
 import type { WindowsFilesService } from './service';
 
 export interface WindowsImportRef { ticket: string; name: string; size: number; lastModified: number; provenance?: SelectionProvenance }
+
+/** Фиксирует только папку явно выбранного файла, чтобы следующий шаг мог открыть тот же capability. */
+export async function provenanceForImportPath(
+  filename: string,
+  service: WindowsFilesService,
+  resolveSelection: (folder: WindowsFileRef, suggestedTag?: string, file?: WindowsFileRef) => Promise<SelectionProvenance>,
+): Promise<SelectionProvenance | undefined> {
+  try {
+    let sourceFolder: WindowsFileRef | null;
+    let fileRef: WindowsFileRef;
+    let suggestedTag: string | undefined;
+    if (path.extname(filename).toLocaleLowerCase() === '.xml') {
+      const selected = await resolveEquipmentSourceSelection(service, filename);
+      sourceFolder = selected.sourceFolder;
+      fileRef = selected.selectedFile.ref;
+      suggestedTag = selected.suggestedTag;
+    } else {
+      const parent = path.dirname(filename);
+      sourceFolder = await service.refForShellPath(parent);
+      if (!sourceFolder) {
+        const root = await service.addRoot(parent, path.basename(parent));
+        sourceFolder = { rootId: root.id, relativePath: '' };
+      }
+      fileRef = await service.refForShellPath(filename) || {
+        rootId: sourceFolder.rootId,
+        relativePath: [sourceFolder.relativePath, path.basename(filename)].filter(Boolean).join('/'),
+      };
+    }
+    try {
+      return await resolveSelection(sourceFolder, suggestedTag, fileRef);
+    } catch {
+      // Если portable locator недоступен, сохраняем локальную ссылку на выбранный файл.
+      return { sourceFolder, fileRef, ...(suggestedTag ? { suggestedTag } : {}) };
+    }
+  } catch { return undefined; }
+}
 const IDLE_TTL_MS = 5 * 60 * 1000;
 const MAX_TICKETS_PER_OWNER = WINDOWS_IMPORT_REFS_PER_PICK;
 export const MAX_IMPORT_READ_BYTES = WINDOWS_IMPORT_READ_BYTES;

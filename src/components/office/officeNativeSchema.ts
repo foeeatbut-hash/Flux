@@ -10,6 +10,8 @@ export interface HeaderSchemaSyncOptions {
   template?: OfficeTemplateLink;
   /** Схема уже совпадает с ячейками (прочитана из них): документ не перезаписываем, только храним схему */
   storeOnly?: boolean;
+  /** Разрешает создать листы из шаблона по их исходным именам. */
+  createMissingSheets?: boolean;
 }
 
 /** Ответ редактора меняет только привязанные ячейки; остальные якоря сохраняем. */

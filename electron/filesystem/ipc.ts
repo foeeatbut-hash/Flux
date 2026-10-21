@@ -13,7 +13,7 @@ import { ShellCommands } from './shellCommands';
 import { ExplorerBridge, EXPLORER_WRITE_ACTIONS, isExplorerAction, undoGroup } from './explorerBridge';
 import { ViewStateStore } from './viewState';
 import { resolveEquipmentSourceFolder, resolveEquipmentSourceSelection } from './equipmentSourcePicker';
-import { ImportRefStore } from './importRefs';
+import { ImportRefStore, provenanceForImportPath } from './importRefs';
 
 export interface WindowsFilesIpcOptions {
   isTrusted: (event: IpcMainInvokeEvent) => boolean;
@@ -87,15 +87,9 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
   const explorer = new ExplorerBridge({ service, shell: shellCommands, viewState,
     // Страница поиска уходит только окну, которое его запустило и ещё живо.
     emitSearch: (owner, event) => { const target = webContents.fromId(owner); if (target && !target.isDestroyed() && activeSenders.has(owner)) target.send(WINDOWS_FILES_SEARCH, event); } });
-  const provenanceForFilename = async (filename: string) => {
-    try {
-      const folder = path.dirname(filename);
-      const ref = await service.refForShellPath(folder);
-      if (!ref) return undefined;
-      const fileRef = await service.refForShellPath(filename) || { rootId: ref.rootId, relativePath: [ref.relativePath, path.basename(filename)].filter(Boolean).join('/') };
-      return await explorer.selectionProvenance(ref, undefined, fileRef);
-    } catch { return undefined; }
-  };
+  const provenanceForFilename = (filename: string) => provenanceForImportPath(
+    filename, service, (folder, suggestedTag, fileRef) => explorer.selectionProvenance(folder, suggestedTag, fileRef),
+  );
   // Пути брошенных файлов приходят из preload по каналу, которого страница не видит; страница получает только билет.
   ipcMain.on(WINDOWS_FILES_DROP, (event: IpcMainEvent, payload: { ticket?: unknown; paths?: unknown } | undefined) => {
     try { if (options.isTrusted(event as unknown as IpcMainInvokeEvent)) explorer.registerDrop(event.sender.id, payload?.ticket, payload?.paths); } catch { /* неверный билет — просто нет билета */ }

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ImportRefStore } from '../electron/filesystem/importRefs.js';
+import { ImportRefStore, provenanceForImportPath } from '../electron/filesystem/importRefs.js';
+import { WindowsFilesService } from '../electron/filesystem/service.js';
 import { WINDOWS_IMPORT_READ_BYTES } from '../filesystem/contracts.js';
 
 async function main() {
@@ -14,6 +15,41 @@ async function main() {
   Date.now = () => now;
   const checks: Array<[string, () => Promise<void>]> = [];
   try {
+    const equipmentFolder = path.join(directory, 'outside-roots', 'Equipment');
+    const otherFolder = path.join(directory, 'outside-roots', 'Other');
+    for (const revision of ['A', 'B']) {
+      const revisionFolder = path.join(equipmentFolder, revision);
+      await fs.mkdir(revisionFolder, { recursive: true });
+      await fs.writeFile(path.join(revisionFolder, 'unit.xml'), `<unit revision="${revision}" />`);
+    }
+    await fs.mkdir(path.join(otherFolder, 'C'), { recursive: true });
+    await fs.writeFile(path.join(otherFolder, 'C', 'unit.xml'), '<unit revision="C" />');
+    const service = await WindowsFilesService.create({
+      userData: path.join(directory, 'windows-state'), trashItem: async () => {},
+      showItemInFolder: () => {}, openPath: async () => '',
+    });
+    const provenance = (filename: string) => provenanceForImportPath(filename, service, async (sourceFolder, suggestedTag, fileRef) => ({ sourceFolder, fileRef, ...(suggestedTag ? { suggestedTag } : {}) }));
+    const first = (await store.registerPaths(1, [path.join(equipmentFolder, 'A', 'unit.xml')], provenance))[0];
+    const second = (await store.registerPaths(1, [path.join(equipmentFolder, 'B', 'unit.xml')], provenance))[0];
+    const third = (await store.registerPaths(1, [path.join(otherFolder, 'C', 'unit.xml')], provenance))[0];
+    const fallback = (await store.registerPaths(1, [path.join(equipmentFolder, 'A', 'unit.xml')], filename => provenanceForImportPath(filename, service, async () => { throw new Error('portable locator unavailable'); })))[0];
+    checks.push(['native XML selection outside known roots remembers the revision parent and reads through its ticket', async () => {
+      assert.ok(first.provenance?.sourceFolder && first.provenance.fileRef);
+      assert.equal(first.provenance.sourceFolder.rootId, second.provenance?.sourceFolder.rootId);
+      assert.equal(first.provenance.sourceFolder.relativePath, '');
+      assert.equal(first.provenance.fileRef.relativePath, 'A/unit.xml');
+      assert.equal(second.provenance.fileRef.relativePath, 'B/unit.xml');
+      assert.equal(third.provenance?.sourceFolder.relativePath, '');
+      assert.notEqual(first.provenance.sourceFolder.rootId, third.provenance?.sourceFolder.rootId);
+      assert.equal((await store.read(1, first.ticket, 0, 64)).name, 'unit.xml');
+      assert.equal((await store.read(1, second.ticket, 0, 64)).name, 'unit.xml');
+      assert.ok(fallback.provenance?.sourceFolder && fallback.provenance.fileRef, 'local refs survive failed portable locator resolution');
+      assert.equal(fallback.provenance.fileRef.relativePath, 'A/unit.xml');
+      assert.equal((await store.read(1, fallback.ticket, 0, 64)).name, 'unit.xml');
+      assert.equal((await service.roots()).length, 2);
+      assert.deepEqual(service.state.data.roots.map((root: any) => root.path).sort(), [equipmentFolder, otherFolder].sort());
+      store.release(1, [first.ticket, second.ticket, third.ticket, fallback.ticket]);
+    }]);
     const handle = await fs.open(largePath, 'w'); await handle.truncate(70 * 1024 * 1024 + 17); await handle.close();
     const expectedMtime = 1_700_000_000_000;
     await fs.utimes(largePath, new Date(expectedMtime), new Date(expectedMtime));

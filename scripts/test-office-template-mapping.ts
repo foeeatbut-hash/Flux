@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mapOfficeTemplateToTarget, officeTemplateFieldSelectionKey } from '../src/components/office/officeTemplateMapping';
+import { mapOfficeTemplateToTarget, officeTemplateFieldSelectionKey, seedEmptyOfficeTemplateTarget } from '../src/components/office/officeTemplateMapping';
 import type { OfficeField } from '../src/components/office/fluxData';
 import type { OfficeBinding, OfficeHeaderSchema } from '../src/lib/officeModel';
 
@@ -21,6 +21,19 @@ const target: OfficeHeaderSchema = { version: 1, anchors: [
   { id: 'target-anchor-uuid', kind: 'excel-range', sheetName: 'Лист1', address: 'B2', parts: [{ kind: 'text', text: 'target content' }] },
   { id: 'untouched-anchor-uuid', kind: 'excel-range', sheetName: 'Лист1', address: 'C2', parts: [{ kind: 'text', text: 'keep me' }] },
 ] };
+const emptyTarget: OfficeHeaderSchema = { version: 1, anchors: [] };
+let nextId = 0;
+const seedTemplate: OfficeHeaderSchema = { version: 1, anchors: [{ ...template.anchors[0], parts: template.anchors[0]!.parts.slice(0, 2) }] };
+const seeded = seedEmptyOfficeTemplateTarget(seedTemplate, emptyTarget, () => `fresh-${++nextId}`);
+assert.deepEqual(seeded.anchors.map(({ id, sheetName, address, parts }) => ({ id, sheetName, address, parts })), [
+  { id: 'fresh-1', sheetName: 'Лист1', address: 'B2', parts: [] },
+]);
+const seededMap = mapOfficeTemplateToTarget(seedTemplate, seeded, [{ sourceId: 'equipment', fieldKey: 'param:Паспорт|Расход', entityType: 'element', displayName: 'Расход' }]);
+assert.deepEqual(seededMap.pending, []);
+assert.deepEqual(seededMap.schema.anchors.map((anchor) => [anchor.id, anchor.sheetName, anchor.address]), [
+  ['fresh-1', 'Лист1', 'B2'],
+]);
+assert.equal(JSON.stringify(seededMap.schema).includes('source-anchor'), false);
 const fields: OfficeField[] = [{ sourceId: 'equipment', fieldKey: 'param:Паспорт|Расход', entityType: 'element', displayName: 'Расход' }];
 
 const mapped = mapOfficeTemplateToTarget(template, target, fields);
@@ -40,6 +53,8 @@ assert.equal(JSON.stringify(mapped.schema).includes('source-anchor'), false);
 const ambiguousWord: OfficeHeaderSchema = { version: 1, anchors: [
   { id: 'old-row', kind: 'word-row', documentPart: 'word/document.xml', parts: [{ kind: 'text', text: 'heading' }] },
 ] };
+assert.deepEqual(seedEmptyOfficeTemplateTarget(ambiguousWord, emptyTarget, () => 'nope'), emptyTarget);
+
 const ambiguousTarget: OfficeHeaderSchema = { version: 1, anchors: [
   { id: 'row-a', kind: 'word-row', documentPart: 'word/document.xml', parts: [] },
   { id: 'row-b', kind: 'word-row', documentPart: 'word/document.xml', parts: [] },

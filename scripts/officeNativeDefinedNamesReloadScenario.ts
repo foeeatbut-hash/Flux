@@ -53,7 +53,7 @@ async function makeFixtureWithAnchors(): Promise<{ bytes: Buffer; expected: Expe
   }
 
   const expected: ExpectedName[] = [{ name: 'Итого', ref: "'Перечень'!$B$4" }];
-  const additions = ['A1', 'A2'].map((address) => {
+  const additions = ['D7', 'E8'].map((address) => {
     const name = `FLUX_ANCHOR_${randomUUID().replaceAll('-', '_')}`;
     const ref = `'Перечень'!$${address[0]}$${address.slice(1)}`;
     expected.push({ name, ref });
@@ -97,8 +97,52 @@ export async function runNativeDefinedNamesReloadScenario(
   await checkNames('initial-import', 'fixture names imported', expected);
   check('Sheets collaboration IPC is ready', await waitFor(async () => page.evaluate(() => (window as any).__fluxSheetsCollabReady === true).catch(() => false)));
 
+  const templateAnchorId = randomUUID();
+  const templateSync = await frame.locator('body').evaluate(async (_body: HTMLElement, anchorId: string) => {
+    const ipc = (window as any).__fluxIpc;
+    if (!ipc?.invoke || !ipc?.on) return { ok: false, error: 'Sheets IPC unavailable' };
+    const schema = { version: 1, anchors: [{ kind: 'excel-range', id: anchorId, sheetName: 'FluxTemplateSheet', address: 'D7', parts: [{ kind: 'text', text: 'Template header' }] }] };
+    return await new Promise<any>((resolve) => {
+      const timeout = setTimeout(() => resolve({ ok: false, error: 'sync timeout' }), 15000);
+      ipc.on('flux:header-schema-synced', (_event: any, result: any) => { clearTimeout(timeout); resolve(result); });
+      void ipc.invoke('syncFluxHeaderSchema', { schema, createMissingSheets: true }).catch((error: any) => { clearTimeout(timeout); resolve({ ok: false, error: String(error?.message || error) }); });
+    });
+  }, templateAnchorId).catch((error: unknown) => ({ ok: false, error: String(error) }));
+  check('empty template target creates exact named sheet and header anchor', templateSync?.ok === true, templateSync);
+  if (templateSync?.ok) {
+    expected.push({ name: `FLUX_ANCHOR_${templateAnchorId.replace(/[^A-Za-z0-9_]/g, '_')}`, ref: "'FluxTemplateSheet'!$D$7" });
+    const newSheetState = await frame.locator('body').evaluate(() => {
+      const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
+      const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'FluxTemplateSheet');
+      const cell = sheet?.getRange('D7').getValues()?.[0]?.[0];
+      const below = sheet?.getRange('D8').getValues()?.[0]?.[0];
+      return { name: sheet?.getSheetName(), label: cell?.v ?? cell, below: below?.v ?? below ?? '' };
+    }).catch((error: unknown) => ({ error: String(error) }));
+    check('template header stayed at D7 with no data rows', newSheetState.name === 'FluxTemplateSheet' && newSheetState.label === 'Template header' && !newSheetState.below, newSheetState);
+  }
+
+  const cellLabels = await frame.locator('body').evaluate(() => {
+    const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
+    const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
+    if (!sheet) return { ok: false, reason: 'sheet missing' };
+    try {
+      sheet.getRange('D7').setValues([[{ v: 'Заголовок параметра' }]]);
+      sheet.getRange('E8').setValues([[{ v: 'Номер' }]]);
+      return { ok: true };
+    } catch (error: any) { return { ok: false, reason: String(error?.message || error) }; }
+  }).catch((error: unknown) => ({ ok: false, reason: String(error) }));
+  check('native header labels written at non-A1 cells', cellLabels.ok, cellLabels);
+  const checkNativeLabels = async (label: string) => {
+    const actual = await frame.locator('body').evaluate(() => {
+      const api = (window as any).__fluxSheets?.univerRef?.current?.univerAPI;
+      const sheet = api?.getActiveWorkbook?.()?.getSheets?.().find((item: any) => item.getSheetName() === 'Перечень');
+      try { const d7 = sheet?.getRange('D7').getValues()?.[0]?.[0]; const e8 = sheet?.getRange('E8').getValues()?.[0]?.[0]; return { d7: d7?.v ?? d7, e8: e8?.v ?? e8 }; }
+      catch (error: any) { return { error: String(error?.message || error) }; }
+    }).catch((error: unknown) => ({ error: String(error) }));
+    check(label, actual.d7 === 'Заголовок параметра' && actual.e8 === 'Номер', actual);
+  };
   const runtimeName = `FLUX_ANCHOR_${randomUUID().replaceAll('-', '_')}`;
-  const runtimeRef = "'Перечень'!$A$3";
+  const runtimeRef = "'Перечень'!$F$9";
   const commandTrace = await frame.locator('body').evaluate(() => {
     const win = window as any;
     const api = win.__fluxSheets?.univerRef?.current?.univerAPI;
@@ -150,6 +194,13 @@ export async function runNativeDefinedNamesReloadScenario(
     name: runtimeName, subscription: commandTrace, command: commandEvidence,
   });
   const allExpected = [...expected, { name: runtimeName, ref: runtimeRef }];
+  await checkNativeLabels('native labels present before reload');
+  const noFloatingLayer = await frame.locator('body').evaluate(() => {
+    const canvas = document.querySelector('canvas[id^="univer-sheet-main-canvas"]');
+    canvas?.dispatchEvent(new Event('scroll', { bubbles: true }));
+    return !document.querySelector('#flux-sheet-chip-layer');
+  }).catch(() => false);
+  check('no floating idle chip layer after scroll', noFloatingLayer);
 
   await page.keyboard.press('Control+s');
   check('save settled', await waitForSheetFile(frame));
@@ -162,4 +213,5 @@ export async function runNativeDefinedNamesReloadScenario(
   check('reloaded workbook opened', await waitForSheetFile(frame));
   await clickSheetGrid(frame);
   await checkNames('after-reload', 'all defined names retained after reload', allExpected);
+  await checkNativeLabels('native labels retained after reload');
 }

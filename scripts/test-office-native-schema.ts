@@ -33,5 +33,5 @@ console.log('✓ Own name, picks and resolved mark survive a native header read'
 const cleaned: any = cleanOfficeTemplate({ name: 'x', schema: { version: 1, anchors: [{ id, kind: 'word-row', parts: [{ kind: 'field', binding: { ...named, displayName: 'не хранится' } }, unionOf({ label: 'Мощность', picks: { 'EQ-1': 'motor', 'EQ-2': 'чужой' }, resolved: true }) ] }] } }, 'u').schema.anchors[0].parts;
 assert.equal(cleaned[0].binding.label, 'Мощность, кВт');
 assert.equal(cleaned[0].binding.displayName, undefined);
-assert.deepEqual([cleaned[1].label, cleaned[1].picks, cleaned[1].resolved], ['Мощность', { 'EQ-1': 'motor' }, true]);
-console.log('✓ Server schema cleaning keeps own name and union choice');
+assert.deepEqual([cleaned[1].label, cleaned[1].picks, cleaned[1].resolved], ['Мощность', undefined, undefined]);
+console.log('✓ Server template cleaning keeps labels but drops row-specific union choices');
