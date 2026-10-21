@@ -3,7 +3,7 @@ import { Buffer } from 'node:buffer';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import os from 'node:os';
-import { getEquipmentSourceBinding, pickEquipmentSource, pickEquipmentSourceForImport, removeEquipmentSourceBinding, saveEquipmentSourceBinding, scanEquipmentSource, type EquipmentSourceAdapter, type EquipmentSourceRequest } from '../src/lib/equipmentSourcesLocal';
+import { extractEquipmentXmlUnitTags, getEquipmentSourceBinding, pickEquipmentSource, pickEquipmentSourceForImport, removeEquipmentSourceBinding, saveEquipmentSourceBinding, scanEquipmentSource, type EquipmentSourceAdapter, type EquipmentSourceRequest } from '../src/lib/equipmentSourcesLocal';
 import type { WindowsEquipmentSourcePick, WindowsFileEntry, WindowsFileRef, WindowsFilesResponse } from '../filesystem/contracts';
 import { decodeEquipmentSourceXml, inferEquipmentSourceFilenameRule, matchesEquipmentSourceFilename } from '../equipment/sourceXml';
 import { resolveEquipmentSourceFolder, resolveEquipmentSourceSelection } from '../electron/filesystem/equipmentSourcePicker';
@@ -36,6 +36,34 @@ function fixtureAdapter(entries: Map<string, (WindowsFileEntry & { text?: string
 }
 
 async function main() {
+  assert.deepEqual(extractEquipmentXmlUnitTags('<root><system name="3700-A01-HU-001В"><tags><tag identifier="3700-A01-HU-001B"/></tags></system></root>'), ['3700-A01-HU-001B'], 'корневые теги нормализуются и не дублируются');
+  for (const name of ['system', 'equipmentsystem', 'установка', 'unit']) {
+    assert.deepEqual(extractEquipmentXmlUnitTags('<root><' + name + '><tags><tag>AHU-21</tag></tags></' + name + '></root>'), ['AHU-21'], 'вложенные теги стандартной установки сохраняются');
+  }
+  assert.deepEqual(extractEquipmentXmlUnitTags('<cad:root xmlns:cad="urn:cad"><cad:unit name="AHU-21"/></cad:root>'), ['AHU-21']);
+  assert.deepEqual(extractEquipmentXmlUnitTags('<root><Elements><N1 cfnElement="cadUnitFolder" proUnitName="3700-A01-HU-001В" cfnName="fallback"/><N2 cfnElement="cadReportCollectionItem" proReportPropType="ptUnitName" proReportPropValue="report"/></Elements></root>'), ['3700-A01-HU-001B'], 'САПР предпочитает proUnitName');
+  assert.deepEqual(extractEquipmentXmlUnitTags('<root><Elements><N1 cfnElement="cadUnitFolder" cfnName="fallback"/><N2 cfnElement="cadReportCollectionItem" proReportPropType="ptUnitName" proReportPropValue="AHU-21"/></Elements></root>'), ['AHU-21'], 'имя отчёта используется раньше cfnName');
+  assert.deepEqual(extractEquipmentXmlUnitTags('<Elements><N1 cfnElement="cadUnitFolder" cfnName="AHU-21"/><N2 cfnElement="cadBlockFolder" cfnName="AHU-211"/></Elements>'), ['AHU-21'], 'блок не выдаётся за установку');
+  assert.deepEqual(extractEquipmentXmlUnitTags('<root><unit>'), [], 'повреждённый XML не прерывает открытие окна');
+  for (const [targetType, attributes, tag] of [
+    ['system', 'cfnElement="cadUnitFolder" proUnitName="3700-A01-HU-001В"', '3700-A01-HU-001B'],
+    ['system', 'cfnElement="cadUnitFolder" cfnName="AHU-21"', 'AHU-21'],
+    ['system', 'cfnElement="cadUnitFolder" proFrontName="AHU-21"', 'AHU-21'],
+    ['system', 'cfnElement="cadReportCollectionItem" proReportPropType="ptUnitName" proReportPropValue="AHU-21"', 'AHU-21'],
+    ['component', 'cfnElement="cadBlockFolder" cfnName="FAN-21"', 'FAN-21'],
+    ['component', 'cfnElement="cadBlockFolder" cfnNote="Вентилятор FAN-21; запас"', 'FAN-21'],
+    ['component', 'cfnElement="cadReportCollectionItem" proReportPropGroup="ptgMEMOES" proReportPropValue="FAN-21; запас"', 'FAN-21'],
+    ['component', 'cfnElement="cadReportCollectionItem" proReportPropGroup="ptgBLOCK" proReportPropValue="FAN-21"', 'FAN-21'],
+  ] as const) {
+    const cadXml = '<Elements><N1 ' + attributes + '/></Elements>';
+    const cadPath = root.relativePath + '/A/' + tag + '.xml';
+    const cadFixture = new Map([[root.relativePath, [folder('A', root.relativePath + '/A')]], [root.relativePath + '/A', [file(tag + '.xml', cadPath, cadXml)]]]);
+    const scanned = await scanEquipmentSource({ ...binding, targetType, tagIdentifier: tag }, fixtureAdapter(cadFixture));
+    assert.equal(scanned.status, 'ready', 'САПР: распознаётся целевой тег в ' + attributes);
+    const wrong = await scanEquipmentSource({ ...binding, targetType: targetType === 'system' ? 'component' : 'system', tagIdentifier: tag }, fixtureAdapter(cadFixture));
+    assert.notEqual(wrong.status, 'ready', 'тег установки и тег компонента не смешиваются');
+  }
+
   const fixture = new Map<string, (WindowsFileEntry & { text?: string })[]>([
     ['Equipment/L23', [folder('A', 'Equipment/L23/A'), folder('B', 'Equipment/L23/B'), folder('C', 'Equipment/L23/C')]],
     ['Equipment/L23/A', [file('Л23.xml', 'Equipment/L23/A/Л23.xml', xml('Л23')), file('Л230.xml', 'Equipment/L23/A/Л230.xml', xml('Л230'))]],

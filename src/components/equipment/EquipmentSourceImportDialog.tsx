@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Check, FolderOpen, Loader2, Upload, X } from 'lucide-react';
 import { inferEquipmentSourceFilenameRule } from '../../../equipment/sourceXml';
+import { autoFixTag, PERMISSIVE_TAG_POLICY } from '../../../equipment/tagPolicy';
 import {
-  pickEquipmentSourceForImport, pickEquipmentSourceFolder, saveEquipmentSourceBinding,
+  extractEquipmentXmlUnitTags, pickEquipmentSourceForImport, pickEquipmentSourceFolder, saveEquipmentSourceBinding,
   type EquipmentSourceImportPreview, type LocalEquipmentSourceBinding,
 } from '../../lib/equipmentSourcesLocal';
 import { windowsFilesRequest } from '../../lib/windowsFiles';
 import ImportFileChooser, { type ImportFileChooserHandle } from '../ImportFileChooser';
+import UnknownKinds from '../import/UnknownKinds';
 import type { PortableFolderLocator } from '../../../filesystem/contracts';
 import { loadEquipmentDocumentBindings } from '../../lib/equipmentDocumentBindings';
 
@@ -18,11 +20,11 @@ const revisionOrder = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
 const toMessage = (error: unknown) => error instanceof Error ? error.message : 'Не удалось обработать XML-файл.';
 
 /** Первичный XML импорт: неизменяемый снимок → серверный план → явное применение. */
-export default function EquipmentSourceImportDialog(props: { projectId: string; categories: Category[]; canManage: boolean; onClose: () => void; onImported: (result: { source: ImportedSource; tagIdentifier: string; category: string; baselineApplied: boolean; bindingId?: string }) => void; embedded?: boolean; initialSelection?: { ref: import('../../lib/windowsFiles').WindowsFileRef; name: string; sourceFolder?: import('../../lib/windowsFiles').WindowsFileRef; suggestedTag?: string; portableLocator?: PortableFolderLocator }; expectedLedgerRevision?: number }) {
+export default function EquipmentSourceImportDialog(props: { projectId: string; categories: Category[]; canManage: boolean; onClose: () => void; onImported: (result: { source: ImportedSource; tagIdentifier: string; category: string; baselineApplied: boolean; bindingId?: string }) => void; embedded?: boolean; initialCategory?: string; initialUnits?: Array<{ name: string; title?: string; tags?: string[] }>; initialSelection?: { ref: import('../../lib/windowsFiles').WindowsFileRef; name: string; sourceFolder?: import('../../lib/windowsFiles').WindowsFileRef; suggestedTag?: string; portableLocator?: PortableFolderLocator }; expectedLedgerRevision?: number }) {
   const filePicker = useRef<ImportFileChooserHandle>(null);
   const folderPicker = useRef<ImportFileChooserHandle>(null);
-  const { projectId, categories, canManage, onClose, onImported, embedded = false, initialSelection, expectedLedgerRevision } = props;
-  const [category, setCategory] = useState(categories[0]?.id || '');
+  const { projectId, categories, canManage, onClose, onImported, embedded = false, initialCategory, initialUnits, initialSelection, expectedLedgerRevision } = props;
+  const [category, setCategory] = useState(initialCategory || categories[0]?.id || '');
   const [file, setFile] = useState<Extract<EquipmentSourceImportPreview, { status: 'ready' }> | null>(null);
   const [tagIdentifier, setTagIdentifier] = useState('');
   const [xmlTagChoices, setXmlTagChoices] = useState<string[]>([]);
@@ -53,9 +55,10 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
   useEffect(() => {
     const projectChanged = previousProjectRef.current !== projectId;
     previousProjectRef.current = projectId;
+    if (!projectChanged) return;
     operationRef.current += 1;
     setPlan(null); setBusy(false); setError('');
-    if (projectChanged) { setFile(null); setTagIdentifier(''); setRevision(''); setXmlTagChoices([]); clearReviewSelections(); }
+    setFile(null); setTagIdentifier(''); setRevision(''); setXmlTagChoices([]); clearReviewSelections();
   }, [projectId]);
 
   useEffect(() => {
@@ -101,16 +104,14 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
       if (result.data.status !== 'ready') throw new Error(result.data.message);
       const picked = result.data;
       setSourceLocator(selected.portableLocator);
-      const doc = new DOMParser().parseFromString(picked.text, 'application/xml');
-      const names = Array.from(doc.getElementsByTagName('*')).filter(node => ['system', 'equipmentsystem', 'установка', 'unit'].includes((node.localName || node.tagName).toLocaleLowerCase().split(':').pop() || '')).flatMap(node => {
-        const name = node.getAttribute('name') || node.getAttribute('код') || node.getAttribute('code');
-        const tags = Array.from(node.getElementsByTagName('*')).filter(child => ['tag', 'тег'].includes((child.localName || child.tagName).toLocaleLowerCase().split(':').pop() || '')).map(child => child.textContent?.trim() || child.getAttribute('identifier') || '').filter(Boolean);
-        return [name, ...tags].filter((value): value is string => !!value);
-      });
-      const uniqueNames = Array.from(new Set(names));
+      const extracted = extractEquipmentXmlUnitTags(picked.text);
+      const fromInitialUnits = selected === initialSelection && initialUnits?.length
+        ? initialUnits.flatMap(unit => [unit.name, ...(unit.tags || [])]).map(val => { const text = String(val || '').trim(); return autoFixTag(text, PERMISSIVE_TAG_POLICY)?.identifier || text; }).filter(Boolean)
+        : [];
+      const uniqueNames = Array.from(new Set([...extracted, ...fromInitialUnits]));
       clearReviewSelections();
       setXmlTagChoices(uniqueNames);
-      const suggestedTag = picked.suggestedTag && uniqueNames.includes(picked.suggestedTag) ? picked.suggestedTag : '';
+      const suggestedTag = picked.suggestedTag && (!uniqueNames.length || uniqueNames.includes(picked.suggestedTag)) ? picked.suggestedTag : '';
       setFile(picked); setTagIdentifier(suggestedTag || (uniqueNames.length === 1 ? uniqueNames[0] : '')); setRevision(picked.revision); setFolderName(picked.sourceFolder.relativePath);
     } catch (reason) { if (operation === operationRef.current) setError(toMessage(reason)); }
     finally { if (operation === operationRef.current) setBusy(false); }
@@ -223,7 +224,7 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
             <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-semibold">Предпросмотр · {plan.fileName} · ревизия {plan.revision}</h3><span className="text-xs text-slate-500 dark:text-slate-400">Тег: {plan.unitTag?.identifier || tagIdentifier}</span></div>
             <p className="text-xs text-slate-600 dark:text-slate-300">Систем: {planTotals.systems ?? units.length} · новых позиций: {planTotals.newBlocks ?? 0} · обновлений: {planTotals.updatedBlocks ?? 0} · без изменений: {planTotals.unchangedBlocks ?? 0}</p>
             {!!planTotals.overrides && <p className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">Есть {planTotals.overrides} ручных значений. Импорт ждёт отдельного разрешения конфликта и не заменяет их автоматически.</p>}
-            {!!unknownKinds.length && <div className="rounded border border-rose-300 bg-rose-50 p-2 text-xs text-rose-900 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"><strong>В XML есть нераспознанные виды данных:</strong> {unknownKinds.join(', ')}. Импорт остановлен, чтобы не пропустить эти позиции. Исправьте типы в шаблоне импорта и повторите проверку.</div>}
+            {!!unknownKinds.length && <div className="space-y-2"><div className="rounded border border-rose-300 bg-rose-50 p-2 text-xs text-rose-900 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"><strong>В XML есть нераспознанные виды данных:</strong> {unknownKinds.join(', ')}. Импорт остановлен, чтобы не пропустить эти позиции. Укажите их роли ниже и повторите проверку.</div><UnknownKinds kinds={unknownKinds} onSaved={() => void requestPlan()} /></div>}
             {warnings.map((warning: any, index: number) => <p key={index} className="text-xs text-amber-800 dark:text-amber-300">{typeof warning === 'string' ? warning : warning?.message || JSON.stringify(warning)}</p>)}
             {(plan.plan?.systemRows || []).map((row: any) => <label key={row.key} className="block rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">{row.why || `Выберите установку для ${row.name}`}<select value={choices[row.key] || ''} onChange={event => setChoices(current => ({ ...current, [row.key]: event.target.value }))} className="mt-1 w-full rounded border border-amber-400 bg-white px-2 py-1 text-slate-900 dark:border-amber-800 dark:bg-slate-950 dark:text-slate-100"><option value="">Требуется выбор</option>{(row.options || []).map((option: any) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>)}
             {(plan.plan?.matches || []).map((row: any) => <label key={row.key} className="block rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">{row.title} · {row.at}<div className="mt-1 text-amber-800 dark:text-amber-300">{row.why}</div><select value={choices[row.key] || ''} onChange={event => setChoices(current => ({ ...current, [row.key]: event.target.value }))} className="mt-1 w-full rounded border border-amber-400 bg-white px-2 py-1 text-slate-900 dark:border-amber-800 dark:bg-slate-950 dark:text-slate-100"><option value="">Требуется выбор</option>{(row.options || []).map((option: any) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>)}

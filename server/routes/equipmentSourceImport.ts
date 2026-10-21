@@ -3,6 +3,7 @@ import type { Express, Request, Response } from 'express';
 import { XMLValidator } from 'fast-xml-parser';
 import { broadcast, getPrisma, sendError } from '../context.js';
 import { decodeVerifiedSource } from './equipmentXmlSources.js';
+import { parseOptionsFor } from '../equipmentFile.js';
 import { parseEquipmentXML, type EquipParseResult, type ParsedUnit } from '../equipmentParser.js';
 import { planEquipmentImport, applyEdits, filterBySelection, type EditMap } from '../equipmentPlan.js';
 import { importEquipmentToDB } from '../equipmentImport.js';
@@ -63,11 +64,11 @@ function sourceRule(fileName: string, identifier: string): EquipmentSourceFilena
   return rule;
 }
 
-function parseBody(body: RequestData) {
+async function parseBody(body: RequestData) {
   const input = validateInput(body);
   const { text, sha256 } = decodeVerifiedSource(body);
   if (XMLValidator.validate(text) !== true) throw error('XML повреждён или не завершён; оборудование не изменено.');
-  const parsed = parseEquipmentXML(text);
+  const parsed = parseEquipmentXML(text, await parseOptionsFor(input.projectId));
   if (!parsed.units.length) throw error('В XML не найдены установки для импорта.');
   const unit = selectedUnit(parsed, input.identifier);
   const rule = sourceRule(input.fileName, input.identifier);
@@ -86,7 +87,7 @@ function normalizedPlanOptions(body: RequestData) {
   return { edits: body.edits || {}, choices: cleanChoices(body.choices) };
 }
 
-async function planWithSafeChoices(prisma: any, input: ReturnType<typeof parseBody>, edited: EquipParseResult, choices: Record<string, string>, requireReview: boolean) {
+async function planWithSafeChoices(prisma: any, input: Awaited<ReturnType<typeof parseBody>>, edited: EquipParseResult, choices: Record<string, string>, requireReview: boolean) {
   // Сначала получаем перечень пропавших позиций, затем по умолчанию оставляем
   // их. Снятие возможно только по явному решению для конкретной строки.
   const candidate = await planEquipmentImport(prisma, input.projectId, input.category, edited, {
@@ -112,7 +113,7 @@ async function planWithSafeChoices(prisma: any, input: ReturnType<typeof parseBo
   return { plan, choices: safeChoices };
 }
 
-async function sourceImportPreviewToken(prisma: any, input: ReturnType<typeof parseBody>, edited: EquipParseResult, edits: EditMap): Promise<string> {
+async function sourceImportPreviewToken(prisma: any, input: Awaited<ReturnType<typeof parseBody>>, edited: EquipParseResult, edits: EditMap): Promise<string> {
   const { plan } = await planWithSafeChoices(prisma, input, edited, {}, false);
   const [systems, tags, sources] = await Promise.all([
     prisma.equipmentSystem.findMany({ where: { projectId: input.projectId, category: input.category }, orderBy: { id: 'asc' }, include: {
@@ -147,7 +148,7 @@ export function registerEquipmentSourceImportRoutes(app: Express): void {
   app.post('/api/equipment/source-import/preview', async (req: Request, res: Response) => {
     try {
       const body = req.body as RequestData;
-      const input = parseBody(body);
+      const input = await parseBody(body);
       await authorize(req, input.projectId);
       const { edits, choices } = normalizedPlanOptions(body);
       const edited = applyEdits(input.result, edits);
@@ -167,7 +168,7 @@ export function registerEquipmentSourceImportRoutes(app: Express): void {
   app.post('/api/equipment/source-import/apply', async (req: Request, res: Response) => {
     const body = req.body as RequestData;
     try {
-      const input = parseBody(body);
+      const input = await parseBody(body);
       const actor = await authorize(req, input.projectId);
       const prisma = getPrisma();
       const { edits, choices } = normalizedPlanOptions(body);

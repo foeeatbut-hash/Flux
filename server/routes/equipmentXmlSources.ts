@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Express, Request, Response } from 'express';
 import { XMLValidator } from 'fast-xml-parser';
 import { broadcast, getPrisma, sendError } from '../context.js';
+import { parseOptionsFor } from '../equipmentFile.js';
 import { parseEquipmentXML } from '../equipmentParser.js';
 import { unitBlocksOf } from '../equipmentResolve.js';
 import { withBump } from '../equipmentVersion.js';
@@ -49,7 +50,7 @@ export function decodeVerifiedSource(body: any): { text: string; sha256: string 
   return { text, sha256: actual };
 }
 
-function validateXmlTarget(text: string, fileName: string, tag: any, target: any, selectedRule?: EquipmentSourceFilenameRule, xmlTargetIdentity?: unknown) {
+async function validateXmlTarget(projectId: string, text: string, fileName: string, tag: any, target: any, selectedRule?: EquipmentSourceFilenameRule, xmlTargetIdentity?: unknown) {
   if (!fileName || fileName.length > 255 || /[/\\\u0000-\u001f]/u.test(fileName) || fileName === '.' || fileName === '..') throw Object.assign(new Error('Сервер принимает только имя XML-файла без пути.'), { status: 400 });
   const validRule = selectedRule && (selectedRule.kind === 'exact-tag'
     || (selectedRule.kind === 'selected-name' && typeof selectedRule.fileName === 'string' && selectedRule.fileName.length > 0 && selectedRule.fileName.length <= 255 && !/[/\\\u0000-\u001f]/u.test(selectedRule.fileName)));
@@ -60,7 +61,7 @@ function validateXmlTarget(text: string, fileName: string, tag: any, target: any
     throw Object.assign(new Error('Для позиции без тега требуется точное имя выбранного XML-файла.'), { status: 400 });
   }
   if (XMLValidator.validate(text) !== true) throw Object.assign(new Error('XML повреждён или не завершён; текущие характеристики не изменены.'), { status: 400 });
-  const result = parseEquipmentXML(text);
+  const result = parseEquipmentXML(text, await parseOptionsFor(projectId));
   const selected = tag ? { groups: groupsForTarget(result, target, String(tag.identifier)) } : groupsForIdentity(result, xmlTargetIdentity, target.targetType);
   const groups = selected.groups;
   const parsedUnit = target.targetType === 'system' ? result.units.find(unit => tag
@@ -207,7 +208,7 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       await access(req, String(req.params.projectId || ''));
       const { text } = decodeVerifiedSource(req.body);
       if (XMLValidator.validate(text) !== true) return res.status(400).json({ error: 'XML повреждён или не завершён.' });
-      res.json({ targets: explicitTargetChoices(parseEquipmentXML(text)) });
+      res.json({ targets: explicitTargetChoices(parseEquipmentXML(text, await parseOptionsFor(String(req.params.projectId || '')))) });
     } catch (err: any) { sendError(res, err, err.status || 500); }
   });
 
@@ -256,7 +257,7 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       const fileName = String(req.body?.fileName || '');
       const selectedRule = (parseJson(req.body?.selectedRule, null) || (tag ? inferEquipmentSourceFilenameRule(fileName, String(tag.identifier)) : null)) as EquipmentSourceFilenameRule | null;
       if (!selectedRule) return res.status(400).json({ error: tag ? `Имя файла «${fileName}» не содержит точный тег «${tag.identifier}».` : 'Для позиции без тега выберите файл с точным именем.' });
-      const { groups } = validateXmlTarget(text, fileName, tag, { targetType, systemId }, selectedRule, xmlTargetIdentity);
+      const { groups } = await validateXmlTarget(projectId, text, fileName, tag, { targetType, systemId }, selectedRule, xmlTargetIdentity);
       // Выбор XML создаёт привязку, но не является импортом. Baseline можно
       // поставить только если уже сохранённые характеристики совпадают с ним.
       const alreadyImported = equipmentSourceSpecsEqual(element.specs ?? null, JSON.stringify({ groups }));
@@ -309,7 +310,7 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       const rule = (parseJson(req.body?.selectedRule, null) || (tag ? inferEquipmentSourceFilenameRule(fileName, String(tag.identifier)) : null)) as EquipmentSourceFilenameRule | null;
       if (!rule) return res.status(400).json({ error: tag ? `Имя файла «${fileName}» не содержит тег «${tag.identifier}».` : 'Для позиции без тега выберите файл с точным именем.' });
       const identity = tag ? source.xmlTargetIdentity : req.body?.xmlTargetIdentity;
-      validateXmlTarget(text, fileName, tag, source, rule, identity);
+      await validateXmlTarget(source.projectId, text, fileName, tag, source, rule, identity);
       const updated = await prisma.$transaction(async (tx: any) => {
         const claimed = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, projectId: source.projectId, deletedAt: null, tagId: source.tagId, tagIdentifier: source.tagIdentifier, selectedRule: source.selectedRule, xmlTargetIdentity: source.xmlTargetIdentity ?? null }, data: { tagIdentifier: tag?.identifier || '', selectedRule: JSON.stringify(rule), xmlTargetIdentity: tag ? null : JSON.stringify(identity) } });
         if (claimed.count !== 1) throw Object.assign(new Error('Источник параллельно перепривязали. Обновите карточку.'), { status: 409 });
@@ -392,7 +393,7 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       const { text, sha256: digest } = decodeVerifiedSource(req.body); const fileName = String(req.body?.fileName || ''); const revision = String(req.body?.revision || '').trim();
       if (!text.trim()) return res.status(400).json({ error: 'XML-файл пуст.' });
       if (!revision || revision.length > 100 || !fileName || fileName.length > 255) return res.status(400).json({ error: 'Не указаны имя XML или ревизия.' });
-      const { groups, parsedUnit } = validateXmlTarget(text, fileName, tag, source, parseJson(source.selectedRule, undefined), source.xmlTargetIdentity);
+      const { groups, parsedUnit } = await validateXmlTarget(projectId, text, fileName, tag, source, parseJson(source.selectedRule, undefined), source.xmlTargetIdentity);
       if (source.targetType === 'component') {
         const element = await prisma.componentElement.findUnique({ where: { id: source.elementId }, include: { tags: true, monoblock: { include: { system: true } } } });
         if (!element || element.monoblock?.system?.projectId !== projectId || (tag && !(element.tags || []).some((item: any) => item.id === tag.id))) return res.status(409).json({ error: 'Привязка больше не соответствует исходной позиции. Нужна явная перепривязка.' });

@@ -949,6 +949,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
         } : undefined;
         return <div className="absolute inset-3 z-10 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-950">
           <EquipmentSourceImportDialog embedded projectId={projectId} categories={categories} canManage={canManage}
+            initialCategory={category} initialUnits={job.cad?.units}
             initialSelection={initialSelection} expectedLedgerRevision={bindingRevision}
             onClose={() => setSourceJobId(null)}
             onImported={async ({ bindingId, source, category: importedCategory }) => {

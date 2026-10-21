@@ -7,6 +7,7 @@ import {
 import type { WindowsEquipmentSourceFolderPick, WindowsEquipmentSourcePick } from '../../filesystem/contracts';
 import { decodeEquipmentSourceXml, EQUIPMENT_SOURCE_MAX_BYTES, inferEquipmentSourceFilenameRule, matchesEquipmentSourceFilename, type EquipmentSourceFilenameRule } from '../../equipment/sourceXml';
 import type { EquipmentXmlTargetIdentity } from '../../equipment/sourceXml';
+import { autoFixTag, PERMISSIVE_TAG_POLICY, tokensOf } from '../../equipment/tagPolicy';
 import { useStore } from '../store/store';
 export type { EquipmentSourceFilenameRule } from '../../equipment/sourceXml';
 
@@ -402,16 +403,116 @@ function decodeXml(base64: string, size: number): string | null {
 
 function isUnstableReadError(code: string): boolean { return code === 'CONFLICT' || code === 'BUSY'; }
 
+/** Извлекает имена и корневые теги установок из стандартного XML и выгрузки САПР (Веза/ACON). */
+export function extractEquipmentXmlUnitTags(text: string): string[] {
+  try {
+    if (XMLValidator.validate(text) !== true) return [];
+    const doc = parser.parse(text);
+    const out: string[] = [];
+    const addCandidate = (raw: unknown) => {
+      const val = String(raw ?? '').trim();
+      if (!val) return;
+      const fixed = autoFixTag(val, PERMISSIVE_TAG_POLICY)?.identifier || val;
+      if (!out.includes(fixed)) out.push(fixed);
+    };
+    const vezaUnitNames: string[] = [];
+    const vezaPropUnitNames: string[] = [];
+    const vezaFallbackNames: string[] = [];
+    const visit = (node: unknown): void => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) { node.forEach(visit); return; }
+      const object = node as Record<string, unknown>;
+      const cfnElement = String(object['@_cfnElement'] ?? '').trim().toLowerCase();
+      if (cfnElement === 'cadunitfolder') {
+        const proUnitName = String(object['@_proUnitName'] ?? '').trim();
+        const cfnName = String(object['@_cfnName'] ?? '').trim();
+        if (proUnitName) vezaUnitNames.push(proUnitName);
+        else if (cfnName) vezaFallbackNames.push(cfnName);
+      } else if (cfnElement === 'cadreportcollectionitem' && String(object['@_proReportPropType'] ?? '').trim() === 'ptUnitName') {
+        const val = String(object['@_proReportPropValue'] ?? '').trim();
+        if (val) vezaPropUnitNames.push(val);
+      }
+      for (const [key, value] of Object.entries(object)) {
+        if (key.startsWith('@_') || key === '#text' || key === '#cdata') continue;
+        const normalizedKey = key.toLowerCase();
+        if (systemNames.has(normalizedKey)) {
+          const systems = Array.isArray(value) ? value : [value];
+          for (const system of systems) {
+            if (system && typeof system === 'object') {
+              const attributes = system as Record<string, unknown>;
+              for (const attr of ['name', 'code', 'tag', 'identifier', 'код', 'тег']) {
+                const found = Object.entries(attributes).find(([name]) => name.toLowerCase() === `@_${attr}` || name.toLowerCase() === attr)?.[1];
+                if (typeof found === 'string') addCandidate(found);
+                else if (Array.isArray(found)) found.forEach(item => addCandidate(typeof item === 'object' && item !== null ? (item as any)['#text'] ?? (item as any)['@_identifier'] : item));
+                else if (found && typeof found === 'object') addCandidate((found as any)['#text'] ?? (found as any)['@_identifier']);
+              }
+              const visitTags = (child: unknown): void => {
+                if (!child || typeof child !== 'object') return;
+                if (Array.isArray(child)) { child.forEach(visitTags); return; }
+                for (const [name, tagValue] of Object.entries(child)) {
+                  if (name.startsWith('@_')) continue;
+                  if (['tag', 'тег'].includes(name.toLowerCase())) {
+                    for (const tag of Array.isArray(tagValue) ? tagValue : [tagValue]) {
+                      addCandidate(tag && typeof tag === 'object' ? tag['#text'] || tag['@_identifier'] : tag);
+                    }
+                  } else visitTags(tagValue);
+                }
+              };
+              visitTags(system);
+            }
+          }
+        }
+        visit(value);
+      }
+    };
+    visit(doc);
+    if (vezaUnitNames.length) vezaUnitNames.forEach(addCandidate);
+    else if (vezaPropUnitNames.length) vezaPropUnitNames.forEach(addCandidate);
+    else if (vezaFallbackNames.length) vezaFallbackNames.forEach(addCandidate);
+    return out;
+  } catch { return []; }
+}
+
 /** Сопоставляем только имена верхнеуровневых узлов установки; теги вложенных блоков не подходят. */
 function xmlHasTargetTag(text: string, target: string, targetType: 'system' | 'component'): boolean {
   try {
     if (XMLValidator.validate(text) !== true) return false;
     const doc = parser.parse(text);
     const identifiers: string[] = [];
+    const pushWithFix = (raw: unknown) => {
+      const val = String(raw ?? '').trim();
+      if (!val) return;
+      identifiers.push(val);
+      const fixed = autoFixTag(val, PERMISSIVE_TAG_POLICY)?.identifier;
+      if (fixed) identifiers.push(fixed);
+    };
     const visit = (node: unknown): void => {
       if (!node || typeof node !== 'object') return;
       if (Array.isArray(node)) { node.forEach(visit); return; }
       const object = node as Record<string, unknown>;
+      const cfnElement = String(object['@_cfnElement'] ?? '').trim().toLowerCase();
+      if (targetType === 'system') {
+        if (cfnElement === 'cadunitfolder') {
+          pushWithFix(object['@_proUnitName']);
+          pushWithFix(object['@_cfnName']);
+          pushWithFix(object['@_proFrontName']);
+        } else if (cfnElement === 'cadreportcollectionitem' && String(object['@_proReportPropType'] ?? '').trim() === 'ptUnitName') {
+          pushWithFix(object['@_proReportPropValue']);
+        }
+      } else {
+        if (cfnElement === 'cadblockfolder') {
+          pushWithFix(object['@_cfnName']);
+          const note = String(object['@_cfnNote'] ?? '').trim();
+          if (note) { pushWithFix(note); tokensOf(note).forEach(tok => pushWithFix(tok.raw)); }
+        } else if (cfnElement === 'cadreportcollectionitem') {
+          const group = String(object['@_proReportPropGroup'] ?? '').trim();
+          const val = String(object['@_proReportPropValue'] ?? '').trim();
+          if (val && (group === 'ptgMEMOES' || group === 'ptgBLOCK')) {
+            pushWithFix(val);
+            tokensOf(val).forEach(tok => pushWithFix(tok.raw));
+          }
+        }
+      }
       for (const [key, value] of Object.entries(object)) {
         if (key.startsWith('@_') || key === '#text' || key === '#cdata') continue;
         const normalizedKey = key.toLowerCase();
@@ -425,7 +526,9 @@ function xmlHasTargetTag(text: string, target: string, targetType: 'system' | 'c
               const attributes = system as Record<string, unknown>;
               for (const attr of ['name', 'code', 'tag', 'identifier', 'код', 'тег']) {
                 const found = Object.entries(attributes).find(([name]) => name.toLowerCase() === `@_${attr}` || name.toLowerCase() === attr)?.[1];
-                if (typeof found === 'string' && found.trim()) identifiers.push(found.trim());
+                if (typeof found === 'string') pushWithFix(found);
+                else if (Array.isArray(found)) found.forEach(item => pushWithFix(typeof item === 'object' && item !== null ? (item as any)['#text'] ?? (item as any)['@_identifier'] : item));
+                else if (found && typeof found === 'object') pushWithFix((found as any)['#text'] ?? (found as any)['@_identifier']);
               }
             }
           }

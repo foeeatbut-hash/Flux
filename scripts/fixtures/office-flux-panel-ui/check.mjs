@@ -9,11 +9,12 @@ const screenshotPrefix = `flux-office-addon-${kind}`;
 const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
 const page = await browser.newPage();
 const failures = [];
+let expectedConflict = false;
 const requests = [];
 const screenshotPaths = [];
 page.on('pageerror', (error) => failures.push(`pageerror:${error.message}`));
-page.on('console', (message) => { if (message.type() === 'error') failures.push(`console:${message.text()}`); });
-page.on('response', (response) => { if (response.status() >= 400) failures.push(`http${response.status()}:${response.url()}`); });
+page.on('console', (message) => { if (message.type() === 'error' && !(expectedConflict && message.text().includes('409'))) failures.push(`console:${message.text()}`); });
+page.on('response', (response) => { if (response.status() >= 400 && !(expectedConflict && response.status() === 409 && response.url().endsWith('/confirm'))) failures.push(`http${response.status()}:${response.url()}`); });
 page.route('**/api/project-data/**', async (route) => {
   const request = route.request();
   const url = new URL(request.url());
@@ -38,6 +39,10 @@ page.route('**/api/project-data/**', async (route) => {
     const previewBody = request.postDataJSON(); requests.push({ endpoint: 'preview', body: previewBody });
     body = { planId: 'plan-1', baseHash: previewBody.baseHash, sourceRevision: previewBody.sourceRevision, selectedEntityIds: previewBody.selectedEntityIds, writes: [{ entityId: 'e-1', anchorId: 'anchor-a1', value: 'P-101' }], adds: [], replaces: [], manualRows: [], skips: [], errors: [], conflicts: [] };
   } else if (endpoint.endsWith('/confirm')) {
+    if (expectedConflict) {
+      await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'Документ изменился после предпросмотра' }) });
+      return;
+    }
     const confirmBody = request.postDataJSON(); requests.push({ endpoint: 'confirm', body: confirmBody });
     body = { status: 'ready-for-editor', writes: [{ entityId: 'e-1', anchorId: 'anchor-a1', value: 'P-101' }] };
   } else if (endpoint.endsWith('/templates') && request.method() === 'POST') {
@@ -150,6 +155,39 @@ try {
   if (metadataWrites.length !== 3 || metadataWrites[0].rows?.[0]?.entityId !== 'e-old' || metadataWrites[1].rows?.[0]?.entityId !== 'e-old' || !metadataWrites[2].rows?.some((row) => row.entityId === 'e-1' && row.values?.['anchor-a1'] === 'P-101')) throw new Error(`metadata writes did not preserve existing bindings and persist applied rows: ${JSON.stringify(metadataWrites)}`);
   if (!(await page.getByRole('status').getByText('Без замены оставлены строки с ручными правками: 1').count())) throw new Error('native bridge manual-row response was not shown to the user');
 
+  // После правки схемы и конфликта подтверждение требует нового предпросмотра.
+  const expectFreshPreview = async () => {
+    await page.getByRole('button', { name: 'Предпросмотр заполнения' }).waitFor();
+    if (await page.getByRole('button', { name: 'Подтвердить и заполнить' }).count()) throw new Error('Stale confirmation survived invalidation');
+  };
+  await page.getByRole('button', { name: 'Предпросмотр заполнения' }).click();
+  await page.getByRole('button', { name: '2. Поля и шапка' }).click();
+  await page.getByRole('button', { name: 'Привязать поле' }).click();
+  await page.getByRole('button', { name: '3. Обновление' }).click();
+  await expectFreshPreview();
+  await page.getByRole('button', { name: 'Предпросмотр заполнения' }).click();
+  await page.getByRole('button', { name: '2. Поля и шапка' }).click();
+  await page.getByLabel('Текст заголовка 1').fill('Обновлённая шапка ');
+  await page.getByRole('button', { name: 'Сохранить схему' }).click();
+  await page.getByRole('button', { name: '3. Обновление' }).click();
+  await expectFreshPreview();
+  await page.getByRole('button', { name: 'Предпросмотр заполнения' }).click();
+  await page.getByRole('button', { name: 'Подтвердить и заполнить' }).waitFor();
+  await page.getByRole('button', { name: 'Проверить', exact: true }).click();
+  await page.getByRole('button', { name: 'Подтвердить и заполнить' }).waitFor();
+  await page.evaluate(() => window.__fluxFixture.changeHash());
+  await page.getByRole('button', { name: 'Проверить', exact: true }).click();
+  await expectFreshPreview();
+  await page.getByRole('button', { name: 'Предпросмотр заполнения' }).click();
+  await page.getByRole('button', { name: 'Подтвердить и заполнить' }).waitFor();
+  const stateReads = await page.evaluate(() => window.__fluxFixture.ops.filter(item => item.type === 'request-state').length);
+  expectedConflict = true;
+  await page.getByRole('button', { name: 'Подтвердить и заполнить' }).click();
+  await page.getByText('Документ изменился после предпросмотра', { exact: true }).waitFor();
+  await expectFreshPreview();
+  await page.waitForFunction(count => window.__fluxFixture.ops.filter(item => item.type === 'request-state').length > count, stateReads);
+  expectedConflict = false;
+
   // ── Команды ленты «Flux»: окна шаблонов, выгрузка, переводчик, «Исходная шапка» ──
   const shotBoth = async (name) => {
     for (const theme of ['light', 'dark']) {
@@ -193,11 +231,15 @@ try {
   await page.evaluate(() => window.__fluxFixture.command('reset-header'));
   await page.getByText('У файла нет шаблона.').waitFor();
   await page.evaluate(() => { window.__fluxFixture.ops.length = 0; window.__fluxFixture.setTemplate({ templateId: 'template-1', name: 'Рабочая выборка', appliedAt: '2026-10-12T10:00:00.000Z', schema: { version: 1, anchors: [{ kind: 'excel-range', id: 'anchor-a1', sheetName: 'Лист1', address: 'A1', parts: [{ kind: 'text', text: 'Исходный заголовок' }] }] } }); });
+  await page.getByRole('checkbox', { name: 'Выбрать строку P-101' }).check();
   await page.getByRole('button', { name: '3. Обновление' }).click();
   await page.getByRole('button', { name: 'Проверить' }).click();
   await page.waitForFunction(() => window.__fluxFixture.ops.some((item) => item.type === 'template-change' && item.template?.templateId === 'template-1'));
+  await page.getByRole('button', { name: 'Предпросмотр заполнения' }).click();
+  await page.getByRole('button', { name: 'Подтвердить и заполнить' }).waitFor();
   await page.evaluate(() => window.__fluxFixture.command('reset-header'));
   await page.getByRole('button', { name: 'Вернуть', exact: true }).click();
+  await expectFreshPreview();
   await page.waitForFunction(() => window.__fluxFixture.ops.some((item) => item.type === 'save-schema'));
   const restore = (await page.evaluate(() => window.__fluxFixture.ops)).filter((item) => item.type === 'save-schema').at(-1);
   if (restore.schema.anchors[0].parts[0].text !== 'Исходный заголовок') throw new Error(`reset-header did not write the snapshot schema: ${JSON.stringify(restore)}`);

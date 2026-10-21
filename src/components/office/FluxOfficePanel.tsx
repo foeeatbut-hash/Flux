@@ -95,6 +95,8 @@ export default function FluxOfficePanel(props: Props) {
   const [planSchema, setPlanSchema] = useState<OfficeState['schema'] | null>(null);
   const [planQuery, setPlanQuery] = useState<Record<string, unknown> | null>(null);
   const [appliedSummary, setAppliedSummary] = useState<OfficeApplySummary | null>(null);
+  const planRef = useRef(plan);
+  planRef.current = plan;
   const [busy, setBusy] = useState(false);
   const [panelWidth, setPanelWidth] = useState(580);
   const tpl = useOfficeTemplates();
@@ -158,7 +160,12 @@ export default function FluxOfficePanel(props: Props) {
 
   const refreshState = useCallback(async () => {
     const state = await props.requestState();
-    if (state) { setOfficeState(state); setTemplateSourceSchema(null); setTemplateTargetSchema(null); }
+    if (state) {
+      setOfficeState(state); setTemplateSourceSchema(null); setTemplateTargetSchema(null);
+      if (planRef.current && planRef.current.baseHash !== state.baseHash) {
+        setPlan(null); setPlanSchema(null); setPlanQuery(null); setAppliedSummary(null);
+      }
+    }
     return state;
   }, [props.requestState]);
 
@@ -241,6 +248,7 @@ export default function FluxOfficePanel(props: Props) {
       const saved = await props.updateSchema({ ...current.schema, anchors: [...current.schema.anchors.filter((item) => item.id !== anchor.id), anchor] }, { captureNative: true, displayLabels: labels });
       if (!saved) throw new Error('Поле вставлено, но его связь с источником не сохранена. Повторите сохранение схемы.');
       setOfficeState(saved); setTemplateSourceSchema(null); setTemplateTargetSchema(null);
+      setPlan(null); setPlanSchema(null); setPlanQuery(null); setAppliedSummary(null);
     } catch (reason: any) { setError(String(reason?.message || reason)); }
     finally { setBusy(false); }
   }, [selectedField, activeAnchor, officeState, result?.revision, fields, props.insertBinding, props.requestState, props.updateSchema]);
@@ -299,7 +307,11 @@ export default function FluxOfficePanel(props: Props) {
       setPlan(null); setPlanSchema(null); setPlanQuery(null);
       if (applied.state) setOfficeState(applied.state);
       else await refreshState();
-    } catch (reason: any) { setError(String(reason?.message || reason)); }
+    } catch (reason: any) {
+      setPlan(null); setPlanSchema(null); setPlanQuery(null);
+      void refreshState();
+      setError(String(reason?.message || reason));
+    }
     finally { setBusy(false); }
   }, [plan, planSchema, planQuery, officeState?.rows, props.readOnly, props.projectId, fileSource, props.applyWrites, refreshState]);
 
@@ -332,7 +344,11 @@ export default function FluxOfficePanel(props: Props) {
     // Сохранение сопоставленного шаблона и есть его применение: в файл ложатся templateId и снимок схемы
     const link = templateSchema && openedTemplate ? { templateId: openedTemplate.id, name: openedTemplate.name } : undefined;
     const updated = await props.updateSchema(nextSchema, { ...options, ...(link ? { template: link } : {}) });
-    if (updated) { setOfficeState(updated); setTemplateSourceSchema(null); setTemplateTargetSchema(null); if (link) setOpenedTemplate(null); }
+    if (updated) {
+      setOfficeState(updated); setTemplateSourceSchema(null); setTemplateTargetSchema(null);
+      setPlan(null); setPlanSchema(null); setPlanQuery(null); setAppliedSummary(null);
+      if (link) setOpenedTemplate(null);
+    }
     return !!updated;
   };
   /** «Исходная шапка»: та же запись схемы, что и у остальных действий, значения в строках не трогаются. */
@@ -352,6 +368,7 @@ export default function FluxOfficePanel(props: Props) {
       const saved = await props.updateSchema(snapshot.schema, { displayLabels: labels, ...(removedAnchorIds.length ? { removedAnchorIds } : {}) });
       if (!saved) throw new Error('Редактор не подтвердил возврат шапки.');
       setOfficeState(saved); setTemplateSourceSchema(null); setTemplateTargetSchema(null); setOpenedTemplate(null);
+      setPlan(null); setPlanSchema(null); setPlanQuery(null); setAppliedSummary(null);
       setActionMessage('Шапка возвращена к исходной.');
     } catch (reason: any) { setError(String(reason?.message || reason)); }
     finally { setBusy(false); }

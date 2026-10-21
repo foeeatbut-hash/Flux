@@ -70,6 +70,10 @@ eq('ручная строка отдельно сохраняется в пла�
 eq('нет значения выбранной сущности не удаляет старую строку', plan.skips, [{ entityId: 'EQ-2', anchorId: '', reason: 'Сущность отсутствует в текущей выборке' }]);
 eq('совпадающий документ и источник позволяют подтвердить план', canApplyOfficePlan(plan, { baseHash: 'doc-v1', sourceRevision: 'R4', selectedEntityIds: ['EQ-2', 'EQ-1'] }), { ok: true });
 eq('устаревший хеш блокирует запись', canApplyOfficePlan(plan, { baseHash: 'doc-v2', sourceRevision: 'R4', selectedEntityIds: ['EQ-1', 'EQ-2'] }), { ok: false, reason: 'Документ изменился после предпросмотра' });
+const missingFieldAnchor: OfficeHeaderAnchor = { kind: 'excel-range', id: 'note-column', sheetName: 'Ведомость', address: 'D2', parts: [{ kind: 'field', binding: binding('missingField') }] };
+const missingFieldPlan = planOfficeFill({ baseHash: 'doc-v1', sourceRevision: 'R4', selectedEntityIds: ['EQ-1'], rows: [row], anchors: [anchor, missingFieldAnchor] });
+eq('пустой параметр у выбранной позиции попадает в пропуски, а не в ошибки плана', [missingFieldPlan.errors, missingFieldPlan.skips], [[], [{ entityId: 'EQ-1', anchorId: 'note-column', reason: 'Источник не вернул значение; существующая ячейка сохраняется' }]]);
+eq('план с пропущенными пустыми параметрами разрешено подтвердить и заполнить', canApplyOfficePlan(missingFieldPlan, { baseHash: 'doc-v1', sourceRevision: 'R4', selectedEntityIds: ['EQ-1'] }), { ok: true });
 const duplicatePlan = planOfficeFill({ baseHash: 'doc-v1', sourceRevision: 'R4', selectedEntityIds: ['EQ-1'], rows: [row], anchors: [anchor], existingRows: [{ rowId: 'r1', entityId: 'EQ-1' }, { rowId: 'r2', entityId: 'EQ-1' }] });
 eq('две прежние строки одной сущности требуют разрешения', duplicatePlan.conflicts, [{ entityId: 'EQ-1', anchorId: '', candidates: ['r1', 'r2'] }]);
 eq('конфликт запрещает подтверждение плана', canApplyOfficePlan(duplicatePlan, { baseHash: 'doc-v1', sourceRevision: 'R4', selectedEntityIds: ['EQ-1'] }), { ok: false, reason: 'В плане остались ошибки или конфликты' });
