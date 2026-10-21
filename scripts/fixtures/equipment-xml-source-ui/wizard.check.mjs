@@ -126,6 +126,44 @@ try {
   assert(cadEntries.some(entry => entry.path.endsWith('/equipment/source-import/apply')), 'XML source is applied only after explicit confirmation');
   await cadPage.close();
 
+  const nativePage = await makePage(1100, 'light', 'wizard.html?native=1');
+  const nativeCases = [
+    { file: 'L23.xml', tag: 'L23', root: 'wizard-fixture-root', relative: 'Equipment', ref: 'Equipment/A/L23.xml' },
+    { file: 'L24.xml', tag: 'L24', root: 'wizard-fixture-root', relative: 'Equipment', ref: 'Equipment/B/L24.xml' },
+    { file: 'M24.xml', tag: 'M24', root: 'wizard-fixture-other-root', relative: '', ref: 'C/M24.xml' },
+  ];
+  for (const selected of nativeCases) {
+    await nativePage.getByRole('button', { name: 'Выбрать файлы' }).click();
+    await nativePage.getByRole('button', { name: new RegExp(selected.file.replace('.', '\\.')) }).waitFor({ timeout: 30000 });
+    const card = nativePage.getByRole('button', { name: new RegExp(selected.file.replace('.', '\\.')) });
+    await card.click();
+    await nativePage.getByRole('button', { name: /Проверить и импортировать в «Вентиляция»/ }).click();
+    await nativePage.getByRole('button', { name: 'Показать план' }).waitFor({ timeout: 30000 });
+    const xmlRead = await nativePage.evaluate(() => (window).__windowsCalls.filter((request) => request.action === 'readImportRef').at(-1));
+    if (!xmlRead?.ticket) throw new Error(`Native selection did not read the selected XML ticket for ${selected.file}: ${JSON.stringify(xmlRead)}`);
+    const parseCall = (await logs(nativePage)).filter(entry => entry.path.endsWith('/equipment/parse-calc')).at(-1);
+    if (parseCall?.body?.text?.includes(`name="${selected.tag}"`) !== true) throw new Error(`Native selection parsed the wrong XML for ${selected.file}: ${JSON.stringify(parseCall?.body)}`);
+    const pickerCalls = await nativePage.evaluate(() => window.__windowsCalls.filter((request) => ['pickEquipmentSource', 'pickEquipmentSourceFolder'].includes(request.action)));
+    if (pickerCalls.length) throw new Error(`Native selection opened another XML/folder picker: ${JSON.stringify(pickerCalls)}`);
+    await nativePage.getByRole('button', { name: 'Показать план' }).click();
+    await nativePage.getByRole('heading', { name: /Предпросмотр/ }).waitFor({ timeout: 30000 });
+    if (await nativePage.getByLabel('Тег оборудования').inputValue() !== selected.tag) throw new Error(`Native selection chose the wrong CAD tag for ${selected.file}`);
+    const previewEntry = (await logs(nativePage)).filter(entry => entry.path.endsWith('/equipment/source-import/preview')).at(-1);
+    if (previewEntry?.body?.fileName !== selected.file || previewEntry?.body?.tagIdentifier !== selected.tag) throw new Error(`Native selection preview did not retain the selected XML/tag for ${selected.file}: ${JSON.stringify(previewEntry?.body)}`);
+
+    await nativePage.getByRole('button', { name: 'Подтвердить импорт' }).click();
+    await nativePage.getByRole('button', { name: 'Показать план' }).waitFor({ state: 'detached', timeout: 30000 });
+    const applyEntry = (await logs(nativePage)).filter(entry => entry.path.endsWith('/equipment/source-import/apply')).at(-1);
+    if (applyEntry?.body?.fileName !== selected.file || applyEntry?.body?.tagIdentifier !== selected.tag) throw new Error(`Native selection apply did not retain the selected XML/tag for ${selected.file}: ${JSON.stringify(applyEntry?.body)}`);
+    const savedRef = await nativePage.evaluate(() => {
+      const all = JSON.parse(localStorage.getItem('flux.equipmentDocumentRefs.local.v1') || '{}');
+      return Object.values(all).at(-1);
+    });
+    if (savedRef?.sourceFolder?.rootId !== selected.root || savedRef?.sourceFolder?.relativePath !== selected.relative || savedRef?.fileRef?.relativePath !== selected.ref) throw new Error(`Applied source did not remember ${selected.file} local capability: ${JSON.stringify(savedRef)}`);
+
+  }
+  await nativePage.close();
+
   if (failures.length) throw new Error(failures.join('\n'));
   console.log(JSON.stringify({ result: 'passed', checks: ['production DocImportWizard XML and document routes', 'no pre-confirm writes', 'document sourceBinding and refreshed CAS revision', 'deferred confirm disabled', 'narrow/wide light/dark screenshots'] }));
 } finally { await browser.close(); }

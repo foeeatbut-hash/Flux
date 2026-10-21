@@ -24,5 +24,6 @@ assert.equal(canManageOfficeTemplate(byEmployee, { id: 'employee' }), true);
 assert.equal(canManageOfficeTemplate(byEmployee, { id: 'admin' }, true), false);
 assert.equal(templateScopeAllowed(byEmployee, { id: 'admin' }), true);
 assert.equal(JSON.stringify(personal).includes('private-row'), false);
-assert.deepEqual(personal.query.excludedEntityIds, ['tags:tag:excluded']);
+assert.equal(Object.hasOwn(personal.query, 'excludedEntityIds'), false);
+assert.equal(JSON.stringify(personal).includes('tags:tag:excluded'), false);
 console.log('Права владельца, общего доступа и чистка шаблонов проверены');

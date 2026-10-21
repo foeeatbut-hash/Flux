@@ -38,13 +38,8 @@ function cleanPart(part: any): OfficePart | null {
   if (part?.kind === 'union' && part.mode === 'first-match' && Array.isArray(part.alternatives) && part.alternatives.length > 0 && part.alternatives.length <= 30) {
     const alternatives = part.alternatives.map((item: any) => ({ ...cleanBinding(item), priority: Math.max(0, Math.min(10000, Number(item?.priority) || 0)) }));
     if (alternatives.some((item: any) => !item.fieldKey)) return null;
-    // Исключения по позициям: entityId → fieldKey одной из альтернатив, не больше 5000 записей
-    const keys = new Set<string>(alternatives.map((item: any) => item.fieldKey));
-    const picks = part.picks && typeof part.picks === 'object' && !Array.isArray(part.picks)
-      ? Object.fromEntries(Object.entries(part.picks).filter(([id, key]) => id && typeof key === 'string' && keys.has(key)).slice(0, 5000).map(([id, key]) => [id.slice(0, 300), key]))
-      : {};
-    return { kind: 'union', mode: 'first-match', alternatives, ...(typeof part.label === 'string' && part.label.trim() ? { label: part.label.trim().slice(0, 200) } : {}),
-      ...(Object.keys(picks).length ? { picks: picks as Record<string, string> } : {}), ...(part.resolved === true ? { resolved: true } : {}) };
+    // Выборы конкретных строк относятся к текущему файлу, а не к шаблону шапки.
+    return { kind: 'union', mode: 'first-match', alternatives, ...(typeof part.label === 'string' && part.label.trim() ? { label: part.label.trim().slice(0, 200) } : {}) };
   }
   return null;
 }
@@ -68,7 +63,6 @@ export function cleanOfficeTemplate(input: any, actorId: string, existing?: Offi
     columns: Array.isArray(input.query.columns) ? input.query.columns.map(String).slice(0, 200) : [],
     filters: Array.isArray(input.query.filters) ? input.query.filters.slice(0, 50).map((filter: any) => ({ field: String(filter?.field || '').slice(0, 200), op: String(filter?.op || 'contains').slice(0, 30), value: String(filter?.value ?? '').slice(0, 500) })) : [],
     sort: Array.isArray(input.query.sort) ? input.query.sort.slice(0, 10).map((sort: any) => ({ field: String(sort?.field || '').slice(0, 200), direction: sort?.direction === 'desc' ? 'desc' : 'asc' })) : [],
-    excludedEntityIds: Array.isArray(input.query.excludedEntityIds) ? [...new Set(input.query.excludedEntityIds.map(String))].slice(0, 5000) : [],
   } : {};
   const scope = existing?.scope || (input?.scope === 'SHARED' ? 'SHARED' : 'PERSONAL');
   return {

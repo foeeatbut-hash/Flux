@@ -14,7 +14,7 @@ import FileEnglishVersion from '../translate/FileEnglishVersion';
 import { useOfficeTemplates } from './useOfficeTemplates';
 import { insertMessage, insertTable, tableColumns, tableRows, type TableCell } from './fluxTable';
 import type { RibbonCommand } from './useFluxRibbon';
-import { mapOfficeTemplateToTarget, officeTemplateFieldSelectionKey, type OfficeTemplatePending } from './officeTemplateMapping';
+import { mapOfficeTemplateToTarget, officeTemplateFieldSelectionKey, seedEmptyOfficeTemplateTarget, type OfficeTemplatePending } from './officeTemplateMapping';
 import type { HeaderSchemaSyncOptions } from './officeNativeSchema';
 import { dataService } from '../../services/dataService';
 import { fieldsFromCatalog, officeDataApi, toProjectQuery, type OfficeAppliedTemplate, type OfficeFileSource, type OfficeLocalSource, type OfficeAnchorRow, type OfficeField, type OfficeFillPlan, type OfficeQuery, type OfficeQueryResult, type OfficeState, type OfficeTemplate } from './fluxData';
@@ -343,7 +343,7 @@ export default function FluxOfficePanel(props: Props) {
     if (templatePending.length) throw new Error('Сначала уточните все связи выбранного шаблона.');
     // Сохранение сопоставленного шаблона и есть его применение: в файл ложатся templateId и снимок схемы
     const link = templateSchema && openedTemplate ? { templateId: openedTemplate.id, name: openedTemplate.name } : undefined;
-    const updated = await props.updateSchema(nextSchema, { ...options, ...(link ? { template: link } : {}) });
+    const updated = await props.updateSchema(nextSchema, { ...options, ...(link ? { template: link, createMissingSheets: props.editorKind === 'sheets' } : {}) });
     if (updated) {
       setOfficeState(updated); setTemplateSourceSchema(null); setTemplateTargetSchema(null);
       setPlan(null); setPlanSchema(null); setPlanQuery(null); setAppliedSummary(null);
@@ -384,7 +384,7 @@ export default function FluxOfficePanel(props: Props) {
       if (!target) throw new Error('Сначала прочитайте состояние открытого документа.');
       setOfficeState(fresh);
       setTemplateSourceSchema(template.schema as OfficeState['schema']);
-      setTemplateTargetSchema(target);
+      setTemplateTargetSchema(props.editorKind === 'sheets' ? seedEmptyOfficeTemplateTarget(template.schema as OfficeState['schema'], target) : target);
       setTemplateAnchorSelections({}); setTemplateFieldSelections({});
       setPlan(null); setPlanSchema(null); setPlanQuery(null);
       setOpenedTemplate(template); setView('data'); setTab('fields');
