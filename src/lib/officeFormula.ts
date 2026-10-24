@@ -13,8 +13,9 @@ export function normalizeOfficeFormulaParts(input: OfficePart[]): { parts: Offic
     let text = index === first ? part.text.trimStart().slice(1) : part.text;
     text = text.replaceAll('×', '*').replaceAll('÷', '/').replaceAll('−', '-');
     // Пробелы и размерность после числа остаются текстом, а не новой операцией; функции с «(» входят в выражение.
-    const expression = /^(?:\s*(?:(?:SUM|AVG|AVERAGE|MIN|MAX|COUNT|CONCAT|СУММ|СРЗНАЧ|МИН|МАКС|СЧЁТ|СЧЕТ|СЦЕПИТЬ)(?=\s*\()|(?:\d+(?:[.,]\d*)?|[.,]\d+)|[+*/()\-,;]))*\s*/iu.exec(text)?.[0] || '';
-    for (const token of expression.match(/(?:SUM|AVG|AVERAGE|MIN|MAX|COUNT|CONCAT|СУММ|СРЗНАЧ|МИН|МАКС|СЧЁТ|СЧЕТ|СЦЕПИТЬ)(?=\s*\()|(?:\d+(?:[.,]\d*)?|[.,]\d+)|[+*/()\-,;]/giu) || []) {
+    // Запятая сразу после «)» — разделитель аргументов, а не начало дроби: «SUM(SUM(a,b),1)» не читается как «.1».
+    const expression = /^(?:\s*(?:(?:SUM|AVG|AVERAGE|MIN|MAX|COUNT|CONCAT|СУММ|СРЗНАЧ|МИН|МАКС|СЧЁТ|СЧЕТ|СЦЕПИТЬ)(?=\s*\()|(?:\d+(?:[.,]\d*)?|(?<![\d)])[.,]\d+)|[+*/()\-,;]))*\s*/iu.exec(text)?.[0] || '';
+    for (const token of expression.match(/(?:SUM|AVG|AVERAGE|MIN|MAX|COUNT|CONCAT|СУММ|СРЗНАЧ|МИН|МАКС|СЧЁТ|СЧЕТ|СЦЕПИТЬ)(?=\s*\()|(?:\d+(?:[.,]\d*)?|(?<![\d)])[.,]\d+)|[+*/()\-,;]/giu) || []) {
       if (FORMULA_FN_RE.test(token)) {
         parts.push({ kind: 'operator', operator: token.toUpperCase() as any });
       } else if (/^[+*/()\-,;]$/.test(token)) {
