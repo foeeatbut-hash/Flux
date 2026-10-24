@@ -171,7 +171,18 @@ export function registerDictionaryRoutes(app: Express): void {
 
   app.delete('/api/dictionaries/items/:itemId', async (req: Request, res: Response) => {
     const prisma = getPrisma();
-    await prisma.dictionaryItem.delete({ where: { id: req.params.itemId } });
+    // Потомков снимаем явно: в локальной SQLite таблицы заведены без внешних
+    // ключей, и «каскад» схемы не срабатывает — варианты удалённой категории
+    // оставались в базе сиротами, хотя экран обещает удалить их вместе с ней.
+    const doomed: string[] = [];
+    let level = [req.params.itemId];
+    while (level.length && doomed.length < 100000) {
+      doomed.push(...level);
+      const next = await prisma.dictionaryItem.findMany({ where: { parentId: { in: level } }, select: { id: true } });
+      level = next.map((row: { id: string }) => row.id).filter((id: string) => !doomed.includes(id));
+    }
+    // Повторное удаление уже удалённого пункта — не ошибка: два окна могли нажать одновременно
+    await prisma.dictionaryItem.deleteMany({ where: { id: { in: doomed } } });
     res.json({ success: true });
   });
 }
