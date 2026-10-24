@@ -30,10 +30,12 @@ try {
     const initialPage = await browser.newPage({ viewport: { width: 900, height: 850 }, colorScheme: theme });
     initialPage.on('pageerror', error => { throw error; });
     await initialPage.goto((process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192') + '/importer.html?initial=1&theme=' + theme);
-    await initialPage.getByRole('button', { name: 'Показать план' }).waitFor();
-    if (await initialPage.getByLabel('Тег оборудования').inputValue() !== 'L23') throw new Error('Initial file did not seed the tag after stable reads');
-    await initialPage.getByRole('button', { name: 'Показать план' }).click();
+    // Файл из очереди мастера: план появляется сам, без повторного выбора файла и папки.
     await initialPage.getByRole('heading', { name: /Предпросмотр/ }).waitFor();
+    if (await initialPage.getByLabel('Тег оборудования').inputValue() !== 'L23') throw new Error('Queued file did not seed the tag');
+    if (await initialPage.getByRole('button', { name: /Выбрать XML/ }).count()) throw new Error('Queued file still asks to pick the XML again');
+    const reads = await initialPage.evaluate(() => (window).__importLog.filter(row => row.url.endsWith('/source-import/preview')).length);
+    if (reads !== 1) throw new Error(`Queued file must build exactly one plan, got ${reads}`);
     await initialPage.close();
   }
   const initialRace = await browser.newPage({ viewport: { width: 900, height: 850 } });

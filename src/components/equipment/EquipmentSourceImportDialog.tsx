@@ -1,12 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Check, FolderOpen, Loader2, Upload, X } from 'lucide-react';
-import { inferEquipmentSourceFilenameRule } from '../../../equipment/sourceXml';
+import { expandEquipmentUnitGroup, inferEquipmentSourceFilenameRule } from '../../../equipment/sourceXml';
 import { autoFixTag, PERMISSIVE_TAG_POLICY } from '../../../equipment/tagPolicy';
 import {
-  extractEquipmentXmlUnitTags, pickEquipmentSourceForImport, pickEquipmentSourceFolder, saveEquipmentSourceBinding,
+  extractEquipmentXmlUnitTags, extractRevisionFromXml, pickEquipmentSourceForImport, saveEquipmentSourceBinding,
   type EquipmentSourceImportPreview, type LocalEquipmentSourceBinding,
 } from '../../lib/equipmentSourcesLocal';
-import { windowsFilesRequest } from '../../lib/windowsFiles';
+import { windowsFilesRequest, type WindowsFileRef } from '../../lib/windowsFiles';
 import ImportFileChooser, { type ImportFileChooserHandle } from '../ImportFileChooser';
 import UnknownKinds from '../import/UnknownKinds';
 import type { PortableFolderLocator } from '../../../filesystem/contracts';
@@ -19,13 +19,40 @@ const api = (path: string) => `/api${path}`;
 const revisionOrder = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
 const toMessage = (error: unknown) => error instanceof Error ? error.message : 'Не удалось обработать XML-файл.';
 
+/**
+ * Снимок XML для плана. Ссылка на файл и папка есть только у файла из
+ * Проводника Windows: без них импорт идёт так же, просто без локальной
+ * привязки папки ревизий.
+ */
+type SourceFile = Omit<Extract<EquipmentSourceImportPreview, { status: 'ready' }>, 'selectedFile' | 'sourceFolder' | 'modifiedAt'> & {
+  selectedFile: { ref?: WindowsFileRef; name: string }; sourceFolder?: WindowsFileRef;
+};
+
+/** XML, уже прочитанный мастером импорта: план строится из этих байтов, повторный выбор файла не нужен. */
+export type InlineXmlSource = {
+  name: string; base64: string; sha256: string; size: number; text: string;
+  fileRef?: WindowsFileRef; sourceFolder?: WindowsFileRef; suggestedTag?: string; portableLocator?: PortableFolderLocator;
+};
+
+function inlineRevision(source: InlineXmlSource): { revision: string; revisionWarning?: string } {
+  const xmlRevision = extractRevisionFromXml(source.text) || '';
+  const base = source.sourceFolder?.relativePath ? `${source.sourceFolder.relativePath.replace(/\/$/u, '')}/` : '';
+  const path = source.fileRef?.relativePath || '';
+  const rest = base && path.startsWith(base) ? path.slice(base.length).split('/') : [];
+  const folderRevision = rest.length > 1 ? rest[0] : '';
+  const differs = xmlRevision && folderRevision && xmlRevision.trim().toUpperCase() !== folderRevision.trim().toUpperCase();
+  return { revision: xmlRevision || folderRevision || 'A', ...(differs ? { revisionWarning: `В XML указана ревизия ${xmlRevision}, а имя папки — ${folderRevision}; используется ревизия из XML.` } : {}) };
+}
+
 /** Первичный XML импорт: неизменяемый снимок → серверный план → явное применение. */
-export default function EquipmentSourceImportDialog(props: { projectId: string; categories: Category[]; canManage: boolean; onClose: () => void; onImported: (result: { source: ImportedSource; tagIdentifier: string; category: string; baselineApplied: boolean; bindingId?: string }) => void; embedded?: boolean; initialCategory?: string; initialUnits?: Array<{ name: string; title?: string; tags?: string[] }>; initialSelection?: { ref: import('../../lib/windowsFiles').WindowsFileRef; name: string; sourceFolder?: import('../../lib/windowsFiles').WindowsFileRef; suggestedTag?: string; portableLocator?: PortableFolderLocator }; expectedLedgerRevision?: number }) {
+export default function EquipmentSourceImportDialog(props: { projectId: string; categories: Category[]; canManage: boolean; onClose: () => void; onImported: (result: { source: ImportedSource; tagIdentifier: string; category: string; baselineApplied: boolean; bindingId?: string }) => void | Promise<void>; embedded?: boolean; initialCategory?: string; initialUnits?: Array<{ name: string; title?: string; tags?: string[] }>; inlineSource?: InlineXmlSource; category?: string; expectedLedgerRevision?: number; onAllImported?: () => void }) {
   const filePicker = useRef<ImportFileChooserHandle>(null);
   const folderPicker = useRef<ImportFileChooserHandle>(null);
-  const { projectId, categories, canManage, onClose, onImported, embedded = false, initialCategory, initialUnits, initialSelection, expectedLedgerRevision } = props;
-  const [category, setCategory] = useState(initialCategory || categories[0]?.id || '');
-  const [file, setFile] = useState<Extract<EquipmentSourceImportPreview, { status: 'ready' }> | null>(null);
+  const { projectId, categories, canManage, onClose, onImported, onAllImported, embedded = false, initialCategory, initialUnits, inlineSource, expectedLedgerRevision } = props;
+  // Встроенный в мастер импорта вид: категорию выбирают в шапке мастера.
+  const inline = Boolean(inlineSource);
+  const [category, setCategory] = useState(props.category || initialCategory || categories[0]?.id || '');
+  const [file, setFile] = useState<SourceFile | null>(null);
   const [tagIdentifier, setTagIdentifier] = useState('');
   const [xmlTagChoices, setXmlTagChoices] = useState<string[]>([]);
   const [revision, setRevision] = useState('');
@@ -39,6 +66,11 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
   const [notice, setNotice] = useState('');
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [tagLinkChoices, setTagLinkChoices] = useState<Record<string, string>>({});
+  // Один XML может описывать несколько одинаковых установок (001ABC → 001A, 001B, 001C):
+  // каждая отмеченная получает свою запись и свою привязку к этому же файлу.
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [doneTags, setDoneTags] = useState<string[]>([]);
+  const chainRef = useRef(false);
   const operationRef = useRef(0);
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
@@ -47,10 +79,36 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
   const clearReviewSelections = () => { setChoices({}); setTagLinkChoices({}); };
 
   useEffect(() => {
-    if (initialSelection && !file && !busy) void chooseFile(initialSelection);
-    // Источник открывается один раз на выбранный элемент очереди.
+    if (!inlineSource) return;
+    operationRef.current += 1;
+    const { revision: inferred, revisionWarning } = inlineRevision(inlineSource);
+    const picked: SourceFile = {
+      status: 'ready', selectedFile: { ...(inlineSource.fileRef ? { ref: inlineSource.fileRef } : {}), name: inlineSource.name },
+      ...(inlineSource.sourceFolder ? { sourceFolder: inlineSource.sourceFolder } : {}),
+      revision: inferred, ...(revisionWarning ? { revisionWarning } : {}),
+      sha256: inlineSource.sha256, size: inlineSource.size, base64: inlineSource.base64, text: inlineSource.text,
+    };
+    setSourceLocator(inlineSource.portableLocator);
+    acceptFile(picked, inlineSource.suggestedTag, true);
+    // Источник разбирается один раз на файл очереди.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialSelection?.ref.rootId, initialSelection?.ref.relativePath]);
+  }, [inlineSource?.sha256, inlineSource?.name]);
+
+  // Категорию встроенного вида задаёт мастер; смена категории меняет план.
+  useEffect(() => {
+    if (!inline || !props.category || props.category === category) return;
+    operationRef.current += 1;
+    setBusy(false); setCategory(props.category); setPlan(null); clearReviewSelections();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.category]);
+
+  // Встроенный вид сразу показывает план: тег, ревизия и категория уже известны.
+  const [autoPlan, setAutoPlan] = useState(0);
+  useEffect(() => {
+    if (!inline || !autoPlan || !file || !category || !tagIdentifier.trim() || plan) return;
+    void requestPlan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlan, category]);
 
   useEffect(() => {
     const projectChanged = previousProjectRef.current !== projectId;
@@ -62,14 +120,15 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
   }, [projectId]);
 
   useEffect(() => {
-    if (!file) return;
+    if (!file?.sourceFolder) return;
+    const rootId = file.sourceFolder.rootId;
     void windowsFilesRequest<{ roots: Array<{ id: string; name: string }> } | Array<{ id: string; name: string }> >({ action: 'roots' }).then(response => {
       if ('data' in response) {
         const roots = Array.isArray(response.data) ? response.data : response.data.roots;
-        setRootName(roots.find(root => root.id === file.sourceFolder.rootId)?.name || '');
+        setRootName(roots.find(root => root.id === rootId)?.name || '');
       }
-    });
-  }, [file?.sourceFolder.rootId]);
+    }).catch(() => undefined);
+  }, [file?.sourceFolder?.rootId]);
 
   const planTotals = plan?.plan?.totals || {};
   const units = useMemo(() => plan?.plan?.systems || plan?.plan?.units || [], [plan]);
@@ -91,7 +150,45 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
     return { ...link, action: selected };
   });
 
-  const chooseFile = async (selected?: { ref: import('../../lib/windowsFiles').WindowsFileRef; name: string; sourceFolder?: import('../../lib/windowsFiles').WindowsFileRef; suggestedTag?: string; portableLocator?: PortableFolderLocator }) => {
+  /** Тег и ревизия по снимку XML; `fromQueue` — файл пришёл из очереди мастера с уже разобранными установками. */
+  const acceptFile = (picked: SourceFile, suggested: string | undefined, fromQueue: boolean) => {
+    const extracted = extractEquipmentXmlUnitTags(picked.text);
+    const normalize = (value: unknown) => { const text = String(value || '').trim(); return autoFixTag(text, PERMISSIVE_TAG_POLICY)?.identifier || text; };
+    const primaryUnitNames = fromQueue && initialUnits?.length ? initialUnits.map(unit => normalize(unit.name)).filter(Boolean) : [];
+    const fromInitialUnits = fromQueue && initialUnits?.length ? initialUnits.flatMap(unit => [unit.name, ...(unit.tags || [])]).map(normalize).filter(Boolean) : [];
+    const rawNames = Array.from(new Set(primaryUnitNames.length === 1 ? primaryUnitNames : [...fromInitialUnits, ...extracted]));
+    const groups = rawNames.map(name => ({ name, members: expandEquipmentUnitGroup(name) }));
+    const groupMembers = groups.flatMap(group => group.members);
+    const uniqueNames = Array.from(new Set(groups.flatMap(group => group.members.length ? group.members : [group.name])));
+    clearReviewSelections(); setPlan(null); setError(''); setNotice(''); setDoneTags([]); chainRef.current = false;
+    setXmlTagChoices(uniqueNames);
+    const suggestedTag = suggested && (!uniqueNames.length || uniqueNames.includes(suggested)) ? suggested : '';
+    const firstTag = suggestedTag || uniqueNames[0] || '';
+    setSelectedTags(groupMembers.length ? groupMembers : firstTag ? [firstTag] : []);
+    setFile(picked); setTagIdentifier(groupMembers.length && !suggestedTag ? groupMembers[0] : firstTag); setRevision(picked.revision); setFolderName(picked.sourceFolder?.relativePath || '');
+    if (fromQueue) setAutoPlan(value => value + 1);
+  };
+
+  // Следующая установка группы: план без спорных мест подтверждается сам, спорный ждёт инженера.
+  useEffect(() => {
+    if (!chainRef.current || !plan || busy) return;
+    if (safeToApply && (units.length || blocks.length) && !applyTagLinks.some((link: any) => ['ambiguous', 'invalid'].includes(link.action))) { void applyImport(); return; }
+    chainRef.current = false;
+    setNotice(`Проверьте план для ${tagIdentifier} и подтвердите импорт.`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan]);
+
+  const toggleTag = (tag: string) => {
+    const next = selectedTags.includes(tag) ? selectedTags.filter(item => item !== tag) : xmlTagChoices.filter(item => item === tag || selectedTags.includes(item));
+    setSelectedTags(next);
+    const current = next.find(item => !doneTags.includes(item)) || '';
+    if (current === tagIdentifier) return;
+    operationRef.current += 1; setBusy(false); chainRef.current = false;
+    setTagIdentifier(current); setPlan(null); clearReviewSelections();
+    if (current && inline) setAutoPlan(value => value + 1);
+  };
+
+  const chooseFile = async (selected?: { ref: WindowsFileRef; name: string; sourceFolder?: WindowsFileRef; suggestedTag?: string; portableLocator?: PortableFolderLocator }) => {
     if (!canManage) return;
     if (!selected) { filePicker.current?.open(); return; }
     const operation = ++operationRef.current;
@@ -102,34 +199,8 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
       if ('error' in result) throw new Error(result.error.message);
       if (result.data.status === 'canceled') return;
       if (result.data.status !== 'ready') throw new Error(result.data.message);
-      const picked = result.data;
       setSourceLocator(selected.portableLocator);
-      const extracted = extractEquipmentXmlUnitTags(picked.text);
-      const primaryUnitNames = selected === initialSelection && initialUnits?.length
-        ? initialUnits.map(unit => { const text = String(unit.name || '').trim(); return autoFixTag(text, PERMISSIVE_TAG_POLICY)?.identifier || text; }).filter(Boolean)
-        : [];
-      const fromInitialUnits = selected === initialSelection && initialUnits?.length
-        ? initialUnits.flatMap(unit => [unit.name, ...(unit.tags || [])]).map(val => { const text = String(val || '').trim(); return autoFixTag(text, PERMISSIVE_TAG_POLICY)?.identifier || text; }).filter(Boolean)
-        : [];
-      const uniqueNames = Array.from(new Set(primaryUnitNames.length === 1 ? primaryUnitNames : [...fromInitialUnits, ...extracted]));
-      clearReviewSelections();
-      setXmlTagChoices(uniqueNames);
-      const suggestedTag = picked.suggestedTag && (!uniqueNames.length || uniqueNames.includes(picked.suggestedTag)) ? picked.suggestedTag : '';
-      const resolvedTag = suggestedTag || uniqueNames[0] || '';
-      setFile(picked); setTagIdentifier(resolvedTag); setRevision(picked.revision); setFolderName(picked.sourceFolder.relativePath);
-      if (embedded && selected === initialSelection && resolvedTag && category) {
-        const body = {
-          projectId, category, fileName: picked.selectedFile.name, revision: picked.revision.trim(),
-          tagIdentifier: resolvedTag.trim(), sha256: picked.sha256, size: picked.size, base64: picked.base64, choices: {},
-          ...(picked.sourceFolder && selected.portableLocator ? { locator: selected.portableLocator } : {}),
-          ...(Number.isSafeInteger(ledgerRevision) ? { expectedLedgerRevision: ledgerRevision } : {}),
-        };
-        const response = await fetch(api('/equipment/source-import/preview'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        const payload = await response.json().catch(() => ({}));
-        if (operation !== operationRef.current) return;
-        if (response.ok && payload.success !== false) setPlan(payload as PlanDto);
-        else if (payload?.error) setError(String(payload.error));
-      }
+      acceptFile(result.data, result.data.suggestedTag, false);
     } catch (reason) { if (operation === operationRef.current) setError(toMessage(reason)); }
     finally { if (operation === operationRef.current) setBusy(false); }
   };
@@ -137,12 +208,14 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
   const changeFolder = async (selectedFolder?: import('../../lib/windowsFiles').WindowsFileRef) => {
     if (!canManage || !file) return;
     if (!selectedFolder) { folderPicker.current?.open(); return; }
+    if (!file.selectedFile.ref) { setError('Файл загружен не из Проводника Windows: папку ревизий можно связать позже в карточке установки.'); return; }
     const operation = ++operationRef.current;
     setBusy(true); setError('');
     try {
       if (operation !== operationRef.current) return;
       const sourceFile = file.selectedFile.ref;
       const folder = selectedFolder;
+      if (!sourceFile) return;
       const prefix = folder.relativePath ? `${folder.relativePath.replace(/\/$/u, '')}/` : '';
       if (sourceFile.rootId !== folder.rootId || !sourceFile.relativePath.startsWith(prefix)) throw new Error('Выбранный XML не находится внутри указанной папки.');
       if (!sourceFile.relativePath.slice(prefix.length).includes('/')) throw new Error('Папка источника должна содержать подпапки ревизий. Выберите родительскую папку XML.');
@@ -200,41 +273,51 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
       const selectedRule = inferEquipmentSourceFilenameRule(ruleFileName, tagIdentifier) || (/\.xml$/iu.test(ruleFileName) ? { kind: 'selected-name' as const, fileName: ruleFileName } : null);
       try {
         if (!selectedRule) throw new Error('Правило имени XML не определено.');
+        if (!file.selectedFile.ref || !file.sourceFolder) throw new Error('файл выбран не из Проводника Windows');
         const binding: LocalEquipmentSourceBinding = { sourceId: source.sourceId, projectId, tagId: source.tagId, systemId: source.systemId, elementId: source.elementId, targetType: 'system', tagIdentifier, rootId: file.sourceFolder.rootId, relativePath: file.sourceFolder.relativePath, selectedFileRef: file.selectedFile.ref, revisionOrder: source.revisionOrder || revisionOrder, selectedRule };
         saveEquipmentSourceBinding(binding);
         setNotice('Импорт выполнен, а локальная папка ревизий связана с этой установкой.');
       } catch (reason) {
         setNotice(`Оборудование импортировано. Локальную папку XML нужно перепривязать в карточке установки${reason instanceof Error ? `: ${reason.message}` : '.'}`);
       }
-      onImported({ source, tagIdentifier, category, baselineApplied: payload.baselineApplied !== false, bindingId: payload.associations?.bindingId || payload.bindingId || source.sourceId });
+      await onImported({ source, tagIdentifier, category, baselineApplied: payload.baselineApplied !== false, bindingId: payload.associations?.bindingId || payload.bindingId || source.sourceId });
+      const done = [...doneTags, tagIdentifier];
+      setDoneTags(done);
+      const next = selectedTags.find(tag => !done.includes(tag));
+      if (!next) { chainRef.current = false; onAllImported?.(); return; }
+      // Каждая запись меняет журнал привязок: следующую установку планируем от свежей ревизии.
+      try { setLedgerRevision((await loadEquipmentDocumentBindings(projectId)).revision); } catch (_) { /* Сервер вернёт 409, и план перестроится. */ }
+      if (operation !== operationRef.current) return;
+      chainRef.current = true;
+      setTagIdentifier(next); setPlan(null); clearReviewSelections(); setAutoPlan(value => value + 1);
     } catch (reason) { if (operation === operationRef.current && projectAtStart === projectIdRef.current) setError(toMessage(reason)); }
     finally { if (operation === operationRef.current && projectAtStart === projectIdRef.current) setBusy(false); }
   };
 
   const close = () => { if (!busy) onClose(); };
-  const folderLabel = [rootName, folderName].filter(Boolean).join(' · ') || 'Выбранная папка';
+  const folderLabel = [rootName, folderName].filter(Boolean).join(' · ') || (file?.sourceFolder ? 'Выбранная папка' : 'не связана (файл загружен с диска)');
   return (
     <>
     <ImportFileChooser ref={filePicker} accept=".xml" label="Выбрать XML" trigger={() => null} onFiles={() => {}} onWindowsFile={(ref, entry, context) => { void chooseFile({ ref, name: entry.name, ...context }); }} />
     <ImportFileChooser ref={folderPicker} selectFolder label="Выбрать папку XML" trigger={() => null} onFiles={() => {}} onWindowsFolder={ref => { void changeFolder(ref); }} />
-    <div className={embedded ? 'flex h-full min-h-0 flex-col overflow-hidden' : 'fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/40 p-3'} role="dialog" aria-modal={embedded ? undefined : true} aria-labelledby="equipment-source-import-title">
-      <div className={embedded ? 'flex h-full min-h-0 w-full flex-col overflow-hidden' : 'flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md dark:border-slate-700 dark:bg-slate-950'}>
-        <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800"><div><h2 id="equipment-source-import-title" className="text-sm font-semibold">Загрузить оборудование из XML</h2><p className="text-xs text-slate-500 dark:text-slate-400">Сначала проверьте план; данные проекта изменятся только после подтверждения.</p></div><button type="button" onClick={close} disabled={busy} aria-label="Закрыть" className="rounded p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-900"><X className="h-4 w-4" /></button></header>
-        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+    <div className={inline ? 'flex flex-col rounded-xl border border-slate-200 dark:border-slate-800' : embedded ? 'flex h-full min-h-0 flex-col overflow-hidden' : 'fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/40 p-3'} role={inline ? 'region' : 'dialog'} aria-modal={embedded || inline ? undefined : true} aria-labelledby="equipment-source-import-title">
+      <div className={inline ? 'flex w-full flex-col' : embedded ? 'flex h-full min-h-0 w-full flex-col overflow-hidden' : 'flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md dark:border-slate-700 dark:bg-slate-950'}>
+        {inline ? <header className="border-b border-slate-200 px-3 py-2 dark:border-slate-800"><h3 id="equipment-source-import-title" className="text-sm font-semibold">Загрузка установки из XML</h3><p className="text-xs text-slate-500 dark:text-slate-400">План строится по этому файлу; данные проекта изменятся только после подтверждения.</p></header> : <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800"><div><h2 id="equipment-source-import-title" className="text-sm font-semibold">Загрузить оборудование из XML</h2><p className="text-xs text-slate-500 dark:text-slate-400">Сначала проверьте план; данные проекта изменятся только после подтверждения.</p></div><button type="button" onClick={close} disabled={busy} aria-label="Закрыть" className="rounded p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-900"><X className="h-4 w-4" /></button></header>}
+        <div className={inline ? 'space-y-3 p-3' : 'min-h-0 flex-1 space-y-3 overflow-y-auto p-4'}>
           {!canManage && <div className="rounded border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">Недостаточно прав для импорта оборудования.</div>}
-          <div className="flex flex-wrap items-end gap-2">
-            {!(embedded && initialSelection && file) && <button type="button" onClick={() => void chooseFile()} disabled={!canManage || busy} className="inline-flex items-center gap-1.5 rounded border border-slate-300 px-3 py-2 text-xs hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-900"><Upload className="h-3.5 w-3.5" />{file ? 'Выбрать другой XML' : 'Выбрать XML-файл'}</button>}
+          {!inline && <div className="flex flex-wrap items-end gap-2">
+            <button type="button" onClick={() => void chooseFile()} disabled={!canManage || busy} className="inline-flex items-center gap-1.5 rounded border border-slate-300 px-3 py-2 text-xs hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-900"><Upload className="h-3.5 w-3.5" />{file ? 'Выбрать другой XML' : 'Выбрать XML-файл'}</button>
             <label className="min-w-[190px] flex-1 text-xs text-slate-600 dark:text-slate-300">Категория оборудования<select value={category} onChange={event => { operationRef.current += 1; setBusy(false); setCategory(event.target.value); setPlan(null); clearReviewSelections(); }} disabled={busy || !canManage} className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-900">{categories.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-          </div>
+          </div>}
           {file && <div className="rounded border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
             <div className="grid gap-2 sm:grid-cols-2">
-              <label className="min-w-0 text-xs text-slate-600 dark:text-slate-300">Тег оборудования{xmlTagChoices.length > 1 ? <select value={tagIdentifier} onChange={event => { operationRef.current += 1; setBusy(false); setTagIdentifier(event.target.value); setPlan(null); clearReviewSelections(); }} disabled={busy || !canManage} className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-950"><option value="">Выберите корневой тег из XML</option>{xmlTagChoices.map(value => <option key={value} value={value}>{value}</option>)}</select> : <input value={tagIdentifier} onChange={event => { operationRef.current += 1; setBusy(false); setTagIdentifier(event.target.value); setPlan(null); clearReviewSelections(); }} disabled={busy || !canManage} placeholder="Тег из имени установки в XML" className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-950" />}</label>
+              {xmlTagChoices.length > 1 ? <fieldset className="min-w-0 text-xs text-slate-600 dark:text-slate-300"><legend>Установки из этого файла</legend><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">{xmlTagChoices.map(value => <label key={value} className="inline-flex items-center gap-1.5"><input type="checkbox" checked={selectedTags.includes(value)} onChange={() => toggleTag(value)} disabled={busy || !canManage || doneTags.includes(value)} /><span className={value === tagIdentifier ? 'font-semibold text-slate-900 dark:text-white' : ''}>{value}</span>{doneTags.includes(value) && <Check className="h-3 w-3 text-emerald-600" aria-label="импортирована" />}</label>)}</div>{selectedTags.length > 1 && <p className="mt-1 text-slate-500 dark:text-slate-400">План ниже — для {tagIdentifier || '—'}; остальные отмеченные установки загрузятся следом из этого же файла.</p>}</fieldset> : <label className="min-w-0 text-xs text-slate-600 dark:text-slate-300">Тег оборудования<input value={tagIdentifier} onChange={event => { operationRef.current += 1; setBusy(false); setTagIdentifier(event.target.value); setSelectedTags(event.target.value.trim() ? [event.target.value] : []); setPlan(null); clearReviewSelections(); }} disabled={busy || !canManage} placeholder="Тег из имени установки в XML" className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-950" /></label>}
               <label className="text-xs text-slate-600 dark:text-slate-300">Ревизия<input value={revision} onChange={event => { operationRef.current += 1; setBusy(false); setRevision(event.target.value); setPlan(null); clearReviewSelections(); }} disabled={busy || !canManage} className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-950" /></label>
               <div className="min-w-0 text-xs sm:col-span-2"><span className="text-slate-500 dark:text-slate-400">Файл: </span><span className="break-all">{file.selectedFile.name}</span></div>
               <div className="min-w-0 break-all text-xs sm:col-span-2"><span className="text-slate-500 dark:text-slate-400">Папка источника: </span>{folderLabel}</div>
             </div>
             {file.revisionWarning && <p className="mt-2 text-xs text-amber-800 dark:text-amber-300" role="status">{file.revisionWarning}</p>}
-            {!(embedded && initialSelection) && <button type="button" onClick={() => void changeFolder()} disabled={busy || !canManage} className="mt-2 inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs dark:border-slate-700"><FolderOpen className="h-3.5 w-3.5" />Исправить папку источника</button>}
+            {!inline && <button type="button" onClick={() => void changeFolder()} disabled={busy || !canManage} className="mt-2 inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs dark:border-slate-700"><FolderOpen className="h-3.5 w-3.5" />Исправить папку источника</button>}
           </div>}
           {error && <div role="alert" className="flex gap-2 rounded border border-rose-300 bg-rose-50 p-2 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"><AlertTriangle className="h-4 w-4 shrink-0" />{error}</div>}
           {notice && <div role="status" className="rounded border border-emerald-300 bg-emerald-50 p-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">{notice}</div>}
@@ -256,8 +339,8 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
           </section>}
         </div>
         <footer className="flex flex-wrap justify-between gap-2 border-t border-slate-200 px-4 py-3 dark:border-slate-800">
-          <button type="button" onClick={close} disabled={busy} className="rounded border border-slate-300 px-3 py-2 text-xs dark:border-slate-700">Закрыть</button>
-          <div className="flex flex-wrap gap-2">{file && <button type="button" onClick={() => void requestPlan()} disabled={!canManage || busy || !category || !tagIdentifier.trim()} className="rounded border border-slate-300 px-3 py-2 text-xs disabled:opacity-50 dark:border-slate-700">{busy && !plan ? <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" /> : null}Показать план</button>}{plan && <button type="button" onClick={() => void applyImport()} disabled={!canManage || busy || !safeToApply || !units.length && !blocks.length || applyTagLinks.some((link: any) => ['ambiguous', 'invalid'].includes(link.action))} title={!safeToApply ? 'Сначала разрешите все спорные сопоставления и теги.' : undefined} className="inline-flex items-center gap-1 rounded bg-emerald-700 px-3 py-2 text-xs text-white disabled:opacity-50"><Check className="h-3.5 w-3.5" />Подтвердить импорт</button>}</div>
+          {inline ? <span /> : <button type="button" onClick={close} disabled={busy} className="rounded border border-slate-300 px-3 py-2 text-xs dark:border-slate-700">Закрыть</button>}
+          <div className="flex flex-wrap gap-2">{file && <button type="button" onClick={() => void requestPlan()} disabled={!canManage || busy || !category || !tagIdentifier.trim()} className="rounded border border-slate-300 px-3 py-2 text-xs disabled:opacity-50 dark:border-slate-700">{busy && !plan ? <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" /> : null}Показать план</button>}{plan && <button type="button" onClick={() => void applyImport()} disabled={!canManage || busy || !safeToApply || !units.length && !blocks.length || applyTagLinks.some((link: any) => ['ambiguous', 'invalid'].includes(link.action))} title={!safeToApply ? 'Сначала разрешите все спорные сопоставления и теги.' : undefined} className="inline-flex items-center gap-1 rounded bg-emerald-700 px-3 py-2 text-xs text-white disabled:opacity-50"><Check className="h-3.5 w-3.5" />{selectedTags.filter(tag => !doneTags.includes(tag)).length > 1 ? `Подтвердить импорт · ${selectedTags.filter(tag => !doneTags.includes(tag)).length} установки` : 'Подтвердить импорт'}</button>}</div>
         </footer>
       </div>
     </div>

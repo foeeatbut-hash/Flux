@@ -10,7 +10,7 @@ import { importEquipmentToDB } from '../equipmentImport.js';
 import { cleanChoices } from '../equipmentResolve.js';
 import { cleanTagLinks } from './equipmentDraft.js';
 import type { TagLink } from '../equipmentTags.js';
-import { inferEquipmentSourceFilenameRule, matchesEquipmentSourceFilename, type EquipmentSourceFilenameRule } from '../../equipment/sourceXml.js';
+import { expandEquipmentUnitGroup, inferEquipmentSourceFilenameRule, matchesEquipmentSourceFilename, type EquipmentSourceFilenameRule } from '../../equipment/sourceXml.js';
 import { actorMay } from '../projectAccess.js';
 import { canSeeProject, roleGrantsOf } from './members.js';
 import { isPrivilegedUser } from '../accessPolicy.js';
@@ -53,7 +53,8 @@ function validateInput(body: RequestData) {
 }
 
 function selectedUnit(result: EquipParseResult, identifier: string): ParsedUnit {
-  const hits = result.units.filter(unit => tagKey(unit.name) === tagKey(identifier) || (unit.tags || []).some(tag => tagKey(tag) === tagKey(identifier)));
+  const names = (unit: ParsedUnit) => [unit.name, ...(unit.tags || [])].flatMap(name => [name, ...expandEquipmentUnitGroup(String(name || ''))]);
+  const hits = result.units.filter(unit => names(unit).some(name => tagKey(name) === tagKey(identifier)));
   if (hits.length !== 1) throw error(hits.length ? `Корневой тег «${identifier}» найден в XML несколько раз.` : `Корневой тег «${identifier}» не совпадает ни с именем установки, ни с её тегами.`);
   return hits[0];
 }
@@ -74,15 +75,20 @@ async function parseBody(body: RequestData) {
   if (!parsed.units.length) throw error('В XML не найдены установки для импорта.');
   const unit = selectedUnit(parsed, input.identifier);
   const rule = sourceRule(input.fileName, input.identifier);
+  // Установка из группы «…001ABC» получает своё имя (001A): иначе 001A, 001B и
+  // 001C сопоставились бы с одной и той же записью и затёрли друг друга.
+  const groupMember = tagKey(unit.name) !== tagKey(input.identifier)
+    && !(unit.tags || []).some(tag => tagKey(tag) === tagKey(input.identifier))
+    && [unit.name, ...(unit.tags || [])].some(name => expandEquipmentUnitGroup(String(name || '')).some(member => tagKey(member) === tagKey(input.identifier)));
   // Тег корня — пользовательский выбор для импорта. Добавляем его к штатному
   // служебному блоку, чтобы общий планировщик и импортёр одинаково связали его.
   const result: EquipParseResult = {
     ...parsed,
     units: parsed.units.map(item => item === unit
-      ? { ...item, tags: Array.from(new Set([...(item.tags || []), input.identifier])) }
+      ? { ...item, ...(groupMember ? { name: input.identifier } : {}), tags: Array.from(new Set([...(item.tags || []).filter(tag => !groupMember || tagKey(tag) !== tagKey(unit.name)), input.identifier])) }
       : item),
   };
-  return { ...input, text, sha256, result, unitName: unit.name, rule, locator: body.locator };
+  return { ...input, text, sha256, result, unitName: groupMember ? input.identifier : unit.name, rule, locator: body.locator };
 }
 
 function normalizedPlanOptions(body: RequestData) {

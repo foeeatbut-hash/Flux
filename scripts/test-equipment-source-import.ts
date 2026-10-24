@@ -223,6 +223,23 @@ async function main() {
       (await prisma.equipmentXmlSource.count({ where: { projectId: 'source-import-project', deletedAt: null } })) === 2
       && (await prisma.equipmentXmlSource.findUnique({ where: { id: bBody.source.sourceId } }))?.tagIdentifier === b.tagIdentifier);
 
+    // Один XML на группу одинаковых установок «…001ABC»: каждая буква — своя установка.
+    const groupBase = makeBody('5100-B01-AS-001ABC', '5100-B01-AS-001ABC.xml');
+    const groupIds: string[] = [];
+    for (const member of ['5100-B01-AS-001A', '5100-B01-AS-001B']) {
+      const body = { ...groupBase, tagIdentifier: member };
+      const groupPreview = await post('preview', body);
+      assert.equal(groupPreview.status, 200, (await groupPreview.clone().text()).slice(0, 300));
+      const groupPlan = await groupPreview.json();
+      const groupChoices = Object.fromEntries([...(groupPlan.plan.matches || []), ...(groupPlan.plan.systemRows || [])].map((row: any) => [row.key, row.default || row.options?.[0]?.value]));
+      const groupApplied = await post('apply', { ...body, choices: groupChoices, previewToken: groupPlan.previewToken });
+      assert.equal(groupApplied.status, 200, (await groupApplied.clone().text()).slice(0, 500));
+      groupIds.push((await groupApplied.json()).source.systemId);
+    }
+    const groupSystems = await prisma.equipmentSystem.findMany({ where: { id: { in: groupIds } }, select: { name: true } });
+    check('установки группы 001ABC из одного XML создаются отдельными системами со своими именами',
+      groupIds[0] !== groupIds[1] && groupSystems.map((row: any) => row.name).sort().join() === '5100-B01-AS-001A,5100-B01-AS-001B');
+
     const documentText = Buffer.from(makeBody('DOC-01-AHU-001', 'temporary.xml').base64, 'base64').toString('utf8');
     const documentUnits = parseEquipmentXML(documentText).units;
     const documentPlanResponse = await postApi('/api/equipment/import-draft-plan', { units: documentUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'form.docx' });

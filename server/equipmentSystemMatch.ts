@@ -58,6 +58,13 @@ const related = (a: string, b: string): boolean => {
   return !!x && !!y && (x.includes(y) || y.includes(x) || distance(x, y) <= 2);
 };
 
+/** Имена отличаются только последней буквой после номера: «…-001A» и «…-001B». */
+function groupSiblings(a: string, b: string): boolean {
+  const x = /^(.*\d)(\p{L})$/u.exec(a.normalize('NFC').trim());
+  const y = /^(.*\d)(\p{L})$/u.exec(b.normalize('NFC').trim());
+  return !!x && !!y && x[1].toLowerCase() === y[1].toLowerCase() && x[2].toLowerCase() !== y[2].toLowerCase();
+}
+
 export interface ResolveArgs {
   existing: SysLite[];
   /** Установки, уже занятые другой установкой этого же ввоза */
@@ -74,7 +81,8 @@ export async function resolveSystem(a: ResolveArgs): Promise<SystemResolution> {
   const { unit } = a;
   const key = systemRowKey(unit.name, unit.fileName);
   const asked = a.choices?.[key];
-  const open = a.existing.filter(s => !a.claimed.has(s.id));
+  // 001A и 001B — разные экземпляры одной группы (расчёт «001ABC»), а не переименование.
+  const open = a.existing.filter(s => !a.claimed.has(s.id) && !groupSiblings(s.name, unit.name));
   const { hits, how } = matchSystems(open, unit.name);
 
   if (hits.length === 0) {
