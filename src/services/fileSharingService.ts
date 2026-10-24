@@ -4,9 +4,10 @@ import { openHref } from '../lib/fileTypes';
 
 export interface ShareState { fileId: string; ownerId: string; audience: 'NONE' | 'USERS' | 'ALL'; permission: 'VIEW' | 'EDIT'; recipients: string[]; epoch: number; state: 'PENDING' | 'READY' }
 export interface SharedFile { id: string; name: string; size: number; updatedAt: string; ownerId: string; ownerName: string; permission: 'OWNER' | 'VIEW' | 'EDIT'; epoch: number }
-export interface SourceBinding { sourceKey: string; fileId: string; ref: WindowsFileRef; name: string; baseSha: string; status?: string; stoppedReason?: 'draft-missing'; audience?: ShareState['audience'] }
+export interface SourceBinding { sourceKey: string; fileId: string; ref: WindowsFileRef; name: string; baseSha: string; status?: string; stoppedReason?: 'draft-missing' | 'source-missing'; audience?: ShareState['audience'] }
 const missingDraftStatus = 'Исходный черновик удалён на этом устройстве. Автоматическая синхронизация остановлена; общая версия сохранена.';
-const isMissingDraftBinding = (binding: SourceBinding) => binding.stoppedReason === 'draft-missing';
+const missingSourceStatus = 'Исходный файл в Проводнике не найден. Автоматическая синхронизация остановлена; общая версия сохранена на сервере.';
+const isMissingDraftBinding = (binding: SourceBinding) => binding.stoppedReason === 'draft-missing' || binding.stoppedReason === 'source-missing';
 const storageKey = (actorId: string) => `flux.shared-sources:${ENV_CONFIG.apiUrl}:${actorId}`;
 const deviceKey = 'flux.shared-device';
 const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
@@ -123,6 +124,10 @@ async function syncSourceOnce(actorId: string, binding: SourceBinding, isCurrent
     if (err?.code === 'DRAFT_MISSING') {
       if (isCurrent()) remember(actorId, { ...binding, status: missingDraftStatus, stoppedReason: 'draft-missing' });
       return missingDraftStatus;
+    }
+    if (err?.code === 'ENOENT') {
+      if (isCurrent()) remember(actorId, { ...binding, status: missingSourceStatus, stoppedReason: 'source-missing' });
+      return missingSourceStatus;
     }
     const message = `Синхронизация приостановлена: ${err?.message || 'исходник недоступен'}. Общая версия сохранена на сервере.`;
     if (isCurrent()) remember(actorId, { ...binding, status: message }); return message;

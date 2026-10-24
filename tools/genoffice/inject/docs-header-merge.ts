@@ -256,7 +256,7 @@ async function mergeDocHeaderColumns(editor: Editor, request: any): Promise<any>
     row.forEach((cell: any) => { if (cellAnchorId(cell)) bound = true })
     if (bound && headerRow < 0) headerRow = rowIndex
   })
-  if (!target || !source || target.row !== source.row || target.row !== headerRow || source.col !== target.col + 1 || !['docTableCell', 'docTableHeader'].includes(target.cell.type.name) || !['docTableCell', 'docTableHeader'].includes(source.cell.type.name)) throw new Error('Выберите два соседних Flux-заголовка одной строки таблицы')
+  if (!target || !source || target.row !== source.row || target.row !== headerRow || Math.abs(source.col - target.col) !== 1 || !['docTableCell', 'docTableHeader'].includes(target.cell.type.name) || !['docTableCell', 'docTableHeader'].includes(source.cell.type.name)) throw new Error('Выберите два соседних Flux-заголовка одной строки таблицы')
   if (map.width <= source.col) throw new Error('Столбец исходного заголовка отсутствует в таблице')
   const otherSourceAnchors: string[][] = []
   for (const row of rows) {
@@ -319,7 +319,8 @@ async function mergeDocHeaderColumns(editor: Editor, request: any): Promise<any>
   }
   const nextTable = table.type.create(table.attrs, Fragment.fromArray(rowsOut))
   const priorRows = Array.isArray(request.rows) ? request.rows : []
-  const mergedRows = mergeOfficeRowsAfterHeaderMerge(priorRows, targetId, sourceIds[0], actualMergedColumnValues(nextTable, target.col))
+  const mergedCol = target.col > source.col ? target.col - 1 : target.col
+  const mergedRows = mergeOfficeRowsAfterHeaderMerge(priorRows, targetId, sourceIds[0], actualMergedColumnValues(nextTable, mergedCol))
   const tr = editor.state.tr.replaceWith(tablePos, tablePos + table.nodeSize, nextTable).setMeta('fluxFieldCommand', true)
   editor.view.dispatch(tr.scrollIntoView())
   const headers = schema.anchors.map((anchor: any) => ({ ...anchor, parts: readNativeHeader(editor, String(anchor.id), anchor) || [] }))

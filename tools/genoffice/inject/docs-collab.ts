@@ -329,11 +329,11 @@ function splitNativeText(text: string, followsField: boolean): NativeOfficePart[
     if (prefixOperator[4]) out.push({ kind: 'text', text: prefixOperator[4] })
     return out
   }
-  const standalone = /^(\s*)([+\-*/()])(\s*)$/.exec(text)
+  const standalone = /^(\s*)([+\-*/(),;])(\s*)$/.exec(text)
   if (standalone) {
     const out: NativeOfficePart[] = []
     if (standalone[1]) out.push({ kind: 'text', text: standalone[1] })
-    out.push({ kind: 'operator', operator: standalone[2] as any })
+    out.push({ kind: 'operator', operator: (standalone[2] === ';' ? ',' : standalone[2]) as any })
     if (standalone[3]) out.push({ kind: 'text', text: standalone[3] })
     return out
   }

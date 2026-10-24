@@ -104,7 +104,7 @@ export function useFluxCellActions(options: Options) {
       return true;
     }
     const schema: OfficeHeaderSchema = { ...state.schema, anchors: state.schema.anchors.map((item) => item.id === anchorId ? { ...item, parts: [...item.parts, { kind: 'field', binding }] } : item) };
-    const next = await options.updateSchema(schema, { captureNative: true });
+    const next = await options.updateSchema(schema, { captureNative: true, displayLabels: labelsOf() });
     if (next) { setState(next); options.resumeFocus?.(anchorId, labeled(next.schema)); }
     setSelection([]);
     return !!next;
@@ -135,8 +135,8 @@ export function useFluxCellActions(options: Options) {
     syncing.current = true;
     try {
       const live = await options.requestState();
-      const stored = await officeDataApi.state(options.fileId);
-      if (!live || !stored.schema.anchors.length) return;
+      const stored = await officeDataApi.state(options.fileId).catch(() => state);
+      if (!live || !stored?.schema.anchors.length) return;
       // Только формулы (ячейка начинается с «=»): обычную подпись рядом с меткой схема не хранит,
       // и перезапись таких ячеек сбивала бы выделение. Сравниваем состав частей, а не служебные поля.
       const shape = (parts: OfficeHeaderSchema['anchors'][number]['parts']) => parts.map((part: any) => part.kind === 'field' ? `f:${part.binding.sourceId}:${part.binding.fieldKey}` : part.kind === 'union' ? `u:${part.alternatives.map((item: any) => item.fieldKey).join(',')}` : part.kind === 'operator' ? `o:${part.operator}` : `t:${part.text}`).join('|');

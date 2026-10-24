@@ -60,8 +60,10 @@ function selectedUnit(result: EquipParseResult, identifier: string): ParsedUnit 
 
 function sourceRule(fileName: string, identifier: string): EquipmentSourceFilenameRule {
   const rule = inferEquipmentSourceFilenameRule(fileName, identifier);
-  if (!rule || !matchesEquipmentSourceFilename(fileName, identifier, rule)) throw error(`Имя файла «${fileName}» не содержит точный тег «${identifier}».`);
-  return rule;
+  if (rule && matchesEquipmentSourceFilename(fileName, identifier, rule)) return rule;
+  const hasConflictingPlantTag = /\b\d{3,4}-[A-ZА-ЯЁ0-9]+-[A-ZА-ЯЁ0-9]+-\d+\b/iu.test(fileName);
+  if (hasConflictingPlantTag || !/\.xml$/iu.test(fileName)) throw error(`Имя файла «${fileName}» не содержит точный тег «${identifier}».`);
+  return { kind: 'selected-name', fileName };
 }
 
 async function parseBody(body: RequestData) {

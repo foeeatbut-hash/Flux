@@ -90,8 +90,15 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
   const provenanceForFilename = async (filename: string) => {
     try {
       const folder = path.dirname(filename);
-      const ref = await service.refForShellPath(folder);
-      if (!ref) return undefined;
+      let ref = await service.refForShellPath(folder);
+      if (!ref) {
+        const folderBase = path.basename(folder);
+        const parentFolder = path.dirname(folder);
+        const isRevisionDir = (/^[A-Z]$/iu.test(folderBase) || /^\d{1,2}$/u.test(folderBase)) && parentFolder && parentFolder !== folder;
+        const rootFolder = isRevisionDir ? parentFolder : folder;
+        const root = await service.addRoot(rootFolder, path.basename(rootFolder) || rootFolder);
+        ref = { rootId: root.id, relativePath: isRevisionDir ? folderBase : '' };
+      }
       const fileRef = await service.refForShellPath(filename) || { rootId: ref.rootId, relativePath: [ref.relativePath, path.basename(filename)].filter(Boolean).join('/') };
       return await explorer.selectionProvenance(ref, undefined, fileRef);
     } catch { return undefined; }

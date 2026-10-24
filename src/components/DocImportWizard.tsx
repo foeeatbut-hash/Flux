@@ -343,7 +343,43 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   const handleDrop = useCallback(async (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault(); setIsDragOver(false);
     const dropped = takeWindowsDrop();
-    if (!dropped?.ticket) { if (event.dataTransfer.files.length) handleFiles(event.dataTransfer.files); return; }
+    if (!dropped?.ticket) {
+      const fluxRaw = event.dataTransfer.getData('application/x-flux-entries');
+      if (fluxRaw) {
+        let tickets: ImportedFileRef[] = [];
+        try {
+          const parsed = JSON.parse(fluxRaw);
+          const refs = Array.isArray(parsed)
+            ? parsed.filter((item: any) => item?.kind === 'file' && item?.rootId && typeof item?.relativePath === 'string').map((item: any) => ({ rootId: String(item.rootId), relativePath: String(item.relativePath), ...(item.draftId ? { draftId: String(item.draftId) } : {}) }))
+            : [];
+          if (refs.length) {
+            const prepared = await windowsFilesRequest<{ files: ImportedFileRef[] }>({ action: 'prepareImportRefs', refs });
+            if (prepared.ok === false) throw new Error(prepared.error.message);
+            tickets = prepared.data.files;
+            const files: File[] = [];
+            for (const ticket of tickets) {
+              const chunks: Uint8Array[] = [];
+              for (let offset = 0; offset < ticket.size; offset += WINDOWS_IMPORT_READ_BYTES) {
+                const part = await windowsFilesRequest<{ size: number; offset: number; base64: string }>({ action: 'readImportRef', ticket: ticket.ticket, offset, length: Math.min(WINDOWS_IMPORT_READ_BYTES, ticket.size - offset) });
+                if (part.ok === false) throw new Error(part.error.message);
+                if (part.data.offset !== offset || part.data.size !== ticket.size) throw new Error('Файл изменился во время чтения. Перетащите его повторно.');
+                chunks.push(base64ToBytes(part.data.base64));
+              }
+              files.push(new File(chunks, ticket.name, { lastModified: ticket.lastModified }));
+            }
+            handleFiles(files, tickets.map(ticket => ticket.provenance || {}));
+            return;
+          }
+        } catch (error) {
+          setBindingWarning(error instanceof Error ? error.message : 'Не удалось прочитать перетащенные файлы.');
+          return;
+        } finally {
+          if (tickets.length) await windowsFilesRequest({ action: 'releaseImportRefs', tickets: tickets.map(ticket => ticket.ticket) });
+        }
+      }
+      if (event.dataTransfer.files.length) handleFiles(event.dataTransfer.files);
+      return;
+    }
     let tickets: ImportedFileRef[] = [];
     try {
       const prepared = await windowsFilesRequest<{ files: ImportedFileRef[] }>({ action: 'prepareDroppedImportRefs', ticket: dropped.ticket });

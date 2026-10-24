@@ -227,6 +227,7 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   }, [flowProjectId, flux.refreshFields, closeSession, setDirtyState, toast]);
   const cellActions = useFluxCellActions({ fileId: file.fileId, projectId: flowProjectId, readOnly: !ready || refreshingFields,
     requestState: flux.requestState, updateSchema: flux.updateSchema, insertBinding: flux.insertBinding, isInlineEditing: () => flux.inlineEditingRef.current,
+    resumeFocus: app === 'docs' ? (anchorId, schema) => { void editorLink.native('formula', { anchorId, schema, preserveText: true }); } : undefined,
     requestNative: async (operation, payload) => {
       const result = await editorLink.native(operation, payload);
       if (operation === 'formula' && result?.ok && app === 'sheets') flux.inlineEditingRef.current = true;
@@ -251,6 +252,8 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
       if (fluxHost.current.ribbon.handle(m)) return;
       if (m.op === 'flux:tag-click') { if (flowProjectId) void openEditorTag(flowProjectId, m.payload); return; }
       if (m.op === 'flux:cell-actions') { void fluxHost.current.cellActions.open(m.payload); return; }
+      if (m.op === 'flux:begin-cell-edit') { void fluxHost.current.cellActions.beginEdit(m.payload); return; }
+      if (m.op === 'flux:formula-edited') { void fluxHost.current.cellActions.syncFromNative(); return; }
       if (m.op === 'flux:header-schema-edited') { void fluxHost.current.cellActions.edited(m.payload); return; }
       if (m.op === 'flux:history-step') { void fluxHost.current.flux.historyStep(m.payload); return; }
       if (m.op === 'flux:anchor-selected') { fluxHost.current.flux.setActiveAnchor(m.payload || null); return; }

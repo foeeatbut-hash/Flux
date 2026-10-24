@@ -360,7 +360,15 @@ async function ensureUniqueKeys(prisma: any, dialect: Dialect, model: Model, log
   for (const u of model.uniques) {
     if (have.has([...u.columns].sort().join(','))) continue;
     const cols = u.columns.map((c) => quoteId(dialect, c)).join(', ');
+    const notNullWhere = u.columns.map((c) => `${quoteId(dialect, c)} IS NOT NULL`).join(' AND ');
     try {
+      const dupCheck = await prisma.$queryRawUnsafe(
+        `SELECT 1 AS dup FROM ${quoteId(dialect, model.name)} WHERE ${notNullWhere} GROUP BY ${cols} HAVING COUNT(*) > 1 LIMIT 1`
+      );
+      if (Array.isArray(dupCheck) && dupCheck.length > 0) {
+        log(`[Schema Sync] Не удалось создать ключ ${u.name} (${u.columns.join(', ')}): обнаружены дублирующиеся строки. Возможно, в таблице есть повторы — данные не тронуты.`);
+        continue;
+      }
       await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX ${quoteId(dialect, u.name)} ON ${quoteId(dialect, model.name)} (${cols})`);
       applied.push(`ключ ${u.name}`);
     } catch (e: any) {

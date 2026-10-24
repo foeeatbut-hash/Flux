@@ -54,7 +54,7 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
   const [selected, setSelected] = useState<WindowsFileEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [systemPicker, setSystemPicker] = useState(false);
+  const [systemPicker, setSystemPicker] = useState(true);
   const listRequest = useRef(0);
   const root = roots.find(item => item.id === rootId);
   const crumbs = useMemo(() => folder.split('/').filter(Boolean), [folder]);
@@ -63,7 +63,7 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
     let alive = true;
     void fetch('/api/settings/explorer_file_picker').then(r => r.json()).then(d => {
       if (!alive) return;
-      try { setSystemPicker(!!JSON.parse(d?.user || 'null')?.system); } catch { setSystemPicker(false); }
+      try { const parsed = JSON.parse(d?.user || 'null'); setSystemPicker(parsed?.system !== false); } catch { setSystemPicker(true); }
     }).catch(() => { if (alive) setSystemPicker(false); });
     const changed = (event: Event) => setSystemPicker(!!(event as CustomEvent<{ system?: boolean }>).detail?.system);
     window.addEventListener('flux:file-picker-preference', changed);

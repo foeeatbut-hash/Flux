@@ -434,8 +434,17 @@ export function createSheetsTokenOverlay(
       let ordinary = ''
       const flush = (): void => { if (ordinary) raw.push({ kind: 'text', text: ordinary }); ordinary = '' }
       for (const character of piece) {
-        const operator = character === '×' ? '*' : character === '÷' ? '/' : character === '−' ? '-' : character
-        if (formula && ['+', '-', '*', '/', '(', ')'].includes(operator)) { flush(); raw.push({ kind: 'operator', operator }) }
+        const operator = character === '×' ? '*' : character === '÷' ? '/' : character === '−' ? '-' : character === ';' ? ',' : character
+        if (formula && ['+', '-', '*', '/', '(', ')', ','].includes(operator)) {
+          if (operator === '(' && /^(?:SUM|AVG|AVERAGE|MIN|MAX|COUNT|CONCAT|СУММ|СРЗНАЧ|МИН|МАКС|СЧЁТ|СЧЕТ|СЦЕПИТЬ)$/iu.test(ordinary.trim())) {
+            const fnToken = ordinary.trim().toUpperCase()
+            ordinary = ''
+            raw.push({ kind: 'operator', operator: fnToken as any })
+          } else {
+            flush()
+          }
+          raw.push({ kind: 'operator', operator })
+        }
         else ordinary += character
       }
       flush()

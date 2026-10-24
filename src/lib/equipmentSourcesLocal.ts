@@ -209,14 +209,15 @@ export async function pickEquipmentSource(tagIdentifier?: string, request: Equip
   }
   const bytes = await readStable(adapter, selectedFile.ref);
   if ('error' in bytes) return { ok: true, data: { status: isUnstableReadError(bytes.error.code) ? 'unstable' : 'source-unavailable', message: bytes.error.message } };
-  const selectedRule = tagIdentifier ? inferEquipmentSourceFilenameRule(selectedFile.name, tagIdentifier) : (/\.xml$/iu.test(selectedFile.name) ? { kind: 'selected-name' as const, fileName: selectedFile.name } : null);
+  const hasConflictingPlantTag = /\b\d{3,4}-[A-ZА-ЯЁ0-9]+-[A-ZА-ЯЁ0-9]+-\d+\b/iu.test(selectedFile.name);
+  const selectedRule = (tagIdentifier ? inferEquipmentSourceFilenameRule(selectedFile.name, tagIdentifier) : null)
+    || (!hasConflictingPlantTag && /\.xml$/iu.test(selectedFile.name) ? { kind: 'selected-name' as const, fileName: selectedFile.name } : null);
   if (!selectedRule) return { ok: true, data: { status: 'invalid', message: tagIdentifier ? `Имя XML-файла «${selectedFile.name}» не соответствует тегу «${tagIdentifier}».` : 'Выберите XML-файл.' } };
   const text = decodeXml(bytes.data.base64, bytes.data.size);
   if (!text || tagIdentifier && !xmlHasTargetTag(text, tagIdentifier, 'system') && !xmlHasTargetTag(text, tagIdentifier, 'component')) return { ok: true, data: { status: 'invalid', message: tagIdentifier ? `В XML-файле «${selectedFile.name}» не найдено оборудование с тегом «${tagIdentifier}».` : 'XML-файл повреждён или не содержит выбранную позицию.' } };
   const folderRevision = revisionBetween(sourceFolder, selectedFile.ref);
   const xmlRevision = extractRevisionFromXml(text);
-  const revision = xmlRevision || folderRevision || '';
-  if (!revision) return { ok: true, data: { status: 'invalid', message: 'Не удалось определить ревизию: выберите XML внутри папки ревизии A, B, C и т. д. либо укажите её в XML.' } };
+  const revision = xmlRevision || folderRevision || 'A';
   const revisionWarning = revisionMismatchWarning(folderRevision, xmlRevision);
   return { ok: true, data: { status: 'ready', selectedFile, sourceFolder, ...(suggestedTag ? { suggestedTag } : {}), revision, ...(revisionWarning ? { revisionWarning } : {}), selectedRule, sha256: bytes.data.sha256, size: bytes.data.size, modifiedAt: bytes.data.modifiedAt, base64: bytes.data.base64, text } };
 }
@@ -243,8 +244,7 @@ export async function pickEquipmentSourceForImport(request: EquipmentSourceReque
   if (!text || XMLValidator.validate(text) !== true) return { ok: true, data: { status: 'invalid', message: `XML-файл «${selectedFile.name}» пуст, повреждён или превышает допустимый размер.` } };
   const folderRevision = revisionBetween(sourceFolder, selectedFile.ref);
   const xmlRevision = extractRevisionFromXml(text);
-  const revision = xmlRevision || folderRevision || '';
-  if (!revision) return { ok: true, data: { status: 'invalid', message: 'Не удалось определить ревизию из XML или папки, содержащей выбранный файл.' } };
+  const revision = xmlRevision || folderRevision || 'A';
   const revisionWarning = revisionMismatchWarning(folderRevision, xmlRevision);
   return { ok: true, data: { status: 'ready', selectedFile, sourceFolder, ...(suggestedTag ? { suggestedTag } : {}), revision, ...(revisionWarning ? { revisionWarning } : {}), sha256: snapshot.data.sha256, size: snapshot.data.size, modifiedAt: snapshot.data.modifiedAt, base64: snapshot.data.base64, text } };
 }

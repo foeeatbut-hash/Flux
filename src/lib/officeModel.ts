@@ -21,7 +21,7 @@ export interface OfficeBinding {
 export type OfficePart =
   | { kind: 'text'; text: string }
   | { kind: 'field'; binding: OfficeBinding }
-  | { kind: 'operator'; operator: '+' | '-' | '*' | '/' | '(' | ')' }
+  | { kind: 'operator'; operator: '+' | '-' | '*' | '/' | '(' | ')' | ',' | ';' | string }
   | OfficeUnionPart;
 
 /**
@@ -164,10 +164,146 @@ type Token = { kind: 'number'; quantity: Quantity } | { kind: 'op'; value: strin
  * Считает только цепочку из полей, операторов и чисел. Обычный текст остаётся
  * обычным текстом, а неизвестная размерность никогда не складывается молча.
  */
+const CANONICAL_FN: Record<string, 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COUNT' | 'CONCAT'> = {
+  SUM: 'SUM', СУММ: 'SUM',
+  AVG: 'AVG', AVERAGE: 'AVG', СРЗНАЧ: 'AVG',
+  MIN: 'MIN', МИН: 'MIN',
+  MAX: 'MAX', МАКС: 'MAX',
+  COUNT: 'COUNT', СЧЁТ: 'COUNT', СЧЕТ: 'COUNT',
+  CONCAT: 'CONCAT', СЦЕПИТЬ: 'CONCAT',
+};
+
+function evaluateFunctionCall(fnName: 'SUM' | 'AVG' | 'MIN' | 'MAX' | 'COUNT' | 'CONCAT', argGroups: OfficePart[][], row: OfficeEntityRow): { value?: OfficeValue; error?: string; conflict?: string[] } {
+  if (!argGroups.length || argGroups.every((g) => !g.length)) return { error: `Функция ${fnName} требует хотя бы один аргумент` };
+  if (fnName === 'COUNT') {
+    let count = 0;
+    for (const group of argGroups) {
+      if (!group.length) continue;
+      const singleField = group.length === 1 && (group[0].kind === 'field' || group[0].kind === 'union') ? group[0] : null;
+      if (singleField) {
+        const chosen = readPartValue(singleField, row);
+        if (chosen.conflict) return { conflict: chosen.conflict };
+        if (chosen.value && chosen.value.value !== null && chosen.value.value !== undefined && String(chosen.value.value).trim() !== '') count += 1;
+      } else {
+        const sub = evaluateOfficeParts(group, row);
+        if (sub.conflict) return { conflict: sub.conflict };
+        if (sub.value && sub.value.value !== null && sub.value.value !== undefined && String(sub.value.value).trim() !== '') count += 1;
+      }
+    }
+    return { value: { value: String(count) } };
+  }
+  if (fnName === 'CONCAT') {
+    const chunks: string[] = [];
+    for (const group of argGroups) {
+      if (!group.length) continue;
+      const sub = evaluateOfficeParts(group, row);
+      if (sub.conflict) return { conflict: sub.conflict };
+      if (sub.error) return { error: sub.error };
+      if (sub.value?.value !== null && sub.value?.value !== undefined) chunks.push(String(sub.value.value));
+    }
+    return { value: { value: chunks.join('') } };
+  }
+  const quantities: Quantity[] = [];
+  for (const group of argGroups) {
+    if (!group.length) return { error: `Пустой аргумент в функции ${fnName}` };
+    const sub = evaluateOfficeParts([{ kind: 'text', text: '=' }, ...group], row);
+    if (sub.conflict) return { conflict: sub.conflict };
+    if (sub.error) return { error: sub.error };
+    const q = sub.value ? parseQuantity(sub.value) : null;
+    if (!q) return { error: `Аргумент функции ${fnName} не содержит числа с совместимой единицей` };
+    quantities.push(q);
+  }
+  const first = quantities[0];
+  for (const q of quantities.slice(1)) {
+    if (q.dimension !== first.dimension) return { error: 'Нельзя складывать поля с разными единицами' };
+  }
+  if (fnName === 'SUM') {
+    const total = quantities.reduce((acc, q) => acc + q.amount, 0n);
+    return { value: fromQuantity({ ...first, amount: total }) };
+  }
+  if (fnName === 'AVG') {
+    const total = quantities.reduce((acc, q) => acc + q.amount, 0n);
+    return { value: fromQuantity({ ...first, amount: total / BigInt(quantities.length) }) };
+  }
+  if (fnName === 'MIN') {
+    const min = quantities.reduce((acc, q) => (q.amount < acc ? q.amount : acc), first.amount);
+    return { value: fromQuantity({ ...first, amount: min }) };
+  }
+  const max = quantities.reduce((acc, q) => (q.amount > acc ? q.amount : acc), first.amount);
+  return { value: fromQuantity({ ...first, amount: max }) };
+}
+
+function expandFunctionCalls(parts: OfficePart[], row: OfficeEntityRow): { parts?: OfficePart[]; row?: OfficeEntityRow; singleValue?: OfficeValue; error?: string; conflict?: string[] } {
+  const out: OfficePart[] = [];
+  let i = 0;
+  while (i < parts.length) {
+    const part = parts[i];
+    const fnOperator = part.kind === 'operator' ? part.operator : undefined;
+    const fnKey = fnOperator ? CANONICAL_FN[fnOperator.toUpperCase()] : undefined;
+    if (fnKey && fnOperator) {
+      let j = i + 1;
+      while (j < parts.length) {
+        const gap = parts[j];
+        if (gap.kind !== 'text' || !!gap.text.trim()) break;
+        j++;
+      }
+      const paren = parts[j];
+      if (!paren || paren.kind !== 'operator' || paren.operator !== '(') {
+        return { error: `После функции ${fnOperator} ожидается открывающая скобка «(»` };
+      }
+      let depth = 1;
+      let k = j + 1;
+      const args: OfficePart[][] = [[]];
+      while (k < parts.length && depth > 0) {
+        const cur = parts[k];
+        if (cur.kind === 'operator' && cur.operator === '(') {
+          depth += 1;
+          args[args.length - 1].push(cur);
+        } else if (cur.kind === 'operator' && cur.operator === ')') {
+          depth -= 1;
+          if (depth > 0) args[args.length - 1].push(cur);
+        } else if (depth === 1 && cur.kind === 'operator' && (cur.operator === ',' || cur.operator === ';')) {
+          args.push([]);
+        } else {
+          args[args.length - 1].push(cur);
+        }
+        k += 1;
+      }
+      if (depth !== 0) return { error: 'Пустые или незакрытые скобки' };
+      const evaluated = evaluateFunctionCall(fnKey, args, row);
+      if (evaluated.conflict) return { conflict: evaluated.conflict };
+      if (evaluated.error) return { error: evaluated.error };
+      if ((fnKey === 'CONCAT' || fnKey === 'COUNT') && i === 0 && k === parts.length) {
+        return { singleValue: evaluated.value };
+      }
+      if (evaluated.value) {
+        out.push({
+          kind: 'field',
+          binding: { fieldKey: `__fn_${i}`, sourceId: row.sourceId, entityType: row.entityType, entityId: row.entityId, sourceRevision: 'fn', anchorId: '', ...(evaluated.value.unit ? { unit: evaluated.value.unit } : {}) },
+        });
+        row = { ...row, values: { ...row.values, [`__fn_${i}`]: evaluated.value } };
+      }
+      i = k;
+      continue;
+    }
+    out.push(part);
+    i += 1;
+  }
+  return { parts: out, row };
+}
+
 export function evaluateOfficeParts(parts: OfficePart[], row: OfficeEntityRow): { value?: OfficeValue; error?: string; conflict?: string[] } {
   const normalized = normalizeOfficeFormulaParts(parts);
   parts = normalized.parts;
-  if (normalized.explicit && !parts.some((part) => part.kind === 'field' || part.kind === 'union' || (part.kind === 'text' && /^\d/.test(part.text)))) return { error: 'Добавьте параметры или числа после знака «=»' };
+  if (normalized.explicit && !parts.some((part) => part.kind === 'field' || part.kind === 'union' || (part.kind === 'text' && /^\d/.test(part.text)) || (part.kind === 'operator' && CANONICAL_FN[part.operator.toUpperCase()]))) return { error: 'Добавьте параметры или числа после знака «=»' };
+  if (parts.some((part) => part.kind === 'operator' && CANONICAL_FN[part.operator.toUpperCase()])) {
+    const expanded = expandFunctionCalls(parts, row);
+    if (expanded.conflict) return { conflict: expanded.conflict };
+    if (expanded.error) return { error: expanded.error };
+    if (expanded.singleValue) return { value: expanded.singleValue };
+    if (expanded.parts) parts = expanded.parts;
+    if (expanded.row) row = expanded.row;
+  }
   const tokens: Token[] = [];
   const significant = parts.filter((part) => part.kind !== 'text' || !!part.text.trim());
   const arithmeticParts = significant.some((part) => part.kind === 'operator');

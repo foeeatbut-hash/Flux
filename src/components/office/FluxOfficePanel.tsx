@@ -245,7 +245,7 @@ export default function FluxOfficePanel(props: Props) {
       // Текстовые фрагменты задают место вставки; черновая схема помогает
       // редактору распознать новый токен в текущей позиции курсора.
       const labels = Object.fromEntries(fields.map((field) => [`${field.sourceId}:${field.fieldKey}`, field.displayName]));
-      const saved = await props.updateSchema({ ...current.schema, anchors: [...current.schema.anchors.filter((item) => item.id !== anchor.id), anchor] }, { captureNative: true, displayLabels: labels });
+      const saved = await props.updateSchema({ ...current.schema, anchors: [...current.schema.anchors.filter((item) => item.id !== anchor.id), anchor] }, { captureNative: parts.length === 0, displayLabels: labels });
       if (!saved) throw new Error('Поле вставлено, но его связь с источником не сохранена. Повторите сохранение схемы.');
       setOfficeState(saved); setTemplateSourceSchema(null); setTemplateTargetSchema(null);
       setPlan(null); setPlanSchema(null); setPlanQuery(null); setAppliedSummary(null);

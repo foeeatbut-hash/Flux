@@ -105,14 +105,31 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
       const picked = result.data;
       setSourceLocator(selected.portableLocator);
       const extracted = extractEquipmentXmlUnitTags(picked.text);
+      const primaryUnitNames = selected === initialSelection && initialUnits?.length
+        ? initialUnits.map(unit => { const text = String(unit.name || '').trim(); return autoFixTag(text, PERMISSIVE_TAG_POLICY)?.identifier || text; }).filter(Boolean)
+        : [];
       const fromInitialUnits = selected === initialSelection && initialUnits?.length
         ? initialUnits.flatMap(unit => [unit.name, ...(unit.tags || [])]).map(val => { const text = String(val || '').trim(); return autoFixTag(text, PERMISSIVE_TAG_POLICY)?.identifier || text; }).filter(Boolean)
         : [];
-      const uniqueNames = Array.from(new Set([...extracted, ...fromInitialUnits]));
+      const uniqueNames = Array.from(new Set(primaryUnitNames.length === 1 ? primaryUnitNames : [...fromInitialUnits, ...extracted]));
       clearReviewSelections();
       setXmlTagChoices(uniqueNames);
       const suggestedTag = picked.suggestedTag && (!uniqueNames.length || uniqueNames.includes(picked.suggestedTag)) ? picked.suggestedTag : '';
-      setFile(picked); setTagIdentifier(suggestedTag || (uniqueNames.length === 1 ? uniqueNames[0] : '')); setRevision(picked.revision); setFolderName(picked.sourceFolder.relativePath);
+      const resolvedTag = suggestedTag || uniqueNames[0] || '';
+      setFile(picked); setTagIdentifier(resolvedTag); setRevision(picked.revision); setFolderName(picked.sourceFolder.relativePath);
+      if (embedded && selected === initialSelection && resolvedTag && category) {
+        const body = {
+          projectId, category, fileName: picked.selectedFile.name, revision: picked.revision.trim(),
+          tagIdentifier: resolvedTag.trim(), sha256: picked.sha256, size: picked.size, base64: picked.base64, choices: {},
+          ...(picked.sourceFolder && selected.portableLocator ? { locator: selected.portableLocator } : {}),
+          ...(Number.isSafeInteger(ledgerRevision) ? { expectedLedgerRevision: ledgerRevision } : {}),
+        };
+        const response = await fetch(api('/equipment/source-import/preview'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const payload = await response.json().catch(() => ({}));
+        if (operation !== operationRef.current) return;
+        if (response.ok && payload.success !== false) setPlan(payload as PlanDto);
+        else if (payload?.error) setError(String(payload.error));
+      }
     } catch (reason) { if (operation === operationRef.current) setError(toMessage(reason)); }
     finally { if (operation === operationRef.current) setBusy(false); }
   };
@@ -179,7 +196,8 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
       }
       const source = payload.source as ImportedSource;
       if (!source?.sourceId || !source.tagId || !source.systemId || !source.elementId) throw new Error('Импорт завершился, но сервер не вернул устойчивую привязку XML. Обновите список и проверьте карточку оборудования.');
-      const selectedRule = inferEquipmentSourceFilenameRule(source.fileName || file.selectedFile.name, tagIdentifier);
+      const ruleFileName = source.fileName || file.selectedFile.name;
+      const selectedRule = inferEquipmentSourceFilenameRule(ruleFileName, tagIdentifier) || (/\.xml$/iu.test(ruleFileName) ? { kind: 'selected-name' as const, fileName: ruleFileName } : null);
       try {
         if (!selectedRule) throw new Error('Правило имени XML не определено.');
         const binding: LocalEquipmentSourceBinding = { sourceId: source.sourceId, projectId, tagId: source.tagId, systemId: source.systemId, elementId: source.elementId, targetType: 'system', tagIdentifier, rootId: file.sourceFolder.rootId, relativePath: file.sourceFolder.relativePath, selectedFileRef: file.selectedFile.ref, revisionOrder: source.revisionOrder || revisionOrder, selectedRule };
@@ -205,7 +223,7 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
           {!canManage && <div className="rounded border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">Недостаточно прав для импорта оборудования.</div>}
           <div className="flex flex-wrap items-end gap-2">
-            <button type="button" onClick={() => void chooseFile()} disabled={!canManage || busy} className="inline-flex items-center gap-1.5 rounded border border-slate-300 px-3 py-2 text-xs hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-900"><Upload className="h-3.5 w-3.5" />{file ? 'Выбрать другой XML' : 'Выбрать XML-файл'}</button>
+            {!(embedded && initialSelection && file) && <button type="button" onClick={() => void chooseFile()} disabled={!canManage || busy} className="inline-flex items-center gap-1.5 rounded border border-slate-300 px-3 py-2 text-xs hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-900"><Upload className="h-3.5 w-3.5" />{file ? 'Выбрать другой XML' : 'Выбрать XML-файл'}</button>}
             <label className="min-w-[190px] flex-1 text-xs text-slate-600 dark:text-slate-300">Категория оборудования<select value={category} onChange={event => { operationRef.current += 1; setBusy(false); setCategory(event.target.value); setPlan(null); clearReviewSelections(); }} disabled={busy || !canManage} className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-900">{categories.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
           </div>
           {file && <div className="rounded border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/50">
@@ -213,10 +231,10 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
               <label className="min-w-0 text-xs text-slate-600 dark:text-slate-300">Тег оборудования{xmlTagChoices.length > 1 ? <select value={tagIdentifier} onChange={event => { operationRef.current += 1; setBusy(false); setTagIdentifier(event.target.value); setPlan(null); clearReviewSelections(); }} disabled={busy || !canManage} className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-950"><option value="">Выберите корневой тег из XML</option>{xmlTagChoices.map(value => <option key={value} value={value}>{value}</option>)}</select> : <input value={tagIdentifier} onChange={event => { operationRef.current += 1; setBusy(false); setTagIdentifier(event.target.value); setPlan(null); clearReviewSelections(); }} disabled={busy || !canManage} placeholder="Тег из имени установки в XML" className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-950" />}</label>
               <label className="text-xs text-slate-600 dark:text-slate-300">Ревизия<input value={revision} onChange={event => { operationRef.current += 1; setBusy(false); setRevision(event.target.value); setPlan(null); clearReviewSelections(); }} disabled={busy || !canManage} className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-2 dark:border-slate-700 dark:bg-slate-950" /></label>
               <div className="min-w-0 text-xs sm:col-span-2"><span className="text-slate-500 dark:text-slate-400">Файл: </span><span className="break-all">{file.selectedFile.name}</span></div>
-              <div className="min-w-0 break-all text-xs sm:col-span-2"><span className="text-slate-500 dark:text-slate-400">Папка ревизий: </span>{folderLabel}</div>
+              <div className="min-w-0 break-all text-xs sm:col-span-2"><span className="text-slate-500 dark:text-slate-400">Папка источника: </span>{folderLabel}</div>
             </div>
             {file.revisionWarning && <p className="mt-2 text-xs text-amber-800 dark:text-amber-300" role="status">{file.revisionWarning}</p>}
-            <button type="button" onClick={() => void changeFolder()} disabled={busy || !canManage} className="mt-2 inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs dark:border-slate-700"><FolderOpen className="h-3.5 w-3.5" />Исправить папку источника</button>
+            {!(embedded && initialSelection) && <button type="button" onClick={() => void changeFolder()} disabled={busy || !canManage} className="mt-2 inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs dark:border-slate-700"><FolderOpen className="h-3.5 w-3.5" />Исправить папку источника</button>}
           </div>}
           {error && <div role="alert" className="flex gap-2 rounded border border-rose-300 bg-rose-50 p-2 text-xs text-rose-800 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200"><AlertTriangle className="h-4 w-4 shrink-0" />{error}</div>}
           {notice && <div role="status" className="rounded border border-emerald-300 bg-emerald-50 p-2 text-xs text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">{notice}</div>}

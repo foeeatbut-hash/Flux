@@ -248,14 +248,39 @@ function selectedHeaderCells(wb: any): Array<{ anchorId: string; kind: 'excel-ra
     const ranges = selection?.getActiveRangeList?.()
     const sheetName = String(sheet?.getSheetName?.() || '')
     if (!sheetName || !Array.isArray(ranges) || (ranges.length !== 1 && ranges.length !== 2)) return null
-    const cells = ranges.map((range: any) => {
+    const colToLetters = (col: number): string => {
+      let n = col, out = ''
+      while (n > 0) { const rem = (n - 1) % 26; out = String.fromCharCode(65 + rem) + out; n = Math.floor((n - 1) / 26) }
+      return out
+    }
+    const expandedRanges: Array<{ address: string; row: number; column: number } | null> = []
+    for (const range of ranges) {
       const address = String(range?.getA1Notation?.() || '').replace(/\$/g, '').toUpperCase()
-      const match = /^([A-Z]{1,3})([1-9]\d*)$/.exec(address)
-      if (!match) return null
-      let column = 0
-      for (const letter of match[1]!) column = column * 26 + letter.charCodeAt(0) - 64
-      return { address, row: Number(match[2]), column }
-    })
+      const single = /^([A-Z]{1,3})([1-9]\d*)$/.exec(address)
+      if (single) {
+        let column = 0
+        for (const letter of single[1]!) column = column * 26 + letter.charCodeAt(0) - 64
+        expandedRanges.push({ address, row: Number(single[2]), column })
+        continue
+      }
+      const span = /^([A-Z]{1,3})([1-9]\d*):([A-Z]{1,3})([1-9]\d*)$/.exec(address)
+      if (span && ranges.length === 1 && span[2] === span[4]) {
+        let colA = 0, colB = 0
+        for (const letter of span[1]!) colA = colA * 26 + letter.charCodeAt(0) - 64
+        for (const letter of span[3]!) colB = colB * 26 + letter.charCodeAt(0) - 64
+        const row = Number(span[2])
+        if (Math.abs(colB - colA) === 1) {
+          const firstCol = Math.min(colA, colB), secondCol = Math.max(colA, colB)
+          expandedRanges.push(
+            { address: `${colToLetters(firstCol)}${row}`, row, column: firstCol },
+            { address: `${colToLetters(secondCol)}${row}`, row, column: secondCol },
+          )
+          continue
+        }
+      }
+      expandedRanges.push(null)
+    }
+    const cells = expandedRanges
     if (cells.some((cell) => !cell) || (cells.length === 2 && (
       cells[0]!.row !== cells[1]!.row || Math.abs(cells[0]!.column - cells[1]!.column) !== 1
     ))) return null
