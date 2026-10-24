@@ -1330,7 +1330,8 @@ function ProjectExplorer() {
     const crumbs = [];
     let curr = currentFolder;
     while (curr) {
-      crumbs.unshift(curr);
+      // Корневая папка диска уже показана крошкой раздела «Общий диск»: без этого имя шло дважды
+      if (curr.id !== diskRootId) crumbs.unshift(curr);
       curr = folders.find(f => f.id === curr.parentId);
     }
     return crumbs;
