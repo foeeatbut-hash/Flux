@@ -66,9 +66,10 @@ console.log('Помощник — «выгрузить в Excel/Word»');
   check('HTML под видом .doc не осталось', !/application\/msword/.test(table) && !table.includes(".doc'"));
   check('модуль без DOM-скачивания — только байты и имя наружу', !/document\.createElement\('a'\)/.test(table));
 
-  const store = src('src/store/assistantStore.ts');
-  const at = store.indexOf('export-excel');
-  const body = store.slice(Math.max(0, at - 900), at + 400);
+  // Скачивание ушло из хранилища помощника в ответ Flux Guide: оттуда файл кладётся и открывается
+  const view = src('src/components/guide/AnswerView.tsx');
+  const at = view.indexOf('exportTableToExcel(');
+  const body = view.slice(Math.max(0, at - 900), at + 900);
   check('файл кладётся saveNewFile и открывается editorHref', /saveNewFile\(/.test(body) && /editorHref\(/.test(body));
 }
 
