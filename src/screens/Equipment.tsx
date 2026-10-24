@@ -651,8 +651,13 @@ export default function Equipment() {
 
   const deleteUnit = async (unit: SystemUnit) => {
     if (!await openConfirm(`Удалить «${unit.name}»?`, 'Вместе с узлом удалится всё его оборудование. Действие необратимо.', { confirmLabel: 'Удалить', tone: 'danger' })) return;
-    await fetch(api(`/systems/${unit.id}`), { method: 'DELETE' }).catch(() => {});
-    addToast('Удалено', 'success'); setSelectedBlockId(null); loadSystems();
+    // Ответ сервера проверяется: раньше при отказе всё равно писали «Удалено»,
+    // а освободившиеся теги в окне привязки оставались «занятыми» до перезахода
+    try {
+      const res = await fetch(api(`/systems/${unit.id}`), { method: 'DELETE' });
+      if (!res.ok) throw new Error('отказ сервера');
+    } catch (_) { addToast('Не удалось удалить установку', 'error'); return; }
+    addToast('Удалено', 'success'); setSelectedBlockId(null); loadSystems(); loadTags();
   };
 
   /** Убрать лишнюю позицию. Что предупредить и что сказать — в lib/equipmentDelete */
