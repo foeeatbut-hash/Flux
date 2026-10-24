@@ -31,6 +31,7 @@ import { IContextMenuService } from '@univerjs/ui'
 import '@univerjs/sheets-ui/facade'
 import { createSheetsTokenOverlay } from './sheets-token-overlay'
 import { createSheetsIdleChips } from './sheets-idle-chips'
+import { installSheetsGridGrow } from './sheets-grid-grow'
 import { installSheetsHistoryMarks } from './sheets-history-marks'
 import { partChipLabel } from './parameter-chip-style'
 import { isDefinedNameMutation, isLocalOnlyCollabMutation, mapDefinedNameScope, resolveDefinedNameMutation } from './sheets-collab-policy'
@@ -668,6 +669,7 @@ async function exportCommands(): Promise<void> {
     return
   }
   protectFluxHeaderCells()
+  installSheetsGridGrow(api)
   // «Вперёд» по Ctrl+Shift+Z, как в Word и в Excel: Univer знает только Ctrl+Y. В полях ввода
   // (имя ячейки, поиск) и в окне формулы заголовка клавиши остаются браузеру
   document.addEventListener('keydown', (event) => {

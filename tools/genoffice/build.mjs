@@ -137,7 +137,7 @@ async function buildOne(which, src) {
   // правки кладутся во все, чтобы подключённый правкой импорт всегда находился
   for (const [dir, file] of [
     ['apps/docs', 'docs-collab.ts'], ['apps/docs', 'docs-header-merge.ts'], ['apps/docs', 'docs-history-marks.ts'], ['apps/docs', 'editor-readiness.ts'], ['apps/docs', 'flux-ribbon.tsx'], ['apps/docs', 'parameter-chip-style.ts'],
-    ['apps/sheets', 'sheets-collab.ts'], ['apps/sheets', 'sheets-collab-policy.ts'], ['apps/sheets', 'sheets-token-overlay.ts'], ['apps/sheets', 'editor-readiness.ts'], ['apps/sheets', 'flux-ribbon.tsx'], ['apps/sheets', 'sheets-idle-chips.ts'], ['apps/sheets', 'sheets-history-marks.ts'], ['apps/sheets', 'parameter-chip-style.ts'], ['apps/sheets', 'sheets-save-checkpoint.ts'],
+    ['apps/sheets', 'sheets-collab.ts'], ['apps/sheets', 'sheets-grid-grow.ts'], ['apps/sheets', 'sheets-collab-policy.ts'], ['apps/sheets', 'sheets-token-overlay.ts'], ['apps/sheets', 'editor-readiness.ts'], ['apps/sheets', 'flux-ribbon.tsx'], ['apps/sheets', 'sheets-idle-chips.ts'], ['apps/sheets', 'sheets-history-marks.ts'], ['apps/sheets', 'parameter-chip-style.ts'], ['apps/sheets', 'sheets-save-checkpoint.ts'],
   ]) {
     mkdirSync(join(src, dir, 'src', 'renderer', 'flux'), { recursive: true });
     cpSync(join(injectDir, file), join(src, dir, 'src', 'renderer', 'flux', file));
