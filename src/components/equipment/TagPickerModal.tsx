@@ -42,6 +42,9 @@ export default function TagPickerModal({ projectId, tags, currentComponentId, pa
   const [query, setQuery] = useState(() => tagPrefixOf(parentTag || ''));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Префикс подставляется сам и по определению «оборванный» (кончается дефисом):
+  // ругаться на него, пока человек ничего не набрал, значит открывать окно с ошибкой
+  const [typed, setTyped] = useState(false);
   const check = useTagCheck(projectId, query);
 
   const filtered = useMemo(() => {
@@ -87,14 +90,14 @@ export default function TagPickerModal({ projectId, tags, currentComponentId, pa
             autoFocus
             type="search"
             value={query}
-            onChange={(e) => { setQuery(e.target.value); setError(''); }}
+            onChange={(e) => { setQuery(e.target.value); setTyped(true); setError(''); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && canCreate && !filtered.length) create(); }}
             placeholder="Поиск или новый тег: 3700-B01-TE-001"
             className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:border-emerald-500 text-slate-800 dark:text-slate-100"
           />
         </div>
-        <div className={`min-h-[18px] text-2xs mb-2 ${check.state === 'bad' || error ? 'text-rose-600 dark:text-rose-400' : check.corrected ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
-          {error || tagHint(check)}
+        <div className={`min-h-[18px] text-2xs mb-2 ${(typed && check.state === 'bad') || error ? 'text-rose-600 dark:text-rose-400' : check.corrected ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
+          {error || (typed || check.state !== 'bad' ? tagHint(check) : '')}
         </div>
         {canCreate && (
           <button type="button" onClick={create} disabled={busy}
