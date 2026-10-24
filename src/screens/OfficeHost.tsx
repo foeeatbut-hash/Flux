@@ -454,7 +454,7 @@ export default function OfficeHost() {
   const updateFields = async () => {
     if (!(await saveBeforeServer())) { addToast('Документ не записан — поля не обновлены', 'error'); return; }
     const r = await fetch(`/api/project-data/files/${encodeURIComponent(fileId)}/update`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromEditor: true }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fromEditor: true, projectId: activeProjectId }),
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { addToast(d?.error || 'Поля не обновлены', 'error'); return; }
