@@ -12,7 +12,6 @@ import DocImportWizard from '../components/DocImportWizard';
 import EquipmentDetailPanel from '../components/equipment/EquipmentDetailPanel';
 import { useModalStore } from '../store/modalStore';
 import NoProject from '../components/NoProject';
-import { useEscapeClose } from '../lib/useDismiss';
 import { can, hasAdminRole } from '../lib/permissions';
 
 // Диалоги программы вместо системных окон Windows
