@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  X, FileSpreadsheet, FileText, Upload, ClipboardPaste, Loader2, CheckCircle2,
+  X, FileSpreadsheet, FileText, Upload, ClipboardPaste, Loader2, CheckCircle2, FolderTree,
   AlertTriangle, ChevronDown, ChevronRight, Trash2, ScanLine, Plus,
 } from 'lucide-react';
 import { useToastStore } from '../store/toastStore';
@@ -14,6 +14,7 @@ import { DraftItem, DraftField, DraftResult, Confidence } from '../import/types'
 import CustomSelect from './CustomSelect';
 import ImportFileChooser from './ImportFileChooser';
 import EquipmentSourceImportDialog from './equipment/EquipmentSourceImportDialog';
+import SourcePathsPanel from './equipment/SourcePathsPanel';
 import FileBadge from './ui/FileBadge';
 import { ICON_SIZE } from '../lib/metrics';
 import type { SelectionProvenance } from '../lib/windowsFiles';
@@ -145,6 +146,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   // расчёт отмечается сам — ради этого папку файлов и бросают в окно разом
   const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
   const [bindingRevision, setBindingRevision] = useState(0);
+  const [pathsOpen, setPathsOpen] = useState(false);
   const [documentBindings, setDocumentBindings] = useState<EquipmentDocumentBinding[]>([]);
   const [bindingWarning, setBindingWarning] = useState('');
   const [legacyCandidates, setLegacyCandidates] = useState<LegacyMigrationCandidate[]>([]);
@@ -342,6 +344,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   }, [initialDocument, processFile]);
 
   const handleFiles = useCallback((files: FileList | File[], provenances: SelectionProvenance[] = []) => {
+    setPathsOpen(false);
     Array.from(files).forEach((f, index) => { void processFile(f, provenances[index] || {}); });
   }, [processFile]);
 
@@ -643,6 +646,9 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                 placeholder="Категория оборудования"
               />
             </div>
+            <button type="button" onClick={() => setPathsOpen(value => !value)} aria-pressed={pathsOpen} className={`fx-btn shrink-0 ${pathsOpen ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200' : ''}`} title="Где лежат файлы привязанных установок">
+              <FolderTree className="w-3.5 h-3.5" /> Пути установок
+            </button>
             <button type="button" onClick={onClose} className="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 cursor-pointer" title="Закрыть (Esc)">
               <X className="w-4 h-4" />
             </button>
@@ -721,7 +727,12 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
 
           {/* Правая колонка: предпросмотр активного файла */}
           <div className="flex-1 min-w-0 flex flex-col">
-            {!activeJob ? (
+            {pathsOpen ? (
+              <div className="flex-1 overflow-y-auto p-4">
+                <SourcePathsPanel projectId={projectId} bindings={documentBindings} revision={bindingRevision} canManage={canManage}
+                  onChanged={async view => { if (view) { setBindingRevision(view.revision); setDocumentBindings(view.bindings); } else await refreshBindingLedger(); }} />
+              </div>
+            ) : !activeJob ? (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 text-center">
                 <ScanLine className="w-10 h-10 text-slate-200 dark:text-slate-800 mb-3" />
                 <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Добавьте документ — распознавание начнётся сразу</p>
