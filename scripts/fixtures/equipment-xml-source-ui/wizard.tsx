@@ -27,6 +27,8 @@ const initialFor = (id: 'doc-a' | 'doc-b' | 'cad') => {
 };
 
 const query = new URLSearchParams(location.search);
+// Группа одинаковых установок под одним именем: «…001ABC» = 001A, 001B, 001C.
+const group = query.get('cad') === 'group';
 document.documentElement.classList.toggle('dark', query.get('theme') === 'dark');
 (window as any).__wizardLog = [];
 (window as any).__wizardState = { ledgerRevision: 41, draftWrites: 0, secondDraftPending: false, resolveSecondDraft: null as null | ((response: Response) => void) };
@@ -51,22 +53,24 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
   if (path.includes('/document-bindings')) {
     const state = (window as any).__wizardState;
     log({ revision: state.ledgerRevision });
-    return new Response(JSON.stringify({ revision: state.ledgerRevision, bindings: [], canManage: true }), { status: 200 });
+    const bindings = group ? [{ ...binding('cad-a', '3700-B01-AS-001ABC.xml', 'A'), kind: 'cad-xml', tag: '3700-B01-AS-001A', rule: { kind: 'selected-name', fileName: '3700-B01-AS-001ABC.xml' } }] : [];
+    return new Response(JSON.stringify({ revision: state.ledgerRevision, bindings, canManage: true }), { status: 200 });
   }
   if (path.endsWith('/equipment/parse-calc')) {
     log();
-    return new Response(JSON.stringify({ units: [{ name: 'L23', title: 'L23', monoblocks: [{ name: 'Вентиляция', blocks: [{ code: 'B1', name: 'Вентилятор', equipType: 'ВЕНТИЛЯТОР', parameters: [{ group: 'Воздух', key: 'Расход воздуха', value: '8060', unit: 'м³/ч' }] }] }] }] }), { status: 200 });
+    return new Response(JSON.stringify({ units: [{ name: group ? '3700-B01-AS-001ABC' : 'L23', title: 'L23', monoblocks: [{ name: 'Вентиляция', blocks: [{ code: 'B1', name: 'Вентилятор', equipType: 'ВЕНТИЛЯТОР', parameters: [{ group: 'Воздух', key: 'Расход воздуха', value: '8060', unit: 'м³/ч' }] }] }] }] }), { status: 200 });
   }
   if (path.endsWith('/equipment/source-import/preview')) {
     log();
-    return new Response(JSON.stringify({ success: true, fileName: 'L23.xml', sha256: 'c'.repeat(64), revision: 'A', previewToken: 'wizard-cad-preview', unitTag: { identifier: 'L23', action: 'create' }, plan: {
-      systems: [{ name: 'L23', title: 'L23', action: 'create' }], blocks: [{ key: 'L23‖B1', systemName: 'L23', title: 'Вентилятор', equipType: 'ВЕНТИЛЯТОР', action: 'create', params: [{ group: 'Воздух', key: 'Расход воздуха', value: '8060', unit: 'м³/ч', status: 'new' }], changedCount: 1, overrideImpact: 1 }],
+    return new Response(JSON.stringify({ success: true, fileName: 'L23.xml', sha256: 'c'.repeat(64), revision: 'A', previewToken: 'wizard-cad-preview', unitTag: { identifier: body?.tagIdentifier || 'L23', action: 'create' }, plan: {
+      systems: [{ name: body?.tagIdentifier || 'L23', title: 'L23', action: 'create' }], blocks: [{ key: 'L23‖B1', systemName: 'L23', title: 'Вентилятор', equipType: 'ВЕНТИЛЯТОР', action: 'create', params: [{ group: 'Воздух', key: 'Расход воздуха', value: '8060', unit: 'м³/ч', status: 'new' }], changedCount: 1, overrideImpact: 1 }],
       tagLinks: [{ blockKey: 'L23‖‖__unit__', identifier: 'L23', action: 'create' }], matches: [], systemRows: [], missing: [], totals: { systems: 1, newBlocks: 1, updatedBlocks: 0, unchangedBlocks: 0, overrides: 1 },
     } }), { status: 200 });
   }
   if (path.endsWith('/equipment/source-import/apply')) {
     log();
-    return new Response(JSON.stringify({ success: true, baselineApplied: false, source: { sourceId: 'cad-source-1', tagId: 'tag-l23', targetType: 'system', systemId: 'system-l23', elementId: 'element-l23', revision: 'A', sha256: 'c'.repeat(64), fileName: 'L23.xml' }, bindingId: 'cad-binding-1' }), { status: 200 });
+    if (group) (window as any).__wizardState.ledgerRevision++;
+    return new Response(JSON.stringify({ success: true, baselineApplied: false, source: { sourceId: `cad-source-${body?.tagIdentifier || 1}`, tagId: 'tag-l23', targetType: 'system', systemId: 'system-l23', elementId: 'element-l23', revision: 'A', sha256: 'c'.repeat(64), fileName: 'L23.xml' }, bindingId: 'cad-binding-1' }), { status: 200 });
   }
   if (path.endsWith('/equipment/import-draft-plan')) {
     log();
@@ -88,7 +92,7 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
 };
 
 function Fixture() {
-  const [initialDocument, setInitialDocument] = React.useState<any>(() => initialFor(query.get('cad') === '1' ? 'cad' : 'doc-a'));
+  const [initialDocument, setInitialDocument] = React.useState<any>(() => initialFor(query.get('cad') ? 'cad' : 'doc-a'));
   const [done, setDone] = React.useState('');
   (window as any).__wizardLoadSecondDocument = () => { setDone(''); setInitialDocument(initialFor('doc-b')); };
   (window as any).__wizardResolveSecondDraft = () => {

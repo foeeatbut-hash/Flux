@@ -28,7 +28,7 @@ export function inferEquipmentSourceFilenameRule(fileName: string, tagIdentifier
   const tag = normalizeTag(tagIdentifier);
   if (!tag) return null;
   if (stem === tag) return { kind: 'exact-tag' };
-  return hasTagBoundary(stem, tag) ? { kind: 'selected-name', fileName } : null;
+  return hasTagBoundary(stem, tag) || groupHasTag(stem, tag) ? { kind: 'selected-name', fileName } : null;
 }
 
 export function matchesEquipmentSourceFilename(fileName: string, tagIdentifier: string, rule?: EquipmentSourceFilenameRule): boolean {
@@ -36,11 +36,28 @@ export function matchesEquipmentSourceFilename(fileName: string, tagIdentifier: 
   const candidate = rule || inferEquipmentSourceFilenameRule(fileName, tagIdentifier);
   if (!candidate) return false;
   if (candidate.kind === 'exact-tag') return normalizeTag(fileName.slice(0, -4)) === normalizeTag(tagIdentifier);
-  return !/[\\/]/u.test(candidate.fileName) && normalizeName(fileName) === normalizeName(candidate.fileName) && hasTagBoundary(normalizeTag(fileName.slice(0, -4)), normalizeTag(tagIdentifier));
+  return !/[\\/]/u.test(candidate.fileName) && normalizeName(fileName) === normalizeName(candidate.fileName) && (hasTagBoundary(normalizeTag(fileName.slice(0, -4)), normalizeTag(tagIdentifier)) || groupHasTag(normalizeTag(fileName.slice(0, -4)), normalizeTag(tagIdentifier)));
+}
+
+/**
+ * Группа одинаковых установок под одним именем: «3700-B01-AS-001ABC» — это
+ * 001A, 001B и 001C с одним расчётом. Буквы после последней цифры должны идти
+ * подряд по алфавиту (ABC, BCD), иначе это обычное имя и группы нет.
+ */
+export function expandEquipmentUnitGroup(name: string): string[] {
+  const match = /^(.*\d)([A-Z]{2,10})$/u.exec(String(name || '').normalize('NFC').trim());
+  if (!match) return [];
+  const letters = Array.from(match[2]);
+  if (!letters.every((letter, index) => index === 0 || letter.charCodeAt(0) === letters[index - 1].charCodeAt(0) + 1)) return [];
+  return letters.map(letter => `${match[1]}${letter}`);
 }
 
 const normalizeTag = (value: string) => value.normalize('NFC').trim().toLowerCase();
 const normalizeName = (value: string) => value.normalize('NFC').trim().toLowerCase();
+/** Имя файла группы «…001ABC» содержит каждую установку группы. */
+function groupHasTag(stem: string, tag: string): boolean {
+  return stem.split(/[^\p{L}\p{N}-]+/u).some(token => expandEquipmentUnitGroup(token.toUpperCase()).some(member => normalizeTag(member) === tag));
+}
 function hasTagBoundary(stem: string, tag: string): boolean {
   let at = stem.indexOf(tag);
   while (at >= 0) {

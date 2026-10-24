@@ -23,6 +23,19 @@ eq('в формуле сохраняется контроль деления н�
   { kind: 'text', text: '=' }, { kind: 'field', binding: binding('p') }, { kind: 'text', text: '÷0' },
 ], row), { error: 'Деление на ноль' });
 eq('один знак равно не даёт пустой успешный результат', !!evaluateOfficeParts([{ kind: 'text', text: '=' }], row).error, true);
+
+console.log('1a. Функции формул Flux (SUM/AVG/MIN/MAX/COUNT/CONCAT)');
+const T = (text: string) => ({ kind: 'text' as const, text });
+const F = (key: string) => ({ kind: 'field' as const, binding: binding(key) });
+eq('SUM складывает параметры в разных единицах', evaluateOfficeParts([T('=SUM('), F('p'), T(', '), F('q'), T(')')], row), { value: { value: '2000', unit: 'W' } });
+eq('русское СУММ и «;» как разделитель равны SUM', evaluateOfficeParts([T('=СУММ('), F('p'), T(';'), F('q'), T(')')], row), { value: { value: '2000', unit: 'W' } });
+eq('AVG берёт среднее', evaluateOfficeParts([T('=AVG('), F('p'), T(', '), F('q'), T(')')], row), { value: { value: '1000', unit: 'W' } });
+eq('MAX и MIN выбирают крайнее', [evaluateOfficeParts([T('=MAX('), F('p'), T(', '), F('q'), T(')')], row).value?.value, evaluateOfficeParts([T('=МИН('), F('p'), T(', '), F('q'), T(')')], row).value?.value], ['1250', '750']);
+eq('функция входит в арифметику: SUM(...) × 2', evaluateOfficeParts([T('=SUM('), F('p'), T(', '), F('q'), T(')×2')], row), { value: { value: '4000', unit: 'W' } });
+eq('COUNT считает непустые аргументы', evaluateOfficeParts([T('=COUNT('), F('p'), T(', '), F('nothing'), T(', '), F('count'), T(')')], row), { value: { value: '2' } });
+eq('SUM без закрывающей скобки — ошибка, а не молчаливый ноль', !!evaluateOfficeParts([T('=SUM('), F('p')], row).error, true);
+eq('запятая сразу после «)» — разделитель аргументов, а не дробь «.1»', evaluateOfficeParts([T('=SUM(SUM('), F('p'), T(', '), F('q'), T('),1)')], row), { error: 'Нельзя складывать поля с разными единицами' });
+eq('обычный текст «Sum(1,2)» без знака равно остаётся текстом', evaluateOfficeParts([T('Sum(1,2)')], row), { value: { value: 'Sum(1,2)' } });
 eq('приоритет умножения и скобки', evaluateOfficeParts([
   { kind: 'operator', operator: '(' }, { kind: 'field', binding: binding('p') }, { kind: 'operator', operator: '+' }, { kind: 'field', binding: binding('q') },
   { kind: 'operator', operator: ')' }, { kind: 'operator', operator: '*' }, { kind: 'field', binding: binding('count') },

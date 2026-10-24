@@ -223,6 +223,46 @@ async function main() {
       (await prisma.equipmentXmlSource.count({ where: { projectId: 'source-import-project', deletedAt: null } })) === 2
       && (await prisma.equipmentXmlSource.findUnique({ where: { id: bBody.source.sourceId } }))?.tagIdentifier === b.tagIdentifier);
 
+    // Один XML на группу одинаковых установок «…001ABC»: каждая буква — своя установка.
+    const groupBase = makeBody('5100-B01-AS-001ABC', '5100-B01-AS-001ABC.xml');
+    const groupIds: string[] = [];
+    const groupMembers = ['5100-B01-AS-001A', '5100-B01-AS-001B', '5100-B01-AS-001C'];
+    const importGroupMember = async (base: ReturnType<typeof makeBody>, member: string) => {
+      const body = { ...base, tagIdentifier: member };
+      const groupPreview = await post('preview', body);
+      assert.equal(groupPreview.status, 200, (await groupPreview.clone().text()).slice(0, 300));
+      const groupPlan = await groupPreview.json();
+      const groupChoices = Object.fromEntries([...(groupPlan.plan.matches || []), ...(groupPlan.plan.systemRows || [])].map((row: any) => [row.key, row.default || row.options?.[0]?.value]));
+      const groupApplied = await post('apply', { ...body, choices: groupChoices, previewToken: groupPlan.previewToken });
+      assert.equal(groupApplied.status, 200, (await groupApplied.clone().text()).slice(0, 500));
+      return { plan: groupPlan, result: await groupApplied.json() };
+    };
+    for (const member of groupMembers.slice(2)) groupIds.push((await importGroupMember(groupBase, member)).result.source.systemId);
+    for (const member of groupMembers.slice(0, 2)) {
+      const body = { ...groupBase, tagIdentifier: member };
+      const groupPreview = await post('preview', body);
+      assert.equal(groupPreview.status, 200, (await groupPreview.clone().text()).slice(0, 300));
+      const groupPlan = await groupPreview.json();
+      const groupChoices = Object.fromEntries([...(groupPlan.plan.matches || []), ...(groupPlan.plan.systemRows || [])].map((row: any) => [row.key, row.default || row.options?.[0]?.value]));
+      const groupApplied = await post('apply', { ...body, choices: groupChoices, previewToken: groupPlan.previewToken });
+      assert.equal(groupApplied.status, 200, (await groupApplied.clone().text()).slice(0, 500));
+      groupIds.unshift((await groupApplied.json()).source.systemId);
+    }
+    const groupSystems = await prisma.equipmentSystem.findMany({ where: { id: { in: groupIds } }, select: { name: true } });
+    check('установки группы 001ABC из одного XML создаются отдельными системами со своими именами',
+      new Set(groupIds).size === 3 && groupSystems.map((row: any) => row.name).sort().join() === groupMembers.join());
+    // Ревизия B того же файла группы обновляет те же три установки, а не заводит новые.
+    const systemsBeforeB = await count(prisma.equipmentSystem);
+    const groupB = { ...makeBody('5100-B01-AS-001ABC', '5100-B01-AS-001ABC.xml', false, '1500'), revision: 'B' };
+    const revisionB = [];
+    for (const member of groupMembers) revisionB.push(await importGroupMember(groupB, member));
+    const sourcesB = await prisma.equipmentXmlSource.findMany({ where: { projectId: 'source-import-project', tagIdentifier: { in: groupMembers }, deletedAt: null } });
+    check('ревизия B группы обновляет все три установки на месте',
+      systemsBeforeB === await count(prisma.equipmentSystem)
+      && revisionB.map(row => row.result.source.systemId).sort().join() === [...groupIds].sort().join()
+      && revisionB.every(row => (row.plan.plan.totals.updatedBlocks || 0) > 0)
+      && sourcesB.length === 3);
+
     const documentText = Buffer.from(makeBody('DOC-01-AHU-001', 'temporary.xml').base64, 'base64').toString('utf8');
     const documentUnits = parseEquipmentXML(documentText).units;
     const documentPlanResponse = await postApi('/api/equipment/import-draft-plan', { units: documentUnits, category: 'AHU', projectId: 'source-import-project', fileName: 'form.docx' });

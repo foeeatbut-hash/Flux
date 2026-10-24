@@ -510,7 +510,7 @@ export default function FluxPanel(props: FluxPanelProps) {
           setPanelError('');
           try {
             if (props.onUpdateFields) { await props.onUpdateFields(); return; }
-            const response = await fetch(`/api/project-data/files/${encodeURIComponent(props.fileId)}/update`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+            const response = await fetch(`/api/project-data/files/${encodeURIComponent(props.fileId)}/update`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: selectedProjectId }) });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(data?.error || `сервер ответил ${response.status}`);
           } catch (error: any) {

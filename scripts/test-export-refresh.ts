@@ -7,7 +7,10 @@ import { exportName } from '../src/lib/exportGrid';
 // Исполняется настоящий обработчик редактора, а не его повторная реализация.
 (async () => {
 const source = fs.readFileSync('tools/genoffice/inject/sheets-collab.ts', 'utf8');
-const snippet = source.slice(source.indexOf('async function exportCommands()'));
+// Обработчик лежит посреди exportCommands, рядом с десятками чужих обязанностей редактора, которым нужен
+// настоящий Univer. Берём ровно его текст и подставляем только то, что он читает снаружи
+const handler = source.slice(source.indexOf("link.on('flux:refresh-export'"), source.indexOf("link.on('flux:apply-office-plan'"));
+const snippet = `async function exportCommands() { const link = ipc(); const fluxReadOnly = false; const reply = (id, result) => link.send('flux:command-result', { id, ...result });\n${handler}\n}`;
 const listeners = new Map<string, Function>(); let result: any;
 const cells = new Map<string, { v?: any; f?: string }>();
 const defs = new Map<string, string>();
@@ -33,6 +36,7 @@ const context = vm.createContext({
   ensureLazyRangeLoaded: async (_runtime: unknown, _lazy: unknown, _sheet: unknown, range: unknown) => { loadCalls++; loadedRange = range; return loadResult; },
 });
 vm.runInContext(ts.transpileModule(snippet, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
+await vm.runInContext('exportCommands()', context);
 const before: any = { headers: ['Название', 'Число'], columnKeys: ['name', 'count'], rowKeys: ['r1', 'r2'], rows: [['Первый', '10'], ['Второй', '20']], formulas: [] };
 before.headers.forEach((h: string, c: number) => { put(0, c, h); named('@header', before.columnKeys[c], 0, c); });
 put(0, 2, 'identity'); named('@header', '@identity', 0, 2);

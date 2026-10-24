@@ -62,6 +62,7 @@ import { useRegistryTags } from '../components/registry/useRegistryTags';
 import { useTagTreeOps } from '../components/registry/useTagTreeOps';
 import { saveTagMetadataPatch, rememberVersions } from '../components/registry/tagWrite';
 import { splitSegments } from '../lib/tagExtract';
+import { belongsToProject } from '../lib/coalescedRefresh';
 import TagSearchPanel from '../components/registry/TagSearchPanel';
 import { Status, Empty } from '../components/ui';
 import { parseTagMetadata, getTagOverallStatus, statusConfig, type DescriptionItem, type ParsedMetadata } from '../components/registry/tagMeta';
@@ -597,7 +598,16 @@ export default function Registry() {
             initialSelections[cat.id] = "";
           }
         });
-        setDynamicCategorySelections(initialSelections);
+        // Справочник перечитывается и по событию из другого окна: выбор, уже
+        // сделанный в строке создания, остаётся, пока его вариант есть в справочнике
+        setDynamicCategorySelections(prev => {
+          const next = { ...initialSelections };
+          for (const cat of cats) {
+            const chosen = prev[cat.id];
+            if (chosen && (configDict.items || []).some((i: any) => i.parentId === cat.id && i.nameRu === chosen)) next[cat.id] = chosen;
+          }
+          return next;
+        });
       }
     }
   }, [dictionaries]);
@@ -606,6 +616,18 @@ export default function Registry() {
     loadTags();
     loadDictionaries();
   }, [activeProject?.id]); // по идентификатору, а не по объекту: иначе перезапрос при каждой смене ссылки
+
+  // Справочник правят в другой программе: без этого строка создания и «Подбор»
+  // показывали бы прежние категории и варианты до повторного входа в проект
+  useEffect(() => {
+    const onEntityChanged = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      if (detail.kind !== 'dictionary' || !belongsToProject(detail, activeProject?.id || '')) return;
+      void loadDictionaries();
+    };
+    window.addEventListener('socket:entity:changed', onEntityChanged);
+    return () => window.removeEventListener('socket:entity:changed', onEntityChanged);
+  }, [activeProject?.id]);
 
   // Загрузка тегов и подсветка после захвата — в useRegistryTags. Вызов стоит
   // там же, где раньше были их эффекты: после «загрузить при смене проекта»,

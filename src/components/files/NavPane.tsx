@@ -64,8 +64,18 @@ export default function NavPane({ place, onOpen, onOpenInNewTab }: {
     const at = nodes.indexOf(document.activeElement as HTMLElement);
     if (at < 0) return;
     const row = items.find((item) => item.key === nodes[at].dataset.navKey);
-    if (!row) return;
     const go = (index: number) => { event.preventDefault(); nodes[Math.min(nodes.length - 1, Math.max(0, index))]?.focus(); };
+    // «Архив Flux» стоит под разделителем и не входит в items: без этой ветки фокус на нём
+    // был ловушкой — ни стрелки, ни Home, ни Enter не работали
+    if (!row) {
+      if (nodes[at].dataset.navKey !== 'flux-archive') return;
+      if (event.key === 'ArrowUp') go(at - 1);
+      else if (event.key === 'ArrowDown') go(at);
+      else if (event.key === 'Home') go(0);
+      else if (event.key === 'End') go(nodes.length - 1);
+      else if (event.key === 'Enter') { event.preventDefault(); navigate('/explorer?projectFiles=1'); }
+      return;
+    }
     if (event.key === 'ArrowDown') go(at + 1);
     else if (event.key === 'ArrowUp') go(at - 1);
     else if (event.key === 'Home') go(0);

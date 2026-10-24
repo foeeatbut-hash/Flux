@@ -18,6 +18,32 @@ const MAX_UNDO = 20;
 const MAX_LEDGER_BYTES = 256_000;
 const EMPTY = (): ProjectFolderBindingLedger => ({ revision: 0, bindings: [], undo: [] });
 
+/**
+ * Удаление проекта убирает и его привязки папок вместе с записями отмены, где
+ * они упомянуты: иначе Проводник предлагал бы папку несуществующего проекта.
+ * Условная запись по полному старому значению — как в обычном маршруте, чтобы
+ * не затереть привязку, сохранённую в соседнем окне.
+ */
+export async function cleanupProjectFolderBindingLedger(prisma: any, projectId: string): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const stored = await prisma.appSetting.findFirst({ where: { key: LEDGER_KEY, userId: LEDGER_OWNER } });
+    if (!stored) return;
+    let prior: ProjectFolderBindingLedger;
+    try { prior = parseLedger(stored.value); } catch { return; }
+    const other = (rows: ProjectFolderBinding[]) => rows.filter(row => row.projectId !== projectId);
+    if (!prior.bindings.some(row => row.projectId === projectId)
+      && !prior.undo.some(item => [...(item.before || []), ...(item.after || [])].some(row => row.projectId === projectId))) return;
+    const next: ProjectFolderBindingLedger = {
+      revision: prior.revision + 1,
+      bindings: other(prior.bindings),
+      undo: prior.undo.map(item => ({ ...item, before: other(item.before || []), after: other(item.after || []) })),
+    };
+    const changed = await prisma.appSetting.updateMany({ where: { id: stored.id, value: stored.value }, data: { value: JSON.stringify(next) } });
+    if (changed.count === 1) return;
+  }
+  throw new Error('Привязки папок изменились параллельно; повторите удаление проекта.');
+}
+
 export interface ProjectFolderBindingDeps {
   /** Право менять привязки: администратор или владелец функции project.manage (как в server/routes/projects.ts). */
   mayManage: (req: Request) => Promise<boolean>;
