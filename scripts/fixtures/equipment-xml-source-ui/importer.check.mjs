@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { chromium } from '../../../node_modules/playwright-core/index.mjs';
+import { pickXmlFile } from './picker.mjs';
 const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
 try {
   for (const width of ['narrow', 'wide']) for (const theme of ['light', 'dark']) {
@@ -9,6 +10,7 @@ try {
     await page.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?width=${width}&theme=${theme}`);
     const logs = () => page.evaluate(() => window.__importLog);
     await page.getByRole('button', { name: 'Выбрать XML-файл' }).click();
+    await pickXmlFile(page);
     await page.getByRole('button', { name: 'Показать план' }).click();
     await page.getByRole('heading', { name: /Предпросмотр/ }).waitFor();
     await page.getByText(/ручных значений\. Импорт ждёт отдельного разрешения конфликта/).waitFor();
@@ -47,6 +49,7 @@ try {
   const racePage = await browser.newPage({ viewport: { width: 700, height: 850 } });
   await racePage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?race=1`);
   await racePage.getByRole('button', { name: 'Выбрать XML-файл' }).click();
+  await pickXmlFile(racePage);
   await racePage.getByRole('button', { name: 'Показать план' }).click();
   await racePage.getByRole('button', { name: 'Переключить проект' }).click();
   await racePage.waitForTimeout(650);
@@ -56,6 +59,7 @@ try {
   const applyRacePage = await browser.newPage({ viewport: { width: 700, height: 850 } });
   await applyRacePage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?race=1`);
   await applyRacePage.getByRole('button', { name: 'Выбрать XML-файл' }).click();
+  await pickXmlFile(applyRacePage);
   await applyRacePage.getByRole('button', { name: 'Показать план' }).click();
   await applyRacePage.getByRole('heading', { name: /Предпросмотр/ }).waitFor();
   await applyRacePage.getByRole('button', { name: 'Подтвердить импорт' }).click();

@@ -9,6 +9,7 @@ import { useWindowStore } from '../store/windowStore';
 import { useAppContext } from '../store/policyStore';
 import { sectionAccess } from '../lib/appPolicy';
 import ModalProvider from './ModalProvider';
+import FluxSaveHost from './explorer/FluxSaveDialog';
 
 /** Отдельный WebContents не пересоздаётся при переносе настоящего окна Windows. */
 export default function NativeAppHost() {
@@ -59,5 +60,6 @@ export default function NativeAppHost() {
         : <SectionFrame paneId={`win:${id}`} path={path} href={href} isLive visible liveLocation={location} globalNavigate={transition} />}
     </main>
     <ModalProvider />
+    <FluxSaveHost />
   </div>;
 }

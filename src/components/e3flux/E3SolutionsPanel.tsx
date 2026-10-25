@@ -13,6 +13,7 @@ import { e3SolutionsService as svc, E3SolutionVersionError, type E3SolutionPatch
 import { useToastStore } from '../../store/toastStore';
 import { fileName } from '../../lib/exchange';
 import { count } from '../../lib/plural';
+import { reportSaveError, saveBlob } from '../../lib/saveToWindows';
 import { Btn, Chip, Empty, FilterSeg, Input, SectionHead, Select, Toolbar } from '../ui';
 import ImportFileChooser from '../ImportFileChooser';
 import { confirmAsk } from '../catalog/ui';
@@ -101,25 +102,17 @@ export default function E3SolutionsPanel({ state, rights, jump }: { state: Solut
     } finally { setBusy(false); }
   };
 
-  const download = () => {
+  const download = async () => {
     if (!book) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([solutionWorkbookBytes(book)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-    a.download = fileName('Типовые решения E3', 'xlsx');
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    addToast(`Каталог выгружен в Excel: ${sols(live.length)}`, 'success');
+    const saved = await saveBlob(fileName('Типовые решения E3', 'xlsx'), new Blob([solutionWorkbookBytes(book)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    reportSaveError(saved);
   };
 
   // Список названий для пробы E3 (tools/e3-probe, -NamesFile): имя блока в базе E3 = «Название схемы»
-  const downloadNames = () => {
+  const downloadNames = async () => {
     if (!book) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([solutionNamesFile(book.solutions)], { type: 'text/plain;charset=utf-8' }));
-    a.download = 'e3-names.txt';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    addToast(`Названия для пробы выгружены: ${solutionNames(book.solutions).length}`, 'success');
+    const saved = await saveBlob('e3-names.txt', new Blob([solutionNamesFile(book.solutions)], { type: 'text/plain;charset=utf-8' }));
+    reportSaveError(saved);
   };
 
   const editingSolution: E3Solution | null = editing ? items.find((s) => s.id === editing) || null : null;

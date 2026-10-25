@@ -16,6 +16,7 @@ import { dataService } from '../../services/dataService';
 import { useRealTimeSync } from '../SocketProvider';
 import { belongsToProject } from '../../lib/coalescedRefresh';
 import { fetchFileMetadata } from '../../services/fileMetadataCache';
+import { saveBlob } from '../../lib/saveToWindows';
 
 export interface ProjectField {
   key: string;
@@ -62,13 +63,11 @@ const failResponse = async (response: Response) => {
   return data;
 };
 
-function downloadBlob(blob: Blob, name: string) {
-  const href = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = href;
-  anchor.download = name;
-  anchor.click();
-  URL.revokeObjectURL(href);
+/** Выгрузка через Проводник Flux; false — человек передумал, говорить «сохранён» не нужно */
+async function downloadBlob(blob: Blob, name: string): Promise<boolean> {
+  const saved = await saveBlob(name, blob);
+  if (!saved.ok && !saved.canceled) throw new Error(saved.error);
+  return !saved.canceled;
 }
 
 function dynamicKeysFor(tags: any[], names: Record<string, string>) {
@@ -406,15 +405,15 @@ export default function FluxPanel(props: FluxPanelProps) {
     setBusy(true); setInsertMessage('');
     try {
       if (format === 'csv') {
-        downloadBlob(new Blob([toCsv(headers, body)], { type: 'text/csv;charset=utf-8;' }), name);
+        if (!await downloadBlob(new Blob([toCsv(headers, body)], { type: 'text/csv;charset=utf-8;' }), name)) return;
       } else {
         const bytes = await toXlsx(headers, body, title);
         if (format === 'office') {
           const made = await saveNewFile(bytes, name, 'exports');
           navigate(editorHref(made));
-        } else downloadBlob(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), name);
+        } else if (!await downloadBlob(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), name)) return;
       }
-      setInsertMessage(`${format === 'csv' ? 'CSV скачан.' : format === 'office' ? 'Книга сохранена в Flux Office.' : 'XLSX скачан.'} · ${rows.length} строк`);
+      setInsertMessage(`${format === 'csv' ? 'CSV сохранён.' : format === 'office' ? 'Книга сохранена в Flux Office.' : 'XLSX сохранён.'} · ${rows.length} строк`);
     } catch (e: any) { setInsertMessage(String(e?.message || 'Не удалось подготовить файл.')); }
     finally { setBusy(false); }
   };

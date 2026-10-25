@@ -12,7 +12,6 @@ void (async () => {
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript({ content: `
     (() => {
-      const nativeBytes = Uint8Array.from([0, 255, 128, 65]);
       const mirrorBytes = Uint8Array.from([1, 2, 0, 128]);
       const encode = bytes => btoa(String.fromCharCode(...bytes));
       window.__requests = [];
@@ -23,8 +22,6 @@ void (async () => {
         : originalFetch(input, init);
       window.electron = { windowsFiles: { invoke: async request => {
         window.__requests.push(request);
-        if (request.action === 'pickImportRefs') return { ok: true, data: { canceled: false, files: [{ name: 'native.xlsx', size: nativeBytes.length, lastModified: 1_700_000_000_000, ticket: 'native-1', provenance: { sourceFolder: { rootId: 'native-root', relativePath: 'Documents' }, fileRef: { rootId: 'native-root', relativePath: 'Documents/native.xlsx' }, folderKey: 'a'.repeat(64) } }] } };
-        if (request.action === 'readImportRef' && request.ticket === 'native-1') return { ok: true, data: { name: 'native.xlsx', size: nativeBytes.length, offset: request.offset, base64: encode(nativeBytes.slice(request.offset, request.offset + request.length)) } };
         if (request.action === 'releaseImportRefs') return { ok: true, data: { released: request.tickets } };
         if (request.action === 'roots') return { ok: true, data: [{ id: 'network-root', name: 'Общая папка', kind: 'custom', network: true, available: true }] };
         if (request.action === 'list' && request.ref.relativePath === '') return { ok: true, data: { entries: [{ name: 'Импорты', relativePath: 'Импорты', storage: 'windows', kind: 'directory', fileId: 'dir-1', size: 0, modifiedAt: '', linked: false }], nextOffset: null } };
@@ -43,18 +40,18 @@ void (async () => {
   ` });
   await page.goto(`${BASE}/scripts/fixtures/import-file-chooser.html`);
   const routeBeforeCancel = page.url();
-  await page.getByRole('button', { name: 'Проводник' }).click();
+  // Настройка «системное окно» (в этом стенде она отвечает system: true) больше ничего не значит:
+  // выбор файла всегда открывает Проводник Flux, а системное окно Windows не вызывается.
+  await page.getByRole('button', { name: 'Выбрать файл' }).click();
   const cancelDialog = page.getByRole('dialog', { name: 'Выбрать файл из Проводника' });
   await cancelDialog.waitFor();
+  check('кнопка «Выбрать файл» открывает окно Проводника Flux, а не системное', await cancelDialog.count() === 1 && !(await page.evaluate(() => (window as any).__requests.some((r: any) => /^pick/.test(r.action)))));
   await page.getByRole('button', { name: 'Закрыть окно' }).click();
   await cancelDialog.waitFor({ state: 'detached' });
   check('cancel closes the picker without changing the page route', page.url() === routeBeforeCancel);
-  await page.getByRole('button', { name: 'Выбрать файл' }).click();
-  await page.getByLabel('Полученные файлы').getByText('native.xlsx|application/vnd.openxmlformats-officedocument.spreadsheetml.sheet|1700000000000|0,255,128,65').waitFor({ timeout: 5000 });
-  check('native picker preserves XLSX MIME, modification time and byte content', await page.getByLabel('Полученные файлы').textContent() === 'native.xlsx|application/vnd.openxmlformats-officedocument.spreadsheetml.sheet|1700000000000|0,255,128,65');
-  check('native file keeps folder and opaque key provenance beside its file capability', await page.evaluate(() => (window as any).__receivedProvenance?.[0]?.sourceFolder?.relativePath === 'Documents' && (window as any).__receivedProvenance?.[0]?.fileRef?.relativePath === 'Documents/native.xlsx' && (window as any).__receivedProvenance?.[0]?.folderKey === 'a'.repeat(64)));
+  check('отдельной кнопки «Проводник» рядом больше нет', await page.getByRole('button', { name: 'Проводник', exact: true }).count() === 0);
 
-  await page.getByRole('button', { name: 'Проводник' }).click();
+  await page.getByRole('button', { name: 'Выбрать файл' }).click();
   await page.getByRole('dialog', { name: 'Выбрать файл из Проводника' }).waitFor();
   await page.getByRole('button', { name: 'Импорты' }).click();
   await page.locator('label').filter({ hasText: 'mirror.xlsx' }).locator('input[type=checkbox]').check();

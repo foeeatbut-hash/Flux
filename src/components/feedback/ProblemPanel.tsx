@@ -26,6 +26,7 @@ import { draftToFile, QUICK_DRAFT } from '../../feedback/draftDb';
 import { submissionQueue, type QueueItem } from '../../feedback/submissionQueue';
 import { useProblemPanel, closeProblemPanel } from '../../feedback/problemPanel';
 import { useStore } from '../../store/store';
+import { reportSaveError, saveBlob } from '../../lib/saveToWindows';
 
 /** Что мешает отправить. Пустая строка — ничего. */
 export function whyNotSend(text: string): string {
@@ -190,18 +191,13 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
    * пусть человек заберёт его себе. Работает и без ответа сервера: именно
    * тогда она и нужна.
    */
-  const saveToFile = () => {
+  const saveToFile = async () => {
     const draft = composer.draft || {
       id: 'без-сервера', deploymentId: '', userId, draftId: QUICK_DRAFT,
       updatedAt: Date.now(), state: 'EDITING' as const, fields: {}, attachments: [],
     };
     const blob = draftToFile({ ...draft, fields: { ...draft.fields, description: text.trim() } });
-    const url = URL.createObjectURL(blob);
-    const anchorEl = document.createElement('a');
-    anchorEl.href = url;
-    anchorEl.download = `обращение-${new Date().toISOString().slice(0, 10)}.json`;
-    anchorEl.click();
-    setTimeout(() => URL.revokeObjectURL(url), 20000);
+    reportSaveError(await saveBlob(`обращение-${new Date().toISOString().slice(0, 10)}.json`, blob));
   };
 
   const progress = progressOf(queued, composer.save);

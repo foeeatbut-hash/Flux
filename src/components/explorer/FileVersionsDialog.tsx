@@ -11,6 +11,7 @@ import React, { useEffect, useState } from 'react';
 import { Btn, Dialog, Empty } from '../ui';
 import { useToastStore } from '../../store/toastStore';
 import { useModalStore } from '../../store/modalStore';
+import { reportSaveError, saveBlob } from '../../lib/saveToWindows';
 
 interface Version { id: string; version: number; size: number; createdById: string | null; createdAt: string }
 
@@ -59,12 +60,7 @@ export default function FileVersionsDialog({ fileId, name, onClose, onRestored }
   const download = async (v: Version) => {
     const r = await fetch(`/api/office/files/${encodeURIComponent(fileId)}/versions/${encodeURIComponent(v.id)}/raw`);
     if (!r.ok) { addToast('Версию не удалось получить', 'error'); return; }
-    const blob = await r.blob();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = decodeURIComponent(r.headers.get('X-File-Name') || name);
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+    reportSaveError(await saveBlob(decodeURIComponent(r.headers.get('X-File-Name') || name), await r.blob()));
   };
 
   return (

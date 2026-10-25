@@ -28,6 +28,7 @@ import { detectLang } from '../translate/lang';
 import { LANG_NAME, swapLangs, type Lang } from '../translate/types';
 import { useWindowHotkeys } from '../lib/useWindowHotkeys';
 import { readiness } from '../translate/engine';
+import { saveText } from '../lib/saveToWindows';
 
 type Mode = 'text' | 'terms' | 'memory';
 
@@ -170,14 +171,8 @@ export default function TranslateScreen() {
     try {
       const res = await fetch(`/api/translate/tmx?projectId=${encodeURIComponent(activeProject?.id || '')}&from=ru&to=en`);
       if (!res.ok) throw new Error('нет ответа');
-      const xml = await res.text();
-      const url = URL.createObjectURL(new Blob([xml], { type: 'application/xml' }));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'Память переводов.tmx';
-      a.click();
-      URL.revokeObjectURL(url);
-      addToast('Память выгружена файлом TMX', 'success');
+      const saved = await saveText('Память переводов.tmx', await res.text());
+      if (!saved.ok && !saved.canceled) addToast(saved.error || 'Не удалось выгрузить память', 'error');
     } catch (_) { addToast('Не удалось выгрузить память', 'error'); }
   };
 

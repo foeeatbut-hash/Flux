@@ -39,7 +39,6 @@ document.documentElement.classList.toggle('dark', query.get('theme') === 'dark')
     return { ok: true, data: { name: path.split('/').at(-1), size: bytes(content).length, modifiedAt: '2026-10-01T00:00:00.000Z', sha256: 'f'.repeat(64), base64: base64(content) } };
   }
   if (request.action === 'roots') return { ok: true, data: [{ id: rootId, name: 'Fixture', kind: 'custom', available: true }] };
-  if (request.action === 'pickEquipmentSource') return { ok: true, data: { selectedFile: { ref: ref('L23.xml'), name: 'L23.xml' }, sourceFolder } };
   return { ok: false, error: { code: 'NOT_IMPLEMENTED', message: `Unsupported fixture action: ${request.action}` } };
 }, onChanged: () => () => {} } };
 
@@ -49,7 +48,6 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
   const method = String(init?.method || 'GET').toUpperCase();
   const body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
   const log = (data: any = null) => (window as any).__wizardLog.push({ path, method, body, data });
-  if (path.endsWith('/settings/explorer_file_picker')) return new Response(JSON.stringify({ user: JSON.stringify({ system: true }) }), { status: 200 });
   if (path.includes('/document-bindings')) {
     const state = (window as any).__wizardState;
     log({ revision: state.ledgerRevision });

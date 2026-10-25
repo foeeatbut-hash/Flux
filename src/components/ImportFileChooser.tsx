@@ -1,10 +1,10 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronRight, FolderOpen, Loader2, Upload } from 'lucide-react';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { Loader2, Upload } from 'lucide-react';
 import WindowsFileIcon from './explorer/WindowsFileIcon';
-import { FileIcon } from './icons/FluxIcons';
+import FluxFolderNav from './explorer/FluxFolderNav';
 import { ICON_SIZE } from '../lib/metrics';
 import { Btn, Dialog } from './ui';
-import { base64ToBytes, windowsFilesRequest, type WindowsEquipmentSourceFolderPick, type WindowsEquipmentSourcePick, type WindowsFileEntry, type WindowsFileRef, type WindowsRoot, type SelectionProvenance } from '../lib/windowsFiles';
+import { base64ToBytes, windowsFilesRequest, type WindowsFileEntry, type WindowsFileRef, type WindowsRoot, type SelectionProvenance } from '../lib/windowsFiles';
 import { WINDOWS_IMPORT_READ_BYTES, type ImportedFileRef } from '../../filesystem/contracts';
 import { importFileMime } from '../lib/importFileMime';
 
@@ -24,14 +24,8 @@ type Props = {
   onFiles: (files: File[], provenance?: SelectionProvenance[]) => void;
 };
 export interface ImportFileChooserHandle { open: () => void }
+const LAST_FOLDER_KEY = 'open.lastFolder';
 type Listing = { entries: WindowsFileEntry[]; nextOffset: number | null };
-const MIME_EXTENSIONS: Record<string, string[]> = {
-  'image/bmp': ['.bmp'], 'image/gif': ['.gif'], 'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png'], 'image/svg+xml': ['.svg'], 'image/tiff': ['.tif', '.tiff'], 'image/webp': ['.webp'],
-  'text/csv': ['.csv'], 'application/pdf': ['.pdf'], 'application/json': ['.json'], 'application/xml': ['.xml'],
-  'application/vnd.ms-excel': ['.xls'], 'application/vnd.ms-excel.sheet.macroenabled.12': ['.xlsm'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-  'application/msword': ['.doc'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'], 'application/zip': ['.zip'], 'text/plain': ['.txt'], 'text/tab-separated-values': ['.tsv'],
-};
-const acceptedExtensions = (accept: string) => accept.split(',').map(value => value.trim().toLowerCase()).flatMap(value => value.startsWith('.') ? [value] : value.endsWith('/*') ? Object.entries(MIME_EXTENSIONS).filter(([mime]) => mime.startsWith(value.slice(0, -1))).flatMap(([, extensions]) => extensions) : MIME_EXTENSIONS[value] || []);
 const matches = (name: string, accept: string) => {
   const tokens = accept.split(',').map(value => value.trim().toLowerCase()).filter(Boolean);
   if (!tokens.length || tokens.includes('*/*')) return true;
@@ -54,33 +48,24 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
   const [selected, setSelected] = useState<WindowsFileEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [systemPicker, setSystemPicker] = useState(true);
   const listRequest = useRef(0);
-  const root = roots.find(item => item.id === rootId);
-  const crumbs = useMemo(() => folder.split('/').filter(Boolean), [folder]);
-
-  useEffect(() => {
-    let alive = true;
-    void fetch('/api/settings/explorer_file_picker').then(r => r.json()).then(d => {
-      if (!alive) return;
-      try { const parsed = JSON.parse(d?.user || 'null'); setSystemPicker(parsed?.system !== false); } catch { setSystemPicker(true); }
-    }).catch(() => { if (alive) setSystemPicker(false); });
-    const changed = (event: Event) => setSystemPicker(!!(event as CustomEvent<{ system?: boolean }>).detail?.system);
-    window.addEventListener('flux:file-picker-preference', changed);
-    return () => { alive = false; window.removeEventListener('flux:file-picker-preference', changed); };
-  }, []);
 
   useEffect(() => {
     if (!open) return;
     let alive = true;
     setBusy(true); setError(''); setSelected([]); setListing(null);
-    void windowsFilesRequest<WindowsRoot[]>({ action: 'roots' }).then(result => {
+    void windowsFilesRequest<WindowsRoot[]>({ action: 'roots' }).then(async result => {
       if (!alive) return;
       if (result.ok === false) { setError(result.error.message); return; }
       const available = result.data.filter(item => item.available);
       setRoots(available);
-      if (available.length) { setRootId(available[0].id); setFolder(''); }
-      else setError('В Проводнике нет доступных папок.');
+      if (!available.length) { setError('В Проводнике нет доступных папок.'); return; }
+      // Окно открывается там, где человек выбирал в прошлый раз (как «Сохранить в…»)
+      const stored = await windowsFilesRequest<Record<string, WindowsFileRef | undefined>>({ action: 'viewStateGet', keys: [LAST_FOLDER_KEY] }).catch(() => null);
+      const last = stored?.ok ? stored.data[LAST_FOLDER_KEY] : undefined;
+      if (!alive) return;
+      if (last && typeof last.rootId === 'string' && available.some(item => item.id === last.rootId)) { setRootId(last.rootId); setFolder(String(last.relativePath || '')); }
+      else { setRootId(available[0].id); setFolder(''); }
     }).catch(() => { if (alive) setError('Не удалось открыть Проводник.'); }).finally(() => { if (alive) setBusy(false); });
     return () => { alive = false; };
   }, [open]);
@@ -98,55 +83,13 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
     return () => { alive = false; };
   }, [open, rootId, folder]);
 
+  // Выбор файла всегда идёт через Проводник Flux; обычное окно файлов браузера — только там, где моста к
+  // папкам компьютера нет (страница в браузере), иначе выбирать было бы не из чего.
   const pickNative = async () => {
     const bridge = (window as Window & { electron?: { windowsFiles?: unknown } }).electron?.windowsFiles;
-    if (systemPicker && bridge && onWindowsFile) {
-      setBusy(true); setError('');
-      try {
-        const result = await windowsFilesRequest<WindowsEquipmentSourcePick>({ action: 'pickEquipmentSource' });
-        if (result.ok === false) setError(result.error.message);
-        else if ('selectedFile' in result.data) onWindowsFile(result.data.selectedFile.ref, { name: result.data.selectedFile.name, relativePath: result.data.selectedFile.ref.relativePath, rootId: result.data.selectedFile.ref.rootId, storage: 'windows', kind: 'file', fileId: '', size: 0, modifiedAt: '', linked: false }, result.data.provenance || { sourceFolder: result.data.sourceFolder, suggestedTag: result.data.suggestedTag });
-      } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось открыть окно выбора XML.'); }
-      finally { setBusy(false); }
-      return;
-    }
-    if (systemPicker && bridge && onWindowsFolder) {
-      setBusy(true); setError('');
-      try {
-        const result = await windowsFilesRequest<WindowsEquipmentSourceFolderPick>({ action: 'pickEquipmentSourceFolder' });
-        if (result.ok === false) setError(result.error.message);
-        else if ('folder' in result.data) onWindowsFolder(result.data.folder, { name: result.data.folder.relativePath.split('/').filter(Boolean).pop() || 'Папка', relativePath: result.data.folder.relativePath, rootId: result.data.folder.rootId, storage: 'windows', kind: 'directory', fileId: '', size: 0, modifiedAt: '', linked: false });
-      } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось открыть окно выбора папки.'); }
-      finally { setBusy(false); }
-      return;
-    }
-    if (systemPicker && bridge && !onWindowsFile && !selectFolder) {
-      setError('');
-      setBusy(true);
-      let tickets: ImportedFileRef[] = [];
-      let transferred = false;
-      try {
-        const extensions = acceptedExtensions(accept).map(ext => ext.slice(1));
-        const result = await windowsFilesRequest<{ canceled: boolean; files: ImportedFileRef[] }>({ action: 'pickImportRefs', extensions, multiple });
-        if (result.ok === false) { setError(result.error.message); return; }
-        tickets = result.data.files;
-        const accepted = tickets.filter(ticket => matches(ticket.name, accept));
-        const rejected = tickets.filter(ticket => !matches(ticket.name, accept));
-        if (rejected.length) { await windowsFilesRequest({ action: 'releaseImportRefs', tickets: rejected.map(item => item.ticket) }); tickets = accepted; }
-        if (tickets.length && onImportRefs) { onImportRefs(tickets); transferred = true; }
-        else if (tickets.length) onFiles(await filesFromTickets(tickets), tickets.map(ticket => ticket.provenance || {}));
-        else if (rejected.length) setError('Выберите файл поддерживаемого типа.');
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : 'Не удалось открыть окно выбора файла.');
-      } finally {
-        if (tickets.length && !transferred) await windowsFilesRequest({ action: 'releaseImportRefs', tickets: tickets.map(item => item.ticket) });
-        setBusy(false);
-      }
-      return;
-    }
     if (bridge || onWindowsFile || selectFolder) setOpen(true); else input.current?.click();
   };
-  // pickNative замыкает onFiles/onWindowsFile/systemPicker и прочие свойства текущего рендера; ручка с узким
+  // pickNative замыкает onFiles/onWindowsFile и прочие свойства текущего рендера; ручка с узким
   // списком зависимостей держала бы старый рендер и вызывала бы устаревшие обработчики, поэтому читаем через ref.
   const latest = useRef({ pickNative, disabled, busy });
   latest.current = { pickNative, disabled, busy };
@@ -175,6 +118,7 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
     if (!multiple) return [entry];
     return [...current, entry];
   });
+  const remember = () => { void windowsFilesRequest({ action: 'viewStateSet', entries: { [LAST_FOLDER_KEY]: { rootId, relativePath: folder } } }).catch(() => undefined); };
   const selectedBytes = selected.reduce((sum, item) => sum + item.size, 0);
   const importSelected = async () => {
     if (!rootId || selected.length === 0) return;
@@ -192,6 +136,7 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
         const sourceFolder = { rootId, relativePath: ref.relativePath.split('/').slice(0, -1).join('/') };
         const provenance = await windowsFilesRequest<SelectionProvenance>({ action: 'selectionProvenance', ref: sourceFolder, fileRef: ref });
         if (provenance.ok === false) throw new Error(provenance.error.message);
+        remember();
         setOpen(false); onWindowsFile(ref, stat.data, provenance.data); transferred = true;
         return;
       }
@@ -199,12 +144,14 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
       if (response.ok === false) throw new Error(response.error.message);
       tickets = response.data.files;
       if (onImportRefs) {
+        remember();
         setOpen(false);
         onImportRefs(tickets);
         transferred = true;
         return;
       }
       const read = await filesFromTickets(tickets);
+      remember();
       setOpen(false);
       onFiles(read, tickets.map(ticket => ticket.provenance || {}));
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось прочитать файл.'); }
@@ -221,6 +168,7 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
       const stat = await windowsFilesRequest<WindowsFileEntry>({ action: 'stat', ref });
       if (stat.ok === false) throw new Error(stat.error.message);
       if (stat.data.kind !== 'directory' || stat.data.relativePath.replace(/\\/gu, '/') !== folder.replace(/\\/gu, '/')) throw new Error('Папка изменилась после выбора. Выберите её повторно.');
+      remember();
       setOpen(false); onWindowsFolder(ref, stat.data);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Не удалось проверить папку.'); }
     finally { setBusy(false); }
@@ -248,29 +196,19 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
     <div className="inline-flex flex-wrap items-center gap-2">
       {triggerNode}
       <input ref={input} type="file" accept={accept} multiple={multiple} className="hidden" disabled={disabled} onChange={event => { const files = [...(event.currentTarget.files || [])]; event.currentTarget.value = ''; if (files.length) onFiles(files, files.map(() => ({}))); }} />
-      {triggerNode != null && triggerNode !== false && (window as Window & { electron?: { windowsFiles?: unknown } }).electron?.windowsFiles && <button type="button" className="fx-btn fx-btn-quiet" disabled={disabled || busy} onClick={() => setOpen(true)}><FolderOpen className="h-3.5 w-3.5" />Проводник</button>}
     </div>
     {error && !open && <span role="status" className="text-xs text-rose-600 dark:text-rose-400">{error}</span>}
-    {open && <Dialog title={selectFolder ? 'Выбрать папку из Проводника' : 'Выбрать файл из Проводника'} label={selectFolder ? 'Выбрать папку из Проводника' : 'Выбрать файл из Проводника'} onClose={() => !busy && setOpen(false)} busy={busy} width="max-w-2xl" scrollBody footer={<><span className="mr-auto text-xs text-slate-500">{selected.length ? `${selected.length} · ${(selectedBytes / 1024 / 1024).toFixed(1)} МБ` : selectFolder ? 'Будет выбрана открытая папка.' : 'Выберите файл для импорта.'}</span>{onWindowsFolder ? <Btn disabled={busy || !rootId} onClick={() => void chooseCurrentFolder()}>Выбрать эту папку</Btn> : <Btn disabled={busy || !selected.length} onClick={() => void importSelected()}>{onWindowsFile ? 'Выбрать файл' : 'Импортировать выбранное'}</Btn>}</>}>
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <FileIcon kind="drive" size={ICON_SIZE.row} />
-          <select aria-label="Папка Windows" className="fx-input min-w-0 flex-1" value={rootId} disabled={busy} onChange={event => { setRootId(event.target.value); setFolder(''); }}>
-            {roots.map(item => <option key={item.id} value={item.id}>{item.name}{item.network ? ' · сеть' : ''}</option>)}
-          </select>
-        </div>
-        <nav aria-label="Путь к папке" className="flex min-w-0 flex-wrap items-center gap-1 text-xs">
-          <button type="button" className="fx-btn fx-btn-sm" disabled={!folder || busy} onClick={() => setFolder(crumbs.slice(0, -1).join('/'))}><ArrowLeft className="h-3 w-3" />Вверх</button>
-          <button type="button" disabled={busy} className="rounded px-1 py-1 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800" onClick={() => setFolder('')}>{root?.name || 'Компьютер'}</button>
-          {crumbs.map((part, index) => <React.Fragment key={`${index}:${part}`}><ChevronRight className="h-3 w-3 text-slate-400" /><button type="button" disabled={busy} className="max-w-40 truncate rounded px-1 py-1 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800" onClick={() => setFolder(crumbs.slice(0, index + 1).join('/'))}>{part}</button></React.Fragment>)}
-        </nav>
+    {/* Свой слой: выбор файла зовут и из окон с z-index выше обычного диалога (мастера импорта) */}
+    {open && <div className="relative z-[300]"><Dialog title={selectFolder ? 'Выбрать папку из Проводника' : 'Выбрать файл из Проводника'} label={selectFolder ? 'Выбрать папку из Проводника' : 'Выбрать файл из Проводника'} onClose={() => !busy && setOpen(false)} busy={busy} width="max-w-2xl" scrollBody footer={<><span className="mr-auto text-xs text-slate-500">{selected.length ? `${selected.length} · ${(selectedBytes / 1024 / 1024).toFixed(1)} МБ` : selectFolder ? 'Будет выбрана открытая папка.' : 'Выберите файл для импорта.'}</span>{onWindowsFolder ? <Btn disabled={busy || !rootId} onClick={() => void chooseCurrentFolder()}>Выбрать эту папку</Btn> : <Btn disabled={busy || !selected.length} onClick={() => void importSelected()}>{onWindowsFile ? 'Выбрать файл' : 'Импортировать выбранное'}</Btn>}</>}>
+      <div className="flex flex-col gap-2">
+        <FluxFolderNav roots={roots} rootId={rootId} folder={folder} busy={busy} onRoot={id => { setRootId(id); setFolder(''); }} onFolder={setFolder} />
         {error && <p role="alert" className="text-sm text-rose-600 dark:text-rose-400">{error}</p>}
         <div className="max-h-[45vh] min-h-40 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
           {busy && !listing ? <div className="flex items-center justify-center gap-2 p-8 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" />Чтение папки…</div> : !listing?.entries.length ? <p className="p-8 text-center text-sm text-slate-500">В этой папке нет файлов.</p> : listing.entries.map(entry => entry.kind === 'directory' ? <button key={selectionKey(entry, rootId)} type="button" disabled={busy} className="flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800" onClick={() => setFolder(entry.relativePath)}><WindowsFileIcon entry={entry} size={ICON_SIZE.row} /><span className="min-w-0 flex-1 truncate">{entry.name}</span></button> : entry.kind === 'file' && matches(entry.name, accept) ? <label key={selectionKey(entry, rootId)} className="flex cursor-pointer items-center gap-2 border-b border-slate-100 px-3 py-2 text-sm hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800"><input type="checkbox" checked={selected.some(item => selectionKey(item, rootId) === selectionKey(entry, rootId))} onChange={() => toggle(entry)} disabled={busy} /><WindowsFileIcon entry={entry} size={ICON_SIZE.row} /><span className="min-w-0 flex-1 truncate">{entry.name}</span><span className="shrink-0 text-xs text-slate-400">{entry.size < 1024 * 1024 ? `${Math.ceil(entry.size / 1024)} КБ` : `${(entry.size / 1024 / 1024).toFixed(1)} МБ`}</span></label> : null)}
         </div>
         {listing?.nextOffset != null && <Btn disabled={busy} onClick={() => void loadMore()}>Показать ещё</Btn>}
       </div>
-    </Dialog>}
+    </Dialog></div>}
   </>;
 });
 ImportFileChooser.displayName = 'ImportFileChooser';

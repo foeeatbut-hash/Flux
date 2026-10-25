@@ -6,6 +6,7 @@ import { Database, Folder, Home, LogOut, Settings, FileText, Plus, Book, Chevron
 import { motion, AnimatePresence } from 'motion/react';
 import ToastProvider from './ToastProvider';
 import ModalProvider from './ModalProvider';
+import FluxSaveHost from './explorer/FluxSaveDialog';
 import CaptureReview from './CaptureReview';
 import { dataService } from '../services/dataService';
 import { useLogStore } from '../store/logStore';
@@ -616,6 +617,7 @@ export default function Layout() {
       <QuickTranslate />
       <ToastProvider />
       <ModalProvider />
+      <FluxSaveHost />
       <ShareLayer />
       <CaptureReview />
     </div>

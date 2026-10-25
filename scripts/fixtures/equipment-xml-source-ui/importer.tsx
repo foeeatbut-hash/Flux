@@ -4,6 +4,7 @@ import EquipmentSourceImportDialog from '../../../src/components/equipment/Equip
 import EquipmentImportPreview from '../../../src/components/EquipmentImportPreview';
 import { equipmentDocumentImportSource } from '../../../src/lib/equipmentDocumentBindings';
 import { useStore } from '../../../src/store/store';
+import { fluxPickerMock } from './pickerMock';
 import './fixture.css';
 
 const rootId = 'source-import-fixture';
@@ -14,7 +15,8 @@ useStore.setState({ user: { id: 'fixture-user', role: 'ADMIN' } as any } as any)
 (window as any).__importLog = [];
 const documentSource = equipmentDocumentImportSource({ id: 'shared-document-binding-1', expectedLedgerRevision: 7, locator: { folderKey: 'a'.repeat(64), anchors: [{ key: 'b'.repeat(64), relativePath: 'R2' }] }, fileName: 'L23.xlsx', rule: { kind: 'document-name', fileName: 'L23.xlsx' }, revision: 'R2', sha256: 'c'.repeat(64) });
 (window as any).electron = { windowsFiles: { invoke: async (request: any) => {
-  if (request.action === 'pickEquipmentSource') return { ok: true, data: { selectedFile: { ref, name: 'L23.xml' }, sourceFolder: { rootId, relativePath: 'L23' } } };
+  const picked = fluxPickerMock(rootId, xml.length, request);
+  if (picked) return picked;
   if (request.action === 'read' && new URLSearchParams(location.search).has('initial')) await new Promise(resolve => setTimeout(resolve, 150));
   if (request.action === 'read') return { ok: true, data: { name: 'L23.xml', size: xml.length, modifiedAt: '2026-10-01T00:00:00.000Z', sha256: 'a'.repeat(64), base64 } };
   if (request.action === 'roots') return { ok: true, data: [{ id: rootId, name: 'Оборудование проекта', kind: 'custom', available: true }] };
@@ -23,8 +25,6 @@ const documentSource = equipmentDocumentImportSource({ id: 'shared-document-bind
 window.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
   const method = init?.method || 'GET';
-  // Настройка «системное окно выбора файла»: без неё ImportFileChooser открывает компактный выбор Flux вместо замоканного нативного.
-  if (url.endsWith('/api/settings/explorer_file_picker')) return new Response(JSON.stringify({ user: JSON.stringify({ system: true }) }), { status: 200 });
   (window as any).__importLog.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null });
   if (url.endsWith('/equipment/source-import/preview')) {
     if (new URLSearchParams(location.search).get('race') === '1') await new Promise(resolve => setTimeout(resolve, 500));

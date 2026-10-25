@@ -199,7 +199,7 @@ export function ExchangePanel({ canEdit }: { canEdit: boolean }) {
     const data = await catalogService.exportCatalog();
     const bytes = new TextEncoder().encode(JSON.stringify(data, null, 1));
     const r = await saveBytes(`Каталог Flux ${new Date().toISOString().slice(0, 10)}.json`, bytes);
-    if (r.ok) addToast('Каталог выгружен', 'success');
+    if (!r.ok && !r.canceled) addToast(r.error || 'Каталог не выгружен', 'error');
   };
   const pick = async (f: File) => {
     try {

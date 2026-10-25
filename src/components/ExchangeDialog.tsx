@@ -20,6 +20,7 @@ import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import { useToastStore } from '../store/toastStore';
 import { saveNewFile, editorHref } from '../lib/officeFiles';
+import { saveBlob } from '../lib/saveToWindows';
 import {
   summary, blocker, toCsv, toClipboard, fileName, pickColumns,
   TARGET_LABEL, type Target, type Scope, type Column,
@@ -77,7 +78,9 @@ export default function ExchangeDialog(p: ExchangeProps) {
       }
       const name = fileName(p.section, target);
       if (target === 'csv') {
-        download(new Blob([toCsv(table.headers, table.rows)], { type: 'text/csv;charset=utf-8;' }), name);
+        const saved = await saveBlob(name, new Blob([toCsv(table.headers, table.rows)], { type: 'text/csv;charset=utf-8;' }));
+        if (saved.canceled) return;
+        if (!saved.ok) throw new Error(saved.error);
       } else {
         const sheet = XLSX.utils.aoa_to_sheet([table.headers, ...table.rows]);
         const book = XLSX.utils.book_new();
@@ -90,9 +93,11 @@ export default function ExchangeDialog(p: ExchangeProps) {
           navigate(editorHref(made));
           return;
         }
-        download(new Blob([out], { type: 'application/octet-stream' }), name);
+        const saved = await saveBlob(name, new Blob([out], { type: 'application/octet-stream' }));
+        if (saved.canceled) return;
+        if (!saved.ok) throw new Error(saved.error);
       }
-      addToast(`Выгружено: ${name}`, 'success');
+      // Куда легло, сказала сама выгрузка (saveToWindows)
       p.onClose();
     } catch (err: any) {
       addToast(`Не удалось выгрузить: ${err?.message || err}`, 'error');
@@ -214,15 +219,4 @@ export default function ExchangeDialog(p: ExchangeProps) {
       </div>
     </div>
   );
-}
-
-function download(blob: Blob, name: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1000);
 }

@@ -4,6 +4,7 @@ import { Btn, Dialog, Empty } from '../ui';
 import { editorHref, saveNewFile } from '../../lib/officeFiles';
 import { officeDataApi, type OfficeQuery, type OfficeQueryResult } from './fluxData';
 import { csvText, exportFile, exportMessage, sourceTitle, tableRows, xlsxBytes, type ExportFormat, type TableColumn } from './fluxTable';
+import { saveBlob } from '../../lib/saveToWindows';
 
 interface Props {
   sourceId: string;
@@ -15,14 +16,11 @@ interface Props {
   onClose: () => void;
 }
 
-/** Скачивание: ссылка на blob, как в старой панели. */
-function downloadBlob(blob: Blob, name: string) {
-  const href = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = href;
-  anchor.download = name;
-  anchor.click();
-  URL.revokeObjectURL(href);
+/** Выгрузка через Проводник Flux; false — человек передумал, говорить «сохранён» не нужно */
+async function downloadBlob(blob: Blob, name: string): Promise<boolean> {
+  const saved = await saveBlob(name, blob);
+  if (!saved.ok && !saved.canceled) throw new Error(saved.error);
+  return !saved.canceled;
 }
 
 /**
@@ -51,11 +49,11 @@ export default function FluxExportDialog({ sourceId, columns, result, selectedId
       const rows = tableRows(data, active, selectedIds);
       if (!rows.length) { setMessage('Нет строк для выгрузки.'); return; }
       const file = exportFile(active, rows, title, format);
-      if (format === 'csv') downloadBlob(new Blob([csvText(file)], { type: 'text/csv;charset=utf-8;' }), file.name);
+      if (format === 'csv') { if (!await downloadBlob(new Blob([csvText(file)], { type: 'text/csv;charset=utf-8;' }), file.name)) return; }
       else {
         const bytes = await xlsxBytes(file);
         if (format === 'office') navigate(editorHref(await saveNewFile(bytes, file.name, 'exports')));
-        else downloadBlob(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), file.name);
+        else if (!await downloadBlob(new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), file.name)) return;
       }
       setMessage(exportMessage(format, rows.length));
       // Новая книга открылась в своём окне: окно выгрузки исходному документу больше не нужно
