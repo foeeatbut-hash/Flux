@@ -52,7 +52,8 @@ export default function ModelPage({ entry, catalog, entries, compared, compareFu
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h1 className="m-0 break-all font-mono text-[18px] font-semibold leading-6">{f.code}</h1><StatusChip status={f.status} />
       </div>
-      <p className="m-0 mt-1 text-[13px]">{textOf(f.title) || textOf(f.description) || 'Описание не указано.'}</p>
+      {/* Название, совпадающее с кодом, второй строкой не повторяем */}
+      {textOf(f.title) && textOf(f.title).trim().toLowerCase() !== f.code.trim().toLowerCase() && <p className="m-0 mt-1 text-[13px]">{textOf(f.title)}</p>}
       <p className="m-0 mt-1 text-xs text-[var(--flux-text-muted)]">{[entry.maker, textOf(cls?.title), entry.kindLabel].filter(Boolean).join(' · ')}</p>
       {facts.length > 0 && <dl className="m-0 mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-y border-[var(--flux-line)] py-3 @[640px]:grid-cols-3 @[1000px]:grid-cols-6">
         {facts.map((x) => <div key={x.label} className="min-w-0"><dt className="truncate text-xs text-[var(--flux-text-muted)]">{x.label}</dt><dd className="m-0 truncate text-[13px] font-medium" title={x.value}>{x.value}</dd></div>)}

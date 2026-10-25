@@ -24,6 +24,19 @@ function Description({ text }: { text: string }) {
   </>;
 }
 
+/**
+ * Описание из PDF часто начинается тем, что уже есть в шапке: заголовком
+ * раздела «Назначение», кодом, названием, разделом комплектации. Убираем эти
+ * строки, чтобы текст не повторял шапку и заголовок блока.
+ */
+export function cleanDescription(text: string, repeats: string[]): string {
+  const known = new Set(repeats.map((r) => r.trim().toLowerCase()).filter(Boolean).concat(['назначение', 'дополнительная комплектация']));
+  const kept = text.split('\n').map((line) => line.replace(/[ \t]{2,}/gu, ' ').trim()).filter((line) => !known.has(line.toLowerCase())).join('\n');
+  // Текст извлечён из PDF с переносами по ширине страницы: склеиваем строки
+  // абзаца и слова с переносом, абзацы (пустая строка) оставляем.
+  return kept.replace(/(\p{L})-\n(\p{Ll})/gu, '$1$2').replace(/([^\n])\n(?!\n)/gu, '$1 ').replace(/\n{3,}/gu, '\n\n').trim();
+}
+
 export function Overview({ entry, catalog, usage }: Ctx & { usage: CatalogUsage | null | 'error' }) {
   const f = entry.family; const cls = catalog.classes.find((c) => c.id === f.classId); const c = entry.component;
   const info: Array<[string, string]> = [
@@ -38,19 +51,25 @@ export function Overview({ entry, catalog, usage }: Ctx & { usage: CatalogUsage 
     !entry.isComponent && used > 0 ? `используется в ${used} ${plural(used, 'проекте', 'проектах', 'проектах')}` : '',
     !entry.isComponent && used === 0 ? 'в проектах пока не используется' : '',
   ].filter(Boolean);
-  return <div className="max-w-4xl space-y-6">
-    <Block title="Назначение"><Description text={textOf(f.description) || textOf(f.title) || 'Описание не указано.'} />
-      {summary.length > 0 && <p className={`m-0 text-xs ${muted}`}>{summary.join(' · ')}</p>}</Block>
-    <Block title="Общие сведения"><dl className="cat-def">{info.filter(([, v]) => v).map(([k, v]) => <React.Fragment key={k}><dt>{k}</dt><dd>{v}</dd></React.Fragment>)}</dl></Block>
-    {!!f.facts && Object.keys(f.facts).length > 0 && <Block title="Признаки модели"><FactRows facts={f.facts} definitions={cls?.facts || []} /></Block>}
-    {f.status !== 'full' && f.todo?.length ? <Block title="Что сверить с каталогом производителя"><ul className="m-0 pl-4 text-[13px]">{f.todo.map((t) => <li key={t}>{t}</li>)}</ul></Block> : null}
-    <CatalogContents key={f.id} sections={f.sections || []} />
+  const description = cleanDescription(textOf(f.description), [f.code, textOf(f.title), ...(f.sections || []).map((x) => x.title)]);
+  // Две колонки на всю ширину окна: текст слева, короткие сведения справа — без пустой правой половины.
+  return <div className="grid grid-cols-1 items-start gap-x-6 gap-y-4 @[900px]:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
+    <div className="min-w-0 space-y-4">
+      {description && <Block title="Назначение"><Description text={description} /></Block>}
+      {!!f.facts && Object.keys(f.facts).length > 0 && <Block title="Признаки модели"><FactRows facts={f.facts} definitions={cls?.facts || []} /></Block>}
+      <CatalogContents key={f.id} sections={f.sections || []} />
+    </div>
+    <aside className="min-w-0 space-y-4 @[900px]:sticky @[900px]:top-0">
+      <Block title="Общие сведения"><dl className="cat-def cat-def-compact">{info.filter(([, v]) => v).map(([k, v]) => <React.Fragment key={k}><dt>{k}</dt><dd>{v}</dd></React.Fragment>)}</dl>
+        {summary.length > 0 && <p className={`m-0 text-xs ${muted}`}>{summary.join(' · ')}</p>}</Block>
+      {f.status !== 'full' && f.todo?.length ? <Block title="Что сверить с каталогом производителя"><ul className="m-0 pl-4 text-[13px]">{f.todo.map((t) => <li key={t}>{t}</li>)}</ul></Block> : null}
+    </aside>
   </div>;
 }
 
 export function Specs({ entry, catalog, onReport }: Ctx) {
   const f = entry.family;
-  return <div className="flex max-w-5xl flex-col gap-6">
+  return <div className="flex flex-col gap-4">
     <CatalogContents key={`${f.id}-specs`} sections={f.sections || []} kind="specs" />
     {verified(f).map((t) => <DataTable key={t.id} table={t} onReport={onReport} />)}
     {f.specs.length > 0 && <Block title="Данные спецификации"><dl className="cat-def">{f.specs.map((s, i) => <React.Fragment key={`${s.key}-${i}`}><dt>{textOf(s.label)}</dt><dd>{textOf(s.value)}{s.unit ? ` ${s.unit}` : ''}</dd></React.Fragment>)}</dl></Block>}
@@ -60,7 +79,7 @@ export function Specs({ entry, catalog, onReport }: Ctx) {
 
 export function Variants({ entry, onReport, onOpenEntry, siblings }: Ctx) {
   const f = entry.family;
-  return <div className="flex max-w-5xl flex-col gap-6">
+  return <div className="flex flex-col gap-4">
     {!entry.isComponent && <Block title="Исполнения по параметрам"><ParamTable family={f} onReport={onReport} /></Block>}
     <Block title={entry.isComponent ? 'Подходящие модели' : 'Другие модели этого типа'}>
       {siblings.length ? <ul className="m-0 grid list-none grid-cols-1 gap-x-6 p-0 @[640px]:grid-cols-2">{siblings.map((s) => <li key={s.family.id}>
@@ -73,7 +92,7 @@ export function Variants({ entry, onReport, onOpenEntry, siblings }: Ctx) {
 
 export function Documents({ entry, onReport, onOpenDocument }: Ctx & { onOpenDocument: (d: CatalogDocument) => void }) {
   const f = entry.family;
-  return <div className="max-w-5xl space-y-6">
+  return <div className="space-y-4">
     <Block title="Документы"><SourceList family={f} onOpen={onOpenDocument} /></Block>
     <CatalogContents key={`${f.id}-docs`} sections={f.sections || []} />
     {verified(f).map((t) => <DataTable key={t.id} table={t} onReport={onReport} />)}
@@ -86,7 +105,7 @@ export function Usage({ entry, usage }: { entry: Entry; usage: CatalogUsage | nu
   if (usage === null) return <p role="status" className={`text-xs ${muted}`}>Проверяю ведомости…</p>;
   if (usage === 'error') return <p role="alert" className="text-xs text-[var(--flux-bad-text)]">Не удалось получить список проектов.</p>;
   if (!usage.usage.length) return <Empty title="В проектах не используется" text="Эта модель пока не выбрана ни в одной ведомости Конструктора из доступных вам проектов." />;
-  return <div className="max-w-4xl">
+  return <div>
     <p className={`mb-2 text-xs ${muted}`}>{usage.total.projects} проектов · {usage.total.items} позиций · {usage.total.qty} шт.</p>
     <table className="fx-table"><thead><tr><th>Проект</th><th>Ведомости</th><th className="text-right">Позиций</th><th className="text-right">Количество</th></tr></thead>
       <tbody>{usage.usage.map((p) => <tr key={p.projectId}>

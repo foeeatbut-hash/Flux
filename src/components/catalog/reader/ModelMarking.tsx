@@ -15,7 +15,7 @@ export default function ModelMarking({ family, onReport }: { family: Family; onR
   const text = designation.trim();
   const structured = (family.designationMode || 'structured') === 'structured';
   const parsed = text && structured ? parseWithFamily(family, designation) : undefined;
-  return <div className="flex max-w-3xl flex-col gap-4">
+  return <div className="flex flex-col gap-4">
     <CatalogContents key={`${family.id}-marking`} sections={family.sections || []} kind="marking" />
     <Block title="Расшифровка обозначения">
       <p className={`m-0 text-xs ${muted}`}>Введите код целиком. Расшифровка строится по структуре этой модели; нераспознанный код остаётся без догадок.</p>

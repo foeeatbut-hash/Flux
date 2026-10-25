@@ -1,6 +1,7 @@
 /** Модель читателя Каталога: записи, фильтры, счётчики соседних фильтров, главные характеристики. На данных затравки и пакета ВЕЗА. */
 import { seedCatalog } from '../catalog/seed';
 import { veza2026Pack } from '../catalog/packs/veza2026';
+import { cleanDescription } from '../src/components/catalog/reader/ModelTabs';
 import { buildEntries, matches, navCounts, sortEntries, keyFacts, documentCount, EMPTY_FILTERS } from '../src/components/catalog/reader/readerModel';
 
 let failed = false;
@@ -13,6 +14,8 @@ const merge = <T extends { id: string }>(cur: T[], inc: T[]) => { const m = new 
 for (const key of ['classes', 'manufacturers', 'families', 'components'] as const) (catalog[key] as any) = merge(catalog[key] as any, veza2026Pack[key] as any);
 
 const entries = buildEntries(catalog);
+const cleaned = cleanDescription('ДОПОЛНИТЕЛЬНАЯ КОМПЛЕКТАЦИЯ\n\nВходной коллектор ВКО-ОСА\n\nНазначение\n  Коллектор служит для правиль-\nного формирования поля\nскоростей.\n\nВторой абзац.', ['ВКО-ОСА', 'Входной коллектор ВКО-ОСА']);
+check('описание не повторяет шапку и склеивает строки PDF', cleaned === 'Коллектор служит для правильного формирования поля скоростей.\n\nВторой абзац.', cleaned);
 check('одна запись на модель и на комплектующее', entries.length === catalog.families.length + catalog.components.length, entries.length);
 check('комплектующее помечено и получает идентичность component:', entries.filter((e) => e.isComponent).every((e) => e.family.id.startsWith('component:')));
 

@@ -1551,6 +1551,8 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .cat-def { display: grid; grid-template-columns: minmax(120px, 0.45fr) minmax(0, 1fr); gap: 0 16px; margin: 0; }
   .cat-def > dt, .cat-def > dd { margin: 0; padding: 8px 0; border-bottom: 1px solid var(--flux-line); font-size: 13px; line-height: 20px; min-width: 0; overflow-wrap: anywhere; }
   .cat-def > dt { color: var(--flux-text-muted); font-size: 12px; line-height: 20px; }
+  .cat-def-compact { grid-template-columns: minmax(96px, auto) minmax(0, 1fr); }
+  .cat-def-compact > dt, .cat-def-compact > dd { padding: 4px 0; }
   @media (prefers-reduced-motion: reduce) {
     .cat-in, .cat-page { animation: none; }
     .cat-collapse { transition: none; }
