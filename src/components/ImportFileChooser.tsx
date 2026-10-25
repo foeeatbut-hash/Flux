@@ -193,7 +193,8 @@ const ImportFileChooser = forwardRef<ImportFileChooserHandle, Props>(function Im
   // она не должна появляться отдельно от интерфейса экрана.
   const triggerNode = trigger ? trigger(() => void pickNative(), disabled || busy) : <button type="button" className={className || 'fx-btn'} disabled={disabled || busy} onClick={() => void pickNative()}><Upload className="h-3.5 w-3.5" />{label}</button>;
   return <>
-    <div className="inline-flex flex-wrap items-center gap-2">
+    {/* Без видимого триггера обёртка не должна занимать строку: три таких выборщика давали пустую полосу над панелью */}
+    <div className={triggerNode == null ? 'hidden' : 'inline-flex flex-wrap items-center gap-2'}>
       {triggerNode}
       <input ref={input} type="file" accept={accept} multiple={multiple} className="hidden" disabled={disabled} onChange={event => { const files = [...(event.currentTarget.files || [])]; event.currentTarget.value = ''; if (files.length) onFiles(files, files.map(() => ({}))); }} />
     </div>
