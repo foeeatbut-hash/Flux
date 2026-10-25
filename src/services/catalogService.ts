@@ -85,7 +85,14 @@ export interface TagLinkPlan {
   candidates?: Array<{ id: string; identifier: string; why: string }>;
 }
 
+/** Где модель стоит в ведомостях Конструктора: сервер отдаёт только проекты, видимые человеку */
+export interface CatalogUsage {
+  usage: Array<{ projectId: string; projectName: string; projectCode: string; items: number; qty: number; lists: Array<{ id: string; name: string; items: number; qty: number }> }>;
+  total: { projects: number; items: number; qty: number };
+}
+
 export const catalogService = {
+  usage: (familyId: string) => call<CatalogUsage>('GET', `/catalog/family/${encodeURIComponent(familyId)}/usage`),
   catalog: () => call<Catalog & { meta: CatalogMeta; stamp: string }>('GET', '/catalog'),
   stamp: () => call<{ stamp: string }>('GET', '/catalog/stamp'),
   save: (entity: CatalogEntity, item: Family | Component | TagRule | EquipmentClass | Manufacturer) =>

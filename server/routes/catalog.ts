@@ -9,6 +9,7 @@ import { registerCatalogSpreadsheetRoutes } from './catalogSpreadsheet.js';
 import { templateProblem } from '../../catalog/blank/safe.js';
 import { oncePerDatabase } from '../schemaRuntime.js';
 import { registerCatalogAssetRoutes } from './catalogAssets.js';
+import { registerCatalogUsageRoutes } from './catalogUsage.js';
 import { registerCatalogWorkspaceRoutes } from './catalogWorkspace.js';
 import { catalogSetting } from '../catalogWorkspace.js';
 import { syncCatalogSeed } from '../catalogSeed.js';
@@ -129,6 +130,7 @@ export function registerCatalogRoutes(app: Express, can: (user: any, feature: st
   registerCatalogAssetRoutes(app, { ensure: ensureCatalog, read: readCatalog, can });
   registerCatalogWorkspaceRoutes(app, { ensure: ensureCatalog, read: readCatalog, can });
   registerCatalogSpreadsheetRoutes(app, { ensure: ensureCatalog, readCatalog, can });
+  registerCatalogUsageRoutes(app);
   app.get('/api/catalog', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();

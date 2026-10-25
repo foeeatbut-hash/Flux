@@ -59,6 +59,7 @@ page.route('**/api/**', async (route) => {
   else if (p === '/api/catalog/stamp') body = { stamp: await page.evaluate(() => (window as any).__catalogFixtureEmpty ? 'published-fixture-empty' : 'published-fixture-r1') };
   else if (p === '/api/catalog/learn') body = { learned: [] };
   else if (p === '/api/blank-templates') body = { templates: [] };
+  else if (/^\/api\/catalog\/family\/[^/]+\/usage$/.test(p)) body = { usage: [{ projectId: 'catalog-ui-project', projectName: 'Проект проверки интерфейса', projectCode: 'UI-01', items: 1, qty: 1, lists: [{ id: 'fixture-list', name: 'Вентиляторы · тест', items: 1, qty: 1 }] }], total: { projects: 1, items: 1, qty: 1 } };
   else if (p === '/api/catalog/workspace' && method === 'GET') {
     const role = await page.evaluate(() => (window as any).__catalogFixtureRole || 'reader');
     const remote = await page.evaluate(() => !!(window as any).__catalogFixtureRemote);
@@ -115,7 +116,7 @@ try {
   await page.getByRole('textbox', { name: 'Поиск моделей' }).fill('ОСА 300');
   if (!await page.getByText('ОСА 300', { exact: false }).count()) throw new Error(`catalog family not rendered; body=${(await page.locator('body').innerText()).slice(0,1800)} errors=${errors.join(';')}`);
   assert(!(await page.getByText('Только черновик интерфейса', { exact: false }).count()), 'viewer rendered workspace-only draft data');
-  assert(await page.getByRole('button', { name: 'Управление каталогом' }).count() === 0, 'reader unexpectedly sees management controls');
+  assert(await page.getByRole('button', { name: 'Панель разработчика' }).count() === 0, 'reader unexpectedly sees developer panel controls');
   assert(await page.getByText('Требовать вторую проверку семейства или компонента', { exact: true }).count() === 0, 'viewer unexpectedly sees publication policy controls');
   await page.getByRole('button', { name: /ОСА300/ }).first().click();
   assert(await page.getByText('осевой', { exact: true }).count() > 0, 'choice facts still render raw codes instead of Russian labels');
@@ -124,10 +125,10 @@ try {
   assert(!await page.getByText('Открываем иллюстрацию…', { exact: true }).count(), 'vector PDF illustration did not render');
   const screenshots: any[] = [];
   for (const width of [1024, 1440]) for (const theme of ['light', 'dark']) screenshots.push(await shot('reader', width, theme));
-  await page.getByRole('button', { name: 'Характеристики', exact: true }).click();
+  await page.getByRole('tab', { name: 'Характеристики', exact: true }).click();
   assert(await page.getByText('Типоразмер', { exact: false }).count(), 'published table characteristics are missing');
-  await page.getByRole('button', { name: 'Маркировка', exact: true }).click();
-  await page.getByRole('button', { name: 'Устройство и применение', exact: true }).click();
+  await page.getByRole('tab', { name: 'Маркировка', exact: true }).click();
+  await page.getByRole('tab', { name: /^Документы/ }).click();
   assert(!await page.getByText('Файл ещё не загружен', { exact: true }).count(), 'reader exposes technical upload status');
   assert(!await page.getByText('печатная стр.', { exact: false }).count(), 'reader exposes source page references');
   await page.getByRole('button', { name: 'Сообщить', exact: true }).first().click();
@@ -137,13 +138,15 @@ try {
   assert(await issueDialog.getByText('040', { exact: true }).count(), 'table report is missing current cell value');
   assert(!await issueDialog.getByText('ОСА 300/301, осевые вентиляторы.pdf', { exact: false }).count(), 'issue dialog exposes internal PDF provenance');
   await issueDialog.getByRole('button', { name: 'Отмена' }).click();
-  await page.getByRole('button', { name: 'Добавить к сравнению', exact: true }).first().click();
-  assert(await page.getByText(/Сравнение/).count(), 'model comparison panel did not open');
+  await page.getByRole('button', { name: 'Сравнить', exact: true }).click();
+  await page.getByRole('button', { name: 'Назад к списку', exact: true }).click();
+  await page.getByRole('region', { name: 'Сравнение моделей' }).waitFor();
+  assert(await page.getByRole('region', { name: 'Сравнение моделей' }).getByText('ОСА300', { exact: false }).count(), 'model comparison panel did not list the picked model');
 
   await page.getByRole('button', { name: 'Владелец', exact: true }).click();
-  await page.getByRole('button', { name: 'Управление каталогом' }).click();
-  await page.getByText('Каталог оборудования', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Публикации' }).click();
+  await page.getByRole('button', { name: 'Панель разработчика' }).click();
+  await page.getByRole('heading', { name: 'Панель разработчика' }).waitFor();
+  await page.getByRole('button', { name: /^Публикации/ }).click();
   const policyToggle = page.getByRole('checkbox', { name: /Требовать вторую проверку семейства или компонента/ });
   assert(await policyToggle.isVisible(), 'owner cannot access second-review publication policy');
   assert(await policyToggle.isChecked(), 'workspace second-review policy was not reflected in the owner view');
@@ -174,8 +177,7 @@ try {
   await page.getByRole('status').filter({ hasText: 'Права каталога сохранены' }).waitFor();
   assert(accessSaved === 1, 'access editor did not persist its grant edit');
 
-  await page.getByRole('button', { name: 'Редактор', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Инструмент редактора' }).selectOption('families');
+  await page.getByRole('button', { name: 'Модели оборудования', exact: true }).click();
   await page.getByRole('combobox', { name: 'Тип оборудования' }).selectOption('fan');
   await page.getByRole('button', { name: /ОСА300/ }).first().click();
   await page.getByRole('button', { name: 'Источники и таблицы', exact: true }).click();
