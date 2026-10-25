@@ -27,9 +27,14 @@ async function check(label: string, original: Buffer) {
   eq(`${label}: повторная запись схемы не создаёт дубль`, (await readOfficeBindings(await writeOfficeBindings(written, schema)))?.anchors.length, 1);
   const before = await partHashes(original), after = await partHashes(written);
   const allowed = new Set(['customXml/itemFluxOffice.xml', '_rels/.rels', '[Content_Types].xml']);
+  // Книга хранит копию схемы ещё и на скрытом листе (устойчиво к правке в Excel, office/fluxPart.ts):
+  // меняются список листов, его связи и сам лист; остальные части — байт в байт
+  if (label.startsWith('XLSX')) for (const name of ['xl/workbook.xml', 'xl/_rels/workbook.xml.rels']) allowed.add(name);
   const touched = [...new Set([...before.keys(), ...after.keys()])].filter((name) => before.get(name) !== after.get(name));
-  eq(`${label}: запись меняет только скрытую часть и связи пакета`, touched.every((name) => allowed.has(name)), true);
-  eq(`${label}: исходные части пакета сохранены`, touched.filter((name) => !allowed.has(name)), []);
+  // Новая часть листа схемы — тоже скрытая часть Flux, а не правка чужого листа
+  const mine = (name: string) => allowed.has(name) || (label.startsWith('XLSX') && !before.has(name) && /^xl\/worksheets\/sheet\d+\.xml$/.test(name));
+  eq(`${label}: запись меняет только скрытую часть и связи пакета`, touched.every(mine), true);
+  eq(`${label}: исходные части пакета сохранены`, touched.filter((name) => !mine(name)), [])
   const zip = await JSZip.loadAsync(written);
   zip.file('customXml/itemFluxOffice.xml', '<fluxOffice>broken</fluxOffice>');
   eq(`${label}: повреждённая скрытая схема не трактуется как пустая`, await readOfficeBindings(await zip.generateAsync({ type: 'nodebuffer' })).then(() => 'no error', () => 'error'), 'error');

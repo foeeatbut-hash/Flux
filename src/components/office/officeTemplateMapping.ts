@@ -40,6 +40,12 @@ export function mapOfficeTemplateToTarget(
   fields: OfficeField[],
   anchorSelections: Record<number, string> = {},
   fieldSelections: Record<string, OfficeField> = {},
+  /**
+   * Листы открытой книги (активный первым). Заданы — ячейка шаблона, которой в файле ещё нет
+   * (чистая книга), заводится на том же месте: шаблон и есть описание шапки. Лист шаблона
+   * есть в книге — берём его, иначе первый лист книги.
+   */
+  sheets?: string[],
 ): OfficeTemplateMapping {
   const pending: OfficeTemplatePending[] = [];
   const targetByKey = new Map<string, OfficeHeaderAnchor[]>();
@@ -48,12 +54,23 @@ export function mapOfficeTemplateToTarget(
     if (key) targetByKey.set(key, [...(targetByKey.get(key) || []), anchor]);
   }
 
+  const createdAnchors: OfficeHeaderAnchor[] = [];
   const sourceMatches = template.anchors.map((sourceAnchor, sourceAnchorIndex) => {
     const key = structuralKey(sourceAnchor);
     const candidates = key ? targetByKey.get(key) || [] : [];
     const chosenId = anchorSelections[sourceAnchorIndex];
     const chosen = chosenId ? target.anchors.find((anchor) => anchor.id === chosenId) : undefined;
     if (chosenId) return { sourceAnchor, sourceAnchorIndex, candidates, chosen, invalidSelection: !chosen, explicit: true, reservedTargetId: undefined as string | undefined };
+    // В файле нет ячейки на этом месте: заводим её (только Таблица и только по явному списку листов)
+    if (!candidates.length && sheets?.length && sourceAnchor.kind === 'excel-range' && sourceAnchor.address) {
+      const sheetName = sourceAnchor.sheetName && sheets.includes(sourceAnchor.sheetName) ? sourceAnchor.sheetName : sheets[0]!;
+      const taken = target.anchors.some((anchor) => anchor.kind === 'excel-range' && anchor.sheetName === sheetName && anchor.address === sourceAnchor.address);
+      if (!taken) {
+        const created: OfficeHeaderAnchor = { kind: 'excel-range', id: globalThis.crypto.randomUUID(), sheetName, address: sourceAnchor.address, parts: [] };
+        createdAnchors.push(created);
+        return { sourceAnchor, sourceAnchorIndex, candidates, chosen: created, invalidSelection: false, explicit: false, reservedTargetId: undefined as string | undefined };
+      }
+    }
     if (candidates.length !== 1) return { sourceAnchor, sourceAnchorIndex, candidates, chosen: undefined, invalidSelection: false, explicit: false, reservedTargetId: undefined as string | undefined };
     return { sourceAnchor, sourceAnchorIndex, candidates, chosen: candidates[0], invalidSelection: false, explicit: false, reservedTargetId: undefined as string | undefined };
   });
@@ -109,7 +126,7 @@ export function mapOfficeTemplateToTarget(
   }
 
   return {
-    schema: { version: 1, anchors: target.anchors.map((anchor) => replacements.get(anchor.id) || anchor) },
+    schema: { version: 1, anchors: [...target.anchors, ...createdAnchors.filter((anchor) => replacements.has(anchor.id))].map((anchor) => replacements.get(anchor.id) || anchor) },
     pending,
   };
 }

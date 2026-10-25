@@ -31,6 +31,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Btn, Empty } from '../ui';
 import FluxPanel from './FluxPanel';
 import FluxOfficePanel from './FluxOfficePanel';
+import FluxStaleBar from './FluxStaleBar';
 import { useFluxRibbon } from './useFluxRibbon';
 import { officeDataApi } from './fluxData';
 import { sheetsEditorLink, useOfficeFluxBridge } from './useOfficeFluxBridge';
@@ -455,6 +456,9 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
           {failure}
         </div>
       )}
+      {app === 'sheets' && fileId && <FluxStaleBar source={fileId} ready={phase === 'ready'}
+        readOnly={issued || (!!collabKey.current && !room.holding) || !(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together))}
+        onShow={() => ribbon.handle({ op: 'flux:open-panel', command: 'changes' })} onRefresh={() => ribbon.handle({ op: 'flux:open-panel', command: 'refresh' })} />}
       <div className="relative flex min-h-0 min-w-0 flex-1">
       <div className="relative min-h-0 flex-1">
         <iframe key={`${fileId}:${frameKey}`} ref={frame} src={`genoffice/${app}/index.html`} title={TITLES[app]}
@@ -469,7 +473,7 @@ const OfficeAppEditor = forwardRef<OfficeAppEditorHandle, EditorProps>(function 
           readOnly={issued || phase !== 'ready' || (!!collabKey.current && !room.holding) || !(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together))} activeAnchor={activeFluxAnchor}
           isInlineEditing={() => inlineEditingRef.current} onIssued={() => { markIssued(); reopenRef.current(); }} onDraftCreated={(id) => navigate(editorHref({ id, name }))} requestState={requestOfficeState} insertBinding={insertOfficeBinding} applyWrites={applyOfficeWrites} updateSchema={updateOfficeSchema}
           schemaWriteAvailable={!issued && (room.mode !== 'together' || room.holding)}
-          command={ribbon.command} onInsertTable={insertTable} onInsertField={insertField} onUpdateFields={updateFields} beforeTranslate={async () => { if (!(await saveNow())) throw new Error('Файл не записан'); }} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />
+          command={ribbon.command} onGoto={(change) => command('flux:goto-cell', { sheet: change.sheet, address: change.address })} onInsertTable={insertTable} onInsertField={insertField} onUpdateFields={updateFields} beforeTranslate={async () => { if (!(await saveNow())) throw new Error('Файл не записан'); }} onTemplateChange={ribbon.setTemplate} onClose={ribbon.close} />
           : <FluxPanel fileId={fileId} projectId={activeProjectId} editorKind={app} fileName={name} onClose={ribbon.close}
           readOnly={issued || !(room.mode === 'edit' || room.mode === 'alone' || (room.mode === 'together' && together))} />
       )}

@@ -11,6 +11,7 @@ import { projectOfFile } from '../projectFields.js';
 import { OFFICE_TEMPLATE_KEY, OFFICE_TEMPLATE_PINS_KEY, cleanOfficeTemplate, parseOfficeTemplates, type OfficeHeaderTemplate } from '../officeTemplates.js';
 import { readOfficeBindings, writeOfficeBindings, type OfficePackageBindings, type OfficeTemplateSnapshot } from '../officeBindings.js';
 import { writeOfficeFile } from './officeFiles.js';
+import { officeChangesOfContent } from '../officeChanges.js';
 import { resolveOfficeUnit } from '../officeData.js';
 import { mutateOfficeSettingArray } from '../officeTemplateStore.js';
 import { officeSourceCatalog, queryOfficeSource, sourceFields } from '../officeSources.js';
@@ -74,7 +75,7 @@ async function writePins(userId: string, change: (current: string[]) => string[]
     change: (current) => [...new Set(change(current))], conflictMessage: 'Закрепления изменились одновременно. Повторите действие.' });
 }
 
-async function rowsFor(projectId: string, queryBody: any): Promise<{ rows: OfficeEntityRow[]; sourceRevision: string; total: number }> {
+export async function rowsFor(projectId: string, queryBody: any): Promise<{ rows: OfficeEntityRow[]; sourceRevision: string; total: number }> {
   const requestedEntity = queryBody?.entity;
   if (requestedEntity === 'management' || requestedEntity === 'e3flux') {
     const sourceId = requestedEntity as 'management' | 'e3flux';
@@ -267,6 +268,18 @@ export function registerProjectOfficeRoutes(app: Express): void {
       const projectId = await projectOfFile(String(file.id), String(file.projectId || ''));
       await requireProjectRead(req, projectId);
       res.json(await officeStateOfContent(bytes, projectId));
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  /** Что в документе устарело относительно данных проекта: список «где · было → стало» (office/changes.ts) */
+  app.get('/api/project-data/files/:id/changes', async (req: Request, res: Response) => {
+    try {
+      const file = await accessibleFile(req, String(req.params.id));
+      if (!file) return res.status(404).json({ error: 'Файл не найден' });
+      if (!/\.(docx|xlsx)$/i.test(file.name)) return res.status(400).json({ error: 'Flux работает с DOCX и XLSX' });
+      const projectId = await projectOfFile(String(file.id), String(file.projectId || ''));
+      await requireProjectRead(req, projectId);
+      res.json(await officeChangesOfContent(await fileBytes(file), projectId, rowsFor));
     } catch (err: any) { sendError(res, err); }
   });
 

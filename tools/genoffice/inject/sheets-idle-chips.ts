@@ -127,12 +127,14 @@ export function createSheetsIdleChips(deps: Deps) {
     const now = Date.now()
     if (now >= rescanAt) { list = deps.bound(); rescanAt = now + 400 }
     const sheet = wb.getActiveSheet?.()
+    // Масштаб листа: getCellRect() о нём не знает (размеры ячеек в нём без масштаба), а заголовки строк и столбцов масштабируются
+    const zoom = Number(sheet?.getZoom?.()) > 0 ? Number(sheet.getZoom()) : 1
     const activeName = String(sheet?.getSheetName?.() || '')
     const bounds = canvas.getBoundingClientRect()
     // Заголовки строк и столбцов рисуются тем же холстом: плашки под ними не заходят
     const config = sheet?._worksheet?.getConfig?.() || {}
-    const headerLeft = Number(config.rowHeader?.width ?? 46) * (canvas.width > 0 ? bounds.width / canvas.width : 1)
-    const headerTop = Number(config.columnHeader?.height ?? 20) * (canvas.height > 0 ? bounds.height / canvas.height : 1)
+    const headerLeft = Number(config.rowHeader?.width ?? 46) * zoom * (canvas.width > 0 ? bounds.width / canvas.width : 1)
+    const headerTop = Number(config.columnHeader?.height ?? 20) * zoom * (canvas.height > 0 ? bounds.height / canvas.height : 1)
     host.style.display = ''
     host.style.left = `${bounds.left + headerLeft}px`
     host.style.top = `${bounds.top + headerTop}px`
@@ -141,6 +143,15 @@ export function createSheetsIdleChips(deps: Deps) {
     const scaleX = canvas.width > 0 ? bounds.width / canvas.width : 1
     const scaleY = canvas.height > 0 ? bounds.height / canvas.height : 1
     const live = new Set<string>()
+    // getCellRect() отдаёт место ячейки на листе, а не на экране: прокрутку вычитаем сами —
+    // иначе плашки шапки оставались на месте и ложились на данные, когда лист прокручен
+    const scroll = sheet?.getScrollState?.() || {}
+    let offX = headerLeft / (scaleX || 1) / zoom, offY = headerTop / (scaleY || 1) / zoom
+    try {
+      const start = sheet.getRange(Number(scroll.sheetViewStartRow) || 0, Number(scroll.sheetViewStartColumn) || 0, 1, 1).getCellRect()
+      offX = Number(start.left) + (Number(scroll.offsetX) || 0)
+      offY = Number(start.top) + (Number(scroll.offsetY) || 0)
+    } catch { /* лист ещё не нарисован: считаем, что прокрутки нет */ }
     for (const item of list) {
       if (item.sheetName !== activeName) continue
       live.add(item.anchorId)
@@ -156,23 +167,23 @@ export function createSheetsIdleChips(deps: Deps) {
       try {
         const range = sheet.getRange(item.address)
         const rect = range.getCellRect()
-        const left = Number(rect.left) * scaleX - headerLeft
-        const top = Number(rect.top) * scaleY - headerTop
-        let width = Number(rect.width) * scaleX
-        const height = Number(rect.height) * scaleY
+        const left = (Number(rect.left) - offX) * scaleX * zoom
+        const top = (Number(rect.top) - offY) * scaleY * zoom
+        let width = Number(rect.width) * scaleX * zoom
+        const height = Number(rect.height) * scaleY * zoom
         const text = String(range.getValue?.() ?? '')
         render(box, item.anchorId, text)
         // Как текст Excel: и плашки, и перелив исходного текста идут в пустые ячейки справа,
         // поэтому слой закрывает и их; занятая соседка останавливает (тогда многоточие)
-        const need = Math.max(Number(box.dataset.natural || 0) + 2, measure(text) + 6)
+        const need = Math.max(Number(box.dataset.natural || 0) + 2, measure(text) + 6) * zoom
         const at = cellIndex(item.address)
         if (at && need > width) {
           for (let k = 1; k <= 30 && width < need; k++) {
             const next = sheet.getRange(at[0], at[1] + k, 1, 1)
             if (String(next.getValue?.() ?? '') !== '') break
             const nextRect = next.getCellRect()
-            if (!(Number(nextRect.width) > 0) || (Number(nextRect.left) * scaleX - headerLeft) + Number(nextRect.width) * scaleX > bounds.width) break
-            width += Number(nextRect.width) * scaleX
+            if (!(Number(nextRect.width) > 0) || (Number(nextRect.left) - offX) * scaleX * zoom + Number(nextRect.width) * scaleX * zoom > bounds.width - headerLeft) break
+            width += Number(nextRect.width) * scaleX * zoom
           }
         }
         // Подложка прячет простой текст холста под плашками; цвет ячейки, если он задан
@@ -182,8 +193,11 @@ export function createSheetsIdleChips(deps: Deps) {
         box.style.color = dark() ? '#e2e8f0' : '#0f172a'
         box.style.left = `${left + 1}px`
         box.style.top = `${top + 1}px`
-        box.style.width = `${Math.max(0, width - 2)}px`
-        box.style.height = `${Math.max(0, height - 2)}px`
+        // Плашка рисуется в натуральную величину и масштабируется листом: так текст и поля уменьшаются вместе с ячейкой
+        box.style.width = `${Math.max(0, (width - 2) / zoom)}px`
+        box.style.height = `${Math.max(0, (height - 2) / zoom)}px`
+        box.style.transformOrigin = '0 0'
+        box.style.transform = zoom === 1 ? '' : `scale(${zoom})`
         box.style.display = deps.isEditing(item.anchorId) || !box.childNodes.length ? 'none' : 'flex'
       } catch { box.style.display = 'none' }
     }

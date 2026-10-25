@@ -817,7 +817,10 @@ async function exportCommands(): Promise<void> {
         const liveParts = headerTokenOverlay?.getLiveParts(id)
         return { ...anchor, sheetName: String(sheet.getSheetName()), address: `${match[1]!.toUpperCase()}${match[2]!}`, parts: liveParts || anchor.parts, displayText: liveParts ? renderHeaderParts(liveParts) : displayText }
       })
-      result = { ok: true, schema: { version: schema.version, anchors: anchors.map(({ displayText: _displayText, ...anchor }: any) => anchor) }, headers: anchors.map((anchor: any) => ({ anchorId: anchor.id, sheetName: anchor.sheetName, address: anchor.address, displayText: anchor.displayText, parts: anchor.parts })) }
+      // Листы книги (активный первым): по ним шаблон решает, где завести ячейки шапки в чистой книге
+      const sheetNames = (wb.getSheets?.() || []).filter((item: any) => !item.isSheetHidden?.()).map((item: any) => String(item.getSheetName()))
+      const activeName = String(wb.getActiveSheet?.()?.getSheetName?.() || '')
+      result = { ok: true, sheets: activeName && sheetNames.includes(activeName) ? [activeName, ...sheetNames.filter((n: string) => n !== activeName)] : sheetNames, schema: { version: schema.version, anchors: anchors.map(({ displayText: _displayText, ...anchor }: any) => anchor) }, headers: anchors.map((anchor: any) => ({ anchorId: anchor.id, sheetName: anchor.sheetName, address: anchor.address, displayText: anchor.displayText, parts: anchor.parts })) }
     } catch (err: any) { result = { ok: false, error: String(err?.message || err) } }
     if (result?.ok) for (const header of result.headers || []) if (Array.isArray(header.parts)) knownHeaderParts.set(String(header.anchorId), header.parts)
     link.send('flux:header-schema-read', result)
@@ -1128,6 +1131,22 @@ async function exportCommands(): Promise<void> {
       replyMerge({ ok: false, error: String(error?.message || error) })
     }
   })
+  // Панель изменений: щелчок по строке списка «где · было → стало» ведёт к ячейке
+  link.on('flux:goto-cell', (_e, message: any) => {
+    try {
+      const wb = workbook();
+      const { sheet: sheetName, address } = message?.payload ?? {};
+      const match = /^([A-Z]{1,3})([1-9]\d*)$/i.exec(String(address || ''));
+      const sheet = wb?.getSheets?.().find((item: any) => String(item.getSheetName()) === String(sheetName));
+      if (!wb || !sheet || !match) throw new Error('Ячейка не найдена: возможно, её удалили');
+      if (String(wb.getActiveSheet?.()?.getSheetId?.()) !== String(sheet.getSheetId())) sheet.activate?.();
+      const column = [...match[1]!.toUpperCase()].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0) - 1;
+      const row = Number(match[2]) - 1;
+      sheet.getRange(row, column, 1, 1).activate();
+      sheet.scrollToCell?.(row, column);
+      reply(message.id, { ok: true });
+    } catch (e: any) { reply(message?.id, { ok: false, error: e.message }); }
+  });
   link.on('flux:insert-table', (_e, message: any) => {
     try {
       if (fluxReadOnly) throw new Error('Книга Flux открыта только для чтения')
@@ -1223,6 +1242,11 @@ async function exportCommands(): Promise<void> {
       if (!wb || !Array.isArray(writes) || !writes.length || writes.length > 100000) throw new Error('План заполнения пуст или слишком велик');
       if (!schema || !Array.isArray(schema.anchors) || schema.anchors.length > 1000) throw new Error('Схема документа не загружена');
       const definitions = new Map<string, any>((wb.getDefinedNames?.() || []).map((d: any) => [String(d.getName()), d]));
+      // getSheets() каждый раз отдаёт новые обёртки листа, а ниже лист служит ключом
+      // таблиц (последняя строка, группы записей): без одной обёртки на лист счётчик
+      // новых строк у каждой метки шёл свой, и при пропусках значений (у части позиций
+      // параметра нет) строки разных позиций совпадали — «Две метки указывают на одну ячейку»
+      const sheetCache = new Map<string, any>();
       const parseRef = (raw: unknown): { sheet: any; row: number; col: number; address: string } | null => {
         const ref = String(raw ?? '').trim().replace(/^=/, '');
         const m = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]{1,3})\$?(\d+)$/i.exec(ref);
@@ -1230,8 +1254,11 @@ async function exportCommands(): Promise<void> {
         const sheetNameValue = m[1] ?? m[2];
         if (sheetNameValue === undefined) return null;
         const sheetName = sheetNameValue.replace(/''/g, "'");
-        const sheet = wb.getSheets?.().find((s: any) => String(s.getSheetName()) === sheetName);
-        if (!sheet) return null;
+        const found = wb.getSheets?.().find((s: any) => String(s.getSheetName()) === sheetName);
+        if (!found) return null;
+        const sheetKey = String(found.getSheetId());
+        if (!sheetCache.has(sheetKey)) sheetCache.set(sheetKey, found);
+        const sheet = sheetCache.get(sheetKey);
         let col = 0; for (const c of m[3]!.toUpperCase()) col = col * 26 + c.charCodeAt(0) - 64;
         const row = Number(m[4]) - 1;
         if (row < 0 || col < 1 || !Number.isSafeInteger(row)) return null;
@@ -1348,6 +1375,25 @@ async function exportCommands(): Promise<void> {
             definitions.set(name, true); insertedNames.push(name);
           }
         }
+        // Столбец остался узким, как в чистой книге (≈ 70 px): тег и наименование обрезаны, читать нечего.
+        // Расширяем только нетронутые столбцы — ширину, которую человек задал сам, не меняем
+        try {
+          const ctx = document.createElement('canvas').getContext('2d')
+          if (ctx) {
+            ctx.font = '14px Arial, sans-serif'
+            const need = new Map<string, { sheet: any; col: number; px: number }>()
+            for (const change of changes) {
+              const key = `${change.sheet.getSheetId()}:${change.col}`
+              const px = ctx.measureText(String(change.write.value)).width + 18
+              const seen = need.get(key)
+              if (!seen || px > seen.px) need.set(key, { sheet: change.sheet, col: change.col, px })
+            }
+            for (const { sheet, col, px } of need.values()) {
+              const width = Number(sheet.getColumnWidth?.(col))
+              if (width > 0 && width <= 80 && px > width) sheet.setColumnWidth(col, Math.min(Math.ceil(px), 420))
+            }
+          }
+        } catch { /* ширина — удобство, а не часть данных */ }
       } catch (error) {
         for (const change of changes) {
           try {
