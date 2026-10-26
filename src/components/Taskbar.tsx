@@ -27,15 +27,17 @@ import { useShellNotifyStore } from '../store/shellNotifyStore';
 import { isQuiet, untilLabel } from '../lib/notifCenter';
 import { useMailStore } from '../store/mailStore';
 import { useWindowStore, openPaths, activeWindowPath, windowsOf } from '../store/windowStore';
+import TaskbarRunMark from './TaskbarRunMark';
 import { useDesktopStore } from '../store/desktopStore';
 import { buildTaskbar, clockLabel, deadlineLabel, badgeLabel, trayFit } from '../lib/taskbar';
-import { BAR_H, BAR_BTN, BAR_ICON, TRAY_ICON, BAR_EDGE, CHIP_H, RUN_MARK } from '../lib/metrics';
+import { BAR_H, BAR_BTN, BAR_ICON, TRAY_ICON, BAR_EDGE, CHIP_H } from '../lib/metrics';
 import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import StartMenu from './StartMenu';
 import TaskbarPeek from './TaskbarPeek';
 import { AppIcon } from './icons/FluxIcons';
 import ProjectSwitcher from './ProjectSwitcher';
+import DbStatusTray from './shell/DbStatusTray';
 import ClockPanel from './calendar/ClockPanel';
 import { useUpdateStore, updateReady } from '../store/updateStore';
 import UpdateDialog, { claimUpdateDialogOpen, useUpdateReminders } from './UpdateDialog';
@@ -350,13 +352,16 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
               /* Метка раздела: демонстрации помощника подсвечивают его по
                  ней, и она же стоит на плитке Пуска */
               data-tour={`nav-${b.path}`}
+              /* Цель полёта окна при сворачивании и возврате (lib/windowMotion) */
+              data-taskbar-btn={b.path}
               aria-current={b.active ? 'true' : undefined}
               style={{ width: BAR_BTN, height: BAR_BTN }}
               /* Запущенная — метка снизу, активная — ещё и светлая подложка, как в
                  системной панели. Рамка вокруг каждой запущенной кнопки
                  превращала ряд значков в ряд карточек */
               className={`relative rounded-lg shrink-0 cursor-pointer flex items-center justify-center
-                          text-xs whitespace-nowrap transition-colors ${
+                          text-xs whitespace-nowrap transition-[color,background-color,transform] duration-[80ms]
+                          active:scale-[0.94] motion-reduce:active:scale-100 ${
                 b.active
                   ? 'bg-slate-300 dark:bg-slate-700 text-slate-900 dark:text-white font-medium ring-1 ring-inset ring-slate-400 dark:ring-slate-600'
                   : b.running
@@ -383,15 +388,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
               )}
               {/* Подчёркивание — «запущена». Видно боковым зрением и не спорит
                   с заливкой активной кнопки */}
-              {b.running && (
-                <span
-                  aria-hidden
-                  style={{ height: RUN_MARK, bottom: -5 }}
-                  className={`absolute rounded-sm bg-emerald-600 dark:bg-emerald-400 ${
-                    b.active ? 'left-[16%] right-[16%]' : 'left-[24%] right-[24%]'
-                  }`}
-                />
-              )}
+              {b.running && <TaskbarRunMark active={!!b.active} />}
             </button>
           );
         })}
@@ -440,6 +437,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
       {/* Трей: проект, часы со сроком, уведомления. Порядок зон не меняется
           никогда — по нему запоминают, куда вести мышь */}
       <div className="shrink-0 flex items-center gap-1">
+        <DbStatusTray trayBtn={trayBtn} />
         {/* Проект меняют по двадцать раз в день. Раньше нажатие открывало
             окно раздела «Проекты» целиком — на частое действие показывали
             всё, что известно о проектах. Теперь короткий список, поиск и
