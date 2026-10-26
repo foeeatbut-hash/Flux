@@ -7,6 +7,7 @@ import { canReadFile, getMainAdminId, personalScopeWhere } from '../fileAccess.j
 import { readableAccount, readableAccounts } from '../mail/access.js';
 import * as imap from '../mail/imap.js';
 import { credsOf, loadBody } from '../mail/sync.js';
+import { attachmentFile } from '../mail/attachFile.js';
 import { codeCandidates, fileCandidates, caseVariants } from '../mail/mentions.js';
 
 /**
@@ -31,9 +32,6 @@ export interface MailLinkDeps { userDataPath: string }
  */
 const TO_EXPLORER_LIMIT = 25 * 1024 * 1024;
 
-const mailDir = (base: string, accountId: string, messageId: string) =>
-  path.join(base, 'mail_files', accountId, messageId);
-
 /** Вложение с диска, а если его там ещё нет — с почтового сервера. */
 async function attachmentBytes(deps: MailLinkDeps, att: any, msg: any, acc: any): Promise<Buffer | null> {
   if (att.filePath && fs.existsSync(att.filePath)) return fs.readFileSync(att.filePath);
@@ -44,10 +42,8 @@ async function attachmentBytes(deps: MailLinkDeps, att: any, msg: any, acc: any)
   const buf = await imap.fetchAttachment(credsOf(acc), folder.path, msg.uid, att.partId);
   if (!buf) return null;
 
-  const safeName = String(att.fileName || 'файл').replace(/[\\/:*?"<>|]/g, '_');
-  const dir = mailDir(deps.userDataPath, acc.id, msg.id);
-  fs.mkdirSync(dir, { recursive: true });
-  const full = path.join(dir, safeName);
+  const full = attachmentFile(deps.userDataPath, acc.id, msg.id, att.id, att.fileName);
+  fs.mkdirSync(path.dirname(full), { recursive: true });
   fs.writeFileSync(full, buf);
   await prisma.mailAttachment.update({ where: { id: att.id }, data: { filePath: full, size: buf.length } });
   return buf;

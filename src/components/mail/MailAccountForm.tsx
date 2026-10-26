@@ -28,7 +28,15 @@ const field = 'w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-s
 const label = 'block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1';
 
 export default function MailAccountForm({ account, mayShared = false, onClose, onSaved }: Props) {
-  const editing = Boolean(account);
+  /**
+   * Ящик, который уже лежит на сервере. Сначала это только правимый ящик, но
+   * ящик, сохранённый этой же формой, — тоже: проверка связи могла не пройти, и
+   * человек поправит пароль и нажмёт кнопку снова. Без запоминания второе
+   * нажатие создавало бы второй такой же ящик.
+   */
+  const [savedId, setSavedId] = useState('');
+  const existingId = account?.id || savedId;
+  const editing = Boolean(existingId);
   const [email, setEmail] = useState(account?.email || '');
   const [password, setPassword] = useState('');
   const [displayNameValue, setDisplayName] = useState(account?.displayName || '');
@@ -162,9 +170,13 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
       // Пустой пароль при правке — «не менять», а не «стереть»
       if (password) data.password = password;
 
-      const saved = editing
-        ? await mailService.updateAccount(account!.id, data)
+      const saved = existingId
+        ? await mailService.updateAccount(existingId, data)
         : await mailService.addAccount(data);
+      setSavedId(saved.account.id);
+      // Ящик уже есть в базе, даже если связь не сойдётся: список слева должен
+      // его показать, а не ждать удачной проверки
+      onSaved();
 
       // Сразу проверяем связь: узнать о неверном пароле лучше здесь, чем
       // потом в пустом списке писем
@@ -243,7 +255,7 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
               <div>
                 <label className={label} htmlFor="mail-email">Адрес почты</label>
                 <input
-                  id="mail-email" type="email" value={email} disabled={editing || busy}
+                  id="mail-email" type="email" value={email} disabled={Boolean(account) || busy}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="ivanov@yandex.ru" className={field} autoComplete="email"
                 />

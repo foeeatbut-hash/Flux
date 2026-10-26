@@ -97,6 +97,96 @@ export async function syncFolders(acc: any): Promise<number> {
   return remote.length;
 }
 
+/** Сколько пачек за один проход: 25 по BATCH — это десять тысяч новых писем. */
+const MAX_ROUNDS = 25;
+
+/** Сколько последних скачанных писем сверяем с сервером по флагам. */
+const FLAG_CHECK = 500;
+
+/**
+ * Папка синхронизируется в одном месте за раз.
+ *
+ * Слежение (IDLE) дочитывает «Входящие» на каждое событие сервера, а человек в
+ * это же время жмёт «Проверить». Две одновременные синхронизации одной папки
+ * обе не находили письмо в базе и обе его создавали; вторая падала на уникальном
+ * ключе (папка, uid), и ящик показывал ошибку там, где ошибки не было. Поэтому
+ * вызовы встают в очередь: второй дочитывает то, что не успел первый.
+ */
+const folderQueue = new Map<string, Promise<unknown>>();
+
+export function syncFolder(acc: any, folder: any, deep = false): Promise<{ added: number; updated: number; resynced: boolean }> {
+  const prev = folderQueue.get(folder.id) || Promise.resolve();
+  const run = prev.catch(() => null).then(() => syncFolderNow(acc, folder, deep));
+  folderQueue.set(folder.id, run);
+  const release = () => { if (folderQueue.get(folder.id) === run) folderQueue.delete(folder.id); };
+  run.then(release, release);
+  return run;
+}
+
+/** Записать пачку заголовков в базу; флаги уже известных писем обновить. */
+async function storeRows(acc: any, folder: any, rows: imap.HeaderRow[]): Promise<{ added: number; updated: number }> {
+  const prisma = getPrisma();
+  let added = 0;
+  let updated = 0;
+  if (!rows.length) return { added, updated };
+
+  // Ключи цепочек считаем на пачке целиком: письмо-предок может прийти
+  // позже ответа, и поштучно цепочка рассыпалась бы
+  const withKeys = assignThreadKeys(rows.map((r) => ({
+    ...r,
+    messageId: r.messageId,
+    inReplyTo: r.inReplyTo,
+    refs: r.refs,
+    subject: r.subject,
+    sentAt: r.sentAt,
+  })));
+
+  for (const r of withKeys) {
+    const existing = await prisma.mailMessage.findFirst({
+      where: { folderId: folder.id, uid: r.uid },
+      select: { id: true, seen: true, flagged: true, answered: true },
+    });
+    if (existing) {
+      // Флаги могли поменять в телефоне — подтягиваем их и здесь
+      if (existing.seen !== r.seen || existing.flagged !== r.flagged || existing.answered !== r.answered) {
+        await prisma.mailMessage.update({
+          where: { id: existing.id },
+          data: { seen: r.seen, flagged: r.flagged, answered: r.answered },
+        });
+        updated++;
+      }
+      continue;
+    }
+    await prisma.mailMessage.create({
+      data: {
+        accountId: acc.id,
+        folderId: folder.id,
+        uid: r.uid,
+        messageId: r.messageId,
+        inReplyTo: r.inReplyTo,
+        refs: r.refs,
+        threadKey: r.threadKey,
+        fromName: r.fromName,
+        fromAddr: r.fromAddr,
+        toAddrs: r.toAddrs,
+        ccAddrs: r.ccAddrs,
+        subject: r.subject,
+        snippet: '',
+        sentAt: r.sentAt,
+        size: r.size,
+        seen: r.seen,
+        flagged: r.flagged,
+        answered: r.answered,
+        draft: r.draft,
+        hasFiles: r.hasFiles,
+        searchText: searchTextOf(r.subject, r.fromName, r.fromAddr, ''),
+      },
+    });
+    added++;
+  }
+  return { added, updated };
+}
+
 /**
  * Синхронизировать одну папку.
  *
@@ -106,9 +196,11 @@ export async function syncFolders(acc: any): Promise<number> {
  * чужих отправителей — и выглядело бы это как порча данных, а не как ошибка
  * синхронизации.
  */
-export async function syncFolder(acc: any, folder: any, deep = false): Promise<{ added: number; updated: number; resynced: boolean }> {
+async function syncFolderNow(acc: any, startFolder: any, deep: boolean): Promise<{ added: number; updated: number; resynced: boolean }> {
   const prisma = getPrisma();
   const creds = credsOf(acc);
+  // Пока вызов стоял в очереди, предыдущий проход мог сдвинуть метки папки
+  const folder = (await prisma.mailFolder.findUnique({ where: { id: startFolder.id } })) || startFolder;
 
   const state = await imap.folderState(creds, folder.path);
   let resynced = false;
@@ -122,67 +214,38 @@ export async function syncFolder(acc: any, folder: any, deep = false): Promise<{
   if (deep) minUid = 0;
 
   const since = minUid ? undefined : new Date(Date.now() - (acc.syncDays || 90) * 24 * 60 * 60 * 1000);
-  const { rows } = await imap.fetchHeaders(creds, folder.path, { since, minUid, limit: BATCH });
 
   let added = 0;
   let updated = 0;
-
-  if (rows.length) {
-    // Ключи цепочек считаем на пачке целиком: письмо-предок может прийти
-    // позже ответа, и поштучно цепочка рассыпалась бы
-    const withKeys = assignThreadKeys(rows.map((r) => ({
-      ...r,
-      messageId: r.messageId,
-      inReplyTo: r.inReplyTo,
-      refs: r.refs,
-      subject: r.subject,
-      sentAt: r.sentAt,
-    })));
-
-    for (const r of withKeys) {
-      const existing = await prisma.mailMessage.findFirst({
-        where: { folderId: folder.id, uid: r.uid },
-        select: { id: true, seen: true, flagged: true, answered: true },
-      });
-      if (existing) {
-        // Флаги могли поменять в телефоне — подтягиваем их и здесь
-        if (existing.seen !== r.seen || existing.flagged !== r.flagged || existing.answered !== r.answered) {
-          await prisma.mailMessage.update({
-            where: { id: existing.id },
-            data: { seen: r.seen, flagged: r.flagged, answered: r.answered },
-          });
-          updated++;
-        }
-        continue;
-      }
-      await prisma.mailMessage.create({
-        data: {
-          accountId: acc.id,
-          folderId: folder.id,
-          uid: r.uid,
-          messageId: r.messageId,
-          inReplyTo: r.inReplyTo,
-          refs: r.refs,
-          threadKey: r.threadKey,
-          fromName: r.fromName,
-          fromAddr: r.fromAddr,
-          toAddrs: r.toAddrs,
-          ccAddrs: r.ccAddrs,
-          subject: r.subject,
-          snippet: '',
-          sentAt: r.sentAt,
-          size: r.size,
-          seen: r.seen,
-          flagged: r.flagged,
-          answered: r.answered,
-          draft: r.draft,
-          hasFiles: r.hasFiles,
-          searchText: searchTextOf(r.subject, r.fromName, r.fromAddr, ''),
-        },
-      });
-      added++;
-    }
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    const { rows, more } = await imap.fetchHeaders(creds, folder.path, { since, minUid, limit: BATCH });
+    const r = await storeRows(acc, folder, rows);
+    added += r.added;
+    updated += r.updated;
+    if (!more || !rows.length) break;
+    // Пачка была неполной: продолжаем с самого нового из скачанного
+    minUid = Math.max(...rows.map((x) => x.uid));
   }
+
+  // Новые письма дозагрузка видит, а отметки на старых — нет: прочитали в
+  // телефоне — и здесь письмо оставалось бы жирным до полной пересинхронизации
+  try {
+    const known = await prisma.mailMessage.findMany({
+      where: { folderId: folder.id },
+      orderBy: { uid: 'desc' },
+      take: FLAG_CHECK,
+      select: { id: true, uid: true, seen: true, flagged: true, answered: true },
+    });
+    const remote = await imap.fetchFlags(creds, folder.path, known.map((m: any) => m.uid));
+    for (const m of known as any[]) {
+      const f = remote.get(m.uid);
+      if (!f) continue;
+      if (f.seen !== m.seen || f.flagged !== m.flagged || f.answered !== m.answered) {
+        await prisma.mailMessage.update({ where: { id: m.id }, data: f });
+        updated++;
+      }
+    }
+  } catch (_) { /* сверка флагов не должна ронять синхронизацию писем */ }
 
   const unread = await prisma.mailMessage.count({ where: { folderId: folder.id, seen: false } });
   const total = await prisma.mailMessage.count({ where: { folderId: folder.id } });

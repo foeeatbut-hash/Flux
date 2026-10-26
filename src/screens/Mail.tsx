@@ -246,6 +246,7 @@ export default function Mail() {
         {form.open && (
           <MailAccountForm
             account={form.account}
+            mayShared={mayShared}
             onClose={() => setForm({ open: false, account: null })}
             onSaved={() => { void loadAccounts(); }}
           />
