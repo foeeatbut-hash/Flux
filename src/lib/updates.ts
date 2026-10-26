@@ -17,18 +17,8 @@
  * машине в день выпуска.
  */
 
-/** Новее ли выложенная версия той, что запущена */
-export function isNewer(latest: string, current: string): boolean {
-  // Суффиксы вроде «-beta» дают NaN при Number() — оставляем цифры и точки
-  const parts = (v: string) => String(v || '').split('-')[0].split('.').map((x) => Number(x) || 0);
-  const l = parts(latest);
-  const c = parts(current);
-  for (let i = 0; i < Math.max(l.length, c.length); i++) {
-    if ((l[i] || 0) > (c[i] || 0)) return true;
-    if ((l[i] || 0) < (c[i] || 0)) return false;
-  }
-  return false;
-}
+import { isNewer, compareVersions } from './versionCompare';
+export { isNewer, compareVersions };
 
 /**
  * Полный адрес файла обновления. Относительный путь достраивается адресом

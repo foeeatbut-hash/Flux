@@ -129,9 +129,12 @@ async function run() {
     check('published releases are immutable', (await a.call('/api/updates/upload?version=9.8.7', 'POST', body)).status === 409);
     const downloaded = await b.call('/api/updates/download/9.8.7', 'GET', undefined, 'employee');
     check('employee on the independent server gets every byte', downloaded.status === 200 && Buffer.from(await downloaded.arrayBuffer()).equals(body));
+    // 9.8.8 опубликован РАНЬШЕ 9.8.7, но «последний» — по номеру версии, а не по дате (D1)
     const latest: any = await (await b.call('/api/updates/latest')).json();
-    check('latest carries an atomic signature and generation', latest.version === '9.8.7' && readUpdateSignature(latest.signature, updateHex)?.size === body.length && latest.generation === up.generation);
-    const opts = { version: '9.8.7', current: '1.0.0', signature: latest.signature, server: b.origin, token: 'employee', keyHex: updateHex };
+    check('latest is the highest version, not the most recently published', latest.version === '9.8.8' && latest.generation === other.generation);
+    const seven: any = await (await b.call('/api/updates/check/9.8.7')).json();
+    check('check carries an atomic signature and generation', seven.ok === true && readUpdateSignature(seven.signature, updateHex)?.size === body.length && seven.generation === up.generation);
+    const opts = { version: '9.8.7', current: '1.0.0', signature: seven.signature, server: b.origin, token: 'employee', keyHex: updateHex };
     const dest = path.join(dir, 'Flux-9.8.7.exe');
     await downloadVerifiedUpdate(`${b.origin}/api/updates/download/9.8.7`, dest, opts);
     check('employee download helper verifies and stores complete bytes', fs.readFileSync(dest).equals(body));
@@ -147,32 +150,42 @@ async function run() {
     await clients[0].appUpdateChunk.delete({ where: { id: first.id } });
     check('missing published chunks fail before sending EXE headers', (await b.call('/api/updates/download/9.8.7')).status === 409);
     const broken: any = await (await b.call('/api/updates/check/9.8.7')).json(); check('readiness checks every chunk', broken.ok === false);
-    const fallback: any = await (await b.call('/api/updates/latest')).json(); check('latest skips incomplete release and reports it', fallback.version === '9.8.8' && fallback.broken[0].version === '9.8.7');
-    // Десять подписанных выпусков по 6 МиБ проверяют, что обычная проверка
-    // сотрудника хеширует только первый (самый новый) исправный файл.
+    // Десять подписанных выпусков по 6 МиБ: обычная проверка сотрудника читает
+    // только метаданные и счёт кусков, файл из базы не поднимает (D6)
     const fixtureBody = Buffer.from(body), fixtureHash = crypto.createHash('sha256').update(fixtureBody).digest('hex');
     const fixtures: { version: string; generation: string }[] = [];
-    for (let n = 0; n < 10; n++) {
-      const version = `10.0.${n}`, generation = crypto.randomUUID(), createdAt = new Date(Date.now() + n * 1000);
+    const addFixture = async (version: string, createdAt: Date) => {
+      const generation = crypto.randomUUID();
       await clients[0].appUpdate.create({ data: { version, generation, state: 'published', signature: testSignature(fixtureBody, version), size: fixtureBody.length, sha256: fixtureHash, chunkCount: 3, changelog: 'fixture', fileUrl: `/api/updates/download/${version}`, createdAt } });
       for (let idx = 0; idx < 3; idx++) await clients[0].appUpdateChunk.create({ data: { version: generation, idx, data: fixtureBody.subarray(idx * 2 * 1024 * 1024, (idx + 1) * 2 * 1024 * 1024) } });
       fixtures.push({ version, generation });
-    }
+    };
+    for (let n = 0; n < 10; n++) await addFixture(`10.0.${n}`, new Date(Date.now() + n * 1000));
+    // Хотфикс старой ветки, опубликованный ПОСЛЕДНИМ, не должен стать «последним» выпуском
+    await addFixture('9.9.0', new Date(Date.now() + 60000));
     chunkReadSets = 0;
     const quick: any = await (await a.call('/api/updates/latest')).json();
-    check('latest verifies only the newest valid release', quick.version === '10.0.9' && chunkReadSets === 1);
-    const newestChunk = await clients[0].appUpdateChunk.findFirst({ where: { version: fixtures[9].generation }, orderBy: { idx: 'asc' } });
-    const newestBytes = Buffer.from(newestChunk.data); newestBytes[100] ^= 1;
-    await clients[0].appUpdateChunk.update({ where: { id: newestChunk.id }, data: { data: newestBytes } });
-    chunkReadSets = 0;
+    check('latest picks the highest version even when an older branch was published later', quick.version === '10.0.9');
+    check('latest does not read any file bytes', chunkReadSets === 0);
+    const lastChunk = await clients[0].appUpdateChunk.findFirst({ where: { version: fixtures[9].generation }, orderBy: { idx: 'desc' } });
+    await clients[0].appUpdateChunk.delete({ where: { id: lastChunk.id } });
     const skippedHead: any = await (await a.call('/api/updates/latest')).json();
-    check('latest falls back after a broken newest release', skippedHead.version === '10.0.8' && skippedHead.broken[0].version === '10.0.9' && chunkReadSets === 2);
+    check('latest falls back after the newest release lost a chunk', skippedHead.version === '10.0.8' && skippedHead.broken[0].version === '10.0.9' && chunkReadSets === 0);
+    // Подмена байтов внутри куска по метаданным не видна: её находит скачивание, и после этого выпуск не предлагается
+    const flipped = await clients[0].appUpdateChunk.findFirst({ where: { version: fixtures[8].generation }, orderBy: { idx: 'asc' } });
+    const flippedBytes = Buffer.from(flipped.data); flippedBytes[100] ^= 1;
+    await clients[0].appUpdateChunk.update({ where: { id: flipped.id }, data: { data: flippedBytes } });
+    const stillOffered: any = await (await a.call('/api/updates/latest')).json();
+    check('flipped bytes are not found by the cheap check', stillOffered.version === '10.0.8');
+    check('download refuses flipped bytes', (await a.call('/api/updates/download/10.0.8', 'GET', undefined, 'employee')).status === 409);
+    const afterDownload: any = await (await a.call('/api/updates/latest')).json();
+    check('a release found damaged on download is no longer offered', afterDownload.version === '10.0.7' && afterDownload.broken.some((r: any) => r.version === '10.0.8'));
     const oldChunk = await clients[0].appUpdateChunk.findFirst({ where: { version: fixtures[1].generation }, orderBy: { idx: 'asc' } });
     const oldBytes = Buffer.from(oldChunk.data); oldBytes[101] ^= 1;
     await clients[0].appUpdateChunk.update({ where: { id: oldChunk.id }, data: { data: oldBytes } });
     check('employee cannot run full catalogue audit', (await b.call('/api/updates/audit', 'GET', undefined, 'employee')).status === 403);
     const audit: any = await (await a.call('/api/updates/audit')).json();
-    check('Owner audit checks all published entries and detects independent corruption', audit.checked === 12 && audit.broken.length === 3 && audit.broken.some((r: any) => r.version === '10.0.1') && audit.broken.some((r: any) => r.version === '10.0.9'));
+    check('Owner audit checks all published entries and detects independent corruption', audit.checked === 13 && audit.broken.length === 4 && ['9.8.7', '10.0.9', '10.0.8', '10.0.1'].every(v => audit.broken.some((r: any) => r.version === v)));
     await clients[0].appUpdateChunk.deleteMany({ where: { version: { in: fixtures.map(f => f.generation) } } });
     await clients[0].appUpdate.deleteMany({ where: { version: { in: fixtures.map(f => f.version) } } });
     await clients[0].appUpdateChunk.create({ data: { version: up.generation, idx: first.idx, data: first.data } });

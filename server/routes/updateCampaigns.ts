@@ -3,9 +3,11 @@ import crypto from 'node:crypto';
 import { administratorPermission } from '../accessPolicy.js';
 import { readUpdateDelegation, readUpdateEnvelope, verifyUpdateCommand, type SignedUpdateCommand, type UpdateCommand } from '../../electron/updateCommand.js';
 import { compareVersions, readUpdateSignature } from '../../electron/updateSignature.js';
+import { newestFirst } from '../updateOrder.js';
 import { licenseInstallationId } from '../licenseService.js';
 import { notifyUser } from '../context.js';
 
+const MAX_CHAIN = 500;
 const DEVICE = 'update.device', COMMAND = 'update.command', HEAD = 'update.head', DELEGATION = 'update.delegation';
 const statuses = new Set(['idle', 'scheduled', 'delivered', 'downloading', 'verifying', 'ready', 'saving', 'restarting', 'updated', 'delayed', 'failed', 'cancelled']);
 export interface UpdateCampaignDeps {
@@ -23,22 +25,41 @@ export function registerUpdateCampaignRoutes(app: Express, deps: UpdateCampaignD
   const inst = deps.installationId || licenseInstallationId;
   const setting = async (db: any, key: string, id: string, value: any) => db.appSetting.upsert({ where: { id: rowId(key, id) },
     create: { id: rowId(key, id), key, userId: null, value: JSON.stringify(value) }, update: { value: JSON.stringify(value) } });
-  const history = async (db: any, scope: string) => {
-    const rows = await db.appSetting.findMany({ where: { key: COMMAND, userId: null }, take: 5001 });
-    if (rows.length > 5000) throw new Error('История заданий требует обслуживания. Новое назначение остановлено.');
-    return rows.map(valueOf).filter(Boolean).map((envelope: SignedUpdateCommand) => ({ envelope,
-      command: verifyUpdateCommand(envelope, { inst: scope, keyHex: deps.updatePublicKeyHex }) })).filter((x: any) => x.command) as { envelope: SignedUpdateCommand; command: UpdateCommand }[];
-  };
-  const deviceChain = (list: Awaited<ReturnType<typeof history>>, deviceId: string, userId: string) => {
-    const relevant = list.filter(x => x.command.targets.some(t => t.deviceId === deviceId && t.userId === userId));
-    const ordered: typeof relevant = []; let head: string | null = null;
-    while (ordered.length < relevant.length) {
-      const next = relevant.filter(x => x.command.targets.find(t => t.deviceId === deviceId && t.userId === userId)!.previous === head);
-      if (next.length !== 1) throw new Error('История назначений устройства повреждена.');
-      if (ordered.some(x => x.command.id === next[0].command.id)) throw new Error('В истории назначений найден повтор.');
-      ordered.push(next[0]); head = next[0].command.id;
+  // Цепочка назначений устройства читается от головы назад: голова лежит в своей
+  // строке (она меняется в той же транзакции, что и запись команды), а каждая
+  // команда называет предыдущую. Раньше каждые десять секунд каждое устройство
+  // читало ВСЕ команды компании, а за пять тысяч команд все получали отказ.
+  const commandOf = async (db: any, id: string) => valueOf(await db.appSetting.findUnique({ where: { id: rowId(COMMAND, id) } }));
+  const deviceChain = async (db: any, scope: string, deviceId: string, userId: string) => {
+    const head = await db.appSetting.findUnique({ where: { id: rowId(HEAD, `${deviceId}:${userId}`) } });
+    const ordered: { envelope: SignedUpdateCommand; command: UpdateCommand }[] = [], seen = new Set<string>();
+    let id: string | null = head?.value || null;
+    while (id) {
+      if (seen.has(id)) throw new Error('В истории назначений найден повтор.');
+      if (seen.size >= MAX_CHAIN) throw new Error('История назначений устройства требует обслуживания.');
+      seen.add(id);
+      const envelope = await commandOf(db, id) as SignedUpdateCommand | null;
+      const command = envelope ? verifyUpdateCommand(envelope, { inst: scope, keyHex: deps.updatePublicKeyHex }) : null;
+      const target = command?.targets.find(t => t.deviceId === deviceId && t.userId === userId);
+      // Голова указывает на команду, которой нет: её подменили между чтением и записью
+      if (!envelope || !command || !target) throw new Error(ordered.length ? 'История назначений устройства повреждена.' : 'CONFLICT');
+      ordered.push({ envelope, command }); id = target.previous;
     }
-    return ordered;
+    return ordered.reverse();
+  };
+  /** Только текущее назначение каждого устройства: списку устройств вся цепочка не нужна */
+  const currentCommands = async (db: any, scope: string) => {
+    const heads = await db.appSetting.findMany({ where: { key: HEAD, userId: null }, take: 10001 });
+    const byId = new Map<string, { envelope: SignedUpdateCommand; command: UpdateCommand }>();
+    const ids = [...new Set<string>(heads.map((h: any) => String(h.value)))];
+    for (let i = 0; i < ids.length; i += 200) {
+      const rows = await db.appSetting.findMany({ where: { id: { in: ids.slice(i, i + 200).map(x => rowId(COMMAND, x)) } } });
+      for (const row of rows) {
+        const envelope = valueOf(row) as SignedUpdateCommand | null, command = envelope ? verifyUpdateCommand(envelope, { inst: scope, keyHex: deps.updatePublicKeyHex }) : null;
+        if (envelope && command) byId.set(command.id, { envelope, command });
+      }
+    }
+    return new Map<string, { envelope: SignedUpdateCommand; command: UpdateCommand } | undefined>(heads.map((h: any) => [String(h.id).slice(HEAD.length + 1), byId.get(String(h.value))]));
   };
   const deviceRows = async (db: any) => {
     const rows = await db.appSetting.findMany({ where: { key: DEVICE, userId: null }, take: 10001 });
@@ -72,7 +93,7 @@ export function registerUpdateCampaignRoutes(app: Express, deps: UpdateCampaignD
       if (!previous && (await deviceRows(db)).length >= 10000) return res.status(409).json({ error: 'Достигнут предел зарегистрированных устройств.' });
       await setting(db, DEVICE, proof.deviceId, { ...proof, proof: req.body.proof, publicKey: req.body.publicKey, lastSeen: Date.now(), inst: scope });
       // Не удаляем прежние назначения при выходе: они связаны с устройством и авторизованным профилем.
-      const list = await history(db, scope), chain = deviceChain(list, proof.deviceId, actor);
+      const chain = await deviceChain(db, scope, proof.deviceId, actor);
       res.json({ inst: scope, commands: chain.map(x => x.envelope) });
     } catch { res.status(503).json({ error: 'Не удалось подтвердить состояние обновления.' }); }
   });
@@ -80,8 +101,8 @@ export function registerUpdateCampaignRoutes(app: Express, deps: UpdateCampaignD
   app.get('/api/updates/devices/:deviceId/commands', async (req: any, res) => {
     try {
       if (!req.authUser?.id) return res.status(401).json({ error: 'Войдите в программу.' });
-      const scope = await inst(), list = await history(deps.getPrisma(), scope);
-      res.json({ inst: scope, commands: deviceChain(list, req.params.deviceId, req.authUser.id).map(x => x.envelope) });
+      const scope = await inst();
+      res.json({ inst: scope, commands: (await deviceChain(deps.getPrisma(), scope, req.params.deviceId, req.authUser.id)).map(x => x.envelope) });
     } catch { res.status(503).json({ error: 'Не удалось проверить назначение обновления.' }); }
   });
 
@@ -103,10 +124,10 @@ export function registerUpdateCampaignRoutes(app: Express, deps: UpdateCampaignD
 
   app.get('/api/updates/devices', manager, async (_req, res) => {
     try {
-      const db = deps.getPrisma(), scope = await inst(), list = await history(db, scope);
+      const db = deps.getPrisma(), scope = await inst(), heads = await currentCommands(db, scope);
       const users = await db.user.findMany({ select: { id: true, name: true, symbol: true, isActive: true } });
       const devices = (await deviceRows(db)).filter((d: any) => d.inst === scope).map((d: any) => {
-        const chain = deviceChain(list, d.deviceId, d.userId), currentItem = chain.at(-1), current = currentItem?.command;
+        const currentItem = heads.get(`${d.deviceId}:${d.userId}`), current = currentItem?.command;
         const person = users.find((u: any) => u.id === d.userId);
         return { deviceId: d.deviceId, userId: d.userId, name: person?.name || 'Профиль удалён', symbol: person?.symbol || '',
           isActive: person?.isActive !== false && !!person, version: d.version || '', platform: d.platform, arch: d.arch,
@@ -115,7 +136,8 @@ export function registerUpdateCampaignRoutes(app: Express, deps: UpdateCampaignD
           commandId: current?.id || null, action: current?.action || null, deadline: current?.deadline || null, targetVersion: current?.version || null,
           commandRelease: current ? { version: current.version, generation: current.generation, sha256: current.sha256, releaseSignature: currentItem!.envelope.releaseSignature } : null };
       });
-      const releases = (await db.appUpdate.findMany({ where: { state: 'published' }, orderBy: { createdAt: 'desc' }, take: 30 })).filter((r: any) => readUpdateSignature(r.signature, deps.updatePublicKeyHex)).map((r: any) => ({ version: r.version, generation: r.generation, signature: r.signature, sha256: r.sha256 }));
+      // Свежие по номеру версии, а не по дате публикации: хотфикс старой ветки не вытесняет новую
+      const releases = newestFirst(await db.appUpdate.findMany({ where: { state: 'published' } })).slice(0, 30).filter((r: any) => readUpdateSignature(r.signature, deps.updatePublicKeyHex)).map((r: any) => ({ version: r.version, generation: r.generation, signature: r.signature, sha256: r.sha256 }));
       res.json({ inst: scope, devices, releases });
     } catch { res.status(503).json({ error: 'Состояния устройств недоступны. Повторите позже.' }); }
   });
@@ -142,14 +164,14 @@ export function registerUpdateCampaignRoutes(app: Express, deps: UpdateCampaignD
       if (!c || !grant || grant.expiresAt <= Date.now() || c.actor !== req.authUser.id || Math.abs(c.issuedAt - Date.now()) > 120000) return res.status(400).json({ error: 'Назначение не подтверждено разрешением владельца.' });
       const db = deps.getPrisma(), r = c.action === 'schedule' ? await release(db, c.version) : null;
       if (r && (r.generation !== c.generation || r.sha256 !== c.sha256 || r.signature !== envelope.releaseSignature)) return res.status(409).json({ error: 'Выпуск изменился. Обновите список.' });
-      const devices = await deviceRows(db), list = await history(db, scope);
+      const devices = await deviceRows(db);
       const existing = await db.appSetting.findUnique({ where: { id: rowId(COMMAND, c.id) } });
       if (existing) return existing.value === JSON.stringify(envelope) ? res.json({ success: true, id: c.id }) : res.status(409).json({ error: 'Номер задания уже занят.' });
       for (const t of c.targets) {
         const d = devices.find((d: any) => d.deviceId === t.deviceId && d.userId === t.userId && d.inst === scope);
         if (!d) return res.status(409).json({ error: 'Устройство или его профиль изменились. Обновите список.' });
         if (c.action === 'schedule' && compareVersions(c.version, d.version) <= 0) return res.status(409).json({ error: 'Выбрано устройство с актуальной или более новой версией.' });
-        const head = deviceChain(list, t.deviceId, t.userId).at(-1)?.command;
+        const head = (await deviceChain(db, scope, t.deviceId, t.userId)).at(-1)?.command;
         if ((head?.id || null) !== t.previous || (c.action === 'cancel' && (!head || head.action !== 'schedule' || head.version !== c.version || head.sha256 !== c.sha256 || head.generation !== c.generation))) return res.status(409).json({ error: 'Назначение уже изменилось. Обновите список и подтвердите снова.' });
       }
       await db.$transaction(async (tx: any) => {

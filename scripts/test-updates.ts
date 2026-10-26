@@ -20,6 +20,10 @@ import {
 // Со стороны сервера — выбор релиза: предлагать можно только то, что реально
 // можно скачать
 import { pickRelease, chunkSizeFor, CHUNK_MAX, CHUNK_MIN } from '../server/updates';
+import { newestFirst } from '../server/updateOrder';
+import { compareVersions } from '../electron/updateSignature';
+// Копия в инструменте владельца собирается отдельно; расходиться с программой ей нельзя
+import { compareVersions as ownerCompare } from '../tools/flux-owner/src/vendor/updateSignature';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -38,6 +42,35 @@ console.log('Сравнение версий');
   check('суффикс не ломает сравнение', isNewer('0.85.0-beta', '0.84.0'));
   check('номер предвыпуска не превращается в следующую часть версии', !isNewer('1.2.3-beta.99', '1.2.3'));
   check('мусор вместо версии не выдаётся за новую', !isNewer('', '0.84.0'));
+  // Суффикс раньше отбрасывался: бета считалась равной выпуску, а rc2 не новее rc1
+  check('выпуск новее своего пред-выпуска', isNewer('1.21.0', '1.21.0-beta'));
+  check('пред-выпуск не новее выпуска', !isNewer('1.21.0-beta', '1.21.0'));
+  check('rc2 новее rc1', isNewer('1.21.0-rc2', '1.21.0-rc1'));
+  check('rc10 новее rc9 по числу, а не по тексту', isNewer('1.21.0-rc.10', '1.21.0-rc.9'));
+  check('beta.2 новее beta', isNewer('1.2.3-beta.2', '1.2.3-beta'));
+  check('число в суффиксе старше слова', isNewer('1.2.3-beta', '1.2.3-2'));
+  check('rc новее beta по алфавиту', isNewer('1.2.3-rc', '1.2.3-beta'));
+  check('пред-выпуск следующей версии новее прошлого выпуска', isNewer('1.22.0-beta', '1.21.0'));
+  check('равные пред-выпуски не новее друг друга', !isNewer('1.2.3-rc1', '1.2.3-rc1'));
+  check('окно и главный процесс сравнивают одинаково',
+    [['1.21.0', '1.21.0-beta'], ['1.0.0-rc2', '1.0.0-rc1'], ['1.0', '1.0.0'], ['2.0.0-a', '2.0.0-a.1']]
+      .every(([x, y]) => (compareVersions(x, y) > 0) === isNewer(x, y) && (compareVersions(y, x) > 0) === isNewer(y, x)));
+  check('инструмент владельца сравнивает так же',
+    [['1.21.0', '1.21.0-beta'], ['1.0.0-rc2', '1.0.0-rc1'], ['1.0', '1.0.0'], ['2.0.0-a', '2.0.0-a.1'], ['1.2.3-beta', '1.2.3-2']]
+      .every(([x, y]) => ownerCompare(x, y) === compareVersions(x, y) && ownerCompare(y, x) === compareVersions(y, x)));
+  check('«-x64» в имени файла не пред-выпуск', versionFromFileName('Flux-1.21.0-x64.exe') === '1.21.0');
+}
+
+console.log('Какой выпуск «последний»');
+{
+  // Хотфикс старой ветки опубликован позже всех: по дате он «последний», по версии — нет
+  const t = (n: number) => new Date(2026, 0, n);
+  const order = newestFirst([
+    { version: '1.20.1', createdAt: t(9) }, { version: '1.21.0', createdAt: t(5) },
+    { version: '1.21.0-rc1', createdAt: t(3) }, { version: '1.9.0', createdAt: t(1) },
+  ]).map((r) => r.version);
+  check('порядок — по версии, а не по дате публикации', order.join() === '1.21.0,1.21.0-rc1,1.20.1,1.9.0', order);
+  check('исходный список не перестраивается', (() => { const l = [{ version: '1.0.0' }, { version: '2.0.0' }]; newestFirst(l); return l[0].version === '1.0.0'; })());
 }
 
 console.log('Адрес файла');

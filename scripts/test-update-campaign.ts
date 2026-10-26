@@ -76,10 +76,10 @@ void routeChecks().catch(error => { console.error(error); process.exitCode = 1; 
 
 async function lifecycleChecks() {
   const { registerUpdateCampaignRoutes } = await import('../server/routes/updateCampaigns');
-  const rows = new Map<string, any>();
+  const rows = new Map<string, any>(), scanned: string[] = [];
   const appSetting = {
     findUnique: async ({ where }: any) => rows.get(where.id) || null,
-    findMany: async ({ where }: any) => [...rows.values()].filter(r => r.key === where.key),
+    findMany: async ({ where }: any) => { scanned.push(where.key); return [...rows.values()].filter(r => r.key === where.key); },
     upsert: async ({ where, create, update }: any) => { const r = rows.has(where.id) ? { ...rows.get(where.id), ...update } : create; rows.set(where.id, r); return r; },
     create: async ({ data }: any) => { if (rows.has(data.id)) throw Object.assign(Error('duplicate'), { code: 'P2002' }); rows.set(data.id, data); return data; },
     updateMany: async ({ where, data }: any) => { const r = rows.get(where.id); if (!r || r.value !== where.value) return { count: 0 }; rows.set(where.id, { ...r, ...data }); return { count: 1 }; },
@@ -118,11 +118,19 @@ async function lifecycleChecks() {
   assert.equal((await call('POST /api/updates/campaigns', actorReq(cancellation))).status, 200);
   const cancelled = await call('POST /api/updates/devices/heartbeat', heartbeat());
   assert.equal(verifiedDeviceChain(cancelled.body.commands, { ...context, deviceId, knownId: 'one' })?.command.action, 'cancel');
+  // D7: шесть тысяч чужих команд не ломают устройство, а история заданий не читается целиком
+  for (let n = 0; n < 6000; n++) rows.set(`update.command:filler-${n}`, { id: `update.command:filler-${n}`, key: 'update.command', userId: null, value: '{}' });
+  scanned.length = 0;
+  const heavy = await call('POST /api/updates/devices/heartbeat', heartbeat());
+  assert.equal(heavy.status, 200);
+  assert.equal(verifiedDeviceChain(heavy.body.commands, { ...context, deviceId, knownId: 'one' })?.command.action, 'cancel');
+  assert.equal((await call('GET /api/updates/devices/:deviceId/commands', { authUser: { id: 'employee' }, params: { deviceId } })).body.commands.length, 2);
+  assert.equal(scanned.includes('update.command'), false, 'команды читаются по цепочке устройства, а не списком');
   // Transaction head mismatch must roll back command insertion even if signed history still looks current.
   rows.set(`update.head:${deviceId}:employee`, { ...rows.get(`update.head:${deviceId}:employee`), value: 'concurrent' });
   const raced = { ...one, id: 'raced', targets: [{ deviceId, userId: 'employee', previous: 'cancel' }] };
   assert.equal((await call('POST /api/updates/campaigns', actorReq(raced))).status, 409);
   assert.equal(rows.has('update.command:raced'), false);
-  console.log('14 проверок полного цикла маршрутов пройдено, 0 провалено');
+  console.log('18 проверок полного цикла маршрутов пройдено, 0 провалено');
 }
 void lifecycleChecks().catch(error => { console.error(error); process.exitCode = 1; });
