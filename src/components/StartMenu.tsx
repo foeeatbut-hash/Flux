@@ -33,8 +33,16 @@ import ContextMenu, { MenuItem } from './ContextMenu';
 import { can } from '../lib/permissions';
 import { useToastStore } from '../store/toastStore';
 import { AppIcon } from './icons/FluxIcons';
+import { DUR, reducedMotion } from '../lib/motion';
 
-export default function StartMenu({ onClose }: { onClose: () => void }) {
+export default function StartMenu({ onClose: closeNow }: { onClose: () => void }) {
+  // Уход короче прихода: сначала играем fx-rise-out, потом снимаем меню. Нажатие мимо закрывает сразу —
+  // иначе кнопка «Пуск» успела бы переключить уже закрывающееся меню
+  const [closing, setClosing] = React.useState(false);
+  const onClose = React.useCallback(() => {
+    setClosing(true);
+    window.setTimeout(closeNow, reducedMotion() ? 0 : DUR.exit);
+  }, [closeNow]);
   // Пока это открыто, страница браузера уступает место: родной слой Chromium
   // выше любой разметки, и без этого панель оказалась бы под страницей
   useOverlay(true);
@@ -76,7 +84,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
       // меню исчезало вместе с ним, и ни «Закрепить на рабочем столе», ни
       // «Закрепить на панели задач» не срабатывали никогда
       if ((e.target as Element)?.closest?.('[data-context-menu]')) return;
-      if (!boxRef.current?.contains(e.target as Node)) onClose();
+      if (!boxRef.current?.contains(e.target as Node)) closeNow();
     };
     window.addEventListener('keydown', onKey);
     // capture: иначе кнопка «Пуск» успеет закрыть и тут же открыть меню заново
@@ -85,7 +93,7 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('mousedown', onDown, true);
     };
-  }, [onClose]);
+  }, [onClose, closeNow]);
 
   /**
    * Разделы, закрытые правом, в Пуске не показываются: видный в меню, но
@@ -252,9 +260,9 @@ export default function StartMenu({ onClose }: { onClose: () => void }) {
          перекрытый окном, читается как «это не система» вернее всего
          остального */
       style={{ left: 8, bottom: BAR_H + 6, zIndex: Z.start, width: START_W }}
-      className="fixed max-w-[calc(100vw-1rem)]
+      className={`fixed max-w-[calc(100vw-1rem)] ${closing ? 'fx-rise-out pointer-events-none' : 'fx-rise-in'}
                  rounded-2xl border border-slate-200 dark:border-dark-border
-                 bg-white dark:bg-dark-surface shadow-2xl overflow-hidden"
+                 bg-white dark:bg-dark-surface shadow-2xl overflow-hidden`}
     >
       <div className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-200 dark:border-dark-border">
         <Search className="w-4 h-4 text-slate-400 shrink-0" />

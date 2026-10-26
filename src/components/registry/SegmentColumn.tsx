@@ -263,7 +263,7 @@ export default function SegmentColumn({
                 {boundDict && (
                   <div className="space-y-1 mt-1 text-xs">
                     {/* Main Category */}
-                    <div className="space-y-0.5 animate-fadeIn">
+                    <div className="space-y-0.5 fx-fade-in">
                       <span className="fx-label block">1. Главная</span>
                       <CustomSelect
                         value={selection.mainId || ''}
@@ -278,7 +278,7 @@ export default function SegmentColumn({
 
                     {/* Subcategory */}
                     {selection.mainId && subCategories.length > 0 && (
-                      <div className="space-y-0.5 animate-fadeIn">
+                      <div className="space-y-0.5 fx-fade-in">
                         <span className="fx-label block">2. Подкатегория</span>
                         <CustomSelect
                           value={selection.subId || ''}
@@ -294,7 +294,7 @@ export default function SegmentColumn({
 
                     {/* Sub-subcategory */}
                     {selection.subId && subSubCategories.length > 0 && (
-                      <div className="space-y-0.5 animate-fadeIn">
+                      <div className="space-y-0.5 fx-fade-in">
                         <span className="fx-label block">3. Подподкатегория</span>
                         <CustomSelect
                           value={selection.subSubId || ''}

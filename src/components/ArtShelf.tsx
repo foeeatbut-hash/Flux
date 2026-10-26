@@ -101,7 +101,7 @@ export default function ArtShelf({ onClose, onExpand }: Props) {
           title={`Следующий вид (${at + 1} из ${n}) · сейчас ${todayWords()}`}
           aria-label="Следующий вид"
           className="absolute right-8 top-1.5 p-1 rounded-lg cursor-pointer transition-ui
-                     bg-black/20 hover:bg-black/35 ring-1 ring-white/20 text-white/90 backdrop-blur-sm"
+                     bg-black/20 hover:bg-black/35 ring-1 ring-white/20 text-white/90"
         >
           <ChevronRight className="w-4 h-4" />
         </button>
@@ -115,7 +115,7 @@ export default function ArtShelf({ onClose, onExpand }: Props) {
             title="Открыть окном"
             aria-label="Открыть окном"
             className="absolute right-[52px] top-1.5 p-1 rounded-lg cursor-pointer transition-ui
-                       bg-black/20 hover:bg-black/35 ring-1 ring-white/20 text-white/90 backdrop-blur-sm"
+                       bg-black/20 hover:bg-black/35 ring-1 ring-white/20 text-white/90"
           >
             <Maximize2 className="w-4 h-4" />
           </button>
@@ -128,7 +128,7 @@ export default function ArtShelf({ onClose, onExpand }: Props) {
           title="Закрыть"
           aria-label="Закрыть помощника"
           className="absolute right-1.5 top-1.5 p-1 rounded-lg cursor-pointer transition-ui
-                     bg-black/20 hover:bg-black/35 ring-1 ring-white/20 text-white/90 backdrop-blur-sm"
+                     bg-black/20 hover:bg-black/35 ring-1 ring-white/20 text-white/90"
         >
           <X className="w-4 h-4" />
         </button>

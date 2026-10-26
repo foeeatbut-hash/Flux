@@ -1242,7 +1242,7 @@ export default function ChatManagement() {
               
               {/* Autocomplete suggestions dropdown panel right above input bar */}
               {autocompleteSuggestions.length > 0 && (
-                <div id="tag-autocomplete-dropdown" className="fx-dialog absolute bottom-full left-3 right-3 mb-2 max-h-56 dark:border-emerald-950 overflow-y-auto z-50 divide-y divide-slate-100 dark:divide-slate-900 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                <div id="tag-autocomplete-dropdown" className="fx-dialog absolute bottom-full left-3 right-3 mb-2 max-h-56 dark:border-emerald-950 overflow-y-auto z-50 divide-y divide-slate-100 dark:divide-slate-900 fx-pop">
                   <div className="p-2 bg-slate-50 dark:bg-slate-900/60 text-xs font-medium text-slate-400 dark:text-slate-500 flex items-center justify-between select-none border-b border-slate-100 dark:border-slate-900">
                     <span>💡 Подходящие к вводу MAX/KKS теги</span>
                     <span className="font-mono text-xs opacity-80">Клавиши ↑ ↓ Enter для ввода</span>

@@ -40,7 +40,7 @@ export default function BoardControls({
 }: BoardControlsProps) {
   // Overlaid Zoom and Canvas Controls on the top-right
   return (
-    <div className="absolute top-4 right-4 z-40 flex items-center gap-2 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-200 dark:border-slate-800/80 shadow-md">
+    <div className="absolute top-4 right-4 z-40 flex items-center gap-2 bg-white/95 dark:bg-slate-950/95 p-1.5 rounded-xl border border-slate-200 dark:border-slate-800/80 shadow-md">
       <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-800">
         <button type="button"
           onClick={() => setZoom((z) => clampZoom(z - 0.1))}

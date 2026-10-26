@@ -4,6 +4,7 @@ import { startDiagnostics } from './lib/diagnostics';
 import { registerEmergencySave } from './lib/emergencySave';
 import React, {StrictMode, Component, ErrorInfo, ReactNode} from 'react';
 import {createRoot} from 'react-dom/client';
+import {MotionConfig} from 'motion/react';
 import App from './App.tsx';
 import './index.css';
 import { useLogStore } from './store/logStore';
@@ -193,9 +194,11 @@ async function mountAuthenticatedApp() {
     if (!rootEl) throw new Error('Корневой элемент #root не найден в документе');
     createRoot(rootEl).render(
       <StrictMode>
-        <RootErrorBoundary>
-          <App />
-        </RootErrorBoundary>
+        <MotionConfig reducedMotion="user">
+          <RootErrorBoundary>
+            <App />
+          </RootErrorBoundary>
+        </MotionConfig>
       </StrictMode>,
     );
   } catch (mountErr: any) {

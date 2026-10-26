@@ -28,3 +28,9 @@ export const EASE_ARR = {
 export function reducedMotion(): boolean {
   try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
 }
+
+/** Готовые transition для motion/react (секунды): приход и уход. Уход короче прихода */
+export const TRANSITION = {
+  enter: { duration: DUR.base / 1000, ease: EASE_ARR.enter },
+  exit: { duration: DUR.exit / 1000, ease: EASE_ARR.exit },
+} as const;

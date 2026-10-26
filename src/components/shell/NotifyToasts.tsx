@@ -11,6 +11,7 @@
  */
 import React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import { DUR, EASE_ARR } from '../../lib/motion';
 import { Bell, X, Clock, ExternalLink, MessageSquare, Mail, FileText, ShieldAlert, Video } from 'lucide-react';
 import { useShellNotifyStore } from '../../store/shellNotifyStore';
 import { SNOOZE_CHOICES } from '../../lib/notifCenter';
@@ -60,9 +61,10 @@ export default function NotifyToasts({ onOpen }: { onOpen: (route: string) => vo
         {toasts.map((t) => (
           <motion.div
             key={t.id}
-            initial={{ opacity: 0, x: 40 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 40, transition: { duration: 0.18 } }}
+            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: DUR.base / 1000, ease: EASE_ARR.enter } }}
+            exit={{ opacity: 0, x: 12, transition: { duration: DUR.exit / 1000, ease: EASE_ARR.exit } }}
+            style={{ animation: 'none' }}
             onMouseEnter={() => setHeld(t.id)}
             onMouseLeave={() => { setHeld(null); setSnoozing(null); }}
             className="fx-pop !p-0 overflow-hidden"

@@ -12,6 +12,7 @@
  */
 import React from 'react';
 import { motion } from 'motion/react';
+import { TRANSITION } from '../../lib/motion';
 import { Languages, Copy, BookMarked, Maximize2, X } from 'lucide-react';
 import { useTranslateStore } from '../../store/translateStore';
 import { useToastStore } from '../../store/toastStore';
@@ -117,7 +118,7 @@ export default function QuickTranslate() {
     <motion.div
       initial={{ opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.12 }}
+      transition={TRANSITION.enter}
       data-quick-translate
       style={{ left: shown.x, top: shown.y, width: WIDTH }}
       className="fixed z-[9500] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl overflow-hidden"

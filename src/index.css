@@ -471,7 +471,7 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
    За плитками идёт живое небо, и сплошные белые карточки с чёткой
    рамкой смотрелись на нём приклеенными: одинаково резкий контур
    по всему периметру, а фон под ними полностью перекрыт. Здесь
-   поверхность полупрозрачная и размывает то, что под ней, — она
+   поверхность почти сплошная (95–97 %): размытие фона дорого на слабых машинах, а различия почти не давало — она
    лежит в сцене, а не поверх неё. Контур мягкий, объём даёт тень,
    а не линия.
    ───────────────────────────────────────────────────────────── */
@@ -479,14 +479,14 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
    перебить эти правила: у неслоёных стилей приоритет выше любых утилит. */
 @layer components {
   .flux-surface {
-    background: color-mix(in oklab, white 80%, transparent);
+    background: color-mix(in oklab, white 96%, transparent);
     border: 1px solid color-mix(in oklab, black 7%, transparent);
     box-shadow: 0 1px 2px color-mix(in oklab, black 4%, transparent),
                 0 10px 28px -18px color-mix(in oklab, black 40%, transparent);
-    backdrop-filter: blur(12px) saturate(1.06);
+   
   }
   .dark .flux-surface {
-    background: color-mix(in oklab, var(--color-dark-surface) 76%, transparent);
+    background: color-mix(in oklab, var(--color-dark-surface) 96%, transparent);
     border-color: color-mix(in oklab, white 9%, transparent);
     box-shadow: 0 1px 2px color-mix(in oklab, black 30%, transparent),
                 0 12px 30px -20px color-mix(in oklab, black 70%, transparent);
@@ -495,9 +495,8 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   /* Плитка раздела: то же стекло, но реагирует на курсор подъёмом,
      а не сменой цвета рамки на насыщенный зелёный. */
   .flux-tile {
-    background: color-mix(in oklab, white 66%, transparent);
+    background: color-mix(in oklab, white 95%, transparent);
     border: 1px solid color-mix(in oklab, black 6%, transparent);
-    backdrop-filter: blur(10px) saturate(1.05);
   }
   .flux-tile:hover {
     background: color-mix(in oklab, white 92%, transparent);
@@ -506,7 +505,7 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
     transform: translateY(-1px);
   }
   .dark .flux-tile {
-    background: color-mix(in oklab, var(--color-dark-surface) 62%, transparent);
+    background: color-mix(in oklab, var(--color-dark-surface) 95%, transparent);
     border-color: color-mix(in oklab, white 8%, transparent);
   }
   .dark .flux-tile:hover {
@@ -1313,7 +1312,7 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
     transition: background-color var(--flux-dur-fast) var(--flux-ease), border-color var(--flux-dur-fast) var(--flux-ease), color var(--flux-dur-fast) var(--flux-ease);
   }
   .fx-btn:hover { background: var(--flux-hover); }
-  .fx-btn:active { background: var(--flux-sel); }
+  .fx-btn:active { background: var(--flux-sel); transform: scale(.97); transition-duration: 80ms; }
   .fx-btn:disabled, .fx-btn[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
   .fx-btn > svg { width: 16px; height: 16px; flex: none; }
   .fx-btn-lg { height: 32px; }
@@ -1332,7 +1331,9 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
     display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: var(--flux-radius-sm);
     color: var(--flux-text-muted); cursor: pointer; background: transparent; border: 0;
   }
+  .fx-ibtn { transition: background-color var(--flux-dur-fast) var(--flux-ease), color var(--flux-dur-fast) var(--flux-ease), transform 80ms var(--flux-ease); }
   .fx-ibtn:hover { background: var(--flux-sel); color: var(--flux-text); }
+  .fx-ibtn:active { transform: scale(.97); }
   .fx-ibtn > svg { width: 14px; height: 14px; }
 
   /* ── Шапка раздела 44 и панель инструментов 40 ── */
@@ -1366,11 +1367,15 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
     display: flex; align-items: center; gap: 6px; padding: 0 10px; position: relative; white-space: nowrap;
     font-size: 13px; color: var(--flux-text-muted); cursor: pointer; background: none; border: 0;
   }
+  .fx-tab { transition: color var(--flux-dur-fast) var(--flux-ease); }
   .fx-tab:hover { color: var(--flux-text); }
   .fx-tab[aria-selected="true"], .fx-tab.is-on { color: var(--flux-text); font-weight: 500; }
-  .fx-tab[aria-selected="true"]::after, .fx-tab.is-on::after {
+  /* Индикатор вкладки всегда в разметке и растёт из центра transform'ом: выбор читается движением, а не миганием */
+  .fx-tab::after {
     content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--flux-accent);
+    transform: scaleX(0); opacity: 0; transition: transform var(--flux-dur-base) var(--flux-ease-move), opacity var(--flux-dur-fast) var(--flux-ease);
   }
+  .fx-tab[aria-selected="true"]::after, .fx-tab.is-on::after { transform: scaleX(1); opacity: 1; }
   .fx-tab > svg { width: 14px; height: 14px; }
 
   /* Фильтр со счётчиками — он же сводка вместо плиток «всего 112» */
@@ -1491,6 +1496,9 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-pop {
     background: var(--flux-surface); border: 1px solid var(--flux-line); border-radius: var(--flux-radius-md);
     box-shadow: var(--flux-shadow-pop); padding: 4px;
+    /* Появление: от кнопки, сдвиг 4 px; уход мгновенный (элемент снимается из дерева) */
+    transform-origin: var(--fx-origin, top left);
+    animation: fx-pop-in var(--flux-dur-fast) var(--flux-ease) backwards;
   }
   .fx-menu-item {
     display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px; border-radius: 4px;
@@ -1520,6 +1528,27 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-dialog-flash-b { animation: fx-dialog-flash-b 360ms var(--flux-ease); }
 }
 
+/* Появление содержимого: раздел, вкладка, раскрытая карточка */
+.fx-fade-in { animation: fx-fade-in var(--flux-dur-base) var(--flux-ease) backwards; }
+/* Смена содержимого вкладки: только прозрачность, без сдвига */
+.fx-crossfade { animation: fx-crossfade var(--flux-dur-fast) var(--flux-ease) backwards; }
+/* Боковые панели: въезд справа 16 px; уход короче прихода */
+.fx-panel-in { animation: fx-panel-in var(--flux-dur-base) var(--flux-ease) backwards; }
+.fx-panel-out { animation: fx-panel-out var(--flux-dur-exit) var(--flux-ease-exit) both; }
+/* Пуск: подъём 12 px */
+.fx-rise-in { animation: fx-rise-in var(--flux-dur-base) var(--flux-ease) backwards; }
+.fx-rise-out { animation: fx-rise-out var(--flux-dur-exit) var(--flux-ease-exit) both; }
+@keyframes fx-pop-in { from { opacity: 0; transform: translateY(-4px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes fx-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes fx-crossfade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fx-panel-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+@keyframes fx-panel-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(16px); } }
+@keyframes fx-rise-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes fx-rise-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(12px); } }
+@media (prefers-reduced-motion: reduce) {
+  .fx-pop, .fx-fade-in, .fx-crossfade, .fx-panel-in, .fx-panel-out, .fx-rise-in, .fx-rise-out { animation: none; }
+  .fx-btn:active, .fx-ibtn:active { transform: none; }
+}
 @keyframes fx-dialog-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
 @keyframes fx-dialog-flash-a { 0%, 100% { box-shadow: var(--flux-shadow-modal); } 30%, 70% { box-shadow: var(--flux-shadow-modal), 0 0 0 3px oklch(62% 0.13 163 / .45); } }
 @keyframes fx-dialog-flash-b { 0%, 100% { box-shadow: var(--flux-shadow-modal); } 30%, 70% { box-shadow: var(--flux-shadow-modal), 0 0 0 3px oklch(62% 0.13 163 / .45); } }

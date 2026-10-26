@@ -11,6 +11,7 @@
 import React from 'react';
 import { Plus, ChevronDown, Sliders } from 'lucide-react';
 import { motion } from 'motion/react';
+import { TRANSITION } from '../../lib/motion';
 import CustomSelect from '../CustomSelect';
 import { Status } from '../ui';
 import { parseTagMetadata, getTagOverallStatus, actualitySelectOptions } from './tagMeta';
@@ -54,7 +55,7 @@ export default function QuickCreateBar({
       <div className="flex flex-wrap items-center gap-2">
         {/* Tag identifier code */}
         <div className="relative w-44">
-          <div className="relative animate-fadeIn">
+          <div className="relative fx-fade-in">
             <input
               type="text"
               required
@@ -168,8 +169,9 @@ export default function QuickCreateBar({
       {showAdvancedCreation && (
         <motion.div 
           initial={{ height: 0, opacity: 0 }}
+          transition={TRANSITION.enter}
           animate={{ height: 'auto', opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
+          exit={{ height: 0, opacity: 0, transition: TRANSITION.exit }}
           style={{ overflow: 'visible' }}
           className="flex flex-wrap items-center gap-3 pt-2.5 border-t border-slate-100 dark:border-slate-900/60 overflow-visible text-left"
         >

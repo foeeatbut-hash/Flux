@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, KeyboardEvent } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { TRANSITION } from "../lib/motion";
 import { Check, ChevronDown } from "lucide-react";
 
 export interface CustomSelectOption {
@@ -134,10 +135,11 @@ export default function CustomSelect({
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.15 }}
+            initial={{ opacity: 0, y: -4, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.08 } }}
+            transition={{ ...TRANSITION.enter, duration: 0.12 }}
+            style={{ animation: 'none', transformOrigin: 'top left' }}
             className="fx-pop absolute left-0 z-[999] mt-1 w-full max-h-60 overflow-y-auto scrollbar-thin"
             role="listbox"
           >

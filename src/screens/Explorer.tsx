@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
+import { TRANSITION } from '../lib/motion';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import EquipmentImportPreview from '../components/EquipmentImportPreview';
 import { countOf } from '../lib/plural';
@@ -1361,10 +1362,10 @@ function ProjectExplorer() {
 
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.2 }}
+      exit={{ opacity: 0, transition: TRANSITION.exit }}
+      transition={TRANSITION.enter}
       className="h-full flex flex-col bg-white dark:bg-dark-bg border border-slate-205 dark:border-dark-border rounded-xl shadow-xs overflow-hidden text-sm transition-ui" 
       onClick={() => setSelectedIds(new Set())}
     >
@@ -1630,8 +1631,9 @@ function ProjectExplorer() {
                   key="skeleton"
                   className="w-full text-left border-collapse select-none table-fixed"
                   initial={{ opacity: 0 }}
+                  transition={TRANSITION.enter}
                   animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
+                  exit={{ opacity: 0, transition: TRANSITION.exit }}
                 >
                   <thead className="sticky top-0 bg-white dark:bg-dark-surface shadow-xs border-b border-slate-200 dark:border-dark-border z-10 text-xs text-slate-500 dark:text-dark-text-muted font-medium">
                     <tr>
@@ -1656,8 +1658,9 @@ function ProjectExplorer() {
                   key="list"
                   className="w-full text-left border-collapse table-fixed"
                   initial={{ opacity: 0 }}
+                  transition={TRANSITION.enter}
                   animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
+                  exit={{ opacity: 0, transition: TRANSITION.exit }}
                 >
                   <thead className="sticky top-0 bg-white dark:bg-dark-surface shadow-xs border-b border-slate-200 dark:border-dark-border z-10 text-xs text-slate-500 dark:text-dark-text-muted font-medium">
                     <tr>
@@ -1776,9 +1779,9 @@ function ProjectExplorer() {
                 key="grid"
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                transition={{ duration: 0.15 }}
-                className="w-full h-full animate-in fade-in"
+                exit={{ opacity: 0, transition: TRANSITION.exit }}
+                transition={TRANSITION.enter}
+                className="w-full h-full fx-fade-in"
               >
                {allCurrentItems.length === 0 ? (
                   <div className="p-4 flex flex-wrap gap-4 items-start content-start">
@@ -1951,7 +1954,7 @@ function ProjectExplorer() {
            <div className="p-4">
               <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                  <div 
-                    className="bg-emerald-600 h-2 rounded-full transition-ui duration-300 ease-out" 
+                    className="bg-emerald-600 h-2 rounded-full transition-ui duration-200 ease-out" 
                     style={{ width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%` }}
                  />
               </div>

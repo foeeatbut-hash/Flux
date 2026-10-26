@@ -35,7 +35,7 @@ export default function DuplicatesPanel({ code, items, activeIdx, panelRef, onGo
   return createPortal(
     <div
       ref={panelRef}
-      className="fixed right-4 top-28 z-[118] w-72 bg-white/97 dark:bg-slate-950/97 backdrop-blur-md
+      className="fixed right-4 top-28 z-[118] w-72 bg-white/97 dark:bg-slate-950/97
                  border border-rose-200 dark:border-rose-900 rounded-lg shadow-2xl overflow-hidden"
     >
       <div className="flex items-center justify-between px-3 py-2 bg-rose-50/80 dark:bg-rose-950/30

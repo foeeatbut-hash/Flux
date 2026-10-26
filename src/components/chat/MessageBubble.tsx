@@ -316,7 +316,7 @@ export default function MessageBubble({
 export function DayDivider({ label }: { label: string }) {
   return (
     <div className="sticky top-1 z-10 flex justify-center py-2 pointer-events-none select-none">
-      <span className="px-3 py-1 rounded-full text-xs font-medium bg-slate-900/70 dark:bg-slate-100/15 text-white backdrop-blur-sm shadow-sm">
+      <span className="px-3 py-1 rounded-full text-xs font-medium bg-slate-900/90 dark:bg-slate-700/95 text-white shadow-sm">
         {label}
       </span>
     </div>

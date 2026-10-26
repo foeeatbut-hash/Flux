@@ -2,6 +2,7 @@ import React from 'react';
 import { useToastStore } from '../store/toastStore';
 import { CheckCircle, AlertCircle, Info, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { DUR, EASE_ARR } from '../lib/motion';
 
 export default function ToastProvider() {
   const { toasts, removeToast } = useToastStore();
@@ -15,9 +16,10 @@ export default function ToastProvider() {
         {toasts.map((toast) => (
           <motion.div
             key={toast.id}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, transition: { duration: 0.14 } }}
+            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: DUR.base / 1000, ease: EASE_ARR.enter } }}
+            exit={{ opacity: 0, x: 12, transition: { duration: DUR.exit / 1000, ease: EASE_ARR.exit } }}
+            style={{ animation: 'none' }}
             onClick={() => {
               if (toast.onClick) {
                 toast.onClick();

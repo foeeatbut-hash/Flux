@@ -171,7 +171,7 @@ export default function SpecTable({
                         </button>
                         
                         {showDescriptions[t.id] && (
-                          <div className="space-y-1.5 max-w-[420px] pt-1.5 animate-fadeIn">
+                          <div className="space-y-1.5 max-w-[420px] pt-1.5 fx-fade-in">
                             {meta.descriptions.map((d) => {
                               const config = statusConfig[d.status] || statusConfig.draft;
                               const Icon = config.icon;

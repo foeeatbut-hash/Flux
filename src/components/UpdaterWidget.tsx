@@ -130,7 +130,7 @@ export default function UpdaterWidget() {
       <div className="fx-group-title flex items-center justify-between mt-2">
         <span>Автообновления</span>
         {busy && (
-          <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
+          <span className="inline-flex h-2 w-2 rounded-full bg-emerald-500 " />
         )}
       </div>
 

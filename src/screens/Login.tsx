@@ -3,6 +3,7 @@ import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService } from '../services/dataService';
 import { motion, AnimatePresence } from 'motion/react';
+import { TRANSITION } from '../lib/motion';
 import { Lock, User, Eye, EyeOff, Loader2, AlertCircle, Sun, Moon } from 'lucide-react';
 import { setAuthToken, markSessionEstablished } from '../config/env';
 import ConnectionPanel from '../components/ConnectionPanel';
@@ -81,7 +82,7 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
   return (
     <div 
       id="login-screen-root" 
-      className="login-ground min-h-screen w-full flex flex-col justify-between font-sans text-slate-800 dark:text-slate-100 transition-colors duration-250 relative p-4"
+      className="login-ground min-h-screen w-full flex flex-col justify-between font-sans text-slate-800 dark:text-slate-100 transition-colors duration-200 relative p-4"
     >
       {/* Floating theme switcher in upper-right corner */}
       <div className="absolute top-4 right-4 z-40">
@@ -99,9 +100,9 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
       {/* Spacing element to align content nicely and push version down */}
       <div className="flex-1 flex items-center justify-center py-12">
         <motion.div 
-          initial={{ opacity: 0, scale: 0.98, y: 15 }}
+          initial={{ opacity: 0, scale: 0.98, y: 8 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
+          transition={TRANSITION.enter}
           className="w-full max-w-md bg-white dark:bg-slate-900 rounded-sm border border-slate-300 dark:border-slate-700 shadow-modal transition-ui"
         >
           <div className="flex items-baseline gap-3 px-6 py-3 border-b border-slate-300 dark:border-slate-700">
@@ -111,9 +112,10 @@ export default function Login({ onConfigureDatabase }: LoginProps) {
           <AnimatePresence mode="wait">
             {error && (
               <motion.div
-                initial={{ opacity: 0, y: -10 }}
+                initial={{ opacity: 0, y: 8 }}
+                transition={TRANSITION.enter}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
+                exit={{ opacity: 0, transition: TRANSITION.exit }}
                 className="flex items-start gap-2.5 p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-400 text-xs mb-5"
               >
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />

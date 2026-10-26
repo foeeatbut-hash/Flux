@@ -215,7 +215,7 @@ export default function GuideSpotlight() {
             transition: 'all 0.2s ease',
           }}
         >
-          <span className="absolute inset-0 rounded-lg animate-ping" style={{ border: '2px solid #34d399' }} />
+          <span className="absolute inset-0 rounded-lg" style={{ border: "2px solid #34d399", opacity: 0.6 }} />
         </div>
       )}
 
