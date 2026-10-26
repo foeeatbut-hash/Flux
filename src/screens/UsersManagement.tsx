@@ -18,7 +18,9 @@ import RoleIcon from '../components/RoleIcon';
 import { Plus, Search } from 'lucide-react';
 import { useModalStore } from '../store/modalStore';
 import { countOf } from '../lib/plural';
-import { SectionHead, Toolbar, FilterSeg, Seg, Btn, Input, Select, Empty, Status, Chip, Avatar, Dialog, Field, Switch } from '../components/ui';
+import { updateService, type UpdateDevice } from '../services/updateService';
+import { isNewer } from '../lib/updates';
+import { SectionHead, Tabs, Toolbar, FilterSeg, Seg, Btn, Input, Select, Empty, Status, Chip, Avatar, Dialog, Field, Switch } from '../components/ui';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -47,6 +49,12 @@ export default function UsersManagement() {
   const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  // Вкладки: список — главное, обновления вынесены отдельно, чтобы не
+  // сдвигать список вниз. focus — с какого сотрудника открыта вкладка «Обновления»
+  const [tab, setTab] = useState<'list' | 'updates'>('list');
+  const [focus, setFocus] = useState<{ userId: string; n: number } | undefined>();
+  const [devices, setDevices] = useState<UpdateDevice[]>([]);
+  const [latest, setLatest] = useState('');
   
   // New User Form State
   const [roles, setRoles] = useState<Role[]>([]);
@@ -315,6 +323,21 @@ export default function UsersManagement() {
     return left < SOON_DAYS * 864e5 ? 'soon' : 'ok';
   };
 
+  // Версии программ сотрудников для колонки «Версия». Ошибка запроса не
+  // ломает список: колонка просто остаётся пустой
+  useEffect(() => {
+    if (!mayManage || tab !== 'list') return;
+    let alive = true;
+    updateService.devices().then(r => { if (alive) { setDevices(r.devices); setLatest(r.releases[0]?.version || ''); } }).catch(() => {});
+    return () => { alive = false; };
+  }, [mayManage, tab]);
+  const versionOf = (id: string) => {
+    const mine = devices.filter(d => d.userId === id);
+    if (!mine.length) return null;
+    const versions = [...new Set(mine.map(d => d.version).filter(Boolean))];
+    return { label: versions.length > 1 ? 'разные' : versions[0] || '?', stale: !!latest && mine.some(d => d.version && isNewer(latest, d.version)) };
+  };
+
   const counts = React.useMemo(() => {
     let active = 0, off = 0, soon = 0, nosign = 0;
     for (const e of usersList) {
@@ -387,21 +410,23 @@ export default function UsersManagement() {
       <SectionHead
         title="Сотрудники"
         count={countOf(counts.total, 'сотрудник')}
-        actions={(mayCreate || mayManage) && <div className="flex gap-2">{(mayCreate || mayManage) && <Btn onClick={() => setIsImportOpen(true)} title="Импортировать список сотрудников">Импортировать</Btn>}{mayCreate && <Btn tone="primary" onClick={() => setIsModalOpen(true)} title="Добавить сотрудника"><Plus />Добавить сотрудника</Btn>}</div>}
-      />
+        actions={(mayCreate || mayManage) && <>{<Btn onClick={() => setIsImportOpen(true)} title="Импортировать список сотрудников">Импортировать</Btn>}{mayCreate && <Btn tone="primary" onClick={() => setIsModalOpen(true)} title="Добавить сотрудника"><Plus />Добавить сотрудника</Btn>}</>}
+      >
+        {mayManage && <Tabs label="Разделы" value={tab} onChange={setTab} tabs={[{ value: 'list', label: 'Список' }, { value: 'updates', label: 'Обновления' }]} />}
+      </SectionHead>
       {isOwner && usersList.some((employee: any) => employee.legacyBootstrap) && <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100" role="status">
         Начальный профиль администратора заблокирован. Откройте его карточку и перенесите на личный логин с новым паролем. ID, файлы и история сохранятся.
       </div>}
       {/* Фильтр со счётчиками — он же сводка: вопросы «кто отключён» и «у кого
           истекает» задают чаще, чем ищут человека по фамилии */}
-      {mayManage && <UpdateCampaignPanel employeeIds={shown.map(employee => employee.id)} />}
+      {tab === 'updates' && mayManage ? <UpdateCampaignPanel employeeIds={shown.map(employee => employee.id)} focus={focus} /> : <>
       <Toolbar>
         <label className="relative w-64 max-w-full">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Фамилия, логин или роль" aria-label="Поиск сотрудника" className="pl-7" />
         </label>
         <FilterSeg label="Отбор сотрудников" value={pick} onChange={setPick} options={[
-          { value: 'all', label: 'Все', count: counts.total },
+          { value: 'all', label: 'Все' },
           { value: 'active', label: 'Работают', count: counts.active },
           { value: 'off', label: 'Закрыт доступ', count: counts.off },
           { value: 'soon', label: 'Истекает', count: counts.soon },
@@ -436,6 +461,7 @@ export default function UsersManagement() {
                 <th className="hidden @[720px]:table-cell">Роль</th>
                 <th>Доступ</th>
                 <th className="hidden @[560px]:table-cell">Подпись</th>
+                {mayManage && <th className="hidden @[860px]:table-cell">Версия</th>}
                 <th className="hidden @[980px]:table-cell">Заведён</th>
                 <th className="w-24" />
               </tr>
@@ -468,6 +494,11 @@ export default function UsersManagement() {
                       {(emp as any).hasSignature ? 'есть' : 'нет'}
                     </Chip>
                   </td>
+                  {mayManage && <td className="hidden @[860px]:table-cell whitespace-nowrap">{(() => {
+                    const v = versionOf(emp.id);
+                    return !v ? <span className="text-slate-400">—</span> : <span className="inline-flex items-center gap-1.5 tabular-nums">{v.label}
+                      {v.stale && <Chip tone="amber" onClick={() => { setFocus({ userId: emp.id, n: Date.now() }); setTab('updates'); }} title="Версия устарела — назначить обновление">устарела</Chip>}</span>;
+                  })()}</td>}
                   <td className="hidden @[980px]:table-cell text-slate-400 whitespace-nowrap">
                     {new Date(emp.createdAt || Date.now()).toLocaleDateString('ru-RU')}
                   </td>
@@ -482,6 +513,7 @@ export default function UsersManagement() {
           </table>
         )}
       </div>
+      </>}
 
       {/* Подпись сотрудника — своё окно, вне AnimatePresence */}
       {signFor && (

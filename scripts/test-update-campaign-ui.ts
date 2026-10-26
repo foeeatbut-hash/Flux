@@ -27,7 +27,7 @@ async function run() {
     const bulk = page.getByRole('button', { name: /Выбрать всех устаревших/ });
     await bulk.waitFor();
     await page.getByText('1 / 2', { exact: true }).waitFor();
-    check('Первой страницей ограничены только строки, а не массовый выбор', await page.locator('details').count() === 26);
+    check('Первой страницей ограничены только строки, а не массовый выбор', await page.locator('tr[data-group]').count() === 25);
     await bulk.click();
     await page.getByRole('button', { name: 'Назначить обновление', exact: true }).click();
     await page.getByRole('dialog').waitFor();
