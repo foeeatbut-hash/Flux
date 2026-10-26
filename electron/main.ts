@@ -24,6 +24,7 @@ import { TRAY_ICON_PNG } from './trayIcon';
 // Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
 import { badPackage, downloadError, applyArgs, parseApplyArgs } from './updates';
 import { applyUpdate } from './applyUpdate';
+import { cleanStaleUpdateFolders, removeUpdateFolder } from './updateTemp';
 import { registerUpdateCampaignIpc, assertCampaignRestart } from './updateCampaign';
 import { saveDatabaseConfig, saveLocalDatabasePathConfig } from './connectionConfig';
 import { companyDatabaseUri, databaseSummary, probeCompanyDatabase } from './databaseConnection';
@@ -132,6 +133,13 @@ app.whenReady().then(async () => {
 
   // Журналы: папка на рабочем столе, файл на день, уборка старше месяца
   setupLogs();
+
+  // Папки прежних загрузок обновления: после установки их не стереть сразу (из
+  // них работал помощник подмены), поэтому убираем старше суток при запуске.
+  // Папку, из которой запущен этот процесс, не трогаем ни при каких условиях.
+  void cleanStaleUpdateFolders(app.getPath('temp'), [process.execPath, process.env.PORTABLE_EXECUTABLE_FILE || '', process.argv[0] || ''])
+    .then((removed) => { if (removed.length) appendLog('INFO', 'Обновление', `Убрано старых папок загрузки: ${removed.length}`); })
+    .catch(() => { /* уборка — удобство, а не условие запуска */ });
 
   const fs = require('fs');
   const path = require('path');
@@ -780,6 +788,8 @@ app.whenReady().then(async () => {
   // подменить работающий портативный exe новым.
   let latestCachedUpdate: (VerifiedDownload & { installerPath: string }) | null = null;
   let updateInProgress = false;
+  /** Временная папка скачанного файла: уходит, когда скачивается следующий */
+  let updateFolder = '';
 
   /** Отказ — словами, а не кодом: человек читает это в окне и в журнале */
   const errorText = (err: any, from = ''): string => {
@@ -818,13 +828,33 @@ app.whenReady().then(async () => {
 
     if (!trustedAuthSender(event) || !await localAccess.mayRead(event)) throw new Error('Войдите в Flux для обновления.');
     if (updateInProgress) throw new Error('Дождитесь текущего обновления.');
-    latestCachedUpdate = null;
     const url = String(payload?.url || '');
     const version = String(payload?.version || '');
     if (!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/.test(version)) throw new Error('Неверная версия обновления.');
     if (!url || !version) throw new Error('Не переданы адрес или версия обновления.');
 
     updateInProgress = true;
+    // Тот же выпуск уже скачан и проверен, а установка не состоялась (отложена
+    // из-за несохранённых правок, не ответил сервер): файл на диске цел, и
+    // сто пятьдесят мегабайт заново качать незачем. Перед повтором файл
+    // проверяется целиком — подписью и хешем, а не доверием к памяти.
+    if (latestCachedUpdate && latestCachedUpdate.version === version
+      && latestCachedUpdate.signature === String(payload?.signature || '') && fs.existsSync(latestCachedUpdate.installerPath)) {
+      try {
+        mainWindow?.webContents.send('updater:status', 'verifying', {});
+        const kept = latestCachedUpdate.installerPath, size = fs.statSync(kept).size;
+        const refusal = updateRefusal({ signature: latestCachedUpdate.signature, version, current: app.getVersion(), size, sha256: await sha256File(kept) });
+        if (!refusal && !badPackage(headBytes(kept), size)) {
+          appendLog('INFO', 'Обновление', `Файл ${version} уже скачан и проверен, повторная загрузка не нужна`);
+          mainWindow?.webContents.send('updater:status', 'downloaded', { version });
+          updateInProgress = false;
+          return { success: true, reused: true };
+        }
+      } catch (_) { /* файл не читается — качаем заново */ }
+    }
+    latestCachedUpdate = null;
+    // Прежняя загрузка больше не нужна: иначе каждая попытка оставляла бы свой exe в %TEMP%
+    await removeUpdateFolder(updateFolder, app.getPath('temp')); updateFolder = '';
     let installerPath = '';
     let temporaryFolder = '';
     const verified: VerifiedDownload = {version,signature:String(payload?.signature || ''),current:app.getVersion(),server:'http://localhost:3000',token:readNativeSession('') || ''};
@@ -833,6 +863,7 @@ app.whenReady().then(async () => {
 
     try {
       temporaryFolder = await fs.promises.mkdtemp(path.join(app.getPath('temp'), 'flux-update-'));
+      updateFolder = temporaryFolder;
       installerPath = path.join(temporaryFolder, `Flux-${version}.exe`);
       let lastPercent = -1;
       await downloadVerifiedUpdate(url, installerPath, {...verified, onProgress: (percent) => {
@@ -874,6 +905,7 @@ app.whenReady().then(async () => {
       mainWindow?.webContents.send('updater:error', text);
       latestCachedUpdate = null;
       if (temporaryFolder) await fs.promises.rm(temporaryFolder,{recursive:true,force:true}).catch(() => {});
+      updateFolder = '';
       throw new Error(text);
     } finally { updateInProgress = false; }
   });
@@ -909,11 +941,16 @@ app.whenReady().then(async () => {
 
     updateInProgress = true;
     const cached = latestCachedUpdate;
+    // Сбросить скачанное стоит только когда сам файл не прошёл проверку; сбой
+    // сети или отложенное закрытие файл не портят, и качать его заново незачем
+    let fileRejected = false;
     try {
       const refusal = updateRefusal({...cached,current:app.getVersion(),size:fs.statSync(installerPath).size,sha256:await sha256File(installerPath)});
-      if (refusal) throw new Error(refusal);
+      if (refusal) { fileRejected = true; throw new Error(refusal); }
       await assertUpdatePublished({...cached,token:readNativeSession(cached.server) || ''});
-      if (!await nativeAppWindows.approveCloseAll() || !await mainClose.approveClose()) return {success:false,error:'Обновление отложено: сохраните изменения в открытых окнах.'};
+      // Файл скачан и проверен — он остаётся, а окно получает «отложено», а не «сбой»:
+      // иначе кампания с каждой минутой заново качала бы его, пока открыта правка
+      if (!await nativeAppWindows.approveCloseAll() || !await mainClose.approveClose()) return {success:false,deferred:true,error:'Обновление отложено: сохраните изменения в открытых окнах.'};
       if (campaignId) await assertCampaignRestart(campaignId, cached.version, async deviceId => {
         const response = await fetch(`http://localhost:3000/api/updates/devices/${encodeURIComponent(deviceId)}/commands`, { signal: AbortSignal.timeout(15000), redirect: 'error', headers: { Authorization: `Bearer ${readNativeSession('http://localhost:3000') || ''}` } });
         if (!response.ok) throw new Error('Назначение обновления недоступно. Перезапуск отложен.');
@@ -941,7 +978,7 @@ app.whenReady().then(async () => {
       return { success: true };
     } catch (err: any) {
       appendLog('ERROR', 'Обновление', `Не удалось запустить подмену: ${err?.message || err}`);
-      latestCachedUpdate = null;
+      if (fileRejected) latestCachedUpdate = null;
       return { success: false, error: errorText(err) };
     } finally { updateInProgress = false; }
   });
