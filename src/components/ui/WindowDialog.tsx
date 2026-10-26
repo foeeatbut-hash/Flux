@@ -13,8 +13,8 @@
  * и стоит на высоте своего окна — чужое окно, поднятое поверх, закрывает и
  * диалог, как в системе. Свернули родителя или ушли на другой стол — диалог
  * прячется вместе с ним. Вне окна (панель, браузер без рабочего стола) места
- * для «окна в окне» нет, и диалог по-старому центрируется над экраном с лёгким
- * затемнением, но тоже двигается и тянется.
+ * для «окна в окне» нет: диалог встаёт по центру экрана поверх всего, тоже
+ * двигается и тянется, но остальное под ним не блокирует.
  *
  * Шапка для перетаскивания — любой узел с атрибутом `data-dialog-drag`;
  * кнопки, поля и ссылки внутри неё нажимаются как обычно.
@@ -299,9 +299,10 @@ export function WindowDialog({
           ? <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: Z.windows + (win?.z ?? 0), display: hidden ? 'none' : undefined }}>
               <div style={{ pointerEvents: 'auto' }}>{dialog}</div>
             </div>
-          : <div style={{ position: 'fixed', inset: 0, zIndex: Z.modal }}>
-              <div className="absolute inset-0 fx-backdrop" onPointerDown={(e) => { if (!busy) nudge(e); }} />
-              {dialog}
+          // Вне окна заглушки на весь экран тоже нет: она закрывала бы панель
+          // задач и всё остальное — ровно то, от чего диалоги и уводили
+          : <div style={{ position: 'fixed', inset: 0, zIndex: Z.modal, pointerEvents: 'none' }}>
+              <div style={{ pointerEvents: 'auto' }}>{dialog}</div>
             </div>,
         host.layer,
       )}
