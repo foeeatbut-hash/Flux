@@ -64,7 +64,7 @@ export function readUpdateSignature(sig: string, keyHex = UPDATE_PUBLIC_KEY_HEX)
   }
 }
 
-// Копия src/lib/versionCompare.ts: у инструмента владельца своя сборка без доступа к исходникам программы
+// Копия shared/versionCompare.ts: у инструмента владельца своя сборка без доступа к исходникам программы
 const parseVersion = (v: string): { core: number[]; pre: string[] } => {
   const text = String(v || '').trim(), dash = text.indexOf('-');
   const core = (dash < 0 ? text : text.slice(0, dash)).split('.').map((x) => parseInt(x, 10) || 0);

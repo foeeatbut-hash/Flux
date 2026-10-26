@@ -20,7 +20,7 @@
  */
 import crypto from 'crypto';
 import { UPDATE_PUBLIC_KEY_HEX } from './updateKey';
-import { compareVersions } from '../src/lib/versionCompare';
+import { compareVersions } from '../shared/versionCompare';
 
 export const UPDATE_SIG_PREFIX = 'FLUXUPD1';
 
@@ -65,7 +65,7 @@ export function readUpdateSignature(sig: string, keyHex = UPDATE_PUBLIC_KEY_HEX)
   }
 }
 
-// Порядок версий общий с окном и сервером: src/lib/versionCompare.ts
+// Порядок версий общий с окном и сервером: shared/versionCompare.ts
 export { compareVersions };
 
 /**

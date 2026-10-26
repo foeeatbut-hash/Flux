@@ -17,7 +17,7 @@
  * машине в день выпуска.
  */
 
-import { isNewer, compareVersions } from './versionCompare';
+import { isNewer, compareVersions } from '../../shared/versionCompare';
 export { isNewer, compareVersions };
 
 /**
