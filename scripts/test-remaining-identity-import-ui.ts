@@ -1,4 +1,6 @@
 import { createServer } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { createServer as createTcpServer } from 'node:net';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -34,7 +36,11 @@ const port = await new Promise<number>((resolve, reject) => {
 });
 const vite = await createServer({
   configFile: false,
-  root: fixture,
+  // Те же плагины и корень, что у приложения: диалог-окно держится на утилитах Tailwind
+  // (flex, overflow), а Tailwind собирает их по исходникам от корня. Без них тело не
+  // прокручивается внутри окна и строки уходят за экран
+  plugins: [react(), tailwindcss()],
+  root,
   appType: 'mpa',
   server: { host: '127.0.0.1', port, strictPort: true, hmr: false },
   define: { 'import.meta.env.DISABLE_HMR': 'true' },
@@ -77,7 +83,7 @@ try {
     }
     await route.fulfill({ status: 404, json: { message: 'Unexpected synthetic endpoint' } });
   });
-  await page.goto(`${base}/employee-import.html`);
+  await page.goto(`${base}/scripts/fixtures/remaining-identity/employee-import.html`);
   await page.getByRole('dialog', { name: 'Импорт сотрудников' }).waitFor();
   const templateDownload = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Скачать шаблон XLSX' }).click();

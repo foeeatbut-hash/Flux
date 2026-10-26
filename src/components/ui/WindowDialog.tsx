@@ -135,6 +135,26 @@ export function WindowDialog({
     setPos(clamp({ x, y }, r.width, a));
   }, [host, pos, area, inWindow, win]);
 
+  // Содержимое может вырасти уже после показа (загрузили файл — появились
+  // поля): окно, поставленное по центру пустого диалога, ушло бы нижним краем
+  // за стол, и кнопки в подвале оказались бы вне экрана. Когда размер меняется,
+  // возвращаем окно в границы стола, не трогая то, что в них уже помещается
+  React.useEffect(() => {
+    if (!boxEl || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      const r = boxEl.getBoundingClientRect();
+      const a = area();
+      setPos((p) => {
+        if (!p) return p;
+        const x = Math.max(0, Math.min(p.x, a.w - 8 - r.width));
+        const y = Math.max(0, Math.min(p.y, a.h - 8 - r.height));
+        return x === p.x && y === p.y ? p : { x, y };
+      });
+    });
+    ro.observe(boxEl);
+    return () => ro.disconnect();
+  }, [boxEl, area]);
+
   // Esc закрывает только «свой» диалог: фокус внутри него или в окне-родителе.
   // Слушатель на всём окне браузера закрывал бы диалог, пока человек печатает
   // в соседней программе
@@ -233,7 +253,10 @@ export function WindowDialog({
     left: pos?.x ?? 0,
     top: pos?.y ?? 0,
     // Прячут и снаружи (`boxProps.style.visibility`): окно обращения уходит из кадра на время снимка
-    visibility: pos ? boxProps?.style?.visibility : 'hidden',
+    visibility: boxProps?.style?.visibility,
+    // До замера окно невидимо, но не `visibility: hidden`: скрытый узел не берёт фокус,
+    // и autoFocus в полях диалога не срабатывал бы
+    ...(pos ? {} : { opacity: 0, pointerEvents: 'none' as const }),
     // Только высота: ширину ограничивает класс окна (`max-w-md`), и
     // встроенный maxWidth перебил бы его — окно растянулось бы на весь стол
     maxHeight: a.h - 16,
