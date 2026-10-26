@@ -1507,4 +1507,12 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-dialog-body { padding: 4px 16px 16px; font-size: 13px; line-height: 20px; color: var(--flux-text-muted); }
   .fx-dialog-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--flux-line); }
   .fx-backdrop { background: oklch(16% 0.009 163 / 0.35); }
+  /* Диалог-окно: короткое появление и «сначала я» при нажатии на заблокированного родителя */
+  .fx-dialog-in { animation: fx-dialog-in var(--flux-dur-fast) var(--flux-ease); }
+  .fx-dialog-flash-a { animation: fx-dialog-flash-a 360ms var(--flux-ease); }
+  .fx-dialog-flash-b { animation: fx-dialog-flash-b 360ms var(--flux-ease); }
 }
+
+@keyframes fx-dialog-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes fx-dialog-flash-a { 0%, 100% { box-shadow: var(--flux-shadow-modal); } 30%, 70% { box-shadow: var(--flux-shadow-modal), 0 0 0 3px oklch(62% 0.13 163 / .45); } }
+@keyframes fx-dialog-flash-b { 0%, 100% { box-shadow: var(--flux-shadow-modal); } 30%, 70% { box-shadow: var(--flux-shadow-modal), 0 0 0 3px oklch(62% 0.13 163 / .45); } }

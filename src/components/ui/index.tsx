@@ -11,6 +11,9 @@
  * уверенность подбора, статус семейства, обозначение.
  */
 import React from 'react';
+import { WindowDialog } from './WindowDialog';
+
+export { WindowDialog } from './WindowDialog';
 
 type BtnTone = 'primary' | 'ghost' | 'danger' | 'plain';
 
@@ -179,35 +182,28 @@ export function Avatar({ name, online, className = '' }: { name: string; online?
 }
 
 /**
- * Диалог раздела: затемнение, окно fx-dialog, шапка, тело, подвал с кнопками
- * справа. Раньше каждый раздел собирал своё окно (размытие фона, значок в
- * цвете, заголовок 18/700) — теперь все окна одного вида. Esc и щелчок по
- * затемнению закрывают, пока `busy` не запрещает.
+ * Диалог раздела: окно fx-dialog, шапка, тело, подвал с кнопками справа.
+ * Раньше каждый раздел собирал своё окно (размытие фона, значок в цвете,
+ * заголовок 18/700) — теперь все окна одного вида. Само окно — дочернее окно
+ * программы (`WindowDialog`): двигается за шапку, тянется за края, блокирует
+ * только свою программу. Esc закрывает, пока `busy` не запрещает; тело
+ * прокручивается, когда окно сделали ниже содержимого.
  */
-export function Dialog({ title, onClose, children, footer, width = 'max-w-md', busy, label, scrollBody = false }: {
+export function Dialog({ title, onClose, children, footer, width = 'max-w-md', busy, label, scrollBody: _scrollBody = false }: {
   title: React.ReactNode; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode;
   width?: string; busy?: boolean; label?: string; scrollBody?: boolean;
 }) {
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !busy) onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, busy]);
   return (
-    <div className="fixed inset-0 z-[80] overflow-y-auto" role="dialog" aria-modal="true" aria-label={label ?? (typeof title === 'string' ? title : undefined)}>
-      <div className="fixed inset-0 fx-backdrop" onClick={() => !busy && onClose()} />
-      <div className="flex min-h-full items-center justify-center p-4">
-        <div className={`relative w-full ${width} fx-dialog ${scrollBody ? 'flex max-h-[calc(100dvh-32px)] flex-col' : ''}`}>
-          <div className="fx-dialog-head shrink-0">
-            <h3 className="min-w-0 flex-1 truncate">{title}</h3>
-            <IconBtn label="Закрыть окно" onClick={onClose} disabled={busy} className="-mr-2">
-              <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-            </IconBtn>
-          </div>
-          <div className={`fx-dialog-body text-slate-700 dark:text-slate-300 ${scrollBody ? 'min-h-0 overflow-y-auto' : ''}`}>{children}</div>
-          {footer && <div className={`fx-dialog-foot shrink-0 ${scrollBody ? 'flex-wrap' : ''}`}>{footer}</div>}
-        </div>
+    <WindowDialog onClose={onClose} busy={busy} label={label ?? (typeof title === 'string' ? title : undefined)}
+      className={`w-full ${width} fx-dialog flex flex-col overflow-hidden`}>
+      <div className="fx-dialog-head shrink-0 cursor-default" data-dialog-drag>
+        <h3 className="min-w-0 flex-1 truncate">{title}</h3>
+        <IconBtn label="Закрыть окно" onClick={onClose} disabled={busy} className="-mr-2">
+          <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+        </IconBtn>
       </div>
-    </div>
+      <div className="fx-dialog-body min-h-0 flex-1 overflow-y-auto text-slate-700 dark:text-slate-300">{children}</div>
+      {footer && <div className="fx-dialog-foot shrink-0 flex-wrap">{footer}</div>}
+    </WindowDialog>
   );
 }
