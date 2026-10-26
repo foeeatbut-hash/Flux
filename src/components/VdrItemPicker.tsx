@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { FileSpreadsheet, Loader2, Search, X } from 'lucide-react';
-import { useEscapeClose } from '../lib/useDismiss';
+import { WindowDialog } from './ui/WindowDialog';
 
 // Выбор строки ВДР поиском (номер/название/тип) — общий для Проводника
 // («Прикрепить к строке ВДР») и редакторов («Привязать документ к ВДР»).
@@ -16,7 +16,6 @@ export default function VdrItemPicker({ projectId, title, onPick, onClose }: {
   onPick: (item: VdrItemLite) => void;
   onClose: () => void;
 }) {
-  useEscapeClose(true, onClose);
 
   const [q, setQ] = useState('');
   const [items, setItems] = useState<VdrItemLite[]>([]);
@@ -35,9 +34,9 @@ export default function VdrItemPicker({ projectId, title, onPick, onClose }: {
   }, [q, projectId]);
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-6 fx-backdrop" onClick={onClose}>
-      <div className="fx-dialog w-full max-w-xl flex flex-col max-h-[70vh]" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800">
+    <WindowDialog onClose={onClose} label={title || 'Выбор строки ВДР'}
+      className="fx-dialog w-full max-w-xl flex flex-col max-h-[70vh]">
+        <div data-dialog-drag className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-800">
           <span className="font-semibold text-sm text-slate-800 dark:text-white flex items-center gap-1.5">
             <FileSpreadsheet className="w-4 h-4 text-emerald-500" /> {title || 'Выбор строки ВДР'}
           </span>
@@ -62,7 +61,6 @@ export default function VdrItemPicker({ projectId, title, onPick, onClose }: {
           ))}
           {!busy && items.length === 0 && <div className="p-6 text-center text-xs text-slate-400">Не найдено</div>}
         </div>
-      </div>
-    </div>
+      </WindowDialog>
   );
 }

@@ -48,6 +48,7 @@ import {
   FileRowItem, FileCardItem,
 } from '../components/explorer/FileItems';
 import FileProperties from '../components/explorer/FileProperties';
+import { WindowDialog } from '../components/ui/WindowDialog';
 import { FileIcon } from '../components/icons/FluxIcons';
 
 
@@ -1971,15 +1972,9 @@ function ProjectExplorer() {
       )}
 
       {assignTagModal && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 fx-backdrop" onClick={() => setAssignTagModal(null)}>
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="fx-dialog w-[500px] max-w-full overflow-hidden flex flex-col max-h-[80vh]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-805 bg-slate-50 dark:bg-slate-950 flex items-center gap-3">
+        <WindowDialog onClose={() => setAssignTagModal(null)} label="Назначить тег"
+          className="fx-dialog w-[500px] max-w-full overflow-hidden flex flex-col max-h-[80vh]">
+            <div data-dialog-drag className="px-5 py-4 border-b border-slate-100 dark:border-slate-805 bg-slate-50 dark:bg-slate-950 flex items-center gap-3">
               <Tag className="w-5 h-5 text-emerald-500" />
               <h2 className="text-base font-semibold text-slate-900 dark:text-white">Назначение тегов</h2>
             </div>
@@ -2073,8 +2068,7 @@ function ProjectExplorer() {
                 Сохранить
               </button>
             </div>
-          </motion.div>
-        </div>
+          </WindowDialog>
       )}
 
       {/* Выбор категории оборудования для импорта выделенных файлов */}

@@ -1,4 +1,5 @@
 import React from 'react';
+import { WindowDialog } from '../ui/WindowDialog';
 import { X } from 'lucide-react';
 
 /**
@@ -68,9 +69,9 @@ export default function SaveViewDialog({ role, params, preselected, onClose, onS
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 fx-backdrop" role="dialog" aria-modal="true" aria-label="Сохранить шаблон вида">
-      <div className="fx-dialog w-full max-w-lg overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+    <WindowDialog onClose={onClose} busy={busy} label="Сохранить шаблон вида"
+      className="fx-dialog w-full max-w-lg overflow-hidden">
+        <div data-dialog-drag className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="min-w-0">
             <div className="text-sm font-semibold truncate">Сохранить шаблон вида</div>
             <div className="text-2xs text-slate-500 dark:text-slate-400 truncate">
@@ -127,7 +128,6 @@ export default function SaveViewDialog({ role, params, preselected, onClose, onS
             {busy ? 'Сохраняем…' : 'Сохранить'}
           </button>
         </div>
-      </div>
-    </div>
+      </WindowDialog>
   );
 }

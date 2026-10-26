@@ -77,6 +77,17 @@ export interface WindowDialogProps {
   winId?: string;
 }
 
+/**
+ * Верхнее видимое окно этого стола. Диалоги, которые рисуются в корне
+ * приложения (захват, «Поделиться», панель подсказок), берут его родителем на
+ * момент открытия: блокируется оно, остальные программы остаются доступны
+ */
+export function topWindowId(): string {
+  const { windows, desk } = useWindowStore.getState();
+  const visible = windows.filter((w) => w.desk === desk && !w.minimized);
+  return visible.length ? visible.reduce((a, b) => (b.z > a.z ? b : a)).id : '';
+}
+
 export function WindowDialog({
   onClose, children, className = 'fx-dialog w-full max-w-md', label, busy, closeOnEsc = true, resizable = true, boxProps, winId: ownerId,
 }: WindowDialogProps) {
@@ -221,7 +232,8 @@ export function WindowDialog({
     position: inWindow ? 'absolute' : 'fixed',
     left: pos?.x ?? 0,
     top: pos?.y ?? 0,
-    visibility: pos ? undefined : 'hidden',
+    // Прячут и снаружи (`boxProps.style.visibility`): окно обращения уходит из кадра на время снимка
+    visibility: pos ? boxProps?.style?.visibility : 'hidden',
     // Только высота: ширину ограничивает класс окна (`max-w-md`), и
     // встроенный maxWidth перебил бы его — окно растянулось бы на весь стол
     maxHeight: a.h - 16,
@@ -279,4 +291,19 @@ function clamp(p: { x: number; y: number }, w: number, a: Box) {
     x: Math.min(Math.max(p.x, a.x - w + KEEP), a.x + a.w - KEEP),
     y: Math.min(Math.max(p.y, a.y), a.y + a.h - 40),
   };
+}
+
+/**
+ * Мастера, которые бывают и отдельным окном, и шагом внутри другого мастера
+ * (`embedded`): во втором случае это обычный блок страницы без рамки окна,
+ * в первом — дочернее окно. Своё определение на модуль, а не внутри
+ * компонента: иначе при каждой отрисовке содержимое пересоздавалось бы.
+ */
+export function WindowDialogOrEmbedded({ embedded, embeddedClassName, children, ...dialog }: WindowDialogProps & {
+  embedded?: boolean;
+  /** Классы блока, когда окна нет */
+  embeddedClassName: string;
+}) {
+  if (embedded) return <div className={embeddedClassName}>{children}</div>;
+  return <WindowDialog {...dialog}>{children}</WindowDialog>;
 }

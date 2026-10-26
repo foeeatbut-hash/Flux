@@ -1,4 +1,5 @@
 /** Общий справочник оборудования, изготовителей, моделей и комплектующих. */
+import { WindowDialog } from '../ui/WindowDialog';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Factory, FileSpreadsheet, Layers, Plus, Search, Tag as TagIcon, Wrench, Sparkles, Brain, ShieldCheck, ArrowLeftRight } from 'lucide-react';
 import { Tabs } from '../ui';
@@ -215,9 +216,9 @@ export default function CatalogManagement({ catalog, meta, rights, onChanged }: 
         </>}
       </div>
 
-      {dialog === 'class' && <div className="fixed inset-0 z-50 bg-black/30 dark:bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Новый тип оборудования" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) setDialog(null); }}>
-        <form onSubmit={submitClass} className="w-full max-w-lg rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 flex flex-col gap-3">
-          <h2 className="text-base font-semibold">Новый тип оборудования</h2>
+      {dialog === 'class' && <WindowDialog onClose={() => setDialog(null)} busy={busy} label="Новый тип оборудования" className="fx-dialog w-full max-w-lg p-4">
+        <form onSubmit={submitClass} className="flex flex-col gap-3">
+          <h2 data-dialog-drag className="text-base font-semibold">Новый тип оборудования</h2>
           <div className="flex flex-wrap gap-1">{EQUIPMENT_TYPES.map((p) => <Btn key={p.title} tone="ghost" onClick={() => openNewType(p)}>{p.title}</Btn>)}</div>
           <div className="grid grid-cols-1 @[480px]:grid-cols-2 gap-3">
             <Field label="Тип оборудования"><Input autoFocus value={classTitle} onChange={(e) => setClassTitle(e.target.value)} placeholder="Например, насос" required /></Field>
@@ -226,18 +227,18 @@ export default function CatalogManagement({ catalog, meta, rights, onChanged }: 
           <p className="text-xs text-slate-500 dark:text-slate-400">Новый тип появится после сохранения. Подтипы и характеристики можно настроить в карточках моделей.</p>
           <div className="flex justify-end gap-2"><Btn onClick={() => setDialog(null)} disabled={busy}>Отмена</Btn><Btn tone="primary" disabled={busy || !classTitle.trim() || !classItem.trim()}>Добавить тип</Btn></div>
         </form>
-      </div>}
-      {dialog === 'manufacturer' && <div className="fixed inset-0 z-50 bg-black/30 dark:bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Новый изготовитель" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) setDialog(null); }}>
-        <form onSubmit={submitManufacturer} className="w-full max-w-md rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 flex flex-col gap-3">
-          <h2 className="text-base font-semibold">Новый изготовитель</h2>
+      </WindowDialog>}
+      {dialog === 'manufacturer' && <WindowDialog onClose={() => setDialog(null)} busy={busy} label="Новый изготовитель" className="fx-dialog w-full max-w-md p-4">
+        <form onSubmit={submitManufacturer} className="flex flex-col gap-3">
+          <h2 data-dialog-drag className="text-base font-semibold">Новый изготовитель</h2>
           <Field label="Полное название"><Input autoFocus value={manufacturer.name} onChange={(e) => setManufacturer({ ...manufacturer, name: e.target.value })} placeholder="ООО «Пример»" required /></Field>
           <Field label="Короткое название"><Input value={manufacturer.shortName} onChange={(e) => setManufacturer({ ...manufacturer, shortName: e.target.value })} placeholder="Пример" required /></Field>
           <div className="flex justify-end gap-2"><Btn onClick={() => setDialog(null)} disabled={busy}>Отмена</Btn><Btn tone="primary" disabled={busy || !manufacturer.name.trim() || !manufacturer.shortName.trim()}>Добавить изготовителя</Btn></div>
         </form>
-      </div>}
-      {dialog === 'family' && cls && <div className="fixed inset-0 z-50 bg-black/30 dark:bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Новая модель оборудования" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) setDialog(null); }}>
-        <form onSubmit={submitFamily} className="w-full max-w-lg rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 flex flex-col gap-3">
-          <h2 className="text-base font-semibold">Новая модель · {textOf(cls.title)}</h2>
+      </WindowDialog>}
+      {dialog === 'family' && cls && <WindowDialog onClose={() => setDialog(null)} busy={busy} label="Новая модель оборудования" className="fx-dialog w-full max-w-lg p-4">
+        <form onSubmit={submitFamily} className="flex flex-col gap-3">
+          <h2 data-dialog-drag className="text-base font-semibold">Новая модель · {textOf(cls.title)}</h2>
           <div className="grid grid-cols-1 @[480px]:grid-cols-2 gap-3">
             <Field label="Изготовитель"><Select value={mf} onChange={setMf} options={catalog.manufacturers.map((m) => ({ value: m.id, label: m.name }))} /></Field>
             <Field label="Подтип"><Select value={modelKind} onChange={setModelKind} options={(cls.facts.find((f) => f.key === 'kind')?.values || []).map((v) => ({ value: v.code, label: textOf(v.label) }))} /></Field>
@@ -247,15 +248,15 @@ export default function CatalogManagement({ catalog, meta, rights, onChanged }: 
           <p className="text-xs text-slate-500 dark:text-slate-400">После создания заполните обозначение, параметры и характеристики в карточке модели.</p>
           <div className="flex justify-end gap-2"><Btn onClick={() => setDialog(null)} disabled={busy}>Отмена</Btn><Btn tone="primary" disabled={busy || !mf || !modelCode.trim() || !modelTitle.trim()}>Добавить модель</Btn></div>
         </form>
-      </div>}
-      {dialog === 'subtype' && cls && <div className="fixed inset-0 z-50 bg-black/30 dark:bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Добавить подтип" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) setDialog(null); }}>
-        <form onSubmit={submitSubtype} className="w-full max-w-md rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 flex flex-col gap-3">
-          <h2 className="text-base font-semibold">Подтип · {textOf(cls.title)}</h2>
+      </WindowDialog>}
+      {dialog === 'subtype' && cls && <WindowDialog onClose={() => setDialog(null)} busy={busy} label="Добавить подтип" className="fx-dialog w-full max-w-md p-4">
+        <form onSubmit={submitSubtype} className="flex flex-col gap-3">
+          <h2 data-dialog-drag className="text-base font-semibold">Подтип · {textOf(cls.title)}</h2>
           <Field label="Название подтипа"><Input autoFocus value={subtypeTitle} onChange={(e) => setSubtypeTitle(e.target.value)} placeholder="Например, дымовой" required /></Field>
           <div className="text-xs text-slate-500 dark:text-slate-400">Существующие подтипы: {(cls.facts.find((fact) => fact.key === 'kind')?.values || []).map((value) => textOf(value.label)).join(', ') || 'пока нет'}</div>
           <div className="flex justify-end gap-2"><Btn onClick={() => setDialog(null)} disabled={busy}>Отмена</Btn><Btn tone="primary" disabled={busy || !subtypeTitle.trim()}>Добавить подтип</Btn></div>
         </form>
-      </div>}
+      </WindowDialog>}
     </div>
   </SectionErrorBoundary>;
 }
