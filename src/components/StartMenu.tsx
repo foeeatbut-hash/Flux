@@ -33,16 +33,12 @@ import ContextMenu, { MenuItem } from './ContextMenu';
 import { can } from '../lib/permissions';
 import { useToastStore } from '../store/toastStore';
 import { AppIcon } from './icons/FluxIcons';
-import { DUR, reducedMotion } from '../lib/motion';
 
 export default function StartMenu({ onClose: closeNow }: { onClose: () => void }) {
-  // Уход короче прихода: сначала играем fx-rise-out, потом снимаем меню. Нажатие мимо закрывает сразу —
-  // иначе кнопка «Пуск» успела бы переключить уже закрывающееся меню
-  const [closing, setClosing] = React.useState(false);
-  const onClose = React.useCallback(() => {
-    setClosing(true);
-    window.setTimeout(closeNow, reducedMotion() ? 0 : DUR.exit);
-  }, [closeNow]);
+  // Закрывается сразу, без анимации ухода: отложенное закрытие оставляло
+  // окно в 100 мс, когда нажатие «Пуск» переключало ещё не снятое меню и
+  // вместо открытия закрывало его. Движение остаётся у появления
+  const onClose = closeNow;
   // Пока это открыто, страница браузера уступает место: родной слой Chromium
   // выше любой разметки, и без этого панель оказалась бы под страницей
   useOverlay(true);
@@ -260,7 +256,7 @@ export default function StartMenu({ onClose: closeNow }: { onClose: () => void }
          перекрытый окном, читается как «это не система» вернее всего
          остального */
       style={{ left: 8, bottom: BAR_H + 6, zIndex: Z.start, width: START_W }}
-      className={`fixed max-w-[calc(100vw-1rem)] ${closing ? 'fx-rise-out pointer-events-none' : 'fx-rise-in'}
+      className={`fixed max-w-[calc(100vw-1rem)] fx-rise-in
                  rounded-2xl border border-slate-200 dark:border-dark-border
                  bg-white dark:bg-dark-surface shadow-2xl overflow-hidden`}
     >

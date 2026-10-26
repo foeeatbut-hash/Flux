@@ -434,10 +434,12 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
         </span>
       )}
 
-      {/* Трей: проект, часы со сроком, уведомления. Порядок зон не меняется
-          никогда — по нему запоминают, куда вести мышь */}
+      {/* Трей, слева направо: проект, связь с базой, мониторы, обновление,
+          помощник, уведомления, часы. Часы — в самом углу, как в системе:
+          справа налево идёт от самого нужного взгляду к редкому, и ряд не
+          ломается на середине широкой меткой времени. Порядок зон не меняется
+          — по нему запоминают, куда вести мышь */}
       <div className="shrink-0 flex items-center gap-1">
-        <DbStatusTray trayBtn={trayBtn} />
         {/* Проект меняют по двадцать раз в день. Раньше нажатие открывало
             окно раздела «Проекты» целиком — на частое действие показывали
             всё, что известно о проектах. Теперь короткий список, поиск и
@@ -450,22 +452,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
             onOpenAll={() => openSection('/projects')}
           />
         )}
-
-        {/* Часы нажимаются: человек смотрит на них не чтобы узнать время, а
-            чтобы понять, что сегодня. Раньше нажатие не делало ничего */}
-        <button
-          type="button"
-          onClick={() => { setNotifOpen(false); setClockOpen((v) => !v); }}
-          aria-expanded={clockOpen}
-          title="Календарь: что сегодня и что впереди"
-          className={`flex flex-col items-end leading-tight px-3 tabular-nums select-none rounded-lg
-                      cursor-pointer transition-colors ${clockOpen
-            ? 'bg-slate-200/70 dark:bg-slate-800'
-            : 'hover:bg-slate-200/60 dark:hover:bg-slate-800'}`}
-        >
-          <b className="text-sm font-medium text-slate-800 dark:text-slate-150">{clockLabel(now)}</b>
-          <span className="text-2xs text-slate-500 dark:text-slate-400">{deadlineLabel(null, now)}</span>
-        </button>
+        <DbStatusTray trayBtn={trayBtn} />
 
         {/* Physical display mode replaces the virtual-desk switcher in the tray. */}
         {displayWorkspace.displays.length > 1 && <button
@@ -478,17 +465,6 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
           className={trayBtn(displayWorkspace.enabled)}>
           <Monitor size={TRAY_ICON} />
         </button>}
-
-        <button
-          type="button"
-          onClick={openGuide}
-          title="Flux Guide: справка, вопросы и данные проекта"
-          data-tour="guide-btn"
-          style={{ width: BAR_BTN, height: BAR_BTN }}
-          className={trayBtn(false)}
-        >
-          <MessageCircleQuestion size={TRAY_ICON} />
-        </button>
 
         {/* Обновление — как в системе: значок у часов светится, когда есть что
             поставить, и по нажатию открывает раздел обновлений. Иначе о новой
@@ -504,12 +480,22 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
             className={trayBtn(false)}
           >
             <ArrowUpCircle size={TRAY_ICON} className="text-emerald-600 dark:text-emerald-400" />
-            <span aria-hidden
-              className={`absolute top-1.5 right-2 w-2 h-2 rounded-full bg-emerald-500 ${
-                updateSeen ? '' : 'animate-ping'}`} />
-            <span aria-hidden className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-emerald-500" />
+            {/* Непросмотренное — точка, без бесконечного мигания: движение в
+                покое отвлекает от работы сильнее, чем помогает заметить */}
+            {!updateSeen && <span aria-hidden className="absolute top-1.5 right-2 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-dark-bg" />}
           </button>
         )}
+
+        <button
+          type="button"
+          onClick={openGuide}
+          title="Flux Guide: справка, вопросы и данные проекта"
+          data-tour="guide-btn"
+          style={{ width: BAR_BTN, height: BAR_BTN }}
+          className={trayBtn(false)}
+        >
+          <MessageCircleQuestion size={TRAY_ICON} />
+        </button>
 
         <button
           type="button"
@@ -525,6 +511,22 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
           {notifUnread > 0 && (
             <span aria-hidden className={`absolute top-1.5 right-2 w-2 h-2 rounded-full ${chatUnread > 0 ? 'bg-emerald-500' : 'bg-rose-600'}`} />
           )}
+        </button>
+
+        {/* Часы нажимаются: человек смотрит на них не чтобы узнать время, а
+            чтобы понять, что сегодня. Раньше нажатие не делало ничего */}
+        <button
+          type="button"
+          onClick={() => { setNotifOpen(false); setClockOpen((v) => !v); }}
+          aria-expanded={clockOpen}
+          title="Календарь: что сегодня и что впереди"
+          className={`flex flex-col items-end leading-tight px-3 tabular-nums select-none rounded-lg
+                      cursor-pointer transition-colors ${clockOpen
+            ? 'bg-slate-200/70 dark:bg-slate-800'
+            : 'hover:bg-slate-200/60 dark:hover:bg-slate-800'}`}
+        >
+          <b className="text-sm font-medium text-slate-800 dark:text-slate-150">{clockLabel(now)}</b>
+          <span className="text-2xs text-slate-500 dark:text-slate-400">{deadlineLabel(null, now)}</span>
         </button>
 
         {/* Учётная запись живёт в Пуске, как в системе. Круг с инициалами стоял
