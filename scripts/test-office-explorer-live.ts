@@ -335,7 +335,7 @@ void (async () => {
   const applied = async (confirm: any, label: string) => {
     await waitFor(async () => confirm.isEnabled(), 10000);
     await confirm.click();
-    check(`${label}: заполнение подтверждено без ошибок`, await waitFor(async () => (await panel().getByRole('status').filter({ hasText: /Обновлено значений/ }).count()) > 0, 30000), await panel().getByRole('alert').allTextContents().catch(() => []));
+    check(`${label}: заполнение подтверждено без ошибок`, await waitFor(async () => (await panel().getByRole('status').filter({ hasText: /(Обновлено|Записано) значений/ }).count()) > 0, 30000), await panel().getByRole('alert').allTextContents().catch(() => []));
     check(`${label}: ошибок панели нет`, (await panel().getByRole('alert').count()) === 0, await panel().getByRole('alert').allTextContents());
   };
 
@@ -370,8 +370,9 @@ void (async () => {
     check(`${label}: в окне «Шаблоны» виден общий шаблон`, await waitFor(async () => (await dialog('Шаблоны шапки').getByText(`Шапка ${label}`).count()) > 0) && (await dialog('Шаблоны шапки').getByText('Общий').count()) > 0);
     await shot(`templates-${label}`);
     await dialog('Шаблоны шапки').locator('li', { hasText: `Шапка ${label}` }).getByRole('button', { name: 'Открыть' }).click();
-    check(`${label}: шаблон сопоставлен с документом и ждёт сохранения схемы`, await waitFor(async () => (await panel().getByText(/Шаблон сопоставлен с этим документом/).count()) > 0, 20000), await panel().allTextContents());
-    await panel().getByRole('button', { name: /Сохранить схему/ }).click();
+    // Однозначно сопоставленный шаблон панель применяет сама («применён: шапка создана»); иначе ждёт кнопку
+    check(`${label}: шаблон сопоставлен с документом и применён или ждёт сохранения схемы`, await waitFor(async () => (await panel().getByText(/Шаблон сопоставлен с этим документом|применён: шапка создана/).count()) > 0, 20000), await panel().allTextContents());
+    if (await panel().getByText(/Шаблон сопоставлен с этим документом/).count()) await panel().getByRole('button', { name: /Сохранить схему/ }).click();
     const applied = await waitFor(async () => !!(await readOfficeBindings(await disk(file)))?.template, 45000);
     const bindings = await readOfficeBindings(await disk(file));
     check(`${label}: в части Flux файла лежат templateId и снимок схемы с датой`, applied && !!bindings?.template?.templateId && !Number.isNaN(Date.parse(bindings!.template!.appliedAt)) && bindings!.template!.anchors.length === bindings!.anchors.length, bindings?.template);
