@@ -20,11 +20,14 @@ export function useOfficeChanges(source: OfficeFileSource | null, enabled = true
   const live = useRef({ source, enabled });
   live.current = { source, enabled };
   const seq = useRef(0);
-  const sourceKey = typeof source === 'string' ? source : source ? 'local' : '';
+  // Для файла с диска ключ включает проект: выбрали проект — проверка идёт сразу, а не через минуту
+  const sourceKey = typeof source === 'string' ? source : source ? `local:${source.projectId() || ''}` : '';
 
   const check = useCallback(async () => {
     const { source: current, enabled: on } = live.current;
     if (!current || !on) return null;
+    // Файл с диска без выбранного проекта сравнивать не с чем: сервер ответил бы 400 «Выберите проект» на каждый опрос
+    if (typeof current !== 'string' && !String(current.projectId() || '').trim()) { setResult(null); return null; }
     const mine = ++seq.current;
     setLoading(true);
     try {
