@@ -149,6 +149,13 @@ Flux — рабочая программа инженера. На экране �
 - **Цветная полоса слева** у выбранного пункта или карточки не используется.
 - **Полупрозрачность и размытие** (`backdrop-blur`) — только у оболочки:
   Пуск, панель задач, всплывающие панели. Внутри разделов их нет.
+- **Подложка на весь экран запрещена.** Диалог — дочернее окно своей
+  программы (`WindowDialog`): блокируется только родитель, остальные
+  программы, панель задач и Пуск работают, диалог двигают за шапку
+  (`data-dialog-drag`) и тянут за края. Затемнение `fixed inset-0` с
+  `bg-black/xx`, `fx-backdrop` или `backdrop-blur` под своим окном не
+  делают; исключение — захват области экрана и строка команд (Ctrl+K),
+  они системные.
 
 ## 4а. Порядок на экране
 
@@ -216,7 +223,7 @@ Flux — рабочая программа инженера. На экране �
 | Аватар | `fx-av`, `fx-av-online` | `Avatar` |
 | Пустое состояние | `fx-empty`, `fx-empty-title`, `fx-empty-text` | `Empty` |
 | Всплывающее и меню | `fx-pop`, `fx-menu-item` (+ `is-danger`), `fx-menu-sep` | `ContextMenu`, `Popover`, `CustomSelect` |
-| Диалог | `fx-dialog`, `fx-dialog-head`, `fx-dialog-body`, `fx-dialog-foot`, подложка `fx-backdrop` | `ModalProvider` (`openConfirm`, `openPrompt`, `openSelect`) |
+| Диалог | `fx-dialog`, `fx-dialog-head`, `fx-dialog-body`, `fx-dialog-foot`; окно — дочернее окно программы, подложки на весь экран нет (`fx-backdrop` только у запасного режима вне окна) | `Dialog`, `WindowDialog` (своя разметка: `className` окна, шапка с `data-dialog-drag`), `ModalProvider` (`openConfirm`, `openPrompt`, `openSelect`) |
 
 Число, которое сверяют по разрядам, — `tabular-nums` (или `.data`). Код,
 который сверяют по символу, — `font-mono` (или `.code`).
