@@ -1496,8 +1496,9 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-pop {
     background: var(--flux-surface); border: 1px solid var(--flux-line); border-radius: var(--flux-radius-md);
     box-shadow: var(--flux-shadow-pop); padding: 4px;
-    /* Появление: от кнопки, сдвиг 4 px; уход мгновенный (элемент снимается из дерева) */
-    transform-origin: var(--fx-origin, top left);
+    /* Появление — только прозрачностью: transform на меню делает его опорой
+       для вложенных position:fixed (подменю, подсказки), и на время анимации
+       они вставали не на своё место. Уход мгновенный (снимается из дерева) */
     animation: fx-pop-in var(--flux-dur-fast) var(--flux-ease) backwards;
   }
   .fx-menu-item {
@@ -1538,7 +1539,7 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
 /* Пуск: подъём 12 px */
 .fx-rise-in { animation: fx-rise-in var(--flux-dur-base) var(--flux-ease) backwards; }
 .fx-rise-out { animation: fx-rise-out var(--flux-dur-exit) var(--flux-ease-exit) both; }
-@keyframes fx-pop-in { from { opacity: 0; transform: translateY(-4px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes fx-pop-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes fx-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes fx-crossfade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes fx-panel-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }

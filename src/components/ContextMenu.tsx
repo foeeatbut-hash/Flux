@@ -56,7 +56,8 @@ function SubmenuRows({ items, onClose, depth, bounds, parent, focusFirst }: {
     if (!child || !owner) return;
     const p = placeSubmenu(
       { x: owner.left, y: owner.top, w: owner.width, h: owner.height },
-      { x: child.left, y: child.top, w: child.width, h: child.height }, bounds,
+      // Свой размер без анимационного transform (см. замер главного меню)
+      { x: child.left, y: child.top, w: ref.current!.offsetWidth, h: ref.current!.offsetHeight }, bounds,
     );
     // Тот же результат не записываем: иначе проверка после каждой отрисовки зациклилась бы
     setPlacement((old) => old && old.side === p.side && old.left === p.left && old.top === p.top && old.maxHeight === p.maxHeight ? old : p);
@@ -169,8 +170,11 @@ export default function ContextMenu({ x, y, items, onClose }: {
   // Замеряем готовую разметку: подписи, разделители и вложенные пункты делают
   // высоту разной, поэтому оценка по числу строк обрезала длинные меню.
   useLayoutEffect(() => {
-    const rect = ref.current?.getBoundingClientRect();
-    if (rect) setPosition(placeContextMenu(x, y, rect.width, rect.height, bounds));
+    // Размер — offsetWidth/offsetHeight, а не getBoundingClientRect: меню
+    // появляется с анимацией scale(.97), и в первом кадре прямоугольник меньше
+    // настоящего — меню вставало бы не на своё место
+    const el = ref.current;
+    if (el) setPosition(placeContextMenu(x, y, el.offsetWidth, el.offsetHeight, bounds));
   }, [x, y, items, bounds.x, bounds.y, bounds.w, bounds.h]);
 
   const style: React.CSSProperties = {
