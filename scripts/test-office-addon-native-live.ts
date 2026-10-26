@@ -193,9 +193,7 @@ const confirmPreview = async (page: any, panel: any, button: any, label: string)
   }
   await button.click();
   const alert = panel.getByRole('alert');
-  // Раздел «Изменения в источнике» держит свой role=status всегда (там заголовок «данные актуальны»):
-  // он не итог заполнения, и считать его завершением значит читать файл до записи правок
-  const status = panel.locator('[role="status"]:not([aria-label="Изменения в источнике"] *)');
+  const status = panel.locator('[role="status"]:not([aria-label="Изменения в источнике"] *)'); // раздел «Изменения в источнике» всегда держит role=status и не итог заполнения
   const settled = await waitFor(async () => (await alert.count()) > 0 || (await status.count()) > 0, 15000);
   const details = {
     settled,
@@ -673,17 +671,17 @@ try {
   check('target document has its own native Word anchor UUID', !!targetAnchor && !!targetAnchorId && targetAnchorId !== sourceAnchorId, { sourceAnchorId, targetAnchorId });
   await ribbonCommand(page, 'templates');
   await page.getByRole('dialog', { name: 'Шаблоны шапки' }).locator('li', { hasText: templateName }).getByRole('button', { name: 'Открыть' }).click();
-  const templateAnchorMapping = targetPanel.getByLabel('Целевая ячейка для якоря шаблона 1');
-  const templateMappingReady = await waitFor(async () => await templateAnchorMapping.count() > 0 || (await targetPanel.getByRole('status').filter({ hasText: /Шаблон ожидает уточнения/ }).count() === 0 && await targetPanel.getByText('Шаблон сопоставлен с этим документом. Сохраните схему, чтобы применить его.').count() > 0), 15000);
+  const templateAnchorMapping = targetPanel.getByLabel('Целевая ячейка для якоря шаблона 1'); const templateAppliedNow = targetPanel.getByText(/применён: шапка создана/); // однозначное сопоставление шапка записывает сразу, без «Сохранить схему»
+  const templateMappingReady = await waitFor(async () => await templateAnchorMapping.count() > 0 || await templateAppliedNow.count() > 0 || (await targetPanel.getByRole('status').filter({ hasText: /Шаблон ожидает уточнения/ }).count() === 0 && await targetPanel.getByText('Шаблон сопоставлен с этим документом. Сохраните схему, чтобы применить его.').count() > 0), 15000);
   check('template opening finishes loading its mapping decision', templateMappingReady);
   if (await templateAnchorMapping.count()) {
     const candidateIds = await templateAnchorMapping.locator('option').evaluateAll((options: HTMLOptionElement[]) => options.map((option) => option.value).filter(Boolean));
     check('ambiguous template slot offers the real target document anchor as a candidate', candidateIds.includes(targetAnchorId), { targetAnchorId, candidateIds });
     if (candidateIds.includes(targetAnchorId)) await templateAnchorMapping.selectOption(targetAnchorId);
   }
-  const templateReady = await waitFor(async () => await targetPanel.getByRole('status').filter({ hasText: /Шаблон ожидает уточнения/ }).count() === 0 && await targetPanel.getByText('Шаблон сопоставлен с этим документом. Сохраните схему, чтобы применить его.').count() > 0 && await targetPanel.getByRole('button', { name: 'Сохранить схему' }).isEnabled().catch(() => false));
+  const templateReady = await waitFor(async () => await templateAppliedNow.count() > 0 || await targetPanel.getByRole('status').filter({ hasText: /Шаблон ожидает уточнения/ }).count() === 0 && await targetPanel.getByText('Шаблон сопоставлен с этим документом. Сохраните схему, чтобы применить его.').count() > 0 && await targetPanel.getByRole('button', { name: 'Сохранить схему' }).isEnabled().catch(() => false));
   check('ambiguous template mapping is explicitly resolved to the target anchor', templateReady, { targetAnchorId, panel: await targetPanel.innerText().catch(() => '') });
-  if (templateReady) await targetPanel.getByRole('button', { name: 'Сохранить схему' }).click();
+  if (templateReady && !await templateAppliedNow.count()) await targetPanel.getByRole('button', { name: 'Сохранить схему' }).click();
   const mappedTemplateState = await waitFor(async () => {
     const state = (await api('GET', `/api/project-data/files/${templateTargetId}/office-state`)).json;
     const anchor = state?.schema?.anchors?.[0];
