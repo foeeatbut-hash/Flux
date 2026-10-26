@@ -112,7 +112,10 @@ try {
   assert(!cadEntries.some(entry => entry.path.endsWith('/equipment/source-import/apply')), 'CAD XML parse does not write before user confirmation');
   await cadPage.getByRole('button', { name: /Проверить и импортировать в «Вентиляция»/ }).click();
   const choose = cadPage.getByRole('button', { name: 'Выбрать XML-файл' });
-  if (await choose.count()) await choose.click();
+  // Файл уже передан мастером: диалог читает его сам, и на это время кнопка
+  // выбора неактивна, а после чтения становится «Выбрать другой XML». Нажимать
+  // её нужно, только если она доступна, — иначе ждём план
+  if (await choose.count() && await choose.isEnabled()) await choose.click();
   await cadPage.getByRole('button', { name: 'Показать план' }).click();
   await cadPage.getByRole('heading', { name: /Предпросмотр/ }).waitFor({ timeout: 30000 });
   assert(await cadPage.getByLabel('Тег оборудования').inputValue() === 'L23', 'CAD XML source tag is populated from the selected XML');
