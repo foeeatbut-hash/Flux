@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../store/store';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { Btn, Input, Select, Dialog, Toolbar, Chip, Empty } from '../ui';
+import CustomSelect from '../CustomSelect';
+import { Btn, Input, Dialog, Toolbar, Chip, Empty } from '../ui';
 import { updateService, type UpdateDevice, type CampaignRelease } from '../../services/updateService';
 import { isNewer } from '../../lib/updates';
 
@@ -88,8 +89,8 @@ export default function UpdateCampaignPanel({ employeeIds, focus }: { employeeId
   const gridCols = 5;
   return <section className="flex flex-col flex-1 min-h-0" aria-label="Обновления сотрудников">
     <Toolbar>
-      <label className="flex items-center gap-2 text-slate-500 dark:text-slate-400">Выпуск <Select value={version} onChange={value => { setVersion(value); setSelected(new Set()); }} options={releases.length ? releases.map(r => ({ value: r.version, label: r.version })) : [{ value: '', label: 'Нет доступных выпусков' }]} /></label>
-      <label className="flex items-center gap-2 text-slate-500 dark:text-slate-400">Через <Select value={['5', '10', '15', '30'].includes(minutes) ? minutes : 'custom'} onChange={value => setMinutes(value === 'custom' ? '60' : value)} options={[...[5, 10, 15, 30].map(n => ({ value: String(n), label: `${n} минут` })), { value: 'custom', label: 'Другое время' }]} /></label>
+      <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">Выпуск <div className="w-40"><CustomSelect value={version} onChange={value => { setVersion(value); setSelected(new Set()); }} placeholder="Нет доступных выпусков" options={releases.map(r => ({ value: r.version, label: r.version }))} /></div></div>
+      <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">Через <div className="w-40"><CustomSelect value={['5', '10', '15', '30'].includes(minutes) ? minutes : 'custom'} onChange={value => setMinutes(value === 'custom' ? '60' : value)} options={[...[5, 10, 15, 30].map(n => ({ value: String(n), label: `${n} минут` })), { value: 'custom', label: 'Другое время' }]} /></div></div>
       {!['5', '10', '15', '30'].includes(minutes) && <Input type="number" min="5" max={grant?.maxMinutes || 1440} value={minutes} onChange={e => setMinutes(e.target.value)} aria-label="Минут до обновления" className="w-24" />}
       <span className="ml-auto" />
       <Btn onClick={() => setSelected(new Set(old.map(d => d.deviceId)))} disabled={!version || !old.length}>Выбрать всех устаревших · {old.length}</Btn>
