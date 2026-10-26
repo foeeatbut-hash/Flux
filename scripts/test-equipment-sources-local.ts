@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import { extractEquipmentXmlUnitTags, getEquipmentSourceBinding, pickEquipmentSource, pickEquipmentSourceForImport, removeEquipmentSourceBinding, saveEquipmentSourceBinding, scanEquipmentSource, type EquipmentSourceAdapter, type EquipmentSourceRequest } from '../src/lib/equipmentSourcesLocal';
 import type { WindowsEquipmentSourcePick, WindowsFileEntry, WindowsFileRef, WindowsFilesResponse } from '../filesystem/contracts';
-import { decodeEquipmentSourceXml, inferEquipmentSourceFilenameRule, matchesEquipmentSourceFilename } from '../equipment/sourceXml';
+import { decodeEquipmentSourceXml, expandEquipmentUnitGroup, inferEquipmentSourceFilenameRule, matchesEquipmentSourceFilename } from '../equipment/sourceXml';
 import { resolveEquipmentSourceFolder, resolveEquipmentSourceSelection } from '../electron/filesystem/equipmentSourcePicker';
 import { WindowsFilesService } from '../electron/filesystem/service';
 import { useStore } from '../src/store/store';
@@ -201,6 +201,12 @@ async function main() {
   if (nonExactResult.status === 'ready') assert.deepEqual(nonExactResult.candidates[0].selectedRule, { kind: 'selected-name', fileName: 'паспорт-Л23.xml' });
   assert.equal(matchesEquipmentSourceFilename('Л230.xml', 'Л23'), false);
   assert.deepEqual(inferEquipmentSourceFilenameRule('паспорт-Л23.xml', 'Л23'), { kind: 'selected-name', fileName: 'паспорт-Л23.xml' });
+  assert.deepEqual(expandEquipmentUnitGroup('3700-B01-AS-001ABC'), ['3700-B01-AS-001A', '3700-B01-AS-001B', '3700-B01-AS-001C']);
+  assert.deepEqual(expandEquipmentUnitGroup('3700-B01-AS-001A'), []);
+  assert.deepEqual(expandEquipmentUnitGroup('3700-B01-AS-001AC'), []);
+  assert.deepEqual(inferEquipmentSourceFilenameRule('3700-B01-AS-001ABC.xml', '3700-B01-AS-001B'), { kind: 'selected-name', fileName: '3700-B01-AS-001ABC.xml' });
+  assert.equal(matchesEquipmentSourceFilename('3700-B01-AS-001ABC.xml', '3700-B01-AS-001D'), false);
+  assert.equal(matchesEquipmentSourceFilename('3700-B01-AS-001A.xml', '3700-B01-AS-001B'), false);
   const ambiguityFixture = new Map([
     ['Equipment/L23', [folder('A', 'Equipment/L23/A')]],
     ['Equipment/L23/A', [file('Л23-v1.xml', 'Equipment/L23/A/Л23-v1.xml', xml('Л23')), file('Л23-v2.xml', 'Equipment/L23/A/Л23-v2.xml', xml('Л23'))]],

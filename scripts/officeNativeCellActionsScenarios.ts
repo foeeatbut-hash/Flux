@@ -186,7 +186,9 @@ export async function runNativeSheetCellActions(options: SuiteOptions): Promise<
     const cell = sheet?.getRange('A1')?.getCellRect?.();
     const bounds = canvas?.getBoundingClientRect();
     if (!canvas || !cell || !bounds) return null;
-    const sx = bounds.width / canvas.width, sy = bounds.height / canvas.height;
+    // getCellRect() отдаёт ячейку без масштаба листа; на экране она (и заголовки рядом) в zoom раз больше
+    const zoom = Number(sheet?.getZoom?.()) > 0 ? Number(sheet.getZoom()) : 1;
+    const sx = bounds.width / canvas.width * zoom, sy = bounds.height / canvas.height * zoom;
     const area = { left: bounds.left + Number(cell.left) * sx, top: bounds.top + Number(cell.top) * sy, right: bounds.left + (Number(cell.left) + Number(cell.width)) * sx, bottom: bounds.top + (Number(cell.top) + Number(cell.height)) * sy };
     const chips = [...document.querySelectorAll('#flux-sheet-chip-layer .flux-sheet-idle-chip')].map((chip) => {
       const box = chip.getBoundingClientRect();

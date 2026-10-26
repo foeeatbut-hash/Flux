@@ -1,5 +1,6 @@
 /** Реальные REST-контракты Flux Office; синтетические поля и демо-ревизии здесь запрещены. */
 import type { OfficeLocalFieldRefreshResult } from '../../../office/fieldRefresh';
+import type { OfficeChangesResult } from '../../../office/changes';
 
 export type OfficeEntityType = 'tag' | 'element' | 'procurement' | 'vdr' | 'e3';
 
@@ -95,6 +96,8 @@ export interface OfficeState {
   template?: OfficeAppliedTemplate;
   sourceRevision: string;
   rows?: OfficeAnchorRow[];
+  /** Листы открытой книги (активный первым); нужны шаблону, чтобы завести шапку в чистой книге. Нет у Документа. */
+  sheets?: string[];
 }
 
 export interface OfficeAnchorRow {
@@ -174,6 +177,10 @@ export const officeDataApi = {
   confirm: (source: OfficeFileSource, body: { projectId: string; planId: string; baseHash: string; sourceRevision: string; selectedEntityIds: string[]; query: Record<string, unknown>; schema: OfficeState['schema'] }) => isLocalSource(source)
     ? request<{ writes: OfficeFillPlan['writes']; status: 'ready-for-editor' }>(`${LOCAL}/confirm`, json(withContent(source, body)))
     : request<{ writes: OfficeFillPlan['writes']; status: 'ready-for-editor' }>(fileRoute(source, 'confirm'), json(body)),
+  /** Что в документе устарело относительно данных проекта */
+  changes: (source: OfficeFileSource) => isLocalSource(source)
+    ? request<OfficeChangesResult>(`${LOCAL}/changes`, json(withContent(source, {})))
+    : request<OfficeChangesResult>(fileRoute(source, 'changes')),
   updateLocalFields: (body: { projectId: string; base64: string; baseHash: string }) =>
     request<OfficeLocalFieldRefreshResult>(`${LOCAL}/update-fields`, json(body)),
   templates: () => request<{ templates: OfficeTemplate[]; pinned: string[] }>('/api/project-data/office/templates'),

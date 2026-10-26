@@ -8,6 +8,7 @@ import { useModalStore } from '../../store/modalStore';
 import { guardClose } from '../../lib/closeGuard';
 import { usePaneId } from '../../lib/paneTitle';
 import ImportFileChooser from '../ImportFileChooser';
+import { saveText } from '../../lib/saveToWindows';
 
 type Field = 'symbol' | 'lastName' | 'firstName' | 'middleName' | 'name' | 'role' | 'position' | 'department' | 'email' | 'password';
 type PreviewRow = { row: number; values: Record<Field, string>; error?: string; action: 'create' | 'update'; existingId?: string };
@@ -148,13 +149,14 @@ export default function EmployeeImportDialog({ roles, onClose, onComplete }: { r
     finally { setBusy(false); }
   };
 
-  const downloadCredentials = () => {
+  const downloadCredentials = async () => {
     if (!credentials) return;
     const cell = (value: string) => `"${(/^[=+\-@\t\r]/.test(value) ? `'${value}` : value).replaceAll('"', '""')}"`;
     const csv = '\uFEFF' + ['Табельный номер;Начальный пароль', ...credentials.map((c) => `${cell(c.symbol)};${cell(c.password)}`)].join('\r\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const a = document.createElement('a'); a.href = url; a.download = 'Начальные-пароли-сотрудников.csv'; a.click(); URL.revokeObjectURL(url);
-    setCredentialsDownloaded(true);
+    // «Сохранён» только после записи: пароли показываются один раз, и отмена окна не должна снимать защиту от закрытия
+    const saved = await saveText('Начальные-пароли-сотрудников.csv', csv);
+    if (saved.ok) setCredentialsDownloaded(true);
+    else if (!saved.canceled) setError(saved.error || 'Файл с паролями не сохранён.');
   };
   const downloadTemplate = () => {
     const book = XLSX.utils.book_new();

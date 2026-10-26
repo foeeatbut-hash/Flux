@@ -557,40 +557,8 @@ app.whenReady().then(async () => {
     return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
   };
 
-  /**
-   * Сохранить файл на диск Windows обычным окном сохранения.
-   *
-   * Один обработчик на всю программу, а не кнопка в каждом разделе: выгрузка
-   * книги, документа Word и журнала — одно и то же действие с точки зрения
-   * человека, и вести себя оно должно одинаково.
-   *
-   * `dir` — папка, из которой файл когда-то принесли: программа предлагает
-   * вернуть его туда же, чтобы файл, который ходит туда-сюда, ходил по одной
-   * тропинке, а не расползался копиями по всему диску.
-   */
-  ipcMain.handle('files:save-as', async (_event, p: { name: string; base64: string; dir?: string }) => {
-    const { dialog } = require('electron');
-    const fs = require('fs');
-    const path = require('path');
-    try {
-      const name = String(p?.name || 'Документ');
-      const ext = (name.split('.').pop() || '').toLowerCase();
-      const suggested = p?.dir ? path.join(String(p.dir), name) : name;
-      const result = await dialog.showSaveDialog({
-        title: 'Сохранить в Windows',
-        defaultPath: suggested,
-        filters: [
-          ...(ext ? [{ name: `Файл ${ext.toUpperCase()} (*.${ext})`, extensions: [ext] }] : []),
-          { name: 'Все файлы (*.*)', extensions: ['*'] },
-        ],
-      });
-      if (!result || result.canceled || !result.filePath) return { success: false, canceled: true };
-      fs.writeFileSync(result.filePath, Buffer.from(String(p?.base64 || ''), 'base64'));
-      return { success: true, filePath: result.filePath };
-    } catch (err: any) {
-      return { success: false, error: String(err?.message || err) };
-    }
-  });
+  // «Сохранить файл на диск» здесь больше нет: папку и имя человек выбирает в окне Проводника Flux
+  // (src/lib/saveToWindows.ts), а запись идёт командами моста windowsFiles (publish/write).
 
   /**
    * Открыть файл тем, чем его открывает Windows.
@@ -629,29 +597,6 @@ app.whenReady().then(async () => {
     } catch (err: any) {
       return { success: false, error: String(err?.message || err) };
     }
-  });
-
-  ipcMain.handle('log:save-dialog', async (event, text: string) => {
-    const { dialog } = require('electron');
-    const fs = require('fs');
-    try {
-      const result = await dialog.showSaveDialog({
-        title: 'Экспорт журнала логов',
-        defaultPath: `pdm_action_log_${buildLogTimestamp()}.txt`,
-        filters: [
-          { name: 'Текстовый файл (*.txt)', extensions: ['txt'] },
-          { name: 'Все файлы (*.*)', extensions: ['*'] }
-        ]
-      });
-      if (result && !result.canceled && result.filePath) {
-        fs.writeFileSync(result.filePath, text, 'utf-8');
-        return { success: true, filePath: result.filePath };
-      }
-    } catch (err) {
-      console.error('Error saving log file via electron main:', err);
-      return { success: false, error: String(err) };
-    }
-    return { success: false };
   });
 
   ipcMain.on('log:emergency-save', (event, text: string) => {
@@ -731,7 +676,7 @@ app.whenReady().then(async () => {
   });
 
   // PDF из готового HTML (печатный вид Конструктора): скрытое окно →
-  // printToPDF → диалог сохранения. Векторный PDF без внешних зависимостей.
+  // printToPDF → байты PDF (место сохранения выбирает интерфейс). Векторный PDF без внешних зависимостей.
   // headerTemplate/footerTemplate — колонтитулы Chromium: спаны с классами
   // pageNumber/totalPages дают настоящую нумерацию страниц («Стр. 3 из 12»).
   // pageSize — для бланков Конструктора: без него Chromium печатает на Letter,
@@ -739,7 +684,6 @@ app.whenReady().then(async () => {
   ipcMain.handle('print:to-pdf', async (_event, { html, title, landscape, headerTemplate, footerTemplate, pageSize }: {
     html: string; title?: string; landscape?: boolean; headerTemplate?: string; footerTemplate?: string; pageSize?: 'A4' | 'A3';
   }) => {
-    const { dialog } = require('electron');
     const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
     try {
       await pdfWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(String(html || '')));
@@ -756,14 +700,8 @@ app.whenReady().then(async () => {
           margins: { top: 0.6, bottom: 0.6, left: 0.4, right: 0.4 },
         } : {}),
       });
-      const result = await dialog.showSaveDialog({
-        title: 'Сохранить PDF',
-        defaultPath: `${String(title || 'Документ').replace(/[\\/:*?"<>|]/g, '_')}.pdf`,
-        filters: [{ name: 'PDF (*.pdf)', extensions: ['pdf'] }],
-      });
-      if (result.canceled || !result.filePath) return { success: false, canceled: true };
-      fs.writeFileSync(result.filePath, pdf);
-      return { success: true, filePath: result.filePath };
+      // Папку и имя выбирает окно Проводника Flux в интерфейсе: сюда возвращаются только байты PDF
+      return { success: true, base64: Buffer.from(pdf).toString('base64') };
     } catch (err: any) {
       return { success: false, error: err?.message || String(err) };
     } finally {

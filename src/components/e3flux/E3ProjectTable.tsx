@@ -16,6 +16,7 @@ import { e3Rows } from '../../lib/e3Table';
 import { fileName } from '../../lib/exchange';
 import { onE3Changed } from '../../lib/e3Changed';
 import { count } from '../../lib/plural';
+import { reportSaveError, saveBlob } from '../../lib/saveToWindows';
 import { Btn, Empty, Field, Seg, Select, Toolbar } from '../ui';
 import ImportFileChooser from '../ImportFileChooser';
 import { useJump, type JumpProps } from './e3Jump';
@@ -23,14 +24,6 @@ import E3UploadDialog, { applyUploadRequest, forgetUpload, lastUpload, planUploa
 
 /** Больше строк в окне не рисуем: таблица для просмотра, полный список — в книге */
 const SHOWN = 500;
-
-const download = (blob: Blob, name: string) => {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-};
 
 export default function E3ProjectTable({ projectId, projectName, onOpenBook, say, jump }: {
   projectId: string; projectName: string; onOpenBook: () => void; say: (text: string, kind?: 'success' | 'error' | 'info') => void; jump?: JumpProps;
@@ -103,10 +96,10 @@ export default function E3ProjectTable({ projectId, projectName, onOpenBook, say
   if (!systems || !book) return <div role="status" className="p-4 text-sm text-slate-500 dark:text-slate-400">Подготовка данных проекта…</div>;
   if (!live.length) return <div className="p-4"><Empty title="Справочник атрибутов пуст" text="Сначала загрузите «Список атрибутов» из Excel на вкладке «Справочник атрибутов»."><Btn onClick={onOpenBook}>Открыть справочник</Btn></Empty></div>;
 
-  const save = () => {
+  const save = async () => {
     const sheets = buildAttributeSheets({ columns, items: live, rows: table.rows, mode });
-    download(new Blob([attributeWorkbookBytes(sheets)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName(`E3 ${projectName}`, 'xlsx'));
-    say(`Книга записана: ${count(table.rows.length, 'позиция', 'позиции', 'позиций')}, ${sheets.length > 1 ? `листов ${sheets.length}` : 'один лист'}`, 'success');
+    const saved = await saveBlob(fileName(`E3 ${projectName}`, 'xlsx'), new Blob([attributeWorkbookBytes(sheets)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    reportSaveError(saved);
   };
   const pick = async (file: File | undefined) => {
     if (!file) return;

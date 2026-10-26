@@ -93,13 +93,29 @@ const MAX_SCALE = 6;
 const RESULT_SCALE = 6;
 const SCALE = 10n ** BigInt(MAX_SCALE);
 
-interface Quantity { amount: bigint; dimension: string; unit: string }
+/**
+ * display — единица, в которой значение пришло и в которой его надо показать: сумма двух
+ * значений в кВт — это кВт, а не ватты. Без неё результат шёл в основной единице (W), и в
+ * ячейке, где единицы не видно, стояло 5000 вместо 5.
+ */
+interface Quantity { amount: bigint; dimension: string; unit: string; display?: { unit: string; factor: bigint } }
 
 const UNITS: Record<string, { dimension: string; factor: bigint; canonical: string }> = {
   'w': { dimension: 'power', factor: 1n, canonical: 'W' },
   'kw': { dimension: 'power', factor: 1000n, canonical: 'W' },
   'квт': { dimension: 'power', factor: 1000n, canonical: 'W' },
   'мвт': { dimension: 'power', factor: 1000000n, canonical: 'W' },
+  'вт': { dimension: 'power', factor: 1n, canonical: 'W' },
+  // Полная мощность — своя величина: кВ·А с кВт не складываются
+  'ва': { dimension: 'apparent-power', factor: 1n, canonical: 'ВА' },
+  'ква': { dimension: 'apparent-power', factor: 1000n, canonical: 'ВА' },
+  'кв·а': { dimension: 'apparent-power', factor: 1000n, canonical: 'ВА' },
+  'г': { dimension: 'mass', factor: 1n, canonical: 'г' },
+  'кг': { dimension: 'mass', factor: 1000n, canonical: 'г' },
+  'т': { dimension: 'mass', factor: 1000000n, canonical: 'г' },
+  'мм': { dimension: 'length', factor: 1n, canonical: 'мм' },
+  'см': { dimension: 'length', factor: 10n, canonical: 'мм' },
+  'м': { dimension: 'length', factor: 1000n, canonical: 'мм' },
   'pa': { dimension: 'pressure', factor: 1n, canonical: 'Pa' },
   'кпа': { dimension: 'pressure', factor: 1000n, canonical: 'Pa' },
   'мпа': { dimension: 'pressure', factor: 1000000n, canonical: 'Pa' },
@@ -119,7 +135,7 @@ function parseQuantity(input: OfficeValue): Quantity | null {
   const amount = sign * BigInt(whole || '0') * SCALE + sign * BigInt((fraction + '0'.repeat(MAX_SCALE)).slice(0, MAX_SCALE) || '0');
   const unit = input.unit || '';
   const known = UNITS[cleanUnit(unit)];
-  if (known) return { amount: amount * known.factor, dimension: known.dimension, unit: known.canonical };
+  if (known) return { amount: amount * known.factor, dimension: known.dimension, unit: known.canonical, display: { unit: unit.trim(), factor: known.factor } };
   return { amount, dimension: unit ? `unit:${cleanUnit(unit)}` : 'scalar', unit };
 }
 
@@ -132,6 +148,8 @@ function decimalText(value: bigint): string {
 }
 
 function fromQuantity(q: Quantity): OfficeValue {
+  // Единица первого слагаемого, если она известна; иначе основная единица величины
+  if (q.display) return { value: decimalText(q.amount / q.display.factor), unit: q.display.unit };
   const unit = UNITS[cleanUnit(q.unit)];
   const amount = unit ? q.amount / unit.factor : q.amount;
   return { value: decimalText(amount), ...(q.unit ? { unit: q.unit } : {}) };
@@ -345,7 +363,10 @@ export function evaluateOfficeParts(parts: OfficePart[], row: OfficeEntityRow): 
       if (chosen.conflict) return { conflict: chosen.conflict };
       const selected = chosen.value;
       const q = selected && parseQuantity(selected);
-      if (!q) return { error: `Поле «${part.kind === 'field' ? part.binding.fieldKey : 'объединённого поля'}» не содержит числа с совместимой единицей` };
+      // Операнда нет в источнике — это «значения нет», как у обычной колонки: ячейка не пишется и не ломает план.
+      // Ошибкой остаётся то, что исправляется человеком: текст вместо числа, разные единицы
+      if (!selected || selected.value === null || selected.value === undefined || String(selected.value).trim() === '') return { error: 'Источник не вернул значение' };
+      if (!q) return { error: `Поле «${part.kind === 'field' ? (part.binding.label || part.binding.fieldKey.replace(/^param:@?/, '').split('|').pop() || part.binding.fieldKey) : 'объединённого поля'}» не содержит числа с совместимой единицей` };
       tokens.push({ kind: 'number', quantity: q });
     }
   }
@@ -369,11 +390,13 @@ export function evaluateOfficeParts(parts: OfficePart[], row: OfficeEntityRow): 
       stack.push({ ...left, amount: op === '+' ? left.amount + right.amount : left.amount - right.amount });
     } else if (op === '*') {
       const dimension = left.dimension === 'scalar' ? right.dimension : right.dimension === 'scalar' ? left.dimension : `${left.dimension}·${right.dimension}`;
-      stack.push({ amount: left.amount * right.amount / SCALE, dimension, unit: dimension === 'scalar' ? '' : left.unit && right.unit ? `${left.unit}·${right.unit}` : left.unit || right.unit });
+      // Умножение на число не меняет единицу: 635 кг × 2 — это 1270 кг, а не 1270000 г
+      const keep = left.dimension === 'scalar' ? right : right.dimension === 'scalar' ? left : null;
+      stack.push({ amount: left.amount * right.amount / SCALE, dimension, unit: dimension === 'scalar' ? '' : left.unit && right.unit ? `${left.unit}·${right.unit}` : left.unit || right.unit, ...(keep?.display ? { display: keep.display } : {}) });
     } else {
       if (right.amount === 0n) return 'Деление на ноль';
       const dimension = left.dimension === right.dimension ? 'scalar' : right.dimension === 'scalar' ? left.dimension : `${left.dimension}/${right.dimension}`;
-      stack.push({ amount: left.amount * SCALE / right.amount, dimension, unit: dimension === 'scalar' ? '' : left.unit && right.unit ? `${left.unit}/${right.unit}` : left.unit });
+      stack.push({ amount: left.amount * SCALE / right.amount, dimension, unit: dimension === 'scalar' ? '' : left.unit && right.unit ? `${left.unit}/${right.unit}` : left.unit, ...(right.dimension === 'scalar' && left.display ? { display: left.display } : {}) });
     }
     return null;
   };

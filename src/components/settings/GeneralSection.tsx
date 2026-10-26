@@ -34,8 +34,6 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
 
       <DisplaySettings />
 
-      <FilePickerPreference userId={user?.id || ''} />
-
       <StartupSection />
 
       <div className="fx-set-group">
@@ -57,33 +55,6 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
       </div>
     </SectionShell>
   );
-}
-
-/** Системное окно выбора сохраняется персонально и применяется ко всем импортам с общим chooser. */
-function FilePickerPreference({ userId }: { userId: string }) {
-  const [system, setSystem] = React.useState(false);
-  const [ready, setReady] = React.useState(false);
-  React.useEffect(() => {
-    let alive = true;
-    void fetch('/api/settings/explorer_file_picker').then(r => r.json()).then(d => {
-      let value = false;
-      try { value = !!JSON.parse(d?.user || 'null')?.system; } catch { /* пустая настройка — Проводник Flux */ }
-      if (alive) { setSystem(value); setReady(true); }
-    }).catch(() => { if (alive) setReady(true); });
-    return () => { alive = false; };
-  }, []);
-  const save = async (next: boolean) => {
-    const response = await fetch('/api/settings/explorer_file_picker', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, value: { system: next } }) }).catch(() => null);
-    if (!response?.ok) return;
-    setSystem(next);
-    window.dispatchEvent(new CustomEvent('flux:file-picker-preference', { detail: { system: next } }));
-  };
-  return <div className="fx-set-group">
-    <h3 className="fx-group-title">Выбор файла</h3>
-    <SettingRow title="Системное окно выбора" desc="Использовать окно Windows вместо компактного выбора в Проводнике Flux.">
-      <Switch label="Системное окно выбора" checked={system} disabled={!ready} onChange={save} />
-    </SettingRow>
-  </div>;
 }
 
 // ── Менеджмент: редактор этапов закупки и шаблонов ─────────────────────────────

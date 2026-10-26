@@ -71,4 +71,4 @@ export const csvText = (file: ExportFile): string => toCsv(file.headers, file.bo
 export const xlsxBytes = (file: ExportFile): Promise<Uint8Array> => toXlsx(file.headers, file.body, file.sheetTitle);
 
 export const exportMessage = (format: ExportFormat, count: number): string =>
-  `${format === 'csv' ? 'CSV скачан.' : format === 'office' ? 'Книга сохранена в Flux Office.' : 'XLSX скачан.'} · ${count} строк`;
+  `${format === 'csv' ? 'CSV сохранён.' : format === 'office' ? 'Книга сохранена в Flux Office.' : 'XLSX сохранён.'} · ${count} строк`;

@@ -12,7 +12,7 @@ import type { OfficeAppliedTemplate, OfficeState } from './fluxData';
  */
 export const RIBBON_COMMANDS = [
   'translator', 'source-equipment', 'source-tags', 'templates', 'pinned', 'save-template',
-  'update-template', 'refresh', 'issue', 'reset-header', 'export', 'project-fields', 'english',
+  'update-template', 'refresh', 'issue', 'reset-header', 'export', 'project-fields', 'english', 'changes',
 ] as const;
 export type RibbonCommandName = typeof RIBBON_COMMANDS[number];
 /** Команда с номером: повторное нажатие той же кнопки — новая команда. */

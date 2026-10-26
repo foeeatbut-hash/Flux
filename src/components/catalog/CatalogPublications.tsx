@@ -7,6 +7,7 @@ import { manuals2026Pack, manualsCoverage } from '../../../catalog/packs/manuals
 import { saveManualPackage } from '../../services/catalogManualPackageService';
 import { useStore } from '../../store/store';
 import { Btn, Empty } from './ui';
+import { SettingRow } from '../ui';
 
 const FIELD_NAMES: Record<string, string> = {
   id: 'Идентификатор', code: 'Код', title: 'Название', name: 'Название', shortName: 'Короткое название',
@@ -72,19 +73,22 @@ export default function CatalogPublications({ workspace, onChanged }: { workspac
 
   const changesFor = (draft: CatalogDraft) => catalogDifferences(draft.before, draft.document);
 
-  return <div className="h-full min-h-0 flex flex-col gap-3 overflow-auto p-2">
-    <div className="flex flex-wrap items-center gap-2">
-      <h2 className="font-semibold text-slate-800 dark:text-slate-100">Проверка и публикация</h2>
+  return <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto px-4 pb-4">
+    <div className="-mx-4 flex min-h-11 flex-wrap items-center gap-2 border-b border-[var(--flux-line)] px-4 py-1.5">
+      <h2 className="m-0 text-[15px] font-semibold">Проверка и публикация</h2>
+      <span className="text-[13px] text-[var(--flux-text-muted)]">{workspace.drafts.length ? `${workspace.drafts.length} в черновиках` : 'черновиков нет'}</span>
       <span className="flex-1" />
-      {canManagePolicy && <label className="flex max-w-xl items-start gap-2 text-xs text-slate-700 dark:text-slate-300">
-        <input type="checkbox" className="mt-0.5 accent-emerald-600 dark:accent-emerald-400"
+      {workspace.rights.publish && <Btn tone="primary" disabled={busy || chosen.length === 0 || reviewBlocked} onClick={publish}>Опубликовать выбранное</Btn>}
+    </div>
+    <div>
+      {canManagePolicy && <SettingRow title="Вторая проверка моделей" desc="Для каждой модели второй сотрудник с правом публикации подтверждает содержимое. Автор не может подтвердить собственную правку.">
+        <input type="checkbox" className="accent-emerald-600 dark:accent-emerald-400" aria-label="Требовать вторую проверку семейства или компонента"
           checked={requireSecondReview} disabled={busy}
           onChange={(event) => void run(() => catalogWorkspaceService.setPolicy(event.target.checked))} />
-        <span><span className="block font-medium">Требовать вторую проверку семейства или компонента</span>
-          <span className="mt-0.5 block text-slate-500 dark:text-slate-400">Для каждой модели второй сотрудник с правом публикации подтверждает содержимое. Автор не может подтвердить собственную правку.</span></span>
-      </label>}
-      {workspace.rights.import && workspace.rights.edit && <Btn disabled={busy} onClick={() => void run(async () => setPlan(await catalogService.importCatalog(manuals2026Pack, 'plan')))}>Каталоги НЕМАН и ВЕЗА: предпросмотр</Btn>}
-      {workspace.rights.publish && <Btn tone="primary" disabled={busy || chosen.length === 0 || reviewBlocked} onClick={publish}>Опубликовать выбранное</Btn>}
+      </SettingRow>}
+      {workspace.rights.import && workspace.rights.edit && <SettingRow title="Справочник НЕМАН и ВЕЗА" desc="Пакет из трёх каталогов: приводы, вентиляторы, воздушные клапаны. Сначала предпросмотр, потом черновики.">
+        <Btn disabled={busy} onClick={() => void run(async () => setPlan(await catalogService.importCatalog(manuals2026Pack, 'plan')))}>Каталоги НЕМАН и ВЕЗА: предпросмотр</Btn>
+      </SettingRow>}
     </div>
     <p className="text-xs text-slate-500 dark:text-slate-400">Черновики не меняют подбор и проекты. Проверяйте источники и состав пакета: новая модель публикуется вместе с её видом и изготовителем. Выпущенные документы сохраняют прежние снимки.</p>
     {reviewBlocked && <p role="status" className="text-xs text-amber-700 dark:text-amber-300">Для выбранного семейства или компонента нужно подтверждение другого сотрудника с правом публикации.</p>}

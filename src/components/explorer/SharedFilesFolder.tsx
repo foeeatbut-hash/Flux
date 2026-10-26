@@ -9,6 +9,7 @@ import { Btn, Empty, Input, SectionHead } from '../ui';
 import FileBadge from '../ui/FileBadge';
 import { ICON_SIZE } from '../../lib/metrics';
 import FileShareDialog from './FileShareDialog';
+import { saveBlob } from '../../lib/saveToWindows';
 
 /** Каталог всегда сверяется с правами после возврата из офлайна; копии не подменяют общий объект. */
 export default function SharedFilesFolder({ embedded = false }: { embedded?: boolean }) {
@@ -44,9 +45,8 @@ export default function SharedFilesFolder({ embedded = false }: { embedded?: boo
       try {
         const response = await fetch(`${ENV_CONFIG.apiUrl}/files/${encodeURIComponent(file.id)}/raw`);
         if (!response.ok) throw Error('Файл недоступен. Обновите папку, чтобы проверить права.');
-        const href = URL.createObjectURL(await response.blob());
-        const link = document.createElement('a'); link.href = href; link.download = file.name; link.click();
-        setTimeout(() => URL.revokeObjectURL(href), 1000);
+        const saved = await saveBlob(file.name, await response.blob());
+        if (!saved.ok && !saved.canceled) throw Error(saved.error);
       } catch (cause: any) { setError(cause?.message || 'Не удалось получить файл'); }
     }
   };

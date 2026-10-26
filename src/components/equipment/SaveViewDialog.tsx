@@ -1,6 +1,7 @@
 import React from 'react';
 import { WindowDialog } from '../ui/WindowDialog';
 import { X } from 'lucide-react';
+import { useEscapeClose } from '../../lib/useDismiss';
 
 /**
  * Сохранить набор характеристик шаблоном вида.
@@ -33,6 +34,8 @@ interface Props {
 const idOf = (p: ViewParam) => `${p.group}||${p.key}`;
 
 export default function SaveViewDialog({ role, params, preselected, onClose, onSubmit }: Props) {
+  // Esc закрывает окно, как и остальные диалоги раздела
+  useEscapeClose(true, onClose);
   const [name, setName] = React.useState('');
   const [personal, setPersonal] = React.useState(false);
   const [byRole, setByRole] = React.useState(true);

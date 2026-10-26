@@ -194,7 +194,8 @@ export default function BlockCard(props: any) {
             {groupTitles.length && groupTitles.every(title => expandedGroups[title]) ? 'Свернуть группы' : 'Раскрыть группы'}
           </button>
         </div>
-        <div className={`grid grid-cols-1 gap-x-3 gap-y-2 ${props.groupCards ? '@[760px]:grid-cols-2' : ''}`}>
+        {/* Карточки групп — колонками, которые выравниваются по высоте: короткая группа не оставляет пустую половину */}
+        <div className={props.groupCards ? '@[760px]:columns-2 gap-x-3 [&>*]:mb-2 [&>*]:break-inside-avoid' : 'grid grid-cols-1 gap-x-3 gap-y-2'}>
         {/* Порядок разделов и параметров — по виду категории для этого типа */}
         {(props.arrangeGroups ? props.arrangeGroups(displayGroups) : displayGroups).map((g: any) => {
           if (!showAllParams && props.composition?.hiddenGroups?.includes(g.title)) return null;

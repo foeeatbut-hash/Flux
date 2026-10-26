@@ -582,10 +582,53 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     const prisma = getPrisma();
     const { id } = req.params;
     try {
-      await prisma.equipmentSystem.delete({
-        where: { id }
+      // Что уйдёт вместе с установкой, узнаём до удаления: после него теги уже
+      // свободны, но открытые окна об этом не знают, пока не придёт событие.
+      const found = await prisma.equipmentSystem.findUnique({
+        where: { id },
+        select: { id: true, name: true, monoblocks: { select: { id: true, components: { select: { id: true, tags: { select: { id: true, identifier: true } } } } } } },
       });
-      res.json({ success: true });
+      if (!found) return res.json({ success: true, alreadyGone: true });
+      const elementIds: string[] = [];
+      const freedTags = new Map<string, string>();
+      for (const mono of found.monoblocks || []) for (const component of mono.components || []) {
+        elementIds.push(component.id);
+        for (const tag of component.tags || []) freedTags.set(tag.id, tag.identifier);
+      }
+      // Каскада на уровне базы может не быть: в локальной SQLite таблицы заведены
+      // без внешних ключей, и прежнее удаление оставляло позиции сиротами — они
+      // не показывались в разделе, но продолжали держать свои теги «занятыми».
+      // Поэтому всё внутри снимаем явно, как при удалении одной позиции.
+      await prisma.$transaction(async (tx: any) => {
+        for (const mono of found.monoblocks || []) for (const component of mono.components || []) {
+          if (component.tags?.length) {
+            await tx.componentElement.update({
+              where: { id: component.id },
+              data: { tags: { disconnect: component.tags.map((t: any) => ({ id: t.id })) } },
+            });
+          }
+        }
+        const monoIds = (found.monoblocks || []).map((m: any) => m.id);
+        if (monoIds.length) await tx.componentElement.deleteMany({ where: { monoblockId: { in: monoIds } } });
+        await tx.monoblock.deleteMany({ where: { systemId: id } });
+        await tx.equipmentSystem.delete({ where: { id } });
+      });
+      emitEntitiesChanged('tag', freedTags.keys(), req);
+      emitEntitiesChanged('element', elementIds, req);
+      // Как и при удалении одной позиции: убранное оборудование должно быть видно в журнале
+      try {
+        const me = (req as any).authUser;
+        await prisma.systemChangeLog.create({
+          data: {
+            userName: me?.name || 'Неизвестно',
+            userSymbol: me?.symbol || '',
+            description: `Удалена установка «${found.name}»: позиций ${elementIds.length}`
+              + (freedTags.size ? `; освобождены теги: ${[...freedTags.values()].join(', ')}` : ''),
+            targetRoute: '/equipment',
+          },
+        });
+      } catch (_) { /* журнал не обязан существовать, удаление уже состоялось */ }
+      res.json({ success: true, freedTags: [...freedTags.values()] });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

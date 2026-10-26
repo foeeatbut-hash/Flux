@@ -152,7 +152,7 @@ export const SECTIONS: SectionDef[] = [
   // по этому адресу уводятся в «Таблицу» (lib/sectionAliases)
   { path: '/builder', title: 'Конструктор', icon: BuilderAppIcon, scope: 'project', scroll: 'fixed', pad: true, multi: true, Component: BuilderScreen },
   // Каталог — справочник оборудования программы, а не проекта
-  { path: '/catalog', title: 'Каталог', icon: CatalogAppIcon, scope: 'global', scroll: 'fixed', pad: true, Component: CatalogScreen },
+  { path: '/catalog', title: 'Каталог', icon: CatalogAppIcon, scope: 'global', scroll: 'fixed', pad: false, Component: CatalogScreen },
   // E3Flux — всё про E3.series: атрибуты проекта, справочник атрибутов, дальше
   // типовые решения и схема. Проектная область: таблица строится по проекту
   { path: '/e3flux', title: 'E3Flux', icon: E3FluxAppIcon, scope: 'project', scroll: 'fixed', pad: false, Component: E3FluxScreen },

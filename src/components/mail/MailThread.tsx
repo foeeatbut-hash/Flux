@@ -10,6 +10,7 @@ import {
 } from '../../services/mailService';
 import { parseAddrList, displayName, initialsOf, toneOf, type AvatarTone } from '../../lib/mailAddress';
 import { useToastStore } from '../../store/toastStore';
+import { reportSaveError, saveBlob } from '../../lib/saveToWindows';
 import { useStore } from '../../store/store';
 import { WindowDialog } from '../ui/WindowDialog';
 import { sanitizeMailHtml, mailFrameDoc, textToHtml, highlightMentions } from '../../lib/mailHtml';
@@ -71,6 +72,15 @@ function Letter({
 }) {
   const [body, setBody] = useState<BodyState>({ text: '', html: '', error: '', loading: false });
   const [showRemote, setShowRemote] = useState(false);
+  const addToast = useToastStore((state) => state.addToast);
+  // Вложение сохраняется через Проводник Flux, как любая другая выгрузка
+  const saveAttachment = async (f: MailAttachment) => {
+    try {
+      const response = await fetch(mailService.attachmentUrl(f.id));
+      if (!response.ok) throw new Error(`Вложение не получено (${response.status})`);
+      reportSaveError(await saveBlob(f.fileName, await response.blob()));
+    } catch (error: any) { addToast(error?.message || 'Вложение не сохранилось', 'error'); }
+  };
   // Высоту письма меряет сама рамка (components/mail/LetterTranslate): рамок
   // бывает две — оригинал и перевод рядом, — и общая переменная им не подходит
 
@@ -337,16 +347,16 @@ function Letter({
                     key={f.id}
                     className="flex items-center gap-1 min-w-0 max-w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 pl-2.5 pr-1 py-1"
                   >
-                    <a
-                      href={mailService.attachmentUrl(f.id)}
-                      download={f.fileName}
-                      title={`Скачать ${f.fileName}`}
+                    <button
+                      type="button"
+                      onClick={() => void saveAttachment(f)}
+                      title={`Сохранить ${f.fileName} на компьютер`}
                       className="flex items-center gap-2 min-w-0 cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5 shrink-0 text-emerald-700 dark:text-emerald-400" />
                       <span className="flex-1 min-w-0 truncate text-xs text-slate-700 dark:text-slate-300">{f.fileName}</span>
                       <span className="shrink-0 text-2xs font-mono text-slate-400 dark:text-slate-500">{humanSize(f.size)}</span>
-                    </a>
+                    </button>
                     {/* Смета из письма должна лечь в проект, а не остаться в
                         почте, откуда её потом не найдут */}
                     <button

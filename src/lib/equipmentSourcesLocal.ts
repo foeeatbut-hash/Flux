@@ -200,7 +200,7 @@ export async function pickEquipmentSource(tagIdentifier?: string, request: Equip
   let selectedFile: { ref: WindowsFileRef; name: string };
   let sourceFolder: WindowsFileRef;
   let suggestedTag: string | undefined;
-  if (selected) { selectedFile = { ref: selected.ref, name: selected.name }; sourceFolder = selected.sourceFolder || sourceFolderFor(selected.ref); suggestedTag = selected.suggestedTag; }
+  if (selected) { selectedFile = { ref: selected.ref, name: selected.name }; ({ sourceFolder, suggestedTag } = resolveSelectedSource(selected)); }
   else {
     const picked = await request<WindowsEquipmentSourcePick>({ action: 'pickEquipmentSource' });
     if ('error' in picked) return { ok: false, error: picked.error };
@@ -231,7 +231,7 @@ export async function pickEquipmentSourceForImport(request: EquipmentSourceReque
   let selectedFile: { ref: WindowsFileRef; name: string };
   let sourceFolder: WindowsFileRef;
   let suggestedTag: string | undefined;
-  if (selected) { selectedFile = { ref: selected.ref, name: selected.name }; sourceFolder = selected.sourceFolder || sourceFolderFor(selected.ref); suggestedTag = selected.suggestedTag; }
+  if (selected) { selectedFile = { ref: selected.ref, name: selected.name }; ({ sourceFolder, suggestedTag } = resolveSelectedSource(selected)); }
   else {
     const picked = await request<WindowsEquipmentSourcePick>({ action: 'pickEquipmentSource' });
     if ('error' in picked) return { ok: false, error: picked.error };
@@ -253,6 +253,24 @@ export async function pickEquipmentSourceFolder(request: EquipmentSourceRequest 
   const picked = await request<WindowsEquipmentSourceFolderPick>({ action: 'pickEquipmentSourceFolder' });
   if ('error' in picked) return { ok: false, error: picked.error };
   return { ok: true, data: 'folder' in picked.data ? picked.data.folder : null };
+}
+
+/**
+ * Окно выбора Проводника Flux называет папкой источника ту, где лежит сам файл («…/Л23/A»), а источник —
+ * папка тега «…/Л23» с вложенными ревизиями. Папка ревизии (одна буква или число) отбрасывается, а по имени
+ * папки тега предлагается тег — так же, как делало прежнее системное окно выбора.
+ */
+function resolveSelectedSource(selected: { ref: WindowsFileRef; sourceFolder?: WindowsFileRef; suggestedTag?: string }): { sourceFolder: WindowsFileRef; suggestedTag?: string } {
+  const normal = (value: string) => value.replace(/\\/gu, '/').split('/').filter(Boolean).join('/').toLocaleLowerCase();
+  const parentPath = selected.ref.relativePath.replace(/\\/gu, '/').split('/').filter(Boolean).slice(0, -1).join('/');
+  const given = selected.sourceFolder;
+  const isParent = !given || (given.rootId === selected.ref.rootId && normal(given.relativePath) === normal(parentPath));
+  if (!isParent) return { sourceFolder: given!, ...(selected.suggestedTag ? { suggestedTag: selected.suggestedTag } : {}) };
+  const parts = parentPath.split('/').filter(Boolean);
+  const hasRevisionParent = parts.length > 1 && (/^[A-Z]$/iu.test(parts[parts.length - 1]) || /^\d{1,20}$/u.test(parts[parts.length - 1]));
+  const sourceFolder = sourceFolderFor(selected.ref);
+  const tag = selected.suggestedTag || (hasRevisionParent ? parts[parts.length - 2] : '');
+  return { sourceFolder, ...(tag ? { suggestedTag: tag } : {}) };
 }
 
 function sourceFolderFor(file: WindowsFileRef): WindowsFileRef {

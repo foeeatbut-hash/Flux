@@ -25,7 +25,8 @@ import { useStore } from '../../store/store';
 import { gridsToXlsx, bytesToExplorer } from '../../lib/blankXlsx';
 import { editorHref } from '../../lib/officeFiles';
 import { documentHtml, footerTemplate } from '../../lib/blankHtml';
-import { saveBytes } from '../../lib/saveToWindows';
+import { reportSaveError, saveBytes } from '../../lib/saveToWindows';
+import { base64ToBytes } from '../../lib/windowsFiles';
 import { Area, Btn, Chip, Field, Input, Seg, Select, SectionTitle, confirmAsk } from '../catalog/ui';
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -96,9 +97,8 @@ export default function IssuePanel({ catalog, list, items, canIssue, onUpdateLis
     try {
       const bytes = await gridsToXlsx(grids());
       if (to === 'disk') {
-        const r = await saveBytes(`${fileBase}.xlsx`, bytes);
-        if (r.ok) addToast(r.path ? `Сохранено: ${r.path}` : 'Файл сохранён', 'success');
-        else if (!r.canceled) addToast(r.error || 'Не сохранилось', 'error');
+        // Куда легло, говорит сама выгрузка
+        reportSaveError(await saveBytes(`${fileBase}.xlsx`, bytes), 'Не сохранилось');
       } else {
         const made = await bytesToExplorer(`${fileBase}.xlsx`, bytes, 'XLSX', issue.rev);
         addToast(`Бланк положен в Проводник: ${made.name}`, 'success');
@@ -118,8 +118,9 @@ export default function IssuePanel({ catalog, list, items, canIssue, onUpdateLis
           html, title: fileBase, landscape: tpl.page.orientation === 'landscape', pageSize: tpl.page.paper,
           headerTemplate: '<span></span>', footerTemplate: footerTemplate(g[0]),
         });
-        if (r?.success) addToast('PDF сохранён', 'success');
-        else if (!r?.canceled) addToast(r?.error || 'PDF не сохранился', 'error');
+        // Главный процесс только печатает в PDF; папку и имя человек выбирает в Проводнике Flux
+        if (r?.success && r.base64) reportSaveError(await saveBytes(`${fileBase}.pdf`, base64ToBytes(String(r.base64))), 'PDF не сохранился');
+        else addToast(r?.error || 'PDF не собрался', 'error');
       } else {
         // В браузере — печать страницы: там есть «Сохранить как PDF»
         const w = window.open('', '_blank');
@@ -162,7 +163,7 @@ export default function IssuePanel({ catalog, list, items, canIssue, onUpdateLis
       const itRepeat = itTpl.sheets.find((x) => x.repeat !== 'none')?.repeat || 'family';
       const d = buildBlankData({ catalog, header: snap.header, items: snap.items, orderNos: snap.orderNos || orderNos, issue: it, revisions: issues.filter((x) => x.createdAt <= it.createdAt) }, itRepeat);
       const bytes = await gridsToXlsx(renderBlank(itTpl, d, (snap.lang as BlankLang) || lang));
-      await saveBytes(`${it.snapshot.header.docNo || list.name}_${it.rev}.xlsx`, bytes);
+      reportSaveError(await saveBytes(`${it.snapshot.header.docNo || list.name}_${it.rev}.xlsx`, bytes));
     } catch (e: any) { addToast(e?.message || 'Не собралось', 'error'); } finally { setBusy(''); }
   };
 

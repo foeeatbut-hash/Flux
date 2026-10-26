@@ -13,6 +13,9 @@ import ProjectDataPanel from './ProjectDataPanel';
 import FileEnglishVersion from '../translate/FileEnglishVersion';
 import { useOfficeTemplates } from './useOfficeTemplates';
 import { insertMessage, insertTable, tableColumns, tableRows, type TableCell } from './fluxTable';
+import FluxChangesList, { changesHeadline } from './FluxChangesList';
+import { OFFICE_APPLIED_EVENT, useOfficeChanges } from './useOfficeChanges';
+import type { OfficeChange } from '../../../office/changes';
 import type { RibbonCommand } from './useFluxRibbon';
 import { mapOfficeTemplateToTarget, officeTemplateFieldSelectionKey, type OfficeTemplatePending } from './officeTemplateMapping';
 import type { HeaderSchemaSyncOptions } from './officeNativeSchema';
@@ -66,6 +69,8 @@ interface Props {
   beforeTranslate?: () => Promise<void>;
   /** Шаблон, применённый к файлу, изменился: лента включает или выключает «Исходную шапку». */
   onTemplateChange?: (template: OfficeAppliedTemplate | null) => void;
+  /** Щелчок по строке списка изменений: показать место в документе (ячейка Таблицы, строка таблицы Документа). */
+  onGoto?: (change: OfficeChange) => Promise<unknown> | void;
   onClose: () => void;
 }
 
@@ -83,6 +88,9 @@ export default function FluxOfficePanel(props: Props) {
   const [officeState, setOfficeState] = useState<OfficeState | null>(null);
   const [templateSourceSchema, setTemplateSourceSchema] = useState<OfficeState['schema'] | null>(null);
   const [templateTargetSchema, setTemplateTargetSchema] = useState<OfficeState['schema'] | null>(null);
+  /** Листы открытой книги на момент открытия шаблона: по ним заводится шапка в чистой книге */
+  const [templateSheets, setTemplateSheets] = useState<string[] | undefined>(undefined);
+  const templateAutoApplied = useRef<unknown>(null);
   const [templateAnchorSelections, setTemplateAnchorSelections] = useState<Record<number, string>>({});
   const [templateFieldSelections, setTemplateFieldSelections] = useState<Record<string, OfficeField>>({});
   const [query, setQuery] = useState<OfficeQuery>(() => initialQuery(props.projectId));
@@ -95,6 +103,11 @@ export default function FluxOfficePanel(props: Props) {
   const [planSchema, setPlanSchema] = useState<OfficeState['schema'] | null>(null);
   const [planQuery, setPlanQuery] = useState<Record<string, unknown> | null>(null);
   const [appliedSummary, setAppliedSummary] = useState<OfficeApplySummary | null>(null);
+  /** Что устарело в документе (сервер сверяет файл с источниками) и что изменило последнее заполнение */
+  const changes = useOfficeChanges(props.localSource ?? props.fileId, true);
+  const changesRef = useRef(changes.result);
+  changesRef.current = changes.result;
+  const [appliedChanges, setAppliedChanges] = useState<OfficeChange[]>([]);
   const planRef = useRef(plan);
   planRef.current = plan;
   const [busy, setBusy] = useState(false);
@@ -189,10 +202,24 @@ export default function FluxOfficePanel(props: Props) {
   useEffect(() => { setQuery((current) => ({ ...current, projectId: props.projectId })); }, [props.projectId]);
   const sourceFields = useMemo(() => fields.filter((field) => field.sourceId === sourceId), [fields, sourceId]);
   const templateMapping = useMemo(() => templateSourceSchema && templateTargetSchema
-    ? mapOfficeTemplateToTarget(templateSourceSchema, templateTargetSchema, fields, templateAnchorSelections, templateFieldSelections)
-    : null, [templateSourceSchema, templateTargetSchema, fields, templateAnchorSelections, templateFieldSelections]);
+    ? mapOfficeTemplateToTarget(templateSourceSchema, templateTargetSchema, fields, templateAnchorSelections, templateFieldSelections, templateSheets)
+    : null, [templateSourceSchema, templateTargetSchema, fields, templateAnchorSelections, templateFieldSelections, templateSheets]);
   const templateSchema = templateMapping?.schema || null;
   const templatePending: OfficeTemplatePending[] = templateMapping?.pending || [];
+  // Шаблон сопоставился с документом целиком и уточнять нечего: шапка записывается сразу.
+  // Человек, открывший шаблон в своём документе, ждёт готовую шапку, а не ещё одну кнопку
+  useEffect(() => {
+    if (!openedTemplate || !templateSchema || !templateSourceSchema || templatePending.length || props.readOnly || !props.schemaWriteAvailable) return;
+    if (templateAutoApplied.current === openedTemplate) return;
+    templateAutoApplied.current = openedTemplate;
+    const labels = Object.fromEntries(fields.map((field) => [`${field.sourceId}:${field.fieldKey}`, field.displayName]));
+    void (async () => {
+      try {
+        const ok = await saveSchemaRef.current?.(templateSchema, { displayLabels: labels });
+        if (ok) { setTab('selection'); setActionMessage(`Шаблон «${openedTemplate.name}» применён: шапка создана. Выберите строки и нажмите «Предпросмотр заполнения».`); }
+      } catch (reason: any) { templateAutoApplied.current = null; setError(String((reason as any)?.message || reason)); }
+    })();
+  }, [openedTemplate, templateSchema, templateSourceSchema, templatePending.length, props.readOnly, props.schemaWriteAvailable]); // eslint-disable-line react-hooks/exhaustive-deps
   const schema = templateSchema || officeState?.schema;
   const activeAnchorIndex = schema?.anchors.findIndex((anchor) => anchor.id === activeAnchor?.anchorId) ?? -1;
 
@@ -304,6 +331,9 @@ export default function FluxOfficePanel(props: Props) {
       const applied = await props.applyWrites({ ...plan, writes: confirmed.writes }, planSchema, officeState?.rows || []);
       if (!applied) throw new Error('Редактор не применил заполнение.');
       setAppliedSummary(applied);
+      // Список «было → стало», каким он был до заполнения, остаётся на экране после него
+      setAppliedChanges((changesRef.current?.changes || []).filter((change) => !change.manual));
+      window.dispatchEvent(new Event(OFFICE_APPLIED_EVENT));
       setPlan(null); setPlanSchema(null); setPlanQuery(null);
       if (applied.state) setOfficeState(applied.state);
       else await refreshState();
@@ -339,6 +369,7 @@ export default function FluxOfficePanel(props: Props) {
     if (updated) setActionMessage(`Шаблон «${updated.name}» обновлён.`);
     else setDialog('templates');
   };
+  const saveSchemaRef = useRef<((schema: OfficeState['schema'], options?: { displayLabels?: Record<string, string> }) => Promise<boolean>) | null>(null);
   const saveSchema = async (nextSchema: OfficeState['schema'], options?: { displayLabels?: Record<string, string> }) => {
     if (templatePending.length) throw new Error('Сначала уточните все связи выбранного шаблона.');
     // Сохранение сопоставленного шаблона и есть его применение: в файл ложатся templateId и снимок схемы
@@ -351,6 +382,7 @@ export default function FluxOfficePanel(props: Props) {
     }
     return !!updated;
   };
+  saveSchemaRef.current = saveSchema;
   /** «Исходная шапка»: та же запись схемы, что и у остальных действий, значения в строках не трогаются. */
   const resetHeader = async () => {
     setError(''); setActionMessage('');
@@ -385,6 +417,8 @@ export default function FluxOfficePanel(props: Props) {
       setOfficeState(fresh);
       setTemplateSourceSchema(template.schema as OfficeState['schema']);
       setTemplateTargetSchema(target);
+      setTemplateSheets(fresh?.sheets);
+      templateAutoApplied.current = null;
       setTemplateAnchorSelections({}); setTemplateFieldSelections({});
       setPlan(null); setPlanSchema(null); setPlanQuery(null);
       setOpenedTemplate(template); setView('data'); setTab('fields');
@@ -470,6 +504,7 @@ export default function FluxOfficePanel(props: Props) {
       case 'update-template': void updateFileTemplate(); break;
       case 'refresh': void refreshData(); break;
       case 'issue': setView('data'); setTab('update'); break;
+      case 'changes': setView('data'); setTab('update'); void changes.check(); break;
       case 'reset-header': void resetHeader(); break;
       case 'export': setDialog('export'); break;
     }
@@ -538,7 +573,7 @@ export default function FluxOfficePanel(props: Props) {
       {props.readOnly && tab === 'selection' && <p className="shrink-0 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">Документ открыт только для просмотра.</p>}
       {tab === 'selection' && <FluxSelectionPanel query={query} fields={fields} result={result} loading={loading} error="" selectedIds={selectedIds} onQueryChange={(next) => { requestEpoch.current.invalidate(); setLoading(false); setBusy(false); setQuery({ ...next, sourceRevision: undefined }); setResult(null); setSelectedIds([]); setPlan(null); setPlanSchema(null); setPlanQuery(null); }} onRun={() => void runQuery()} onSelectionChange={(ids) => { requestEpoch.current.invalidate(); setBusy(false); setSelectedIds(ids); setPlan(null); setPlanSchema(null); setPlanQuery(null); }} />}
       {tab === 'fields' && <FluxFieldsPanel fields={fields} state={officeState ? { ...officeState, schema: schema || officeState.schema } : null} forceSave={!!templateSchema} saveBlocked={!!templatePending.length} selectedField={selectedField} activeAnchorId={activeAnchor?.anchorId || ''} readOnly={props.readOnly} canEditSchema={props.schemaWriteAvailable} onSelectField={setSelectedField} onSaveSchema={saveSchema} />}
-      {tab === 'update' && <UpdatePanel state={officeState} result={result} plan={plan} applied={appliedSummary} selectedCount={selectedIds.length} busy={busy} readOnly={props.readOnly} fileId={props.localSource ? '' : props.fileId} fileName={props.fileName} onIssued={props.onIssued} onDraftCreated={props.onDraftCreated} beforeRevisionIssue={async () => {
+      {tab === 'update' && <UpdatePanel changes={changes.result} changesLoading={changes.loading} appliedChanges={appliedChanges} onGoto={props.onGoto ? (change) => void props.onGoto?.(change) : undefined} state={officeState} result={result} plan={plan} applied={appliedSummary} selectedCount={selectedIds.length} busy={busy} readOnly={props.readOnly} fileId={props.localSource ? '' : props.fileId} fileName={props.fileName} onIssued={props.onIssued} onDraftCreated={props.onDraftCreated} beforeRevisionIssue={async () => {
         const current = await props.requestState();
         if (!current?.baseHash) return false;
         setOfficeState(current);
@@ -570,7 +605,8 @@ export default function FluxOfficePanel(props: Props) {
   );
 }
 
-function UpdatePanel({ state, result, plan, applied, selectedCount, busy, readOnly, fileId, fileName, beforeRevisionIssue, onIssued, onDraftCreated, onRefresh }: {
+function UpdatePanel({ changes, changesLoading, appliedChanges, onGoto, state, result, plan, applied, selectedCount, busy, readOnly, fileId, fileName, beforeRevisionIssue, onIssued, onDraftCreated, onRefresh }: {
+  changes: import('../../../office/changes').OfficeChangesResult | null; changesLoading: boolean; appliedChanges: OfficeChange[]; onGoto?: (change: OfficeChange) => void;
   state: OfficeState | null; result: OfficeQueryResult | null; plan: OfficeFillPlan | null; applied: OfficeApplySummary | null; selectedCount: number;
   busy: boolean; readOnly: boolean; fileId: string; fileName: string; beforeRevisionIssue: () => Promise<boolean>;
   onIssued?: (fileId: string, revisionId: string) => void; onDraftCreated?: (fileId: string) => void; onRefresh: () => void;
@@ -579,8 +615,17 @@ function UpdatePanel({ state, result, plan, applied, selectedCount, busy, readOn
     <div className="mb-4 flex items-center justify-between"><h3 className="font-semibold">Состояние документа и источника</h3><button type="button" className="fx-btn fx-btn-quiet fx-btn-sm" onClick={onRefresh} disabled={busy}><LoaderCircle className={busy ? 'h-3.5 w-3.5 animate-spin' : 'h-3.5 w-3.5'} />Проверить</button></div>
     <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2 text-xs"><dt className="text-slate-500 dark:text-slate-400">Источник</dt><dd>{result?.revision ? 'Выборка загружена' : 'Выборка не загружена'}</dd><dt className="text-slate-500 dark:text-slate-400">Документ</dt><dd>{state?.baseHash ? 'Состояние прочитано' : 'Не прочитано'}</dd><dt className="text-slate-500 dark:text-slate-400">Якорей шапки</dt><dd>{state?.schema.anchors.length ?? '—'}</dd><dt className="text-slate-500 dark:text-slate-400">Выбрано строк</dt><dd>{selectedCount}</dd></dl>
     {(result?.revision || state?.baseHash) && <details className="mt-3 text-xs text-slate-500 dark:text-slate-400"><summary className="cursor-pointer">Технические сведения</summary><dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2"><dt>Ревизия источника</dt><dd className="break-all font-mono">{result?.revision || '—'}</dd><dt>Хеш документа</dt><dd className="break-all font-mono">{state?.baseHash || '—'}</dd></dl></details>}
-    {applied && <section role="status" className="mt-4 border-l-2 border-emerald-600 pl-3 text-xs text-slate-700 dark:text-slate-300"><p>Обновлено значений: {applied.appliedCount.toLocaleString('ru-RU')}</p>{applied.manualRows.length > 0 && <p className="mt-1">Без замены оставлены строки с ручными правками: {applied.manualRows.length}</p>}</section>}
-    {plan && <section className="mt-5 space-y-3 border-t border-slate-200 pt-4 dark:border-dark-border"><h3 className="font-semibold">План заполнения</h3><PlanCount label="Будет добавлено" count={plan.adds.length} /><PlanCount label="Будет обновлено" count={plan.replaces.length} /><PlanCount label="Ручные строки сохранены" count={plan.manualRows.length} /><PlanCount label="Пропущено" count={plan.skips.length} /><PlanCount label="Ошибки" count={plan.errors.length} /><PlanCount label="Конфликты" count={plan.conflicts.length} />
+    <section className="mt-4 border-t border-slate-200 pt-4 dark:border-dark-border" aria-label="Изменения в источнике">
+      <h3 className="mb-1 font-semibold">Изменения в источнике</h3>
+      <p className={`text-xs ${changes?.stale ? 'fx-note-warn font-medium' : 'text-slate-500 dark:text-slate-400'}`} role="status">{changesLoading && !changes ? 'Проверяем актуальность данных…' : changesHeadline(changes)}</p>
+      {!!changes?.changes.length && <div className="mt-2"><FluxChangesList changes={changes.changes} onGoto={onGoto} /></div>}
+    </section>
+    {!!appliedChanges.length && <section className="mt-4 border-t border-slate-200 pt-4 dark:border-dark-border" aria-label="Что изменено при обновлении">
+      <h3 className="mb-1 font-semibold">Изменено при обновлении</h3>
+      <FluxChangesList changes={appliedChanges} onGoto={onGoto} />
+    </section>}
+    {applied && <section role="status" className="mt-4 border-l-2 border-emerald-600 pl-3 text-xs text-slate-700 dark:text-slate-300"><p>Записано значений: {applied.appliedCount.toLocaleString('ru-RU')}{appliedChanges.length ? `, из них изменилось: ${appliedChanges.length.toLocaleString('ru-RU')}` : ''}</p>{applied.manualRows.length > 0 && <p className="mt-1">Без замены оставлены строки с ручными правками: {applied.manualRows.length}</p>}</section>}
+    {plan && <section className="mt-5 space-y-3 border-t border-slate-200 pt-4 dark:border-dark-border"><h3 className="font-semibold">План заполнения</h3><PlanCount label="Будет добавлено" count={plan.adds.length} /><PlanCount label="Будет обновлено" count={plan.replaces.length} /><PlanCount label="Изменится значений" count={changes?.count ?? 0} /><PlanCount label="Ручные строки сохранены" count={plan.manualRows.length} /><PlanCount label="Пропущено" count={plan.skips.length} /><PlanCount label="Ошибки" count={plan.errors.length} /><PlanCount label="Конфликты" count={plan.conflicts.length} />
       {plan.errors.map((item, index) => <p key={`error-${index}`} className="text-xs text-rose-700 dark:text-rose-300">{item.message}</p>)}
       {plan.conflicts.map((item, index) => <p key={`conflict-${index}`} className="text-xs text-amber-700 dark:text-amber-300">Конфликт в {item.anchorId}: {item.candidates.join(', ')}</p>)}
       <p className="text-xs text-slate-500 dark:text-slate-400">План не сохраняет файл. После подтверждения изменения попадут в текущий редактор, затем используются обычные сохранение и история GenOffice.</p>

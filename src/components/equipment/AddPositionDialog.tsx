@@ -1,6 +1,7 @@
 import React from 'react';
 import { WindowDialog } from '../ui/WindowDialog';
 import { Plus, X } from 'lucide-react';
+import { useEscapeClose } from '../../lib/useDismiss';
 import { ROLES, roleById, roleFits, roleTitle } from '../../../equipment/roles';
 import { CLASSES, classById, isClassId } from '../../../equipment/classes';
 import { useTagCheck, tagHint, tagPrefixOf } from './useTagCheck';
@@ -51,6 +52,8 @@ interface Props {
 interface Row { key: string; value: string; unit: string }
 
 export default function AddPositionDialog({ target, projectId, freeTags = [], onClose, onSubmit }: Props) {
+  // Esc закрывает окно, как и остальные диалоги раздела
+  useEscapeClose(true, onClose);
   const parentRole = target.role || 'БЛОК';
   // Что обычно ставят внутрь владельца — первым: в двигатель датчик ПТС, в
   // клапан привод. Коробка и датчик «годятся куда угодно», и без этого

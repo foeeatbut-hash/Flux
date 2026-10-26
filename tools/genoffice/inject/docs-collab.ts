@@ -1073,6 +1073,26 @@ export function installFluxCollab(): void {
       const ok = ed.chain().focus().insertContent(content).run(); p.tell('flux:table-inserted', { ok });
     } catch (err: any) { p.tell('flux:table-inserted', { ok: false, error: err.message }); }
   });
+  // Панель изменений: щелчок по строке списка ведёт к строке таблицы, которую держит закладка
+  p.on('gotoRow', async (message: any) => {
+    try {
+      const bookmark = String(message?.bookmark || '')
+      const ed = await waitForEditor(() => {
+        const ctx = ctxNow()
+        return ctx?.editor && ctx.doc && !isPhasedContentPending() ? ctx.editor : null
+      }, 7_000)
+      if (!ed || !bookmark) throw new Error('Редактор не готов')
+      let at = -1
+      ed.state.doc.descendants((node: any, pos: number) => {
+        if (at >= 0) return false
+        if (node.type.name === 'docTableRow' && rowBookmarks(node).includes(bookmark)) { at = pos; return false }
+        return true
+      })
+      if (at < 0) throw new Error('Строка не найдена: возможно, её удалили')
+      ed.chain().focus().setTextSelection(at + 3).scrollIntoView().run()
+      p.tell('flux:row-shown', { ok: true })
+    } catch (err: any) { p.tell('flux:row-shown', { ok: false, error: err.message }) }
+  })
   p.on('insertText', async (text: unknown) => {
     const ed = await waitForEditor(() => {
       const ctx = ctxNow()
