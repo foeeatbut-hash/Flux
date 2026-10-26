@@ -193,7 +193,9 @@ const confirmPreview = async (page: any, panel: any, button: any, label: string)
   }
   await button.click();
   const alert = panel.getByRole('alert');
-  const status = panel.getByRole('status');
+  // Раздел «Изменения в источнике» держит свой role=status всегда (там заголовок «данные актуальны»):
+  // он не итог заполнения, и считать его завершением значит читать файл до записи правок
+  const status = panel.locator('[role="status"]:not([aria-label="Изменения в источнике"] *)');
   const settled = await waitFor(async () => (await alert.count()) > 0 || (await status.count()) > 0, 15000);
   const details = {
     settled,
