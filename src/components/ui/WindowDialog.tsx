@@ -250,8 +250,10 @@ export function WindowDialog({
   const a = area();
   const style: React.CSSProperties = {
     position: inWindow ? 'absolute' : 'fixed',
-    left: pos?.x ?? 0,
-    top: pos?.y ?? 0,
+    // Целые пиксели: центрирование даёт дробные координаты, а окно на
+    // полупикселе размывает текст и дробит ширины содержимого
+    left: Math.round(pos?.x ?? 0),
+    top: Math.round(pos?.y ?? 0),
     // Прячут и снаружи (`boxProps.style.visibility`): окно обращения уходит из кадра на время снимка
     visibility: boxProps?.style?.visibility,
     // До замера окно невидимо, но не `visibility: hidden`: скрытый узел не берёт фокус,
@@ -260,7 +262,7 @@ export function WindowDialog({
     // Только высота: ширину ограничивает класс окна (`max-w-md`), и
     // встроенный maxWidth перебил бы его — окно растянулось бы на весь стол
     maxHeight: a.h - 16,
-    ...(size ? { width: size.w, height: size.h, maxWidth: 'none', maxHeight: 'none' } : {}),
+    ...(size ? { width: Math.round(size.w), height: Math.round(size.h), maxWidth: 'none', maxHeight: 'none' } : {}),
   };
 
   const dialog = (
