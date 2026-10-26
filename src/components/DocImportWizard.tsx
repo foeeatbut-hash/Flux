@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  X, FileSpreadsheet, FileText, Upload, ClipboardPaste, Loader2, CheckCircle2,
+  X, FileSpreadsheet, FileText, Upload, ClipboardPaste, Loader2, CheckCircle2, FolderTree,
   AlertTriangle, ChevronDown, ChevronRight, Trash2, ScanLine, Plus,
 } from 'lucide-react';
 import { useToastStore } from '../store/toastStore';
@@ -14,12 +14,13 @@ import { DraftItem, DraftField, DraftResult, Confidence } from '../import/types'
 import CustomSelect from './CustomSelect';
 import ImportFileChooser from './ImportFileChooser';
 import EquipmentSourceImportDialog from './equipment/EquipmentSourceImportDialog';
+import SourcePathsPanel from './equipment/SourcePathsPanel';
 import FileBadge from './ui/FileBadge';
 import { ICON_SIZE } from '../lib/metrics';
 import type { SelectionProvenance } from '../lib/windowsFiles';
 import type { EquipmentDocumentBinding, FilenameMatchRule } from '../../equipment/documentBindings';
 import { canonicalDocumentSourceFolder, equipmentDocumentImportSource, equipmentDocumentRevisionFolder, findExistingEquipmentDocumentBinding, loadEquipmentDocumentBindings, saveLocalEquipmentDocumentRef } from '../lib/equipmentDocumentBindings';
-import { base64ToBytes, takeWindowsDrop, windowsFilesRequest } from '../lib/windowsFiles';
+import { base64ToBytes, bytesToBase64, takeWindowsDrop, windowsFilesRequest } from '../lib/windowsFiles';
 import { WINDOWS_IMPORT_READ_BYTES, type ImportedFileRef } from '../../filesystem/contracts';
 import { listEquipmentSourceBindings, removeEquipmentSourceBinding, scanEquipmentSource, type EquipmentSourceCandidate, type LocalEquipmentSourceBinding } from '../lib/equipmentSourcesLocal';
 
@@ -64,8 +65,13 @@ interface FileJob {
    *
    * Лежит отдельно от `draft`: распознавания здесь не было и обучать словарь
    * нечему — разбор точный, а не угаданный.
+   *
+   * `xml` — уже прочитанные байты файла: план источника XML строится прямо
+   * в этом окне из них, без повторного выбора файла и папки (раньше второе
+   * окно заново читало файл через Проводник Windows и обрывалось, если файл
+   * пришёл не из него).
    */
-  cad?: { units: any[]; blocks: number };
+  cad?: { units: any[]; blocks: number; xml: { base64: string; sha256: string; size: number; text: string } };
 }
 
 interface LegacyMigrationCandidate {
@@ -136,11 +142,11 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   // Открытый предпросмотр: что именно ввозим и из какой работы
   // Открытый предпросмотр: один файл или несколько выбранных расчётов разом
   const [preview, setPreview] = useState<{ jobIds: string[]; units: any[]; fileName: string } | null>(null);
-  const [sourceJobId, setSourceJobId] = useState<string | null>(null);
   // Выбранные расчёты: ввозятся одним предпросмотром и одной партией. Готовый
   // расчёт отмечается сам — ради этого папку файлов и бросают в окно разом
   const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
   const [bindingRevision, setBindingRevision] = useState(0);
+  const [pathsOpen, setPathsOpen] = useState(false);
   const [documentBindings, setDocumentBindings] = useState<EquipmentDocumentBinding[]>([]);
   const [bindingWarning, setBindingWarning] = useState('');
   const [legacyCandidates, setLegacyCandidates] = useState<LegacyMigrationCandidate[]>([]);
@@ -279,7 +285,8 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
             (s: number, u: any) => s + (u.monoblocks || []).reduce((k: number, m: any) => k + (m.blocks || []).length, 0),
             0,
           );
-          updateJob(id, { status: 'ready', statusText: undefined, cad: { units, blocks } });
+          const xml = { base64: bytesToBase64(new Uint8Array(data)), sha256: sourceSha256, size: data.byteLength, text };
+          updateJob(id, { status: 'ready', statusText: undefined, cad: { units, blocks, xml } });
           return;
         }
       }
@@ -337,6 +344,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   }, [initialDocument, processFile]);
 
   const handleFiles = useCallback((files: FileList | File[], provenances: SelectionProvenance[] = []) => {
+    setPathsOpen(false);
     Array.from(files).forEach((f, index) => { void processFile(f, provenances[index] || {}); });
   }, [processFile]);
 
@@ -556,11 +564,8 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
   // значениями, без выбора области и без разбора тегов. Теперь оба источника
   // сходятся в одном окне, поэтому и результат у них одинаковый.
   const commitJob = (job: FileJob) => {
-    // CAD XML остаётся в общей очереди, но получает штатный план источника XML.
-    if (job.cad) {
-      setSourceJobId(job.id);
-      return;
-    }
+    // План CAD XML строится прямо в карточке файла (EquipmentSourceImportDialog).
+    if (job.cad) return;
     if (!job.draft || job.draft.items.length === 0) return;
     setPreview({
       jobIds: [job.id],
@@ -641,6 +646,9 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                 placeholder="Категория оборудования"
               />
             </div>
+            <button type="button" onClick={() => setPathsOpen(value => !value)} aria-pressed={pathsOpen} className={`fx-btn shrink-0 ${pathsOpen ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-200' : ''}`} title="Где лежат файлы привязанных установок">
+              <FolderTree className="w-3.5 h-3.5" /> Пути установок
+            </button>
             <button type="button" onClick={onClose} className="shrink-0 p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 cursor-pointer" title="Закрыть (Esc)">
               <X className="w-4 h-4" />
             </button>
@@ -719,7 +727,12 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
 
           {/* Правая колонка: предпросмотр активного файла */}
           <div className="flex-1 min-w-0 flex flex-col">
-            {!activeJob ? (
+            {pathsOpen ? (
+              <div className="flex-1 overflow-y-auto p-4">
+                <SourcePathsPanel projectId={projectId} bindings={documentBindings} revision={bindingRevision} canManage={canManage}
+                  onChanged={async view => { if (view) { setBindingRevision(view.revision); setDocumentBindings(view.bindings); } else await refreshBindingLedger(); }} />
+              </div>
+            ) : !activeJob ? (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 text-center">
                 <ScanLine className="w-10 h-10 text-slate-200 dark:text-slate-800 mb-3" />
                 <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Добавьте документ — распознавание начнётся сразу</p>
@@ -793,33 +806,26 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
 
                 {/* Позиции */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                  {/* Выгрузка САПР: разобрана точно, распознавать нечего */}
+                  {/* Выгрузка САПР: разобрана точно; план, теги и подтверждение — здесь же, без второго окна */}
                   {activeJob.cad && (
-                    <div className="rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/60 dark:bg-emerald-950/20 p-3">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                        <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Расчёт разобран</h3>
-                      </div>
-                      <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                        Это выгрузка из расчётной программы. Здесь ничего не угадывалось:
-                        установки, моноблоки и блоки взяты из файла как есть.
-                      </p>
-                      <ul className="mt-2 space-y-0.5 text-xs text-slate-600 dark:text-slate-300">
-                        {activeJob.cad.units.map((u: any, i: number) => (
-                          <li key={i} className="truncate">
-                            <span className="font-semibold">{u.name}</span>
-                            {u.title && u.title !== u.name ? ` — ${u.title}` : ''}
-                            <span className="text-slate-400 dark:text-slate-500">
-                              {' '}· моноблоков: {(u.monoblocks || []).length}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                      <p className="mt-2 text-2xs text-slate-400 dark:text-slate-500 leading-relaxed">
-                        Дальше — тот же предпросмотр, что и при ввозе расчёта из Проводника:
-                        видно, что изменится, и можно снять лишнее.
-                      </p>
-                    </div>
+                    <EquipmentSourceImportDialog key={activeJob.id} embedded projectId={projectId} categories={categories} canManage={canManage}
+                      category={category} initialUnits={activeJob.cad.units} expectedLedgerRevision={bindingRevision}
+                      inlineSource={{
+                        name: activeJob.fileName, ...activeJob.cad.xml,
+                        ...(activeJob.provenance?.fileRef ? { fileRef: activeJob.provenance.fileRef } : {}),
+                        ...(activeJob.provenance?.sourceFolder ? { sourceFolder: activeJob.provenance.sourceFolder } : {}),
+                        ...(activeJob.provenance?.suggestedTag ? { suggestedTag: activeJob.provenance.suggestedTag } : {}),
+                        ...(activeJob.provenance?.portableLocator ? { portableLocator: activeJob.provenance.portableLocator } : {}),
+                      }}
+                      onClose={() => undefined}
+                      onImported={async ({ bindingId, tagIdentifier }) => {
+                        const job = activeJob;
+                        if (bindingId && job.provenance?.sourceFolder) saveLocalEquipmentDocumentRef({ projectId, bindingId, sourceFolder: job.provenance.sourceFolder, fileRef: job.provenance.fileRef });
+                        if (bindingId) await refreshBindingLedger();
+                        addToast(`«${job.fileName}»: установка ${tagIdentifier} импортирована${job.provenance?.sourceFolder ? ', путь к файлу запомнен' : ''}.`, 'success');
+                        onImported();
+                      }}
+                      onAllImported={() => updateJob(activeJob.id, { status: 'imported' })} />
                   )}
 
                   {(activeJob.draft?.items || []).map(item => {
@@ -922,22 +928,6 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                   )}
                 </div>
 
-                {/* Нижняя панель импорта: разобранный расчёт */}
-                {activeJob.status === 'ready' && activeJob.cad && (
-                  <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
-                    <div className="text-xs text-slate-400">
-                      Установок: {activeJob.cad.units.length} · блоков: {activeJob.cad.blocks}
-                    </div>
-                    <button type="button"
-                      onClick={() => commitJob(activeJob)} disabled={!canManage || bindingRefreshPending || bindingRefreshFailed}
-                      className="fx-btn fx-btn-primary shrink-0"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Проверить и импортировать в «{categories.find(c => c.id === category)?.label || category}»
-                    </button>
-                  </div>
-                )}
-
                 {/* Нижняя панель импорта */}
                 {activeJob.status === 'ready' && !activeJob.cad && (activeJob.draft?.items.length || 0) > 0 && (
                   <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 shrink-0">
@@ -976,26 +966,6 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
           embedded
         />
       )}
-      {sourceJobId && (() => {
-        const job = jobs.find(item => item.id === sourceJobId);
-        if (!job) return null;
-        const initialSelection = job.provenance?.fileRef ? {
-          ref: job.provenance.fileRef, name: job.fileName, sourceFolder: job.provenance.sourceFolder,
-          suggestedTag: job.provenance.suggestedTag, portableLocator: job.provenance.portableLocator,
-        } : undefined;
-        return <div className="absolute inset-3 z-10 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-700 dark:bg-slate-950">
-          <EquipmentSourceImportDialog embedded projectId={projectId} categories={categories} canManage={canManage}
-            initialCategory={category} initialUnits={job.cad?.units}
-            initialSelection={initialSelection} expectedLedgerRevision={bindingRevision}
-            onClose={() => setSourceJobId(null)}
-            onImported={async ({ bindingId, source, category: importedCategory }) => {
-              if (bindingId && job.provenance?.sourceFolder) saveLocalEquipmentDocumentRef({ projectId, bindingId, sourceFolder: job.provenance.sourceFolder, fileRef: job.provenance.fileRef });
-              if (bindingId) await refreshBindingLedger();
-              updateJob(job.id, { status: 'imported' }); setSourceJobId(null); setCategory(importedCategory);
-              addToast(`«${job.fileName}»: XML импортирован, привязка сохранена.`, 'success'); onImported();
-            }} />
-        </div>;
-      })()}
     </div>,
     document.body
   );

@@ -104,9 +104,37 @@ fallback.
   Opening it never copies source-document anchor IDs: parts bind to anchors in
   the open document, and each unavailable mapping must be resolved before save
   or fill. Shared/personal permissions are enforced by the server.
+  A template opened in a blank workbook (no header cells yet) creates them: each
+  Excel template cell without a counterpart at the same sheet and address is
+  created there with a fresh anchor ID (the template's sheet if the workbook has
+  it, otherwise the first sheet), and when nothing is left to clarify the header
+  is written at once. A second employee therefore gets the same columns in the
+  same places without any manual mapping (`scripts/test-office-template-users-live.ts`).
+  Word has no such creation: its table header must already exist.
 - Office revision numbers are issued by the server from saved file snapshots.
   An issued revision cannot be edited; a draft is a separate file derived from
   an issued snapshot. The UI must not invent revision numbers from file history.
+- Parameter bindings in XLSX survive editing in an external editor (решение
+  от 24.10.2026). Ordinary Excel shows only header names and values; the
+  parameter flags are kept in three places that Excel preserves or moves by
+  itself, never by cell position alone:
+  1. a defined name `FLUX_ANCHOR_<id>` per header cell — Excel shifts it when
+     rows or columns are inserted, so the address is always read from the name
+     (a name that became `#REF!` means the cell was deleted: the binding is
+     dropped together with its row links);
+  2. a defined name `FLUX_ROW_<hash>` per filled row — the row of an item is
+     found by it, not by the stored address;
+  3. the schema (parts, labels, units, unions, row links) twice: in
+     `customXml/itemFluxOffice.xml` and on the hidden sheet `FLUX_SCHEMA`
+     (`veryHidden`, text cut into cells of column A). An external editor may
+     drop the unknown customXml part; the sheet is ordinary workbook content
+     and survives. The part is read first, the sheet is the fallback; both are
+     always written, and a save from the editor re-carries the server copy to
+     both. Templates reuse the same schema, so they inherit this.
+  Limits that are not verified on Windows: real Microsoft Excel round-trip
+  (only an XML emulation and a third-party library are covered by
+  `scripts/test-office-excel-roundtrip.ts`); DOCX keeps the customXml part
+  only.
 
 ## Приёмка и проверки
 
@@ -224,6 +252,31 @@ Flux/В обычном Office» в макете только для просмо
 - «Обновление»: сравнение источника, конфликты, план, ревизии. Основа —
   `UpdatePanel`, `FluxRevisionPanel`.
 
+### Данные устарели и панель изменений (решение от 25.10.2026)
+
+- При открытии документа, при возвращении в окно, раз в минуту и после
+  каждого заполнения сервер сверяет значения, которые Flux записал в файл, с
+  источниками (`GET /api/project-data/files/:id/changes`,
+  `server/officeChanges.ts`; для файлов Проводника — `POST …/office-local/changes`).
+  Нашлось расхождение — над документом появляется полоса «Данные проекта
+  изменились: в документе устарело N значений» с кнопками «Показать изменения»,
+  «Обновить» и «Скрыть» (до следующего изменения данных).
+- Вкладка «Обновление» панели начинается списком «Изменения в источнике»:
+  строка — значение; сверху имя позиции (тег или наименование) и место
+  («Лист1!C4»), ниже заголовок колонки и «было → стало» с единицей. Щелчок по
+  строке переводит к месту в документе: ячейка Таблицы (`flux:goto-cell`) или
+  строка таблицы Документа по закладке (`gotoRow`).
+- «Обновить» строит план как раньше; подтверждение записывает значения, полоса
+  исчезает, а список «Изменено при обновлении» остаётся на экране. «Было» —
+  то, что Flux записал в прошлый раз, а если в ячейке другое (правили руками), —
+  то, что в ячейке; такая строка помечена «Правили руками: «Обновить» эту строку
+  не заменит» и в счёт устаревших не идёт.
+- Значение пропало из источника — документ его не стирает, но строка списка
+  это сообщает; позиции больше нет — «позиции больше нет в источнике; строка в
+  документе остаётся».
+- У Документа (Word) нет адреса ячейки: «было» берётся из записанных Flux
+  значений, строку называют имя позиции и колонка, переход — по закладке строки.
+
 ### Ввод в ячейке шапки (ТЗ §6–7)
 
 Ячейка — упорядоченные части: защищённые метки полей и редактируемый текст
@@ -238,11 +291,24 @@ Flux/В обычном Office» в макете только для просмо
   начинается с «=», как в Excel; без него «Т/А» и «№-1» остаются текстом
   (решение владельца 3). Расчёт — `evaluateOfficeParts` (без `eval`, единицы,
   деление на ноль, округление);
+- результат формулы показывается в единице первого слагаемого (кВт + Вт — в кВт,
+  кг + кг — в кг; умножение и деление на число единицу не меняют), потому что в
+  ячейке стоит только число, а единица видна в заголовке колонки. Известные
+  величины — мощность (Вт, кВт, МВт), полная мощность (ВА, кВ·А), давление, расход
+  воздуха, масса, длина; величины разных родов не складываются (ошибка, не ноль).
+  Если у позиции нет значения хотя бы одного операнда, это «значения нет»: ячейка
+  не пишется и план не блокируется; ошибкой остаются текст вместо числа и разные
+  единицы;
 - параметр в ячейке всегда плашка: скруглённая светло-зелёная рамка с
   названием, один стиль для Word и Excel (`parameter-chip-style.ts`, ступени
   emerald из токенов, тёмная тема тоже). Excel в покое показывает плашки
   слоем DOM поверх холста (`sheets-idle-chips.ts`), при правке — защищёнными
   токенами окна ввода; новая метка встаёт в позицию курсора;
+- плашки покоя следуют за прокруткой и масштабом листа (50% и 200% проверены
+  снимками): слой плашек вычитает прокрутку и умножает на масштаб, потому что
+  `getCellRect()` отдаёт место ячейки на листе, а не на экране. После заполнения
+  узкие нетронутые столбцы (≈ 70 px) расширяются по самому длинному значению, но
+  не больше 420 px; заданную человеком ширину Flux не меняет;
 - ошибка расчёта показывается значком у ячейки с подсказкой и в сводке
   предпросмотра; значение не подменяется нулём;
 - «×», «÷», «−» принимаются как `*`, `/`, `-` (уже в `normalizeOfficeFormulaParts`);

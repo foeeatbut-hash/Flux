@@ -90,19 +90,22 @@ export default function EquipmentUnitOverview({ unit, onSelect, onPickTag, onUnl
         const generalItems = tree.generalItems.filter(item => members.has(item.id));
         return <section key={monoblock.id} className="min-w-0">
           <h3 className="border-b border-slate-200 px-1 pb-2 text-sm font-semibold text-slate-700 dark:border-slate-800 dark:text-slate-300">{monoblock.name}</h3>
-          {generalItems.length > 0 && <div data-testid={`equipment-mono-general-${monoblock.id}`} className="mt-2 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
+          {generalItems.length > 0 && <div data-testid={`equipment-mono-general-${monoblock.id}`} className="mt-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
             <h4 className="text-sm font-medium text-slate-800 dark:text-slate-100">Общие характеристики моноблока</h4>
-            {generalItems.map(item => <div key={item.id} className="mt-2">
-              <div className="mb-1 text-xs text-slate-500 dark:text-slate-400">{item.name}</div>
-              <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm @[760px]:grid-cols-2">
-                {paramsOf(item).map((param: any, index: number) => <div key={`${item.id}:${index}`} className="min-w-0">
-                  <dt className="truncate text-xs text-slate-500 dark:text-slate-400">{String(param.key || '')}</dt>
-                  <dd className="break-words text-slate-700 dark:text-slate-300">{String(param.value ?? '')}{param.unit ? ` ${param.unit}` : ''}</dd>
+            {generalItems.map(item => <div key={item.id} className="mt-1.5">
+              {/* Подпись группы нужна, только когда групп несколько: одна лишь повторяет заголовок */}
+              {generalItems.length > 1 && <div className="mb-1 text-xs text-slate-500 dark:text-slate-400">{item.name}</div>}
+              {/* Строка «параметр … значение» в одну линию и в 2–3 колонки: не столбик на весь экран */}
+              <dl className="grid grid-cols-1 gap-x-6 text-sm @[560px]:grid-cols-2 @[900px]:grid-cols-3">
+                {paramsOf(item).map((param: any, index: number) => <div key={`${item.id}:${index}`} className="flex min-w-0 items-baseline justify-between gap-3 border-b border-slate-100 py-1 dark:border-slate-800/70">
+                  <dt className="min-w-0 truncate text-xs text-slate-500 dark:text-slate-400" title={String(param.key || '')}>{String(param.key || '')}</dt>
+                  <dd className="shrink-0 text-right tabular-nums text-slate-800 dark:text-slate-100">{String(param.value ?? '')}{param.unit ? ` ${param.unit}` : ''}</dd>
                 </div>)}
               </dl>
             </div>)}
           </div>}
-          <div className="grid grid-cols-1 gap-2 pt-2 @[760px]:grid-cols-2">
+          {/* auto-fit: одиночный блок занимает всю ширину, несколько — встают в ряд без пустой половины */}
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,320px),1fr))] gap-2 pt-2">
             {sections.map(node => {
               const component = node.item;
               const identity = equipmentIdentityOf(component);

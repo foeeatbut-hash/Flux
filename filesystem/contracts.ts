@@ -52,8 +52,6 @@ export type WindowsFilesRequest =
   | { action: 'volumes' }
   | { action: 'openRecycleBin' }
   | { action: 'draftTrash' }
-  | { action: 'pickImport'; extensions?: string[]; multiple?: boolean }
-  | { action: 'pickImportRefs'; extensions?: string[]; multiple?: boolean }
   | { action: 'prepareDroppedImportRefs'; ticket: string }
   | { action: 'selectionProvenance'; ref: WindowsFileRef; fileRef?: WindowsFileRef; suggestedTag?: string }
   | { action: 'resolvePortableFolder'; locator: PortableFolderLocator }

@@ -100,9 +100,11 @@ export function useOfficeFluxBridge(editor: OfficeEditorLink, file: OfficeFileLi
     if (fl.notReady?.()) return fl.state();
     if (!(await fl.flush())) throw new Error(fl.messages.notSaved);
     const current = await fl.state();
-    if (fl.notReady?.() || !current.schema.anchors.length) return current;
+    if (fl.notReady?.()) return current;
+    // Редактор спрашиваем и тогда, когда якорей ещё нет: от него нужен список листов (шаблон в чистой книге)
     const native = await ed.readHeaders(current.schema);
-    return { ...current, schema: schemaFromNativeHeaders(current.schema, native) };
+    const sheets = Array.isArray(native?.sheets) ? native.sheets.map(String) : undefined;
+    return { ...current, schema: schemaFromNativeHeaders(current.schema, native), ...(sheets?.length ? { sheets } : {}) };
   }, [identity]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Состояние файла как записано, без записи правок редактора: лента спрашивает его, пока панель закрыта. */

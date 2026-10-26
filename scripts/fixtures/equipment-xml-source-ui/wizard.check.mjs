@@ -106,17 +106,17 @@ try {
 
   const cadPage = await makePage(1100, 'dark', 'wizard.html?cad=1');
   await cadPage.getByText('L23.xml', { exact: true }).waitFor({ timeout: 30000 });
-  await cadPage.getByText('Расчёт разобран').waitFor({ timeout: 30000 });
+  // План строится в том же окне, сам: ни второго окна, ни повторного выбора файла.
+  await cadPage.getByRole('heading', { name: /Предпросмотр/ }).waitFor({ timeout: 30000 });
   let cadEntries = await logs(cadPage);
   assert(cadEntries.some(entry => entry.path.endsWith('/equipment/parse-calc')), 'CAD XML takes the production parse-calc route');
   assert(!cadEntries.some(entry => entry.path.endsWith('/equipment/source-import/apply')), 'CAD XML parse does not write before user confirmation');
-  await cadPage.getByRole('button', { name: /Проверить и импортировать в «Вентиляция»/ }).click();
-  const choose = cadPage.getByRole('button', { name: 'Выбрать XML-файл' });
-  if (await choose.count()) await choose.click();
-  await cadPage.getByRole('button', { name: 'Показать план' }).click();
-  await cadPage.getByRole('heading', { name: /Предпросмотр/ }).waitFor({ timeout: 30000 });
+  assert(!(await cadPage.getByRole('button', { name: /Выбрать XML/ }).count()), 'CAD XML plan does not ask to pick the file again');
+  assert(!(await cadPage.locator('[aria-modal="true"]').count()), 'CAD XML plan opens no second dialog');
+  await cadPage.screenshot({ path: `${process.env.FLUX_SHOTS || '/tmp'}/wizard-cad-inline.png` });
   assert(await cadPage.getByLabel('Тег оборудования').inputValue() === 'L23', 'CAD XML source tag is populated from the selected XML');
-  assert(await cadPage.getByLabel('Категория оборудования').inputValue() === 'vent', 'CAD XML import uses the visible selected category');
+  const previewBody = cadEntries.find(entry => entry.path.endsWith('/equipment/source-import/preview'))?.body;
+  assert(previewBody?.category === 'vent', 'CAD XML import uses the category from the wizard header', previewBody?.category);
   cadEntries = await logs(cadPage);
   assert(cadEntries.some(entry => entry.path.endsWith('/equipment/source-import/preview')), 'CAD XML routes into the production XML-source plan dialog');
   assert(!cadEntries.some(entry => entry.path.endsWith('/equipment/source-import/apply')), 'XML-source plan performs no write before confirmation');
@@ -125,6 +125,23 @@ try {
   cadEntries = await logs(cadPage);
   assert(cadEntries.some(entry => entry.path.endsWith('/equipment/source-import/apply')), 'XML source is applied only after explicit confirmation');
   await cadPage.close();
+
+  // Группа «…001ABC»: в окне три установки, подтверждение загружает все по очереди.
+  const groupPage = await makePage(1100, 'light', 'wizard.html?cad=group');
+  await groupPage.getByRole('heading', { name: /Предпросмотр/ }).waitFor({ timeout: 30000 });
+  for (const member of ['3700-B01-AS-001A', '3700-B01-AS-001B', '3700-B01-AS-001C']) assert(await groupPage.getByRole('checkbox', { name: member }).isChecked(), `group member ${member} is offered and checked`);
+  await groupPage.screenshot({ path: `${process.env.FLUX_SHOTS || '/tmp'}/wizard-cad-group.png` });
+  await groupPage.getByRole('button', { name: /Подтвердить импорт · 3 установки/ }).click();
+  await groupPage.waitForFunction(() => (window).__wizardLog.filter(entry => entry.path.endsWith('/source-import/apply')).length === 3, null, { timeout: 30000 });
+  const groupApplies = (await logs(groupPage)).filter(entry => entry.path.endsWith('/source-import/apply'));
+  assert(groupApplies.map(entry => entry.body.tagIdentifier).join() === '3700-B01-AS-001A,3700-B01-AS-001B,3700-B01-AS-001C', 'each group member is imported with its own tag', groupApplies.map(entry => entry.body.tagIdentifier));
+  assert(new Set(groupApplies.map(entry => entry.body.expectedLedgerRevision)).size === 3, 'each group member plans against the refreshed ledger revision', groupApplies.map(entry => entry.body.expectedLedgerRevision));
+  await groupPage.getByText('Импортировано. Позиции появились').waitFor({ timeout: 30000 });
+  await groupPage.getByRole('button', { name: 'Пути установок' }).click();
+  await groupPage.getByRole('region', { name: 'Пути установок' }).or(groupPage.getByLabel('Пути установок')).first().waitFor({ timeout: 30000 });
+  assert(await groupPage.getByRole('button', { name: 'Сменить папку' }).count() === 1, 'paths panel lists the bound unit with a folder action');
+  await groupPage.screenshot({ path: `${process.env.FLUX_SHOTS || '/tmp'}/wizard-paths.png` });
+  await groupPage.close();
 
   if (failures.length) throw new Error(failures.join('\n'));
   console.log(JSON.stringify({ result: 'passed', checks: ['production DocImportWizard XML and document routes', 'no pre-confirm writes', 'document sourceBinding and refreshed CAS revision', 'deferred confirm disabled', 'narrow/wide light/dark screenshots'] }));

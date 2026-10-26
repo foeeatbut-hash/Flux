@@ -71,7 +71,7 @@ const { ok, done } = checks();
       await page.evaluate(() => (window as any).__probe(null));
       await page.waitForFunction((id) => (document.querySelector(`[data-win="${id}"] > div`) as HTMLElement).getBoundingClientRect().height === 34, ids[0]);
       const released = await box(ids[0]);
-      ok('Слот освобождён: заголовок вернулся к 34 точкам с названием раздела', released.h === 34 && released.text.includes('Справка') && released.bg === before.bg, released);
+      ok('Слот освобождён: заголовок вернулся к 34 точкам с названием раздела', released.h === 34 && released.text.includes('Справочник') && released.bg === before.bg, released);
       await page.evaluate((id) => (window as any).__probe(id), ids[0]);
       await frame(ids[0]).locator('[data-explorer-tabs]').waitFor();
       await frame(ids[0]).getByRole('button', { name: 'Закрыть', exact: true }).click();

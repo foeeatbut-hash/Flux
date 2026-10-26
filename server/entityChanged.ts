@@ -41,7 +41,7 @@ export function emitEntitiesChanged(kind: 'tag' | 'element', ids: Iterable<strin
  * Ввоз меняет сразу много сущностей: один проектный маркер будит списки без
  * тысячи одинаковых socket-пакетов, а префикс ID не совпадёт с карточкой.
  */
-export function emitProjectDataChanged(kind: 'tag' | 'element', projectId: string, actor?: { userId?: string | null }): void {
+export function emitProjectDataChanged(kind: 'tag' | 'element' | 'dictionary', projectId: string, actor?: { userId?: string | null }): void {
   if (!projectId) return;
   try {
     broadcast('entity:changed', {

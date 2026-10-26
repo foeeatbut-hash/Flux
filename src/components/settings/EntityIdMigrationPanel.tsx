@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ENV_CONFIG } from '../../config/env';
 import { applyEntityIdMappingsLocally, reverseEntityIdMappings, type EntityIdMapping } from '../../lib/entityIdLocalMigration';
+import { saveText } from '../../lib/saveToWindows';
 
 interface MigrationPlan {
   planToken: string;
@@ -72,13 +73,10 @@ export default function EntityIdMigrationPanel() {
     finally { setBusy(false); }
   };
 
-  const download = () => {
+  const download = async () => {
     if (!plan) return;
-    const blob = new Blob([JSON.stringify({ counts: plan.counts, blockers: plan.blockers, mappings: plan.mappings }, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url; anchor.download = `flux-entity-id-mapping-${new Date().toISOString().slice(0, 10)}.json`;
-    anchor.click(); URL.revokeObjectURL(url);
+    const saved = await saveText(`flux-entity-id-mapping-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ counts: plan.counts, blockers: plan.blockers, mappings: plan.mappings }, null, 2));
+    if (!saved.ok && !saved.canceled) setError(saved.error || 'Сопоставление не сохранено.');
   };
 
   const apply = async () => {

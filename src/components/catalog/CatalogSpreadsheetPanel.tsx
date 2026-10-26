@@ -280,8 +280,7 @@ export default function CatalogSpreadsheetPanel({ catalog, classId, canEdit }: {
     try {
       const bytes = kind === 'template' ? templateBytes(catalog) : exportBytes(catalog, classId);
       const saved = await saveBytes(kind === 'template' ? 'Шаблон-каталога.xlsx' : `${safeName('Каталог')}.xlsx`, bytes);
-      if (saved.ok) setMessage(saved.path ? `Сохранено: ${saved.path}` : 'Файл сохранён');
-      else if (!saved.canceled) throw new Error(saved.error || 'Не удалось сохранить файл');
+      if (!saved.ok && !saved.canceled) throw new Error(saved.error || 'Не удалось сохранить файл');
     } catch (e: any) { setError(e?.message || 'Не удалось собрать Excel'); }
     finally { setBusy(false); }
   };

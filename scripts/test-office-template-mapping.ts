@@ -70,4 +70,17 @@ const rebound = mapOfficeTemplateToTarget(template, target, fields, {}, {
 assert.equal(rebound.pending.length, 2);
 assert.equal(rebound.schema.anchors[0].parts.filter((part) => part.kind === 'field').length, 2);
 
+// Чистая книга пользователя B: ячеек шапки в ней ещё нет, шаблон заводит их на тех же местах
+const blank = mapOfficeTemplateToTarget(template, { version: 1, anchors: [] }, fields, {}, {}, ['Sheet1', 'Sheet2']);
+assert.deepEqual(blank.schema.anchors.map((anchor) => [anchor.kind === 'excel-range' && anchor.sheetName, anchor.address]), [['Sheet1', 'B2'], ['Sheet1', 'Z99']], 'листа шаблона в книге нет: берётся первый лист книги');
+assert.equal(new Set(blank.schema.anchors.map((anchor) => anchor.id)).size, 2, 'у новых ячеек свои идентификаторы');
+assert.ok(!blank.schema.anchors.some((anchor) => ['source-anchor', 'source-missing'].includes(anchor.id)), 'идентификаторы чужого документа не переносятся');
+assert.equal((blank.schema.anchors[0].parts[1] as any).binding.anchorId, blank.schema.anchors[0].id, 'привязка параметра указывает на новую ячейку');
+assert.deepEqual(blank.pending.map((item) => item.kind === 'field' && item.fieldKey), ['unknown.key', 'code'], 'ячейки заведены, уточнять осталось только недоступные поля');
+const sameSheet = mapOfficeTemplateToTarget(template, { version: 1, anchors: [] }, fields, {}, {}, ['Sheet1', 'Лист1']);
+assert.deepEqual(sameSheet.schema.anchors.map((anchor) => anchor.kind === 'excel-range' && anchor.sheetName), ['Лист1', 'Лист1'], 'лист шаблона есть в книге — шапка на нём');
+const noSheets = mapOfficeTemplateToTarget(template, { version: 1, anchors: [] }, fields);
+assert.equal(noSheets.schema.anchors.length, 0, 'без списка листов (Документ, старый путь) ячейки не заводятся');
+assert.deepEqual(noSheets.pending.map((item) => item.kind === 'anchor' && item.reason), ['missing-target', 'missing-target']);
+
 console.log('Структурная привязка шаблона использует UUID текущего документа и явно сообщает о потерянных полях/якорях');

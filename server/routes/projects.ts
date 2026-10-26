@@ -5,6 +5,9 @@ import { canSeeProject, registerProjectAccessGuard } from './members.js';
 import { forgetProjectSelections } from './builder.js';
 import { nextProjectId } from '../entityIds.js';
 import { cleanupEquipmentDocumentBindingLedger } from './equipmentDocumentBindings.js';
+import { cleanupProjectFolderBindingLedger } from './projectFolderBindings.js';
+import { deleteProjectData } from '../projectDelete.js';
+import { ensureSharing, forgetFileShare } from '../fileSharing.js';
 
 // Проекты: список с учётом состава, создание, правка и удаление.
 //
@@ -95,17 +98,24 @@ export function registerProjectRoutes(app: Express, deps: ProjectDeps): void {
     try {
       const { id } = req.params;
       const doomed = await prisma.project.findUnique({ where: { id } });
-      await prisma.$transaction(async (tx: any) => {
-        await tx.project.delete({ where: { id } });
+      // Общий диск — не проект, а место хранения: его удаление унесло бы файлы всего отдела
+      if (doomed?.system) return res.status(400).json({ error: 'Служебный проект удалить нельзя' });
+      if (doomed) await ensureSharing(prisma);
+      // Всё одной транзакцией: либо проект исчез целиком, либо не тронут. Повторное
+      // удаление находит пустоту и отвечает успехом — состояние уже то, что просили.
+      const removed = await prisma.$transaction(async (tx: any) => {
+        const counts = await deleteProjectData(tx, id, forgetFileShare);
         await cleanupEquipmentDocumentBindingLedger(tx, id);
-      });
+        await cleanupProjectFolderBindingLedger(tx, id);
+        return counts;
+      }, { timeout: 120_000, maxWait: 30_000 });
       await forgetProjectSelections(id);
       if (doomed) {
         await notifyAll('ПРОЕКТЫ', `Проект удалён: ${doomed.name}`,
           'Все его теги, файлы и документы удалены вместе с ним.', '/projects',
           String((req as any).authUser?.id || ''));
       }
-      res.json({ success: true });
+      res.json({ success: true, removed });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

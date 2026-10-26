@@ -6,12 +6,17 @@
  * человека, и вести себя оно обязано одинаково: спросить папку, положить файл,
  * сказать, куда положил.
  *
- * В программе открывается обычное окно сохранения Windows и, если известно,
- * откуда файл когда-то принесли, предлагается та же папка. В браузере окна
- * сохранения нет — там это обычное скачивание.
+ * В программе папку и имя человек выбирает в окне «Сохранить в Проводнике
+ * Flux» (то же, что «Выбрать файл» при загрузке), а не в системном окне
+ * Windows: окно помнит последнюю папку и, если известно, откуда файл когда-то
+ * принесли, предлагает её. В браузере моста к папкам компьютера нет — там это
+ * обычное скачивание.
  */
 import { fileBytes } from './fileBytes';
 import { bytesToBase64, windowsFilesRequest, type WindowsFileRef } from './windowsFiles';
+import { readablePath } from './fluxSaveWrite';
+import { useFluxSaveStore } from '../store/fluxSaveStore';
+import { useToastStore } from '../store/toastStore';
 
 export interface SaveResult {
   ok: boolean;
@@ -22,19 +27,18 @@ export interface SaveResult {
   error: string;
 }
 
-const elec = (): any => (typeof window !== 'undefined' ? (window as any).electron : undefined);
+/** Мост к папкам компьютера есть только в установленной программе */
+export const hasFluxExplorer = (): boolean => typeof window !== 'undefined' && !!(window as any).electron?.windowsFiles;
+
+/** Больше мост за один раз не записывает (предел файла Проводника) */
+const MAX_SAVE_BYTES = 64 * 1024 * 1024;
 
 /** base64 из байтов — без промежуточной строки на десятки мегабайт */
 export function toBase64(bytes: Uint8Array): string {
-  let bin = '';
-  const step = 0x8000;
-  for (let i = 0; i < bytes.length; i += step) {
-    bin += String.fromCharCode(...bytes.subarray(i, Math.min(i + step, bytes.length)));
-  }
-  return btoa(bin);
+  return bytesToBase64(bytes);
 }
 
-/** Скачивание браузером — запасной путь там, где нет окна сохранения */
+/** Скачивание браузером — запасной путь там, где нет Проводника компьютера */
 function downloadInBrowser(name: string, bytes: Uint8Array): SaveResult {
   try {
     const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/octet-stream' });
@@ -54,17 +58,51 @@ function downloadInBrowser(name: string, bytes: Uint8Array): SaveResult {
   }
 }
 
-/** Положить байты на диск Windows */
-export async function saveBytes(name: string, bytes: Uint8Array, dir = ''): Promise<SaveResult> {
-  const e = elec();
-  if (!e?.saveFileAs) return downloadInBrowser(name, bytes);
-  const r = await e.saveFileAs({ name, base64: toBase64(bytes), dir });
-  return {
-    ok: !!r?.success,
-    path: String(r?.filePath || ''),
-    canceled: !!r?.canceled,
-    error: String(r?.error || ''),
-  };
+/** Сказать человеку, куда легло: одним местом для всех выгрузок, чтобы слова не расходились */
+function announce(result: SaveResult, quiet?: boolean) {
+  if (quiet || !result.ok) return;
+  try { useToastStore.getState().addToast(hasFluxExplorer() ? `Сохранено: ${result.path}` : `Скачано: ${result.path}`, 'success'); } catch { /* уведомление не должно ломать выгрузку */ }
+}
+
+export interface SaveOptions {
+  /** Папка Windows, откуда файл принесли: окно откроется в ней */
+  dir?: string;
+  /** Заголовок окна, если нужен свой */
+  title?: string;
+  /** Вызывающий сам говорит о результате */
+  quiet?: boolean;
+}
+
+/** Положить байты на диск Windows через Проводник Flux */
+export async function saveBytes(name: string, bytes: Uint8Array, dirOrOptions: string | SaveOptions = ''): Promise<SaveResult> {
+  const options: SaveOptions = typeof dirOrOptions === 'string' ? { dir: dirOrOptions } : dirOrOptions;
+  if (!hasFluxExplorer()) {
+    const result = downloadInBrowser(name, bytes);
+    announce(result, options.quiet);
+    return result;
+  }
+  if (bytes.byteLength > MAX_SAVE_BYTES) {
+    return { ok: false, path: '', canceled: false, error: `Файл «${name}» больше 64 МБ: Проводник Flux записывает файлы до этого размера.` };
+  }
+  const result = await useFluxSaveStore.getState().saveFile({ name, bytes, dir: options.dir, title: options.title });
+  announce(result, options.quiet);
+  return result;
+}
+
+/** То же для Blob: большинство экспортов собирают именно его */
+export async function saveBlob(name: string, blob: Blob, options: SaveOptions = {}): Promise<SaveResult> {
+  return saveBytes(name, new Uint8Array(await blob.arrayBuffer()), options);
+}
+
+/** То же для текста (CSV, JSON, XML, журнал) */
+export function saveText(name: string, text: string, options: SaveOptions = {}): Promise<SaveResult> {
+  return saveBytes(name, new TextEncoder().encode(text), options);
+}
+
+/** Показать ошибку выгрузки тем же способом, что и все: общим уведомлением */
+export function reportSaveError(result: SaveResult, fallback = 'Не удалось сохранить файл') {
+  if (result.ok || result.canceled) return;
+  useToastStore.getState().addToast(result.error || fallback, 'error');
 }
 
 /** Папка из полного пути файла: «C:\Users\И\Смета.xlsx» → «C:\Users\И» */
@@ -111,10 +149,9 @@ export async function saveFolderTreeToWindows(folderId: string, name: string, fo
   };
   let rootRef: WindowsFileRef | null = null;
   try {
-    const parent = await request<{ id: string; name: string; kind: any } | { canceled: true }>({ action: 'addRoot' });
-    if ('canceled' in parent) return { ok: false, path: '', canceled: true, error: '' };
-    if (!parent.id) throw new Error('Не выбрана папка Windows.');
-    rootRef = { rootId: parent.id, relativePath: '' };
+    const parent = await useFluxSaveStore.getState().pickFolder({ title: `Куда сохранить папку «${name}»`, confirmLabel: 'Сохранить сюда' });
+    if (!parent) return { ok: false, path: '', canceled: true, error: '' };
+    rootRef = { rootId: parent.rootId, relativePath: parent.relativePath };
     const source = folders.find(folder => folder.id === folderId);
     if (!source) throw new Error('Папка больше недоступна. Обновите список документов.');
     const byParent = new Map<string, any[]>();
@@ -151,9 +188,13 @@ export async function saveFolderTreeToWindows(folderId: string, name: string, fo
       await request({ action: 'createDraft', parent: root.ref, name: String(file.name || 'Файл'), base64: bytesToBase64(bytes) });
     }
     for (const child of byParent.get(String(source.id)) || []) await createTree(child, root.ref, 1);
-    const published = await request<{ complete: boolean; published: number; failed: string[] }>({ action: 'publishDraftTree', ref: root.ref });
+    const published = await request<{ ref: WindowsFileRef; complete: boolean; published: number; failed: string[] }>({ action: 'publishDraftTree', ref: root.ref });
     if (!published.complete || published.failed.length) return { ok: false, path: '', canceled: false, error: `Опубликовано ${published.published}; ошибки: ${published.failed.join('; ')}. Черновик сохранён в Flux.` };
-    return { ok: true, path: name, canceled: false, error: '' };
+    const roots = await windowsFilesRequest<{ id: string; name: string }[]>({ action: 'roots' });
+    const rootName = roots.ok ? roots.data.find(item => item.id === published.ref?.rootId)?.name : '';
+    const done: SaveResult = { ok: true, path: rootName ? readablePath(rootName, published.ref.relativePath) : name, canceled: false, error: '' };
+    announce(done);
+    return done;
   } catch (error: any) {
     return { ok: false, path: rootRef ? `Черновик: ${name}` : '', canceled: false, error: `${String(error?.message || error)}${rootRef ? ' Черновик Flux сохранён в выбранной папке.' : ''}` };
   }
@@ -165,8 +206,9 @@ export async function saveExplorerItem(id: string, isFolder: boolean, items: any
   const out = isFolder
     ? await saveFolderTreeToWindows(id, String(item.name || 'Папка'), folders)
     : await saveFileNode(id);
-  if (out.canceled) return;
-  notify(out.ok ? `${isFolder ? 'Папка' : 'Сохранено'}: ${out.path || item.name}` : (out.error || 'Не удалось выгрузить'), out.ok ? 'success' : 'error');
+  if (out.canceled || out.ok) return;
+  // Об удаче сказала сама выгрузка (announce): здесь остаётся только отказ
+  notify(out.error || 'Не удалось выгрузить', 'error');
 }
 
 /**

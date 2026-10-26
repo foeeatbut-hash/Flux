@@ -9,6 +9,7 @@ import {
 import { dataService } from '../services/dataService';
 import { useToastStore } from '../store/toastStore';
 import { countOf } from '../lib/plural';
+import { reportSaveError, saveBlob } from '../lib/saveToWindows';
 import { FIELDS, FIELD_LABEL, detectField, FieldKey as SharedFieldKey } from '../capture/fields';
 import { useEscapeClose } from '../lib/useDismiss';
 import FileBadge from './ui/FileBadge';
@@ -111,7 +112,7 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
     setPasteText('');
   };
 
-  const downloadTemplate = () => {
+  const downloadTemplate = async () => {
     const header = FIELDS.map(f => f.label);
     const example = ['В01-AHU-001', 'КЦКП-10', 'Приточная установка', 'ОВ', 'Воздух', '1.2.3', '', 'Актуально'];
     const child = ['В01-AHU-001-FAN', 'ВКР-4', 'Вентилятор', 'ОВ', 'Воздух', '1.2.3.1', 'В01-AHU-001', 'Актуально'];
@@ -121,11 +122,8 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
     XLSX.utils.book_append_sheet(wb, ws, 'Шаблон тегов');
     const out = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
     const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = 'Шаблон-импорта-тегов.xlsx';
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const saved = await saveBlob('Шаблон-импорта-тегов.xlsx', blob);
+    reportSaveError(saved);
   };
 
   const sheet = sheets[activeSheet];

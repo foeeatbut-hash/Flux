@@ -1,5 +1,6 @@
 import React from 'react';
 import { CheckCircle2, Loader2, RefreshCw, X, AlertTriangle, Ban } from 'lucide-react';
+import { useEscapeClose } from '../../lib/useDismiss';
 
 /**
  * Центр операций: что сейчас ввозится и чем кончилось недавнее.
@@ -45,6 +46,8 @@ interface Props {
 }
 
 export default function ImportOperations({ batches, loading, onRefresh, onCancel, onClose }: Props) {
+  // Esc закрывает окно, как и остальные диалоги раздела
+  useEscapeClose(true, onClose);
   const [open, setOpen] = React.useState<Record<string, boolean>>({});
 
   return (

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import EquipmentXmlSourcePanel from '../../../src/components/equipment/EquipmentXmlSourcePanel';
 import EquipmentXmlUpdatesDialog from '../../../src/components/equipment/EquipmentXmlUpdatesDialog';
 import { useStore } from '../../../src/store/store';
+import { fluxPickerMock } from './pickerMock';
 import './fixture.css';
 
 const xml = '<root><block name="L23"><group name="Воздух"><param name="Расход воздуха" value="8060" unit="м³/ч"/><param name="Давление" value="500" unit="Па"/></group></block></root>';
@@ -41,13 +42,9 @@ useStore.setState({ user: { id: 'fixture-user', role: 'ADMIN' } as any } as any)
 let targetPreviewCalls = 0;
 
 (window as any).electron = { windowsFiles: { invoke: async (request: any) => {
-  if (request.action === 'pickEquipmentSource') return { ok: true, data: { canceled: false, selectedFile: { ref: ref('L23/A/L23.xml'), name: 'L23.xml' }, sourceFolder: ref('L23') } };
-  if (request.action === 'pickEquipmentSourceFolder') return { ok: true, data: { canceled: false, folder: ref(rebindMode ? 'NewRoot' : updatesMode ? 'CommonRoot' : 'L23') } };
   if (request.action === 'roots') return { ok: true, data: [{ id: rootId, name: 'Проектное оборудование', kind: 'custom', available: true }] };
-  if (request.action === 'list') {
-    const entries = request.ref.relativePath === 'L23' ? [directory('A', 'L23/A'), directory('B', 'L23/B')] : request.ref.relativePath === 'L23/A' ? [file('L23.xml', 'L23/A/L23.xml')] : request.ref.relativePath === 'L23/B' ? [file('L23.xml', 'L23/B/L23.xml')] : [];
-    return { ok: true, data: { entries, nextOffset: null } };
-  }
+  const picked = fluxPickerMock(rootId, xml.length, request);
+  if (picked) return picked;
   if (request.action === 'read') return { ok: true, data: { name: request.ref.relativePath.split('/').pop(), size: xml.length, modifiedAt: '2026-10-01T00:00:00.000Z', sha256: request.ref.relativePath.includes('/B/') ? 'b'.repeat(64) : 'a'.repeat(64), base64: bytes } };
   if (request.action === 'open' || request.action === 'reveal') return { ok: true, data: { opened: true } };
   return { ok: false, error: { code: 'NOT_IMPLEMENTED', message: `Unsupported fixture action: ${request.action}` } };
@@ -57,8 +54,6 @@ const originalFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
   if (init?.method && ['POST', 'PUT', 'DELETE'].includes(init.method.toUpperCase())) (window as any).__fixtureWrites.push(init.method.toUpperCase());
   const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
-  // Настройка «системное окно выбора файла»: без неё ImportFileChooser открывает компактный выбор Flux вместо замоканного нативного.
-  if (url.endsWith('/api/settings/explorer_file_picker')) return new Response(JSON.stringify({ user: JSON.stringify({ system: true }) }), { status: 200 });
   if (url.endsWith('/equipment/projects/project-fixture/sources') && !init?.method) {
     sourceReads += 1;
     if (raceMode && sourceReads === 1) await new Promise(resolve => setTimeout(resolve, 500));

@@ -499,6 +499,8 @@ function ProjectExplorer() {
   }, [diskProjectId, projectOf]);
   const projectOfRef = useRef(projectOf);
   projectOfRef.current = projectOf;
+  const diskProjectIdRef = useRef(diskProjectId);
+  diskProjectIdRef.current = diskProjectId;
   const nameOfProject = useProjectNames();
 
   /** Подпись «из проекта такого-то» — только для чужого; для своего пусто. */
@@ -1155,7 +1157,9 @@ function ProjectExplorer() {
     // Файл из чужого проекта: имя видно, содержимое — после переключения.
     // Документ Конструктора в чужом проекте просто не соберётся
     const owner = projectOfRef.current(f);
-    if (owner && owner !== useStore.getState().activeProject?.id) {
+    // Диск от проекта не зависит (как и папки выше): файл с него открывается всегда, а не просьбой
+    // переключиться на служебный проект, которого пользователь не видит
+    if (owner && owner !== diskProjectIdRef.current && owner !== useStore.getState().activeProject?.id) {
       openInProject({
         what: `Документ «${f?.name || ''}»`,
         projectId: owner,
@@ -1330,7 +1334,8 @@ function ProjectExplorer() {
     const crumbs = [];
     let curr = currentFolder;
     while (curr) {
-      crumbs.unshift(curr);
+      // Корневая папка диска уже показана крошкой раздела «Общий диск»: без этого имя шло дважды
+      if (curr.id !== diskRootId) crumbs.unshift(curr);
       curr = folders.find(f => f.id === curr.parentId);
     }
     return crumbs;

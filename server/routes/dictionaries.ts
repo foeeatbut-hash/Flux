@@ -2,11 +2,18 @@ import type { Express, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
 import { getDialect } from '../ddl.js';
 import { nextFieldId, nextProjectEntityId, nextProjectId } from '../entityIds.js';
+import { emitProjectDataChanged } from '../entityChanged.js';
 
 // Шаблон тегов проекта и словари (справочники значений) с их позициями.
 //
 // Вынесено из server.ts вместе с tags.ts: раньше всё это шло одним куском
 // «Registry (Equipment & Tags)».
+
+// Справочник читают чужие окна: «Теги» строят по нему строку создания и «Подбор».
+// Событие проектное и без содержимого — окно само перечитывает свой список.
+const announce = (projectId: string | undefined | null, req: Request) => {
+  if (projectId) emitProjectDataChanged('dictionary', projectId, { userId: String((req as any).authUser?.id || '') });
+};
 
 export function registerDictionaryRoutes(app: Express): void {
   // Registry (Equipment & Tags)
@@ -91,6 +98,7 @@ export function registerDictionaryRoutes(app: Express): void {
           include: { items: true },
         });
       });
+      announce(projectId, req);
       res.json({ dictionary });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -108,12 +116,14 @@ export function registerDictionaryRoutes(app: Express): void {
       });
       return item;
     });
+    announce(req.params.projectId, req);
     res.json({ item });
   });
 
   app.put('/api/dictionaries/items/:itemId', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     class RenameConflict extends Error {}
+    let projectOfItem: string | undefined;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const item = await prisma.$transaction(async (tx: any) => {
@@ -122,6 +132,7 @@ export function registerDictionaryRoutes(app: Express): void {
             include: { dictionary: { select: { name: true, projectId: true } } },
           });
           if (!before) return null;
+          projectOfItem = before.dictionary.projectId;
 
           const renamedCategory = before.dictionary.name === '__tag_creation_config__'
             && !before.parentId
@@ -159,6 +170,7 @@ export function registerDictionaryRoutes(app: Express): void {
           return tx.dictionaryItem.findUnique({ where: { id: before.id } });
         }, getDialect() === 'sqlite' ? undefined : { isolationLevel: 'Serializable' });
         if (!item) return res.status(404).json({ error: 'Пункт справочника не найден' });
+        announce(projectOfItem, req);
         return res.json({ item });
       } catch (error: any) {
         if (error instanceof RenameConflict) return res.status(409).json({ error: 'Данные изменились. Обновите справочник и повторите правку.' });
@@ -171,7 +183,20 @@ export function registerDictionaryRoutes(app: Express): void {
 
   app.delete('/api/dictionaries/items/:itemId', async (req: Request, res: Response) => {
     const prisma = getPrisma();
-    await prisma.dictionaryItem.delete({ where: { id: req.params.itemId } });
+    // Потомков снимаем явно: в локальной SQLite таблицы заведены без внешних
+    // ключей, и «каскад» схемы не срабатывает — варианты удалённой категории
+    // оставались в базе сиротами, хотя экран обещает удалить их вместе с ней.
+    const owner = await prisma.dictionaryItem.findUnique({ where: { id: req.params.itemId }, select: { dictionary: { select: { projectId: true } } } });
+    const doomed: string[] = [];
+    let level = [req.params.itemId];
+    while (level.length && doomed.length < 100000) {
+      doomed.push(...level);
+      const next = await prisma.dictionaryItem.findMany({ where: { parentId: { in: level } }, select: { id: true } });
+      level = next.map((row: { id: string }) => row.id).filter((id: string) => !doomed.includes(id));
+    }
+    // Повторное удаление уже удалённого пункта — не ошибка: два окна могли нажать одновременно
+    await prisma.dictionaryItem.deleteMany({ where: { id: { in: doomed } } });
+    announce(owner?.dictionary?.projectId, req);
     res.json({ success: true });
   });
 }

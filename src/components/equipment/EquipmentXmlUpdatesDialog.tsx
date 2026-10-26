@@ -3,6 +3,7 @@ import { captureEquipmentSourceBindings, getEquipmentSourceBinding, planEquipmen
 import type { LocalEquipmentSourceBinding } from '../../lib/equipmentSourcesLocal';
 import type { WindowsFileRef } from '../../lib/windowsFiles';
 import EquipmentXmlSourcePanel from './EquipmentXmlSourcePanel';
+import { useEscapeClose } from '../../lib/useDismiss';
 import ImportFileChooser, { type ImportFileChooserHandle } from '../ImportFileChooser';
 import type { EquipmentDocumentBinding } from '../../../equipment/documentBindings';
 
@@ -15,6 +16,8 @@ const isPending = (status?: string) => status === 'pending' || status === 'parti
 /** Общий список найденных XML-кандидатов и безопасная перепривязка локальных папок. */
 export default function EquipmentXmlUpdatesDialog(props: { projectId: string; canManage: boolean; localStatuses: Record<string, { status: string; revision?: string }>; sourceLabels?: Record<string, string>; documentBindings?: EquipmentDocumentBinding[]; documentStatuses?: Record<string, { status: string; revision?: string; fileRef?: WindowsFileRef; sourceFolder?: WindowsFileRef; sha256?: string }>; onReviewDocument?: (binding: EquipmentDocumentBinding) => void; onClose: () => void; onChanged: () => void }) {
   const { projectId, canManage, localStatuses, sourceLabels, documentBindings = [], documentStatuses = {}, onReviewDocument, onClose, onChanged } = props;
+  // Esc закрывает окно, как и остальные диалоги раздела
+  useEscapeClose(true, onClose);
   const [sources, setSources] = useState<Source[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [folder, setFolder] = useState<WindowsFileRef | null>(null);

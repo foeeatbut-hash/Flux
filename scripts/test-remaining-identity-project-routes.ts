@@ -6,6 +6,8 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import express from 'express';
 import { setPrisma } from '../server/context.js';
+import { setDialect } from '../server/ddl.js';
+import { parsePrismaSchema } from '../server/schema-sync.js';
 import { registerProjectRoutes } from '../server/routes/projects.js';
 
 const require = createRequire(import.meta.url);
@@ -15,11 +17,19 @@ const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-identity-project-routes-'));
 const dbPath = path.join(tempDir, 'synthetic.sqlite');
 const raw = new Database(dbPath);
-raw.exec(`
-  CREATE TABLE "Project" ("id" TEXT PRIMARY KEY NOT NULL, "name" TEXT NOT NULL, "code" TEXT NOT NULL DEFAULT '', "customer" TEXT NOT NULL DEFAULT '', "contractor" TEXT NOT NULL DEFAULT '', "description" TEXT NOT NULL DEFAULT '', "info" TEXT NOT NULL DEFAULT '', "status" TEXT NOT NULL DEFAULT 'ACTIVE', "system" BOOLEAN NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
-  CREATE TABLE "AppSetting" ("id" TEXT PRIMARY KEY NOT NULL, "key" TEXT NOT NULL, "userId" TEXT, "value" TEXT NOT NULL, "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
-  CREATE TABLE "ProjectMember" ("id" TEXT PRIMARY KEY NOT NULL, "projectId" TEXT NOT NULL, "userId" TEXT NOT NULL, "addedBy" TEXT NOT NULL, "addedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
-`);
+// Удаление проекта теперь явно чистит все проектные таблицы (server/projectDelete.ts),
+// поэтому синтетическая база обязана содержать полную схему, а не три таблицы:
+// иначе первый же findMany по Tag обрывает транзакцию, и это не ошибка продукта.
+const models = parsePrismaSchema('sqlite', fs.readFileSync('prisma/schema.prisma', 'utf8'));
+for (const model of models) {
+  const columns = model.columns.map(column => `"${column.name}" ${column.sqlType}${column.nullable ? '' : ' NOT NULL'}${column.isId ? ' PRIMARY KEY' : ''}${column.unique ? ' UNIQUE' : ''}${column.defaultSql ? ` DEFAULT ${column.defaultSql}` : ''}`);
+  const uniques = model.uniques.map(key => `UNIQUE (${key.columns.map(name => `"${name}"`).join(',')})`);
+  raw.exec(`CREATE TABLE "${model.name}" (${[...columns, ...uniques].join(',')})`);
+}
+// Скрытые таблицы связей «многие ко многим», которые удаление чистит сырым запросом
+for (const join of ['_FileMainTags', '_FileAdditionalTags', '_ComponentElementToTag', '_GroupMembers']) {
+  raw.exec(`CREATE TABLE IF NOT EXISTS "${join}" ("A" TEXT NOT NULL, "B" TEXT NOT NULL, PRIMARY KEY ("A", "B"))`);
+}
 raw.close();
 const prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: `file:${dbPath}` }) });
 const app = express();
@@ -45,6 +55,7 @@ const check = (condition: unknown, label: string) => { assert.ok(condition, labe
 
 async function main() {
   try {
+    setDialect('sqlite');
     setPrisma(prisma);
     server = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve, reject) => { server!.once('listening', resolve); server!.once('error', reject); });

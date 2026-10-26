@@ -168,9 +168,6 @@ contextBridge.exposeInMainWorld('electron', {
   pathOfFile: (file: File): string => {
     try { return webUtils.getPathForFile(file); } catch (_) { return ''; }
   },
-  /** Сохранить файл на диск Windows обычным окном сохранения */
-  saveFileAs: (p: { name: string; base64: string; dir?: string }) =>
-    ipcRenderer.invoke('files:save-as', p),
   /** Открыть файл программой Windows — для того, чему своей программы нет */
   openFileExternally: (p: { name: string; base64: string }) =>
     ipcRenderer.invoke('files:open-external', p),
@@ -194,7 +191,6 @@ contextBridge.exposeInMainWorld('electron', {
       return ipcRenderer.invoke(channel, ...args);
     },
   },
-  saveLog: (text: string) => ipcRenderer.invoke('log:save-dialog', text),
   emergencySave: (text: string) => ipcRenderer.send('log:emergency-save', text),
   
   // Автообновления: проверка и публикация идут через HTTP API сервера

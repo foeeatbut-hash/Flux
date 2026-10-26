@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, RotateCcw, X } from 'lucide-react';
 import { CLASSES, classById, classLabel, type Classified } from '../../../equipment/classes';
+import { useEscapeClose } from '../../lib/useDismiss';
 
 /**
  * Тип и вид позиции в шапке карточки — с поправкой по нажатию.
@@ -24,6 +25,8 @@ export default function TypeChip({ componentId, typed, onSaved, say }: Props) {
   const [cls, setCls] = React.useState<string>(typed?.cls || 'ПРОЧЕЕ');
   const [kind, setKind] = React.useState<string>(typed?.kind || '');
   const [busy, setBusy] = React.useState(false);
+  // Окно типа закрывается и по Esc, а не только крестиком
+  useEscapeClose(open, () => setOpen(false));
 
   React.useEffect(() => {
     setCls(typed?.cls || 'ПРОЧЕЕ');

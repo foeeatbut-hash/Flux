@@ -10,7 +10,8 @@
 import type { Express, Request, Response } from 'express';
 import { createHash } from 'node:crypto';
 import { canApplyOfficePlan } from '../../src/lib/officeModel.js';
-import { officeStateOfContent, planOfficeContent, rebindOfficeContent, requireProjectRead } from './projectOffice.js';
+import { officeStateOfContent, planOfficeContent, rebindOfficeContent, requireProjectRead, rowsFor } from './projectOffice.js';
+import { officeChangesOfContent } from '../officeChanges.js';
 import { refreshOfficeLocalFields } from '../officeLocalFields.js';
 
 /** Общий предел тела запроса сервера — 50 МБ, base64 прибавляет треть. */
@@ -53,6 +54,15 @@ export function registerProjectOfficeLocalRoutes(app: Express): void {
       const result = await refreshOfficeLocalFields(before, projectId);
       if (Buffer.byteLength(result.base64, 'base64') > LOCAL_OFFICE_MAX_BYTES) return res.status(413).json({ error: 'Обновлённый файл слишком велик для Flux Office' });
       res.json(result);
+    } catch (err: any) { fail(res, err); }
+  });
+
+  /** Что в присланном файле устарело относительно данных проекта (office/changes.ts) */
+  app.post('/api/project-data/office-local/changes', async (req: Request, res: Response) => {
+    try {
+      const projectId = projectOf(req.body);
+      await requireProjectRead(req, projectId);
+      res.json(await officeChangesOfContent(contentOf(req.body), projectId, rowsFor));
     } catch (err: any) { fail(res, err); }
   });
 

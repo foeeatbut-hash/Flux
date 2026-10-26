@@ -460,8 +460,8 @@ function ProjectDesktop() {
   /** Выгрузить файл обратно в Windows — в ту папку, откуда его принесли */
   const exportItem = async (item: DeskItem) => {
     const out = await saveFileNode(item.id);
-    if (out.canceled) return;
-    addToast(out.ok ? `Сохранено: ${out.path || item.name}` : (out.error || 'Не удалось выгрузить'), out.ok ? 'success' : 'error');
+    if (out.canceled || out.ok) return;
+    addToast(out.error || 'Не удалось выгрузить', 'error');
   };
 
   const onDeskDrop = async (e: React.DragEvent) => {

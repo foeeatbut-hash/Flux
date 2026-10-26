@@ -296,7 +296,7 @@ export default function PositionTree({
         {units.length === 0 ? (
           <div className="blank">
             <div className="blank-title">Категория пуста</div>
-            <div className="blank-text">Оборудование появится после импорта расчёта или бланка. Кнопка «Импорт из документов» — справа в шапке раздела.</div>
+            <div className="blank-text">Оборудование появится после импорта расчёта или бланка. Кнопка «Загрузить документы» — справа в шапке раздела.</div>
           </div>
         ) : mode === 'type' && types ? byType(units, types).map((g) => (
           <div key={g.cls} className="pb-1">

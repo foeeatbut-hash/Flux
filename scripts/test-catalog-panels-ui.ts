@@ -44,9 +44,8 @@ async function main() {
     for (let i = 0; i < 100; i++) { try { if ((await fetch(`http://127.0.0.1:${port}`)).ok) break; } catch {} await delay(200); }
     await page.goto(`http://127.0.0.1:${port}`);
     await page.getByRole('button', { name: 'Владелец', exact: true }).click();
-    await page.getByRole('button', { name: 'Управление каталогом' }).click();
-    const tools = page.getByRole('combobox', { name: 'Инструмент редактора' });
-    await tools.selectOption('components');
+    await page.getByRole('button', { name: 'Панель разработчика' }).click();
+    await page.getByRole('button', { name: 'Комплектующие', exact: true }).click();
     const row = page.locator('tr[role="button"]').first(); const firstCode = (await row.locator('td').first().innerText()).trim();
     const component = records.component.find(d => d.code === firstCode)!; await row.click();
     const title = page.getByRole('textbox', { name: 'Название модели', exact: true });
@@ -61,7 +60,7 @@ async function main() {
     await page.getByRole('button', { name: 'Сохранить', exact: true }).click(); await until(() => requests.length === 3);
     assert.equal(requests[2].document._draftVersion, originalToken); assert.equal(requests[2].status, 409, 'грязная форма не принимает чужую свежую CAS-ревизию');
     console.log('Компонент: повтор и конфликт пройдены; правила тегов');
-    await tools.selectOption('tags');
+    await page.getByRole('button', { name: 'Правила тегов', exact: true }).click();
     const tagRow = page.locator('tbody tr').first(); const tagInputs = tagRow.locator('input');
     const tagCode = await tagInputs.nth(0).inputValue(); const rule = records.tagRule.find(d => d.code === tagCode)!;
     await tagInputs.nth(1).fill('Первое правило'); await page.getByRole('button', { name: 'Сохранить', exact: true }).click(); await until(() => requests.length === 4);

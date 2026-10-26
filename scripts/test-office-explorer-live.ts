@@ -179,6 +179,16 @@ void (async () => {
       try {
         if (request.action === 'read') return { ok: true, data: await files.read(request.ref) };
         if (request.action === 'write') return { ok: true, data: await files.write(request.ref, request.base64, request.baseSha256) };
+        // Окно «Сохранить в Проводнике Flux» (выгрузка таблицы) спрашивает папки и кладёт файл теми же действиями, что и настоящий мост
+        if (request.action === 'roots') return { ok: true, data: await files.roots() };
+        if (request.action === 'list') return { ok: true, data: await files.list(request.ref, request.offset, request.limit) };
+        if (request.action === 'stat') return { ok: true, data: await files.entry(request.ref) };
+        if (request.action === 'fileHash') return { ok: true, data: await files.fileHash(request.ref) };
+        if (request.action === 'publish') return { ok: true, data: await files.publish(request.parent, request.name, request.base64, request.draftId) };
+        if (request.action === 'mkdir') return { ok: true, data: await files.mkdir(request.parent, request.name) };
+        if (request.action === 'resolveAddress') return { ok: true, data: null };
+        if (request.action === 'viewStateGet') return { ok: true, data: {} };
+        if (request.action === 'viewStateSet') return { ok: true, data: { stored: 1 } };
         return { ok: false, error: { code: 'UNSUPPORTED_TEST_ACTION', message: `Не поддержано стендом: ${request.action}` } };
       } catch (error: any) { return { ok: false, error: { code: error?.code || 'ERROR', message: String(error?.message || error) } }; }
     });
@@ -335,7 +345,7 @@ void (async () => {
   const applied = async (confirm: any, label: string) => {
     await waitFor(async () => confirm.isEnabled(), 10000);
     await confirm.click();
-    check(`${label}: заполнение подтверждено без ошибок`, await waitFor(async () => (await panel().getByRole('status').filter({ hasText: /Обновлено значений/ }).count()) > 0, 30000), await panel().getByRole('alert').allTextContents().catch(() => []));
+    check(`${label}: заполнение подтверждено без ошибок`, await waitFor(async () => (await panel().getByRole('status').filter({ hasText: /(Обновлено|Записано) значений/ }).count()) > 0, 30000), await panel().getByRole('alert').allTextContents().catch(() => []));
     check(`${label}: ошибок панели нет`, (await panel().getByRole('alert').count()) === 0, await panel().getByRole('alert').allTextContents());
   };
 
@@ -370,8 +380,9 @@ void (async () => {
     check(`${label}: в окне «Шаблоны» виден общий шаблон`, await waitFor(async () => (await dialog('Шаблоны шапки').getByText(`Шапка ${label}`).count()) > 0) && (await dialog('Шаблоны шапки').getByText('Общий').count()) > 0);
     await shot(`templates-${label}`);
     await dialog('Шаблоны шапки').locator('li', { hasText: `Шапка ${label}` }).getByRole('button', { name: 'Открыть' }).click();
-    check(`${label}: шаблон сопоставлен с документом и ждёт сохранения схемы`, await waitFor(async () => (await panel().getByText(/Шаблон сопоставлен с этим документом/).count()) > 0, 20000), await panel().allTextContents());
-    await panel().getByRole('button', { name: /Сохранить схему/ }).click();
+    // Однозначно сопоставленный шаблон панель применяет сама («применён: шапка создана»); иначе ждёт кнопку
+    check(`${label}: шаблон сопоставлен с документом и применён или ждёт сохранения схемы`, await waitFor(async () => (await panel().getByText(/Шаблон сопоставлен с этим документом|применён: шапка создана/).count()) > 0, 20000), await panel().allTextContents());
+    if (await panel().getByText(/Шаблон сопоставлен с этим документом/).count()) await panel().getByRole('button', { name: /Сохранить схему/ }).click();
     const applied = await waitFor(async () => !!(await readOfficeBindings(await disk(file)))?.template, 45000);
     const bindings = await readOfficeBindings(await disk(file));
     check(`${label}: в части Flux файла лежат templateId и снимок схемы с датой`, applied && !!bindings?.template?.templateId && !Number.isNaN(Date.parse(bindings!.template!.appliedAt)) && bindings!.template!.anchors.length === bindings!.anchors.length, bindings?.template);
@@ -409,17 +420,26 @@ void (async () => {
     await ribbonClick(frame, 'export');
     const exportDialog = dialog('Выгрузить: Оборудование');
     await exportDialog.waitFor({ timeout: 10000 });
-    const [xlsx] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), exportDialog.getByRole('button', { name: 'XLSX', exact: true }).click()]);
-    const namesAfterXlsx: string[] = await page.evaluate(() => (window as any).__downloadNames || []);
-    check(`${label}: выгрузка XLSX скачала файл «Flux — Оборудование — <дата>.xlsx»`, /^Flux — Оборудование — \d{2}-\d{2}-\d{4}\.xlsx$/.test(namesAfterXlsx.at(-1) || ''), namesAfterXlsx);
-    const xlsxZip = await JSZip.loadAsync(await readFile((await xlsx.path())!));
+    // Выгрузка идёт через окно «Сохранить в Проводнике Flux»: имя предложено, файл ложится в папку стенда
+    const saveExport = async (format: 'XLSX' | 'CSV') => {
+      await exportDialog.getByRole('button', { name: format, exact: true }).click();
+      const saveDialog = page.getByRole('dialog', { name: 'Сохранить в Проводнике Flux' });
+      await saveDialog.waitFor({ timeout: 30000 });
+      const name = await saveDialog.getByLabel('Имя файла').inputValue();
+      await saveDialog.getByRole('button', { name: 'Сохранить', exact: true }).click();
+      if (await waitFor(async () => await saveDialog.getByRole('button', { name: 'Заменить' }).isVisible().catch(() => false), 2000)) await saveDialog.getByRole('button', { name: 'Заменить' }).click();
+      await saveDialog.waitFor({ state: 'detached', timeout: 30000 });
+      return { name, bytes: await disk(name) };
+    };
+    const xlsx = await saveExport('XLSX');
+    check(`${label}: выгрузка XLSX предложила файл «Flux — Оборудование — <дата>.xlsx»`, /^Flux — Оборудование — \d{2}-\d{2}-\d{4}\.xlsx$/.test(xlsx.name), xlsx.name);
+    const xlsxZip = await JSZip.loadAsync(xlsx.bytes);
     // SheetJS кладёт строки либо в sharedStrings, либо в сам лист — смотрим оба места
     const sharedStrings = `${await xlsxZip.file('xl/sharedStrings.xml')?.async('string') || ''}${await xlsxZip.file('xl/worksheets/sheet1.xml')?.async('string') || ''}`;
     check(`${label}: в XLSX выгрузки есть данные оборудования`, sharedStrings.includes('FAN_HIGH') && sharedStrings.includes('FAN_LOW'), { files: Object.keys(xlsxZip.files), strings: sharedStrings.slice(0, 300) });
-    const [csv] = await Promise.all([page.waitForEvent('download', { timeout: 30000 }), exportDialog.getByRole('button', { name: 'CSV', exact: true }).click()]);
-    const csvText = await readFile((await csv.path())!, 'utf8');
-    const namesAfterCsv: string[] = await page.evaluate(() => (window as any).__downloadNames || []);
-    check(`${label}: выгрузка CSV названа «Flux — Оборудование — <дата>.csv»`, /^Flux — Оборудование — \d{2}-\d{2}-\d{4}\.csv$/.test(namesAfterCsv.at(-1) || ''), namesAfterCsv);
+    const csv = await saveExport('CSV');
+    const csvText = csv.bytes.toString('utf8');
+    check(`${label}: выгрузка CSV названа «Flux — Оборудование — <дата>.csv»`, /^Flux — Оборудование — \d{2}-\d{2}-\d{4}\.csv$/.test(csv.name), csv.name);
     check(`${label}: в CSV заголовки и строки оборудования`, csvText.split('\n').filter(Boolean).length >= 3 && csvText.includes('FAN_HIGH') && csvText.includes('FAN_LOW'), { lines: csvText.split('\n').length, tail: csvText.slice(-300) });
     await exportDialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
   };

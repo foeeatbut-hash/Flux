@@ -11,6 +11,7 @@
 import { ENV_CONFIG } from '../config/env';
 import { sha256 } from '../../feedback/sha256';
 import type { SubmitFeedbackV1 } from '../../feedback/contracts';
+import { saveBlob } from '../lib/saveToWindows';
 
 export class ApiError extends Error {
   constructor(readonly code: string, message: string, readonly status: number, readonly details?: unknown) {
@@ -99,13 +100,8 @@ export async function downloadPackage(id: string, number: number): Promise<void>
         : `Пакет не собрался (${answer.status})`,
       answer.status);
   }
-  const blob = await answer.blob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `обращение-${String(number).padStart(6, '0')}.zip`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 20000);
+  const saved = await saveBlob(`обращение-${String(number).padStart(6, '0')}.zip`, await answer.blob());
+  if (!saved.ok && !saved.canceled) throw new Error(saved.error);
 }
 
 /** Кому можно поручить разбор. Только разбирающим — сервер и так откажет. */
@@ -129,16 +125,14 @@ export async function fetchAttachment(id: string): Promise<Blob> {
 /** Показать или сохранить вложение — по тому, что это за файл. */
 export async function openAttachment(id: string, name: string, inline: boolean): Promise<void> {
   const blob = await fetchAttachment(id);
-  const url = URL.createObjectURL(blob);
-  if (inline) {
-    window.open(url, '_blank', 'noopener');
-  } else {
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = name || 'вложение';
-    anchor.click();
+  if (!inline) {
+    const saved = await saveBlob(name || 'вложение', blob);
+    if (!saved.ok && !saved.canceled) throw new Error(saved.error);
+    return;
   }
-  // Ссылку освобождаем не сразу: окно и сохранение читают её уже после вызова
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank', 'noopener');
+  // Ссылку освобождаем не сразу: окно читает её уже после вызова
   setTimeout(() => URL.revokeObjectURL(url), 20000);
 }
 

@@ -19,6 +19,7 @@ import { fileBytes } from '../server/routes/fileChunks';
 import { createFileFromBytes } from '../server/officeStore';
 import { officeBus } from '../server/officeBus';
 import { readOfficeBindings, writeOfficeBindings, type OfficePackageBindings } from '../server/officeBindings';
+import { readFluxSheet } from '../office/fluxPart';
 
 const reqModule = createRequire(join(process.cwd(), 'package.json'));
 const { PrismaClient } = reqModule('@prisma/client-sqlite');
@@ -83,6 +84,8 @@ async function main() {
       assert.equal(sha(stored), ok.json.sha256, `${kind}: ответ называет хеш записанных байтов`);
       assert.equal(((await readOfficeBindings(stored))?.anchors[0].parts[0] as { text: string }).text, 'B', `${kind}: схема сервера не откатилась`);
       assert.ok((await (await JSZip.loadAsync(stored)).file(bodyPart)!.async('string')).includes('<!-- правка -->'), `${kind}: правка редактора записана`);
+      // Книга: копия схемы на скрытом листе тоже серверная — редактор принёс свою старую
+      if (kind === 'xlsx') assert.ok((await readFluxSheet(await JSZip.loadAsync(stored)))?.includes('"text":"B"'), 'xlsx: скрытый лист несёт схему сервера, а не старую копию редактора');
       assert.equal(dropped, 0, `${kind}: сохранение редактора сеанс не трогает`);
 
       // Редактор вернул документ в прежнее состояние со старой схемой: схема сервера всё равно остаётся

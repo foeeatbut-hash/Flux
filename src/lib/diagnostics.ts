@@ -24,6 +24,7 @@ import { SCHEMA_VERSION, type DiagnosticEvent, type EventName, type SafeFields }
 import { RateLimit, RepeatFilter, isFailure, passesMode } from '../../diagnostics/policy';
 import { SOURCE_BYTES, WINDOW_BEFORE_MS, WINDOW_TOTAL_MS, missingSource, type SourceReport } from '../../feedback/bundleSpec';
 import { armVisibleTimer, frameGap, tickVisibleTimer } from '../../diagnostics/uiTiming';
+import { reportSaveError, saveBlob } from './saveToWindows';
 
 /**
  * Хвост окна ограничен временем И байтами, а не числом записей.
@@ -471,12 +472,7 @@ export function rendererBundle(maxBytes = 0): Blob {
 }
 
 /** Выгрузка хвоста файлом. Доступна и в браузере — хвост есть всегда. */
-export function exportRendererDiagnostics(): void {
-  const blob = rendererBundle();
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `flux-diagnostics-${Date.now()}.jsonl`;
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+export async function exportRendererDiagnostics(): Promise<void> {
+  const saved = await saveBlob(`flux-diagnostics-${Date.now()}.jsonl`, rendererBundle());
+  reportSaveError(saved);
 }

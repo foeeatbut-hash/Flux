@@ -165,6 +165,30 @@ async function main() {
     const afterBulk = await api(token, 'GET', `/api/projects/${projectId}/tags`);
     check('повторное чтение содержит пакетно созданные теги',
       bulkCodes.every((identifier) => afterBulk.data?.tags?.some((item: any) => item.identifier === identifier)));
+
+    // Удаление всей установки: теги освобождаются, и открытые окна должны об
+    // этом узнать — раньше событий не было, и «занятые» теги висели до перезахода
+    const unitSystems = (await api(token, 'GET', `/api/projects/${projectId}/systems`)).data?.systems || [];
+    const unit = unitSystems.find((system: any) => (system.monoblocks || []).some((mono: any) =>
+      (mono.components || []).some((item: any) => (item.tags || []).length)));
+    check('для проверки найдена установка с привязанным тегом', !!unit);
+    if (unit) {
+      const unitComponents = unit.monoblocks.flatMap((mono: any) => mono.components || []);
+      const heldTag = unitComponents.flatMap((item: any) => item.tags || [])[0];
+      const beforeUnit = changes.length;
+      const removed = await api(token, 'DELETE', `/api/systems/${unit.id}`);
+      check('установка удалена', removed.status === 200 && removed.data?.success === true, `HTTP ${removed.status}`);
+      check('socket сообщает об освобождённом теге', await waitFor(() =>
+        changes.slice(beforeUnit).some((event) => event.kind === 'tag' && (event.id === heldTag.id || (event.ids || []).includes(heldTag.id)))));
+      check('socket сообщает об удалённых позициях', await waitFor(() =>
+        changes.slice(beforeUnit).some((event) => event.kind === 'element'
+          && unitComponents.some((item: any) => event.id === item.id || (event.ids || []).includes(item.id)))));
+      const afterUnit = await api(token, 'GET', `/api/projects/${projectId}/tags`);
+      check('тег после удаления установки свободен',
+        !(afterUnit.data?.tags?.find((item: any) => item.id === heldTag.id)?.componentElements || []).length);
+      const again = await api(token, 'DELETE', `/api/systems/${unit.id}`);
+      check('повторное удаление не падает', again.status === 200, `HTTP ${again.status}`);
+    }
   } finally {
     socket?.disconnect();
     if (projectId) await api(token, 'DELETE', `/api/projects/${projectId}`).catch(() => undefined);

@@ -165,6 +165,12 @@ export type AliasMap = Record<string, ParamAlias>; // name → alias
 // Пути (часть II дизайна, MVP-подмножество):
 //   простые поля своей сущности; param:Группа|Ключ; param:@Алиас; meta:ключ;
 //   system.name / monoblock.name; tags (список тегов элемента)
+/**
+ * Служебный блок установки (`__unit__`, server/equipmentImport.ts) — не моноблок:
+ * у установки и её тега моноблока нет, и в ячейку таблицы имя блока попадать не должно.
+ */
+const monoblockTitle = (name: unknown): string => (name === '__unit__' ? '' : String(name ?? ''));
+
 export function resolveValue(entity: 'tag' | 'element', row: any, path: string, aliases?: AliasMap): string {
   if (path.startsWith('param:')) {
     const spec = path.slice(6);
@@ -204,7 +210,7 @@ export function resolveValue(entity: 'tag' | 'element', row: any, path: string, 
       case 'equipType': return String(row.equipType ?? '');
       case 'status': return String(row.status ?? '');
       case 'system.name': return String(row._system?.name ?? '');
-      case 'monoblock.name': return String(row._monoblock?.name ?? '');
+      case 'monoblock.name': return monoblockTitle(row._monoblock?.name);
       case 'tags': return (row.tags || []).map((t: any) => t.identifier).join('; ');
       // ── Состав ──
       case 'tag': return String((row.tags || [])[0]?.identifier ?? '');
@@ -235,7 +241,7 @@ export function resolveValue(entity: 'tag' | 'element', row: any, path: string, 
     case 'element.itemCode': return String(row.componentElements?.[0]?.itemCode ?? '');
     case 'element.equipType': return String(row.componentElements?.[0]?.equipType ?? '');
     case 'system.name': return String(row.componentElements?.[0]?.monoblock?.system?.name ?? '');
-    case 'monoblock.name': return String(row.componentElements?.[0]?.monoblock?.name ?? '');
+    case 'monoblock.name': return monoblockTitle(row.componentElements?.[0]?.monoblock?.name);
   }
   return '';
 }

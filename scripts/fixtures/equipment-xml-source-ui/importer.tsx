@@ -4,6 +4,7 @@ import EquipmentSourceImportDialog from '../../../src/components/equipment/Equip
 import EquipmentImportPreview from '../../../src/components/EquipmentImportPreview';
 import { equipmentDocumentImportSource } from '../../../src/lib/equipmentDocumentBindings';
 import { useStore } from '../../../src/store/store';
+import { fluxPickerMock } from './pickerMock';
 import './fixture.css';
 
 const rootId = 'source-import-fixture';
@@ -14,7 +15,8 @@ useStore.setState({ user: { id: 'fixture-user', role: 'ADMIN' } as any } as any)
 (window as any).__importLog = [];
 const documentSource = equipmentDocumentImportSource({ id: 'shared-document-binding-1', expectedLedgerRevision: 7, locator: { folderKey: 'a'.repeat(64), anchors: [{ key: 'b'.repeat(64), relativePath: 'R2' }] }, fileName: 'L23.xlsx', rule: { kind: 'document-name', fileName: 'L23.xlsx' }, revision: 'R2', sha256: 'c'.repeat(64) });
 (window as any).electron = { windowsFiles: { invoke: async (request: any) => {
-  if (request.action === 'pickEquipmentSource') return { ok: true, data: { selectedFile: { ref, name: 'L23.xml' }, sourceFolder: { rootId, relativePath: 'L23' } } };
+  const picked = fluxPickerMock(rootId, xml.length, request);
+  if (picked) return picked;
   if (request.action === 'read' && new URLSearchParams(location.search).has('initial')) await new Promise(resolve => setTimeout(resolve, 150));
   if (request.action === 'read') return { ok: true, data: { name: 'L23.xml', size: xml.length, modifiedAt: '2026-10-01T00:00:00.000Z', sha256: 'a'.repeat(64), base64 } };
   if (request.action === 'roots') return { ok: true, data: [{ id: rootId, name: 'Оборудование проекта', kind: 'custom', available: true }] };
@@ -23,8 +25,6 @@ const documentSource = equipmentDocumentImportSource({ id: 'shared-document-bind
 window.fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname : input.url;
   const method = init?.method || 'GET';
-  // Настройка «системное окно выбора файла»: без неё ImportFileChooser открывает компактный выбор Flux вместо замоканного нативного.
-  if (url.endsWith('/api/settings/explorer_file_picker')) return new Response(JSON.stringify({ user: JSON.stringify({ system: true }) }), { status: 200 });
   (window as any).__importLog.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null });
   if (url.endsWith('/equipment/source-import/preview')) {
     if (new URLSearchParams(location.search).get('race') === '1') await new Promise(resolve => setTimeout(resolve, 500));
@@ -55,7 +55,7 @@ function Fixture() {
   const documentMode = new URLSearchParams(location.search).get('document') === '1';
   return <main className={`${dark ? 'dark' : ''} h-full bg-white p-3 text-slate-900 dark:bg-slate-950 dark:text-slate-100`}><div className={`mx-auto ${width}`}>
     {new URLSearchParams(location.search).get('race') === '1' && <button type="button" className="fixed right-4 top-4 z-[200] rounded bg-slate-900 px-3 py-2 text-white" onClick={() => setProjectId('project-next')}>Переключить проект</button>}
-    {documentMode ? <EquipmentImportPreview draft={{ units: [{ name: 'L23', monoblocks: [{ name: 'Вентиляция', blocks: [{ code: 'B1', name: 'Вентилятор', equipType: 'ВЕНТИЛЯТОР', parameters: [] }] }] }], fileName: 'L23.xlsx', sourceBinding: documentSource }} category="vent" categoryLabel="Вентиляция" projectId={projectId} embedded onClose={() => setDone('Закрыто')} onDone={result => setDone(`Документ импортирован · ${result.bindingId || 'нет привязки'}`)} /> : <EquipmentSourceImportDialog projectId={projectId} initialSelection={new URLSearchParams(location.search).has('initial') ? { ref, name: 'L23.xml' } : undefined} initialCategory="vent" initialUnits={[{ name: 'L23' }]} categories={[{ id: 'vent', label: 'Вентиляция' }]} canManage onClose={() => setDone('Закрыто')} onImported={result => setDone(`Импортирован: ${result.source.systemId} · ${result.tagIdentifier} · baselineApplied=${result.baselineApplied}`)} />}
+    {documentMode ? <EquipmentImportPreview draft={{ units: [{ name: 'L23', monoblocks: [{ name: 'Вентиляция', blocks: [{ code: 'B1', name: 'Вентилятор', equipType: 'ВЕНТИЛЯТОР', parameters: [] }] }] }], fileName: 'L23.xlsx', sourceBinding: documentSource }} category="vent" categoryLabel="Вентиляция" projectId={projectId} embedded onClose={() => setDone('Закрыто')} onDone={result => setDone(`Документ импортирован · ${result.bindingId || 'нет привязки'}`)} /> : <EquipmentSourceImportDialog projectId={projectId} inlineSource={new URLSearchParams(location.search).has('initial') ? { name: 'L23.xml', base64, sha256: 'a'.repeat(64), size: xml.length, text: xml, fileRef: ref, sourceFolder: { rootId, relativePath: 'L23' } } : undefined} category={new URLSearchParams(location.search).has('initial') ? 'vent' : undefined} initialCategory="vent" initialUnits={[{ name: 'L23' }]} categories={[{ id: 'vent', label: 'Вентиляция' }]} canManage onClose={() => setDone('Закрыто')} onImported={result => setDone(`Импортирован: ${result.source.systemId} · ${result.tagIdentifier} · baselineApplied=${result.baselineApplied}`)} />}
     <div role="status" data-testid="import-done">{done}</div>
   </div></main>;
 }

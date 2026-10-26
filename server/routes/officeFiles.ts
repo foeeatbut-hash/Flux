@@ -275,11 +275,15 @@ export function registerOfficeFileRoutes(app: Express, deps: OfficeFileDeps): vo
       if (!file || !(await canReadFile(prisma, (req as any).authUser, file))) return res.status(404).json({ error: FILE_NOT_FOUND });
       const bytes = await fileBytes(file);
       const folder = file.folderId ? await prisma.folder.findUnique({ where: { id: file.folderId }, select: { projectId: true } }) : null;
+      // Файл общего диска живёт в служебном проекте, а данные для него берутся из проекта, в котором
+      // работают (так же решает projectOfFile при обновлении полей): служебный проект наружу не отдаём
+      const owner = folder?.projectId ? await prisma.project.findUnique({ where: { id: folder.projectId }, select: { system: true } }).catch(() => null) : null;
+      const projectId = owner?.system ? null : folder?.projectId || null;
       const session = await officeBus.session(file.id).catch(() => null);
       await ensureOfficeRevisionTable();
       const issued = await isIssuedOfficeFile(prisma, file.id);
       res.json({
-        id: file.id, name: file.name, folderId: file.folderId, projectId: folder?.projectId || null, size: bytes.length, sha256: sha256(bytes),
+        id: file.id, name: file.name, folderId: file.folderId, projectId, size: bytes.length, sha256: sha256(bytes),
         updatedAt: file.updatedAt, updatedById: file.updatedById,
         canWrite: !issued && await canWriteFile(prisma, (req as any).authUser, file),
         issued,

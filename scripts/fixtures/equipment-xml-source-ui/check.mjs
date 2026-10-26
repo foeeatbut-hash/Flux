@@ -1,4 +1,5 @@
 import { chromium } from '../../../node_modules/playwright-core/index.mjs';
+import { pickFolder, pickXmlFile } from './picker.mjs';
 
 const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
 const failures = [];
@@ -14,6 +15,7 @@ const run = async (width, theme) => {
   if (!(await page.getByRole('button', { name: 'Связать' }).count())) throw new Error(`Panel did not render: ${await page.locator('body').innerText()} ${failures.join(' | ')}`);
   await page.getByRole('button', { name: 'Связать' }).click();
   await page.getByRole('button', { name: 'Выбрать XML' }).click();
+  await pickXmlFile(page);
   await page.getByText('Проверьте найденный источник перед сохранением').waitFor();
   if (!(await page.getByText('Ревизия', { exact: true }).count())) throw new Error('Preview omits detected revision');
   await page.screenshot({ path: `/tmp/flux-equipment-xml-source-preview-${width}-${theme}.png`, fullPage: true });
@@ -69,6 +71,7 @@ const runSingleFolderRebind = async theme => {
   await page.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?rebind=1&theme=${theme}`);
   await page.getByRole('button', { name: 'Подробнее' }).click();
   await page.getByRole('button', { name: 'Перепривязать папку' }).click();
+  await pickFolder(page, 'NewRoot');
   const preview = page.getByRole('group', { name: 'Подтверждение перепривязки папки' });
   await preview.waitFor();
   if (await page.evaluate(() => localStorage.getItem('flux.equipmentSources.local.v1'))) throw new Error('Folder selection wrote a local binding before confirmation');
@@ -91,6 +94,7 @@ const runFolderRebindCasConflict = async () => {
   await page.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?rebind=1`);
   await page.getByRole('button', { name: 'Подробнее' }).click();
   await page.getByRole('button', { name: 'Перепривязать папку' }).click();
+  await pickFolder(page, 'NewRoot');
   await page.getByRole('group', { name: 'Подтверждение перепривязки папки' }).waitFor();
   await page.evaluate(() => localStorage.setItem('flux.equipmentSources.local.v1', JSON.stringify({ 'fixture-user:project-fixture:source-old:element-1': { sourceId: 'source-old', projectId: 'project-fixture', userId: 'fixture-user', tagId: 'tag-1', elementId: 'element-1', targetType: 'component', rootId: 'equipment-source-fixture', relativePath: 'NewerFolder', revisionOrder: ['A', 'B'], selectedRule: { kind: 'exact-tag' } } })));
   await page.getByRole('button', { name: 'Подтвердить перепривязку' }).click();
@@ -136,6 +140,7 @@ const runUpdatesDialog = async () => {
   await dialog.getByRole('checkbox', { name: `Выбрать ${taglessLabel}` }).uncheck();
   await dialog.getByRole('checkbox', { name: `Выбрать ${taglessLabel}` }).uncheck();
   await dialog.getByRole('button', { name: /Перепривязать папку XML/ }).click();
+  await pickFolder(page, 'CommonRoot');
   await dialog.getByText('Перепривязать 2 источника к общей папке и подпапкам по тегу?').waitFor();
   const preview = await dialog.locator('div.max-h-28').innerText();
   if (!preview.includes('L23 → CommonRoot/L23') || !preview.includes('L24 → CommonRoot/L24')) throw new Error(`Bulk preview does not list exact tag folders: ${preview}`);
@@ -153,6 +158,7 @@ const runUpdatesDialog = async () => {
   await dialog.getByRole('checkbox', { name: 'Выбрать L25' }).uncheck();
   await dialog.getByRole('checkbox', { name: `Выбрать ${taglessLabel}` }).check();
   await dialog.getByRole('button', { name: /Перепривязать папку XML/ }).click();
+  await pickFolder(page, 'CommonRoot');
   const taglessPreview = await dialog.locator('div.max-h-28').innerText();
   if (!taglessPreview.includes(`${taglessLabel} → CommonRoot`) || taglessPreview.includes('element-4')) throw new Error(`Tagless preview did not identify the selected source by its human label: ${taglessPreview}`);
   await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).click();
@@ -213,6 +219,7 @@ const runUpdatesProjectSwitch = async () => {
   if (await table.locator('tbody tr').count() !== 1 || await table.getByText('L23').count()) throw new Error('Delayed source response from the previous project replaced current rows');
   await dialog.getByRole('button', { name: 'Выбрать все' }).click();
   await dialog.getByRole('button', { name: /Перепривязать папку XML/ }).click();
+  await pickFolder(page, 'CommonRoot');
   await dialog.getByText('Q90 → CommonRoot').waitFor();
   await dialog.getByRole('button', { name: 'Подтвердить', exact: true }).click();
   await dialog.getByText('Папка перепривязана. Кандидаты устарели и будут сравнены заново.').waitFor();
@@ -232,6 +239,7 @@ const runUntaggedBindingAndRemap = async (width, theme) => {
   await page.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?untagged=1&width=${width < 500 ? 'narrow' : 'wide'}&theme=${theme}`);
   await page.getByRole('button', { name: 'Связать' }).click();
   await page.getByRole('button', { name: 'Выбрать XML' }).click();
+  await pickXmlFile(page);
   await page.getByText('Проверьте найденный источник перед сохранением').waitFor();
   const confirm = page.getByRole('button', { name: 'Подтвердить привязку' });
   if (!(await confirm.isDisabled())) throw new Error('Tagless binding enabled before an XML node was explicitly selected');
@@ -242,6 +250,7 @@ const runUntaggedBindingAndRemap = async (width, theme) => {
   const payloads = await page.evaluate(() => window.__sourcePayloads);
   if (payloads?.length !== 1 || payloads[0].tagId !== undefined || payloads[0].xmlTargetIdentity?.fingerprint?.code !== 'L23') throw new Error(`Tagless binding did not send only its explicit XML identity: ${JSON.stringify(payloads)}`);
   await page.getByRole('button', { name: 'Выбрать XML-узел' }).click();
+  await pickXmlFile(page);
   await page.getByText('Выберите XML-узел и подтвердите перепривязку.').waitFor();
   const remapConfirm = page.getByRole('button', { name: 'Подтвердить перепривязку' });
   if (!(await remapConfirm.isDisabled())) throw new Error('XML remap enabled before selecting a replacement target');

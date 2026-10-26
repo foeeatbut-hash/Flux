@@ -1,6 +1,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { chromium } from '../../../node_modules/playwright-core/index.mjs';
+import { pickXmlFile } from './picker.mjs';
 const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
 try {
   for (const width of ['narrow', 'wide']) for (const theme of ['light', 'dark']) {
@@ -9,6 +10,7 @@ try {
     await page.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?width=${width}&theme=${theme}`);
     const logs = () => page.evaluate(() => window.__importLog);
     await page.getByRole('button', { name: 'Выбрать XML-файл' }).click();
+    await pickXmlFile(page);
     await page.getByRole('button', { name: 'Показать план' }).click();
     await page.getByRole('heading', { name: /Предпросмотр/ }).waitFor();
     await page.getByText(/ручных значений\. Импорт ждёт отдельного разрешения конфликта/).waitFor();
@@ -30,10 +32,12 @@ try {
     const initialPage = await browser.newPage({ viewport: { width: 900, height: 850 }, colorScheme: theme });
     initialPage.on('pageerror', error => { throw error; });
     await initialPage.goto((process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192') + '/importer.html?initial=1&theme=' + theme);
-    await initialPage.getByRole('button', { name: 'Показать план' }).waitFor();
-    if (await initialPage.getByLabel('Тег оборудования').inputValue() !== 'L23') throw new Error('Initial file did not seed the tag after stable reads');
-    await initialPage.getByRole('button', { name: 'Показать план' }).click();
+    // Файл из очереди мастера: план появляется сам, без повторного выбора файла и папки.
     await initialPage.getByRole('heading', { name: /Предпросмотр/ }).waitFor();
+    if (await initialPage.getByLabel('Тег оборудования').inputValue() !== 'L23') throw new Error('Queued file did not seed the tag');
+    if (await initialPage.getByRole('button', { name: /Выбрать XML/ }).count()) throw new Error('Queued file still asks to pick the XML again');
+    const reads = await initialPage.evaluate(() => (window).__importLog.filter(row => row.url.endsWith('/source-import/preview')).length);
+    if (reads !== 1) throw new Error(`Queued file must build exactly one plan, got ${reads}`);
     await initialPage.close();
   }
   const initialRace = await browser.newPage({ viewport: { width: 900, height: 850 } });
@@ -45,6 +49,7 @@ try {
   const racePage = await browser.newPage({ viewport: { width: 700, height: 850 } });
   await racePage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?race=1`);
   await racePage.getByRole('button', { name: 'Выбрать XML-файл' }).click();
+  await pickXmlFile(racePage);
   await racePage.getByRole('button', { name: 'Показать план' }).click();
   await racePage.getByRole('button', { name: 'Переключить проект' }).click();
   await racePage.waitForTimeout(650);
@@ -54,6 +59,7 @@ try {
   const applyRacePage = await browser.newPage({ viewport: { width: 700, height: 850 } });
   await applyRacePage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?race=1`);
   await applyRacePage.getByRole('button', { name: 'Выбрать XML-файл' }).click();
+  await pickXmlFile(applyRacePage);
   await applyRacePage.getByRole('button', { name: 'Показать план' }).click();
   await applyRacePage.getByRole('heading', { name: /Предпросмотр/ }).waitFor();
   await applyRacePage.getByRole('button', { name: 'Подтвердить импорт' }).click();
