@@ -44,7 +44,10 @@ const server = spawn(process.execPath, [path.join(root, 'node_modules/vite/bin/v
 const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 const errors: string[] = [];
-page.on('requestfailed', (r) => errors.push(`requestfailed:${r.url()}:${r.failure()?.errorText}`));
+// Прерванное чтение своей blob-ссылки — намеренная отмена: оглавление PDF
+// (CatalogContents) при уходе с экрана гасит загрузку и отзывает ссылку.
+// Ошибкой это не считается; сетевые сбои и HTTP-ошибки ловятся как прежде
+page.on('requestfailed', (r) => { if (r.url().startsWith('blob:') && r.failure()?.errorText === 'net::ERR_ABORTED') return; errors.push(`requestfailed:${r.url()}:${r.failure()?.errorText}`); });
 page.on('pageerror', (e) => errors.push(`pageerror:${e.message}`));
 page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('403')) errors.push(`console:${m.text()}`); });
 page.on('response', (r) => { if (r.status() >= 400) { const p = new URL(r.url()).pathname; if (r.status() === 403 && p === '/api/catalog/import') expectedHttp.push(`${r.status()} ${p}`); else errors.push(`http${r.status()}:${p}`); } });
