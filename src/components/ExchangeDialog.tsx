@@ -15,6 +15,7 @@
  * в третье место, где описан каждый раздел.
  */
 import React from 'react';
+import { WindowDialog } from './ui/WindowDialog';
 import { Download, Upload, ClipboardCopy, X, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
@@ -54,12 +55,6 @@ export default function ExchangeDialog(p: ExchangeProps) {
   const rows = p.scopes.find((s) => s.id === scope)?.count ?? 0;
   const cols = pickColumns(p.columns, chosen);
   const stop = blocker(rows, cols.length);
-
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') p.onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [p]);
 
   const toggleCol = (key: string) =>
     setChosen((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
@@ -102,15 +97,9 @@ export default function ExchangeDialog(p: ExchangeProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 fx-backdrop"
-      onMouseDown={p.onClose}>
-      <div
-        role="dialog"
-        aria-label={`Экспорт · ${p.section}`}
-        onMouseDown={(e) => e.stopPropagation()}
-        className="fx-dialog w-full max-w-lg overflow-hidden"
-      >
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800">
+    <WindowDialog onClose={p.onClose} busy={busy} label={`Экспорт · ${p.section}`}
+      className="fx-dialog w-full max-w-lg overflow-hidden">
+        <div data-dialog-drag className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800">
           <Download className="w-4 h-4 text-emerald-600" />
           <b className="text-sm font-semibold text-slate-800 dark:text-white">Экспорт · {p.section}</b>
           <span className="flex-1" />
@@ -211,8 +200,7 @@ export default function ExchangeDialog(p: ExchangeProps) {
             {target === 'clipboard' ? 'Скопировать' : 'Выгрузить'}
           </button>
         </div>
-      </div>
-    </div>
+      </WindowDialog>
   );
 }
 

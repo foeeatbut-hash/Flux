@@ -15,7 +15,7 @@ import { useStore } from '../../store/store';
 import { useCalendarStore } from '../../store/calendarStore';
 import { useToastStore } from '../../store/toastStore';
 import { openLink } from '../../lib/openLink';
-import { Z } from '../../lib/layers';
+import { WindowDialog } from '../ui/WindowDialog';
 import {
   buildRule, parseRule, ruleLabel, isReadOnly, MINUTE, WEEKDAYS,
   type CalEvent,
@@ -123,18 +123,9 @@ export default function EventDialog({ draft, onClose }: { draft: Draft; onClose:
   const label = 'block text-2xs font-semibold text-slate-500 dark:text-slate-400 mb-1';
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center backdrop-blur-[1px] p-4 fx-backdrop"
-      style={{ zIndex: Z.modal }}
-      onMouseDown={onClose}
-    >
-      <div
-        role="dialog"
-        aria-label={draft.id ? 'Событие' : 'Новое событие'}
-        onMouseDown={(e) => e.stopPropagation()}
-        className="fx-dialog w-full max-w-lg max-h-[86vh] overflow-y-auto dark:border-dark-border dark:bg-dark-surface"
-      >
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-dark-border">
+    <WindowDialog onClose={onClose} label={draft.id ? 'Событие' : 'Новое событие'}
+      className="fx-dialog w-full max-w-lg max-h-[86vh] overflow-y-auto dark:border-dark-border dark:bg-dark-surface">
+        <div data-dialog-drag className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-dark-border">
           <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
             {readOnly ? 'Срок из реестра ВДР' : draft.id ? 'Событие' : 'Новое событие'}
           </span>
@@ -325,7 +316,6 @@ export default function EventDialog({ draft, onClose }: { draft: Draft; onClose:
             </div>
           </div>
         )}
-      </div>
-    </div>
+      </WindowDialog>
   );
 }

@@ -7,7 +7,7 @@ import {
 import {
   mailService, type MailAccount, type MailSignature, type MailSignatureImage,
 } from '../../services/mailService';
-import { useEscapeClose } from '../../lib/useDismiss';
+import { WindowDialog } from '../ui/WindowDialog';
 import { useToastStore } from '../../store/toastStore';
 import ImportFileChooser from '../ImportFileChooser';
 
@@ -44,7 +44,6 @@ export default function MailSignatures({ accounts, onClose }: Props) {
   const [error, setError] = useState('');
   const editorRef = useRef<HTMLDivElement>(null);
 
-  useEscapeClose(true, () => { if (!busy) onClose(); });
 
   const picked = list.find((s) => s.id === pickedId) || null;
 
@@ -162,16 +161,9 @@ export default function MailSignatures({ accounts, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-[80] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Подписи">
-      <div className="fixed inset-0 fx-backdrop" onClick={() => !busy && onClose()} />
-      <div className="flex min-h-full items-center justify-center p-4">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.97, y: 12 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: 0.15 }}
-          className="fx-dialog @container relative w-full max-w-4xl max-h-[90vh] flex flex-col"
-        >
-          <div className="shrink-0 flex items-center justify-between gap-2 px-5 py-3 border-b border-slate-200 dark:border-slate-800">
+    <WindowDialog onClose={onClose} busy={busy} label="Подписи"
+      className="fx-dialog @container w-full max-w-4xl max-h-[90vh] flex flex-col">
+          <div data-dialog-drag className="shrink-0 flex items-center justify-between gap-2 px-5 py-3 border-b border-slate-200 dark:border-slate-800">
             <h3 className="flex-1 min-w-0 truncate text-base font-semibold text-slate-900 dark:text-white">Подпись в письмах</h3>
             <button
               type="button" title="Закрыть" aria-label="Закрыть" onClick={onClose} disabled={busy}
@@ -338,8 +330,6 @@ export default function MailSignatures({ accounts, onClose }: Props) {
               )}
             </div>
           )}
-        </motion.div>
-      </div>
-    </div>
+        </WindowDialog>
   );
 }

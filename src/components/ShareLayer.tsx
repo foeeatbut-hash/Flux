@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { createPortal } from 'react-dom';
+import { WindowDialog, topWindowId } from './ui/WindowDialog';
 import { useShareStore, ShareCandidate } from '../store/shareStore';
 import { useChatStore } from '../store/chatStore';
 import { useStore } from '../store/store';
@@ -110,6 +111,9 @@ export default function ShareLayer() {
     navigate('/chat');
   };
 
+  // Родитель окна выбора — верхнее окно на момент открытия; блокируется оно
+  const shareOwner = React.useMemo(() => (pickerCandidate ? topWindowId() : ''), [pickerCandidate]);
+
   const list = users.filter(u => u.id !== user?.id && (u.name?.toLowerCase().includes(q.toLowerCase()) || u.symbol?.toLowerCase().includes(q.toLowerCase())));
 
   return (
@@ -126,10 +130,10 @@ export default function ShareLayer() {
         </div>, document.body)}
 
       {/* Выбор пользователя */}
-      {pickerCandidate && createPortal(
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 fx-backdrop" onClick={closePicker}>
-          <div className="w-[min(94vw,380px)] fx-dialog overflow-hidden flex flex-col max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
-            <div className="px-4 py-3 border-b border-slate-100 dark:border-dark-border flex items-center justify-between">
+      {pickerCandidate && (
+        <WindowDialog key={shareOwner} winId={shareOwner} onClose={closePicker} label="Кому отправить"
+          className="w-[min(94vw,380px)] fx-dialog overflow-hidden flex flex-col max-h-[80vh]">
+            <div data-dialog-drag className="px-4 py-3 border-b border-slate-100 dark:border-dark-border flex items-center justify-between">
               <div className="text-base font-semibold text-slate-900 dark:text-white">Кому отправить</div>
               <button type="button" title="Закрыть" onClick={closePicker} aria-label="Закрыть" className="fx-ibtn"><X /></button>
             </div>
@@ -155,8 +159,8 @@ export default function ShareLayer() {
                 </button>
               ))}
             </div>
-          </div>
-        </div>, document.body)}
+        </WindowDialog>
+      )}
     </>
   );
 }

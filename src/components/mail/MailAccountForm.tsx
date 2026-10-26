@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Mail, X, Loader2, CheckCircle2, AlertTriangle, ExternalLink, KeyRound, ChevronDown } from 'lucide-react';
 import { mailService, type MailAccount, type MailPreset } from '../../services/mailService';
-import { useEscapeClose } from '../../lib/useDismiss';
+import { WindowDialog } from '../ui/WindowDialog';
 
 /**
  * Подключение почтового ящика.
@@ -60,7 +60,6 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
   const [seeking, setSeeking] = useState(false);
   const [error, setError] = useState('');
 
-  useEscapeClose(true, () => { if (!busy) onClose(); });
 
   /**
    * Подставляем настройки, как только адрес похож на адрес.
@@ -202,11 +201,9 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
   };
 
   return (
-    <div className="fixed inset-0 z-[80] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Подключение почтового ящика">
-      <div className="fixed inset-0 fx-backdrop" onClick={() => !busy && onClose()} />
-      <div className="flex min-h-full items-center justify-center p-4">
-        <div className="fx-dialog @container relative w-full max-w-xl max-h-[88vh] overflow-y-auto scrollbar-thin p-6">
-          <div className="flex items-center justify-between gap-2 mb-5 border-b border-slate-100 dark:border-slate-800 pb-3">
+    <WindowDialog onClose={onClose} busy={busy} label="Подключение почтового ящика"
+      className="fx-dialog @container w-full max-w-xl max-h-[88vh] overflow-y-auto scrollbar-thin p-6">
+          <div data-dialog-drag className="flex items-center justify-between gap-2 mb-5 border-b border-slate-100 dark:border-slate-800 pb-3">
             <div className="flex items-center gap-2 min-w-0 text-emerald-700 dark:text-emerald-400">
               <Mail className="w-5 h-5 shrink-0" />
               <h3 className="flex-1 min-w-0 truncate text-lg font-semibold text-slate-900 dark:text-white">
@@ -418,8 +415,6 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
               </button>
             </div>
           </form>
-        </div>
-      </div>
-    </div>
+        </WindowDialog>
   );
 }

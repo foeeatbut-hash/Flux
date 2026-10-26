@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'motion/react';
+import { WindowDialog, topWindowId } from './ui/WindowDialog';
 import {
   X, ArrowRight, ArrowLeft, Check, Loader2, Trash2, Plus, Undo2, Search,
   RotateCcw, ShieldCheck, AlertTriangle, ChevronDown,
@@ -289,11 +288,13 @@ export default function CaptureReview() {
     } finally { setBusy(false); }
   };
 
+  // Родитель окна разбора — верхнее окно на момент открытия; блокируется оно
+  const owner = useMemo(() => (items ? topWindowId() : ''), [items]);
+
   // ── Клавиатура ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!items) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); close(); return; }
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
         if (step === 'parse' && rows.some((r) => r.identifier.trim())) goPlan();
@@ -337,18 +338,10 @@ export default function CaptureReview() {
     seenNorm.add(n);
   }
 
-  return createPortal(
-    <AnimatePresence>
-      <motion.div
-        key="capture"
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[95] flex items-center justify-center p-6 fx-backdrop"
-      >
-        <motion.div
-          initial={{ scale: 0.97, y: 8 }} animate={{ scale: 1, y: 0 }}
-          className="fx-dialog w-full max-w-5xl max-h-full flex flex-col overflow-hidden"
-        >
-          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-200 dark:border-slate-800
+  return (
+    <WindowDialog key={owner} winId={owner} onClose={close} busy={busy} label="Разбор захвата"
+      className="fx-dialog w-full max-w-5xl max-h-full flex flex-col overflow-hidden">
+          <div data-dialog-drag className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-200 dark:border-slate-800
                           bg-slate-50 dark:bg-slate-800/60">
             <span className="w-3.5 h-3.5 rounded bg-emerald-600" />
             <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -796,9 +789,6 @@ export default function CaptureReview() {
               </div>
             </>
           )}
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>,
-    document.body,
+    </WindowDialog>
   );
 }

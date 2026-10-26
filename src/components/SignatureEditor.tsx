@@ -21,7 +21,7 @@ import {
 import { formatName } from '../lib/names';
 import { useToastStore } from '../store/toastStore';
 import { useModalStore } from '../store/modalStore';
-import { useEscapeClose } from '../lib/useDismiss';
+import { WindowDialog } from './ui/WindowDialog';
 import ImportFileChooser from './ImportFileChooser';
 
 interface Props {
@@ -54,7 +54,6 @@ type Source = 'none' | 'image' | 'draw';
 const MM = 3.7795;
 
 export default function SignatureEditor({ userId, userName, nameParts, value, heightMm = 8, canEdit, inline = false, onSaved, onClose }: Props) {
-  useEscapeClose(!inline, onClose);
 
   // «Раупов Х.Х.» — так строка и попадёт в штамп
   const initials = formatName(nameParts || { name: userName }, 'initialsAfter') || userName;
@@ -289,7 +288,7 @@ export default function SignatureEditor({ userId, userName, nameParts, value, he
   const inner = (
     <>
       {!inline && (
-        <div className="stamp">
+        <div className="stamp" data-dialog-drag>
           <span className="stamp-title">Подпись</span>
           <span className="stamp-sub truncate">{userName}</span>
           <div className="stamp-right">
@@ -434,11 +433,9 @@ export default function SignatureEditor({ userId, userName, nameParts, value, he
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-6 fx-backdrop" onMouseDown={onClose}>
-      <div className="w-full max-w-2xl bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-lg shadow-modal"
-        onMouseDown={(e) => e.stopPropagation()}>
+    <WindowDialog onClose={onClose} busy={busy} label="Подпись"
+      className="w-full max-w-2xl bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-lg shadow-modal">
         {inner}
-      </div>
-    </div>
+      </WindowDialog>
   );
 }
