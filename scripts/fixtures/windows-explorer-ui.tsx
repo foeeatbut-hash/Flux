@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import Explorer from '../../src/screens/Explorer';
+import ToastProvider from '../../src/components/ToastProvider';
 import WindowsDesktop from '../../src/components/desktop/WindowsDesktop';
 import '../../src/index.css';
 import { useStore } from '../../src/store/store';
@@ -277,6 +278,7 @@ function Fixture() {
   };
   return <div style={{ position: 'absolute', inset: 0, width: '100vw', height: '100vh' }}>
     {desktop ? <WindowsDesktop screenOrigin={{ x: -1280, y: -200 }} /> : <div className="h-full"><LocationDebug /><Explorer /></div>}
+    <ToastProvider />
   </div>;
 }
 createRoot(document.getElementById('mount')!).render(<MemoryRouter initialEntries={['/explorer?root=desktop-id&path=']}><Fixture /></MemoryRouter>);

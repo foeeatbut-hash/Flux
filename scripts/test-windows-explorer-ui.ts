@@ -61,7 +61,8 @@ async function loadUntil(page: Page, count: number) {
     await page.evaluate(() => (window as any).__go('/explorer?file=old-file&folder=old-folder'));
     await page.locator('[data-windows-explorer]').waitFor();
     await page.getByText('Файл из прежнего архива Flux больше не открывается в Проводнике').waitFor();
-    ok('Ссылка на файл прежнего архива показывает сообщение и остаётся в новом Проводнике', await page.locator('[data-windows-explorer]').count() === 1 && !(await page.getByTestId('route').textContent())?.includes('file='));
+    await page.getByTestId('route').filter({ hasText: /^\/explorer$/ }).waitFor();
+    ok('Ссылка на файл прежнего архива показывает сообщение, убирает параметры и остаётся в новом Проводнике', await page.locator('[data-windows-explorer]').count() === 1);
     await page.evaluate(() => (window as any).__go('/explorer?folder=old-folder'));
     await page.getByText('Папка из прежнего архива Flux больше не открывается в Проводнике').waitFor();
     ok('Ссылка на папку прежнего архива говорит про папку', await page.locator('[data-windows-explorer]').count() === 1);
@@ -803,6 +804,17 @@ async function loadUntil(page: Page, count: number) {
     await latePage.waitForFunction(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenuClose'));
     ok('Поздний ответ открытия закрывает токен даже после размонтирования Проводника', await latePage.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'shellMenuClose')));
     await latePage.close();
+    // Браузер без Electron: моста к папкам нет, раздел не падает и объясняет, где Проводник работает
+    const bare = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+    const bareErrors: string[] = [];
+    bare.on('pageerror', (error) => bareErrors.push(error.message));
+    await bare.goto(`${BASE}/scripts/fixtures/windows-explorer-ui.html`);
+    await bare.locator('[data-windows-explorer]').waitFor();
+    await bare.evaluate(() => { delete (window as any).electron.windowsFiles; (window as any).__go('/explorer?bare=1'); });
+    await bare.getByText('Проводник работает в Flux для Windows').waitFor();
+    ok('Без моста к папкам Проводник показывает пустое состояние, а не файлы и не ошибку', await bare.locator('[data-windows-explorer]').count() === 0 && bareErrors.length === 0);
+    await bare.screenshot({ path: `${SHOTS}/browser-empty.png` });
+    await bare.close();
   } finally { await browser.close(); }
   console.log(`${passed} проверок пройдено, ${failed} провалено`);
   process.exit(failed ? 1 : 0);

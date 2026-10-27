@@ -207,11 +207,6 @@ const LEGACY: Record<string, number> = {
   // лицензией и вход уехали в server/routes/*, сокеты — в server/sockets.ts,
   // догоняющая миграция SQLite — в server/localSchema.ts
   'server.ts': 1522,
-  // Строки и значки уехали в components/explorer/FileItems.tsx, меню правой
-  // кнопки — в ExplorerMenu.tsx, окно свойств — в FileProperties.tsx, диалоги
-  // оборудования и ВДР, панель просмотра и боковая панель — в свои
-  // компоненты: планка ниже
-  'src/screens/Explorer.tsx': 2137,
   // Пузырь сообщения уехал в components/chat/MessageBubble.tsx — планка ниже
   'src/screens/ChatManagement.tsx': 1864,
 };
@@ -470,8 +465,8 @@ console.log('\n9. Храповик дизайна (docs/methodology/01-design.md
     'курсив (italic)': 2,
     'цветная полоса слева (border-l-2/4)': 11,
     'значок в зелёном квадратике': 12,
-    'крупная тень (shadow-lg/xl/2xl)': 38,
-    'половинные оттенки (slate-503, emerald-995…)': 420,
+    'крупная тень (shadow-lg/xl/2xl)': 18,
+    'половинные оттенки (slate-503, emerald-995…)': 368,
   };
   const STD = new Set([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]);
   const PATTERNS: Record<string, RegExp> = {
