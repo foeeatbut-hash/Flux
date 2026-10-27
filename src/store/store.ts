@@ -3,6 +3,7 @@ import { setNotifUser } from '../lib/notifPrefs';
 import { logoutSession, markSessionEstablished } from '../config/env';
 import { useToastStore } from './toastStore';
 import { prepareSessionClose } from '../lib/closeGuard';
+import { applyGlass, readGlass, type GlassState } from '../lib/glass';
 
 type User = {
   id: string;
@@ -39,6 +40,9 @@ interface AppState {
   // Внешний вид рабочего места
   density: Density;
   setDensity: (d: Density) => void;
+  // Прозрачность оболочки (src/lib/glass.ts): вкл/выкл и уровень 0–100
+  glass: GlassState;
+  setGlass: (g: Partial<GlassState>) => void;
 }
 
 // Плотность рабочего места: инженеру нужно видеть больше строк на экране,
@@ -72,6 +76,8 @@ export const useStore = create<AppState>((set, get) => {
 
   const initialDensity = ((typeof window !== 'undefined' && localStorage.getItem(DENSITY_KEY)) || 'standard') as Density;
   applyDensity(initialDensity);
+  const initialGlass = readGlass();
+  applyGlass(initialGlass);
   // Cached profile is presentation metadata, never proof of authorization.
   // main.tsx restores only the server-confirmed profile before mounting React.
   const initialUser: User | null = null;
@@ -178,6 +184,13 @@ export const useStore = create<AppState>((set, get) => {
       localStorage.setItem(DENSITY_KEY, d);
       applyDensity(d);
       set({ density: d });
+    },
+
+    glass: initialGlass,
+    setGlass: (g) => {
+      const next = { ...get().glass, ...g };
+      applyGlass(next, true);
+      set({ glass: next });
     },
 
     explorerHistory: [null],

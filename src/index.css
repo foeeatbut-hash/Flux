@@ -296,6 +296,34 @@
   --flux-shadow-pop: 0 4px 16px oklch(16% 0.009 163 / 0.12);
   --flux-shadow-modal: 0 16px 48px oklch(16% 0.009 163 / 0.22);
 
+  /* ── Окно: активное и фоновое ──────────────────────────────
+     Активное окно видно с первого взгляда, даже когда рядом три таких же
+     белых: шапка темнее и с жирным названием, ободок 1 px тёмного тона,
+     тень большая. Фоновое — серая шапка, бледные название и значок, тень
+     слабая, рамка светлее. Содержимое фонового окна не гасится — только
+     лёгкий тон поверх (--flux-win-shade), чтобы читалось, а не меркло. */
+  --flux-win-head: var(--color-slate-300);
+  --flux-win-head-idle: var(--color-slate-50);
+  --flux-win-text: var(--color-slate-900);
+  --flux-win-text-idle: var(--color-slate-400);
+  --flux-win-line: var(--color-slate-500);
+  --flux-win-line-idle: var(--color-slate-200);
+  --flux-win-shade: oklch(22% 0.012 163 / 0.045);
+  --flux-shadow-win: 0 0 0 1px oklch(16% 0.009 163 / 0.10), 0 24px 56px -10px oklch(16% 0.009 163 / 0.34), 0 8px 18px oklch(16% 0.009 163 / 0.14);
+  --flux-shadow-win-idle: 0 1px 3px oklch(16% 0.009 163 / 0.10), 0 6px 14px -4px oklch(16% 0.009 163 / 0.08);
+  --flux-shadow-win-drag: 0 30px 70px -12px oklch(16% 0.009 163 / 0.45), 0 0 0 1px oklch(16% 0.009 163 / 0.10);
+
+  /* ── Стекло (src/lib/glass.ts, класс .fx-glass) ─────────────
+     Уровень 0..1 ставит настройка «Прозрачность» на <html>; класс
+     `flux-glass` на <html> — включено. Прозрачность фона и размытие
+     считаются от уровня, поэтому ползунок двигает оба разом. «Мягкое» стекло
+     (шапки окон, диалоги) прозрачно вдвое меньше: под ним читаемый текст. */
+  --flux-glass-level: 0.5;
+  --flux-glass-alpha: calc(1 - var(--flux-glass-level) * 0.5);
+  --flux-glass-alpha-soft: calc(1 - var(--flux-glass-level) * 0.25);
+  --flux-glass-blur: calc(8px + var(--flux-glass-level) * 24px);
+  --flux-glass-sat: 1.5;
+
   /* Ширина правого рельса. Рельс был зеркалом левого меню; ни того, ни
      другого больше нет — оболочка одна, с панелью задач. Ноль оставлен
      значением, а не выброшен: от него отступают раздвижные панели и журнал
@@ -345,6 +373,19 @@
   --flux-shadow-card: 0 1px 2px oklch(0% 0 0 / 0.4);
   --flux-shadow-pop: 0 4px 16px oklch(0% 0 0 / 0.5);
   --flux-shadow-modal: 0 16px 48px oklch(0% 0 0 / 0.6);
+
+  /* Окно в тёмной теме: активное светлее фонового (на тёмном выделяет
+     светлота, не тёмный тон), ободок — светлая линия, тень чёрная и глубже */
+  --flux-win-head: oklch(33% 0.014 163);
+  --flux-win-head-idle: var(--color-dark-surface);
+  --flux-win-text: var(--color-dark-text-main);
+  --flux-win-text-idle: oklch(56% 0.012 163);
+  --flux-win-line: oklch(55% 0.014 163);
+  --flux-win-line-idle: var(--color-dark-border);
+  --flux-win-shade: oklch(0% 0 0 / 0.2);
+  --flux-shadow-win: 0 0 0 1px oklch(0% 0 0 / 0.5), 0 26px 60px -10px oklch(0% 0 0 / 0.75), 0 8px 20px oklch(0% 0 0 / 0.45);
+  --flux-shadow-win-idle: 0 1px 3px oklch(0% 0 0 / 0.4), 0 6px 14px -4px oklch(0% 0 0 / 0.3);
+  --flux-shadow-win-drag: 0 32px 72px -12px oklch(0% 0 0 / 0.85), 0 0 0 1px oklch(0% 0 0 / 0.5);
 }
 
 /* Тёмная тема: пока часть разметки обращается к серой шкале
@@ -1462,6 +1503,13 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-switch[aria-checked="true"] { background: var(--flux-accent); }
   .fx-switch[aria-checked="true"]::after { transform: translateX(14px); }
   .fx-switch:disabled { opacity: .45; cursor: not-allowed; }
+  /* Ползунок уровня: дорожка 4 px нейтральная, бегунок 14 px акцентом (значение выбрано) */
+  .fx-range { -webkit-appearance: none; appearance: none; width: 160px; height: 18px; background: transparent; cursor: pointer; flex: none; }
+  .fx-range::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--flux-line-strong); }
+  .fx-range::-moz-range-track { height: 4px; border-radius: 2px; background: var(--flux-line-strong); }
+  .fx-range::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: var(--flux-accent); border: 2px solid var(--flux-surface); box-shadow: 0 0 0 1px var(--flux-line-strong); }
+  .fx-range::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--flux-accent); border: 2px solid var(--flux-surface); box-shadow: 0 0 0 1px var(--flux-line-strong); }
+  .fx-range:disabled { opacity: .45; cursor: not-allowed; }
 
   /* ── Статус — точка и слово; бейдж — только счётчик или «требует действия» ── */
   .fx-st { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
@@ -1515,9 +1563,11 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-menu-sep { height: 1px; margin: 4px 0; background: var(--flux-line); }
 
   /* ── Диалог ── */
+  /* Диалог — дочернее окно и всегда «активное»: ободок и тень те же, что у
+     активного окна, иначе он сливается с родителем, лежащим под ним */
   .fx-dialog {
-    background: var(--flux-surface); border: 1px solid var(--flux-line); border-radius: var(--flux-radius-lg);
-    box-shadow: var(--flux-shadow-modal); color: var(--flux-text);
+    background: var(--flux-surface); border: 1px solid var(--flux-win-line); border-radius: var(--flux-radius-lg);
+    box-shadow: var(--flux-shadow-win); color: var(--flux-text);
   }
   .fx-dialog-head { display: flex; align-items: center; gap: 8px; padding: 16px 16px 4px; font-size: 15px; line-height: 20px; font-weight: 600; }
   .fx-dialog-body { padding: 4px 16px 16px; font-size: 13px; line-height: 20px; color: var(--flux-text-muted); }
@@ -1525,6 +1575,61 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-backdrop { background: oklch(16% 0.009 163 / 0.35); }
   /* Диалог-окно: короткое появление и «сначала я» при нажатии на заблокированного родителя */
   .fx-dialog-in { animation: fx-dialog-in var(--flux-dur-fast) var(--flux-ease); }
+
+  /* ── Окно программы (WindowsLayer): активное и фоновое ──
+     Состояние — атрибут data-active на раме; значения — переменные
+     --flux-win-* (index.css, раздел «Окно»), правила — docs/methodology/01-design.md, 4. */
+  .fx-win {
+    background: var(--flux-surface); border: 1px solid var(--flux-win-line-idle); border-radius: var(--flux-radius-lg);
+    box-shadow: var(--flux-shadow-win-idle);
+    transition: box-shadow var(--flux-dur-base) var(--flux-ease), border-color var(--flux-dur-base) var(--flux-ease);
+  }
+  .fx-win[data-active="true"] { border-color: var(--flux-win-line); box-shadow: var(--flux-shadow-win); }
+  .fx-win[data-dragging] { box-shadow: var(--flux-shadow-win-drag); }
+  .fx-win-head {
+    --fx-glass-tint: var(--flux-win-head-idle);
+    height: 34px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 10px; user-select: none;
+    border-bottom: 1px solid var(--flux-win-line-idle); color: var(--flux-win-text-idle);
+  }
+  .fx-win[data-active="true"] .fx-win-head { --fx-glass-tint: var(--flux-win-head); border-bottom-color: var(--flux-win-line); color: var(--flux-win-text); }
+  .fx-win-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; }
+  .fx-win[data-active="true"] .fx-win-title { font-weight: 600; }
+  /* Значок фонового окна бледнее: цветной значок рядом с тёмным названием — главная примета активного */
+  .fx-win:not([data-active="true"]) .fx-win-head > svg, .fx-win:not([data-active="true"]) .fx-win-head > img { opacity: .55; }
+  .fx-win-cap { color: var(--flux-win-text-idle); }
+  .fx-win[data-active="true"] .fx-win-cap { color: var(--flux-text-muted); }
+  /* Полоса, которую раздел занял сам (вкладки Проводника): в фоне тише */
+  .fx-win:not([data-active="true"]) [data-title-host] { opacity: .72; }
+  /* Лёгкий тон на содержимом фонового окна: читается, но не спорит с активным.
+     Не затемнение: 4,5 % в светлой теме и 20 % чёрного в тёмной */
+  .fx-win-shade { position: absolute; inset: 0; z-index: 5; pointer-events: none; background: var(--flux-win-shade); transition: opacity var(--flux-dur-base) var(--flux-ease); }
+  .fx-win[data-active="true"] > [data-window-body] > .fx-win-shade { opacity: 0; }
+
+  /* ── Стекло: полупрозрачный фон и размытие того, что под ним ──
+     Контракт оболочки (панели задач, Пуска, правых панелей, шапок окон,
+     всплывающих и диалогов). Класс берёт цвет из --fx-glass-tint (по умолчанию
+     --flux-surface), сам фон и размытие не задаёт ничего другого. Размытие — только на
+     крупных поверхностях оболочки, не на строках и не на содержимом таблиц.
+     Выключено или prefers-reduced-transparency — сплошной фон того же цвета.
+     .fx-glass-soft — вдвое меньше прозрачности: шапки окон, диалоги. */
+  .fx-glass, .fx-glass-soft, .fx-pop, .fx-dialog { background: var(--fx-glass-tint, var(--flux-surface)); }
+  :root.flux-glass .fx-glass, :root.flux-glass .fx-pop {
+    background: color-mix(in srgb, var(--fx-glass-tint, var(--flux-surface)) calc(var(--flux-glass-alpha) * 100%), transparent);
+    -webkit-backdrop-filter: blur(var(--flux-glass-blur)) saturate(var(--flux-glass-sat));
+    backdrop-filter: blur(var(--flux-glass-blur)) saturate(var(--flux-glass-sat));
+  }
+  :root.flux-glass .fx-glass-soft, :root.flux-glass .fx-dialog, :root.flux-glass .fx-win-head {
+    background: color-mix(in srgb, var(--fx-glass-tint, var(--flux-surface)) calc(var(--flux-glass-alpha-soft) * 100%), transparent);
+    -webkit-backdrop-filter: blur(var(--flux-glass-blur)) saturate(var(--flux-glass-sat));
+    backdrop-filter: blur(var(--flux-glass-blur)) saturate(var(--flux-glass-sat));
+  }
+  .fx-win-head { background: var(--fx-glass-tint); }
+  @media (prefers-reduced-transparency: reduce) {
+    :root.flux-glass .fx-glass, :root.flux-glass .fx-glass-soft, :root.flux-glass .fx-pop,
+    :root.flux-glass .fx-dialog, :root.flux-glass .fx-win-head {
+      background: var(--fx-glass-tint, var(--flux-surface)); -webkit-backdrop-filter: none; backdrop-filter: none;
+    }
+  }
   .fx-dialog-flash-a { animation: fx-dialog-flash-a 360ms var(--flux-ease); }
   .fx-dialog-flash-b { animation: fx-dialog-flash-b 360ms var(--flux-ease); }
 }
