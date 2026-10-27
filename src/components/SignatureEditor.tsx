@@ -434,7 +434,7 @@ export default function SignatureEditor({ userId, userName, nameParts, value, he
 
   return (
     <WindowDialog onClose={onClose} busy={busy} label="Подпись"
-      className="w-full max-w-2xl bg-white dark:bg-dark-surface border border-slate-200 dark:border-dark-border rounded-lg shadow-modal">
+      className="fx-dialog w-full max-w-2xl">
         {inner}
       </WindowDialog>
   );

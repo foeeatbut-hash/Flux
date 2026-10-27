@@ -256,9 +256,11 @@ export default function StartMenu({ onClose: closeNow }: { onClose: () => void }
          перекрытый окном, читается как «это не система» вернее всего
          остального */
       style={{ left: 8, bottom: BAR_H + 6, zIndex: Z.start, width: START_W }}
-      className={`fixed max-w-[calc(100vw-1rem)] fx-rise-in
-                 rounded-2xl border border-slate-200 dark:border-dark-border
-                 bg-white dark:bg-dark-surface shadow-2xl overflow-hidden`}
+      /* Стекло (.fx-glass): Пуск — крупная поверхность оболочки, ей просвечивать
+         положено; радиус 12 и тень слоя — как у окна и диалога */
+      className={`fixed max-w-[calc(100vw-1rem)] fx-rise-in fx-glass
+                 rounded-xl border border-[var(--flux-win-line)]
+                 shadow-[var(--flux-shadow-win)] overflow-hidden`}
     >
       <div className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-200 dark:border-dark-border">
         <Search className="w-4 h-4 text-slate-400 shrink-0" />
@@ -353,7 +355,7 @@ export default function StartMenu({ onClose: closeNow }: { onClose: () => void }
 
       {/* Подвал: кто вошёл и то, что раньше жило в подвале левого меню */}
       <div className="flex items-center gap-3 px-4 py-3 border-t border-slate-200 dark:border-dark-border
-                      bg-slate-50 dark:bg-dark-bg">
+                      bg-black/[0.03] dark:bg-black/20">
         <span
           style={{ width: FOOT_BTN, height: FOOT_BTN }}
           className="rounded-full shrink-0 flex items-center justify-center text-2xs font-medium

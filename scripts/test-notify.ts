@@ -11,6 +11,7 @@ import {
   mergeFeed, unreadIn,
   SNOOZE_CHOICES, QUIET_CHOICES, snoozeUntil, quietUntil, isQuiet, untilLabel,
   visibleNow, dueSnoozed, freshOnes, groupByDay, personalGroups, appOf,
+  groupByApp, withoutCleared, clearMoment, isCleared, type FeedItem,
 } from '../src/lib/notifCenter';
 
 let failed = 0;
@@ -135,6 +136,33 @@ console.log('Чья это программа');
   check('без адреса — по категории', appOf(n('b', { targetRoute: '', category: 'ЧАТ' })) === '/chat');
   check('документы ведут в Менеджмент', appOf(n('c', { targetRoute: '', category: 'ДОКУМЕНТЫ' })) === '/management');
   check('решётка адресом не считается', appOf(n('d', { targetRoute: '#', category: 'СИСТЕМА' })) === '/');
+}
+
+console.log('Лента по программам и «Удалить все»');
+{
+  const at = (min: number) => new Date(NOW - min * 60000).toISOString();
+  const f = (id: string, over: Partial<FeedItem> = {}): FeedItem => ({
+    id, kind: 'personal', title: id, body: '', targetRoute: '/chat?from=u1', category: 'ЧАТ', isRead: false, createdAt: at(1), ...over,
+  });
+  const titleOf = (r: string) => r;
+  const feed = [
+    f('a', { createdAt: at(30) }), f('b', { targetRoute: '/mail', category: 'ДОКУМЕНТЫ', createdAt: at(5) }),
+    f('c', { createdAt: at(10), isRead: true }), f('w', { kind: 'windows', who: 'Outlook', targetRoute: '', category: 'WINDOWS', createdAt: at(2) }),
+  ];
+  const g = groupByApp(feed, titleOf);
+  check('четыре уведомления — три группы', g.length === 3, g.map((x) => x.key));
+  check('свежая группа первой', g[0].key === 'win:Outlook' && g[1].key === '/mail', g.map((x) => x.key));
+  check('внутри группы свежие сверху', g[2].items.map((i) => i.id).join() === 'c,a', g[2].items.map((i) => i.id));
+  check('счётчик считает непрочитанное', g[2].unread === 1 && g[1].unread === 1, g.map((x) => x.unread));
+  check('уведомления Windows — под именем отправителя', g[0].title === 'Outlook' && g[0].route === '');
+
+  const cleared = { '*': NOW - 20 * 60000 };
+  check('«Удалить все» скрывает всё, что было раньше', withoutCleared(feed, cleared).map((i) => i.id).join() === 'b,c,w', withoutCleared(feed, cleared).map((i) => i.id));
+  check('позднее пришедшее покажется', withoutCleared([...feed, f('new', { createdAt: at(0) })], cleared).some((i) => i.id === 'new'));
+  check('«Очистить» у программы скрывает только её', withoutCleared(feed, { '/chat': NOW }).map((i) => i.id).join() === 'b,w');
+  check('битая дата не прячется', !isCleared({ createdAt: 'вчера' }, '/chat', { '*': NOW }));
+  check('очистка не раньше самого свежего (часы расходятся)', clearMoment([{ createdAt: new Date(NOW + 90_000).toISOString() }], NOW) === NOW + 90_000);
+  check('без свежее «сейчас» — это сейчас', clearMoment([{ createdAt: at(5) }], NOW) === NOW);
 }
 
 console.log(failed === 0 ? '\nВсе проверки центра уведомлений пройдены' : `\nПровалено: ${failed}`);

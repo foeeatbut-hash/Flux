@@ -14,7 +14,7 @@ async function main() {
     const address = vite.httpServer?.address();
     if (!address || typeof address === 'string') throw new Error('Vite did not expose its isolated port');
     browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME || '/usr/bin/chromium', headless: true, args: ['--no-sandbox'] });
-    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    const page = await browser.newPage({ viewport: { width: 1280, height: 760 } });
     await page.goto(`http://127.0.0.1:${address.port}/scripts/fixtures/remaining-shell/windows-layer-geometry.html`);
     await page.locator('[data-display-taskbar="1"]').waitFor();
     assert.equal(await page.locator('[data-desk] .absolute[title="Почта"]').count(), 0, 'a persisted pre-change Flux app pin is absent from the desktop');
@@ -26,17 +26,57 @@ async function main() {
       return { taskbar: rect(taskbar), desk: rect(desk), root: rect(document.querySelector('#root')) };
     })()`);
     const visible = await geometry();
-    assert.deepEqual(visible.taskbar, { x: 0, y: 720, width: 1280, height: 40, bottom: 760 }, 'Flux taskbar reaches the Windows work-area edge');
-    assert.equal(visible.desk.height, 800, 'renderer fills the BrowserWindow; the native HWND shape clips the reserved Windows area');
-    assert.equal(visible.root.height, 800, 'no CSS bottom padding is inserted for the Windows taskbar');
+    assert.deepEqual(visible.taskbar, { x: 0, y: 712, width: 1280, height: 48, bottom: 760 }, 'Flux taskbar reaches the Windows work-area edge');
+    assert.equal(visible.desk.height, 760, 'renderer fills the BrowserWindow, which ends at the work-area edge: nothing is left below Flux taskbar');
+    assert.equal(visible.root.height, 760, 'no CSS bottom padding is inserted for the Windows taskbar');
     console.log(`✓ visible Windows taskbar: ${JSON.stringify(visible)}`);
 
     await page.evaluate('window.__setWindowsTaskbar(false)');
     await page.waitForTimeout(50);
     const legacyPreference = await geometry();
     assert.deepEqual(legacyPreference.taskbar, visible.taskbar, 'an old preference cannot move Flux into the Windows taskbar area');
-    assert.equal(legacyPreference.root.height, 800, 'legacy preference does not add a white placeholder strip');
+    assert.equal(legacyPreference.root.height, 760, 'legacy preference does not add a white placeholder strip');
     console.log(`✓ legacy hide preference is ignored: ${JSON.stringify(legacyPreference)}`);
+
+    // Окно = охват workArea: панель Flux каждого монитора у нижнего края его рабочей области.
+    type Area = { x: number; y: number; w: number; h: number };
+    const monitor = (id: number, bounds: Area, workArea: Area, scaleFactor = 1) => ({ id, label: `M${id}`, primary: id === 1, scaleFactor, bounds, workArea });
+    const scenarios: Array<{ label: string; displays: any[]; rect: Area; exact: boolean; bars: Record<number, Area> }> = [
+      { label: 'two equal monitors, Windows taskbar at the bottom',
+        displays: [monitor(1, { x: 0, y: 0, w: 1920, h: 1080 }, { x: 0, y: 0, w: 1920, h: 1040 }),
+          monitor(2, { x: 1920, y: 0, w: 1920, h: 1080 }, { x: 1920, y: 0, w: 1920, h: 1040 })],
+        rect: { x: 0, y: 0, w: 3840, h: 1040 }, exact: true,
+        bars: { 1: { x: 0, y: 992, w: 1920, h: 48 }, 2: { x: 1920, y: 992, w: 1920, h: 48 } } },
+      { label: 'different heights',
+        displays: [monitor(1, { x: 0, y: 0, w: 1920, h: 1080 }, { x: 0, y: 0, w: 1920, h: 1040 }),
+          monitor(2, { x: 1920, y: 0, w: 1280, h: 1024 }, { x: 1920, y: 0, w: 1280, h: 984 })],
+        rect: { x: 0, y: 0, w: 3200, h: 1040 }, exact: false,
+        bars: { 1: { x: 0, y: 992, w: 1920, h: 48 }, 2: { x: 1920, y: 936, w: 1280, h: 48 } } },
+      { label: 'vertically offset second monitor',
+        displays: [monitor(1, { x: 0, y: 0, w: 1920, h: 1080 }, { x: 0, y: 0, w: 1920, h: 1040 }),
+          monitor(2, { x: 1920, y: 300, w: 1920, h: 1080 }, { x: 1920, y: 300, w: 1920, h: 1040 })],
+        rect: { x: 0, y: 0, w: 3840, h: 1340 }, exact: false,
+        bars: { 1: { x: 0, y: 992, w: 1920, h: 48 }, 2: { x: 1920, y: 1292, w: 1920, h: 48 } } },
+      { label: '125 % scale with a 1 px rounding seam',
+        displays: [monitor(1, { x: 0, y: 0, w: 1536, h: 864 }, { x: 0, y: 0, w: 1536, h: 824 }, 1.25),
+          monitor(2, { x: 1536, y: 0, w: 1536, h: 864 }, { x: 1536, y: 1, w: 1536, h: 823 }, 1.25)],
+        rect: { x: 0, y: 0, w: 3072, h: 824 }, exact: true,
+        bars: { 1: { x: 0, y: 776, w: 1536, h: 48 }, 2: { x: 1536, y: 776, w: 1536, h: 48 } } },
+    ];
+    for (const sc of scenarios) {
+      const frameInfo = await page.evaluate<{ rect: Area; exact: boolean }>(`window.__setLayout(${JSON.stringify(sc.displays)})`);
+      assert.deepEqual(frameInfo.rect, sc.rect, `${sc.label}: window rect`);
+      assert.equal(frameInfo.exact, sc.exact, `${sc.label}: exact rectangle`);
+      await page.setViewportSize({ width: sc.rect.w, height: sc.rect.h });
+      await page.waitForTimeout(80);
+      const bars = await page.evaluate<Record<number, Area>>(`Object.fromEntries([...document.querySelectorAll('[data-display-taskbar]')].map(el => {
+        const r = el.getBoundingClientRect(); return [el.getAttribute('data-display-taskbar'), { x: r.x, y: r.y, w: r.width, h: r.height }]; }))`);
+      assert.deepEqual(bars, sc.bars, `${sc.label}: Flux taskbar sits on the bottom edge of every work area`);
+      for (const bar of Object.values(bars)) assert.ok(bar.y + bar.h <= sc.rect.h && bar.x + bar.w <= sc.rect.w, `${sc.label}: taskbar inside the window`);
+      console.log(`✓ ${sc.label}: ${JSON.stringify(bars)}`);
+    }
+    await page.setViewportSize({ width: 1280, height: 760 });
+    await page.evaluate('window.__setWindowsTaskbar(true)');
 
     const frame = await page.evaluate<{ windowed: string; maximized: string; coverage: string; darkTheme: boolean; lightCornerBackgroundMatches: boolean; darkCornerBackgroundMatches: { app: string; body: string } }>(`(() => {
       const root = document.documentElement;

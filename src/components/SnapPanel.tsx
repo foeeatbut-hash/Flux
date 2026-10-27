@@ -59,8 +59,7 @@ export default function SnapPanel({ area, x, y, onPick, onHover, onClose }: {
       <div
         role="group"
         aria-label="Куда поставить окно"
-        className="absolute z-[61] p-2 rounded-xl shadow-2xl bg-white dark:bg-slate-900
-                   border border-slate-200 dark:border-slate-800"
+        className="fx-pop absolute z-[61] p-2"
         style={{ left: x, top: y, width: PANEL_W, display: 'grid', gap: GAP, gridTemplateColumns: `repeat(2, ${CARD_W}px)` }}
         onMouseLeave={() => { setPick(null); onHover(null); }}
       >

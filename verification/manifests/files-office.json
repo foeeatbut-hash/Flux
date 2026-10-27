@@ -12,10 +12,6 @@
       "sources": [
         "src/screens/Explorer.tsx",
         "src/components/explorer/FileItems.tsx",
-        "src/components/explorer/ExplorerMenu.tsx",
-        "src/components/explorer/FilePreview.tsx",
-        "src/components/explorer/FileProperties.tsx",
-        "src/components/explorer/FileVersionsDialog.tsx",
         "src/components/explorer/FileShareDialog.tsx",
         "src/lib/fileTypes.ts",
         "src/lib/dropFiles.ts",
@@ -37,7 +33,6 @@
         "src/components/explorer/SharedFilesFolder.tsx",
         "src/components/explorer/FileShareDialog.tsx",
         "src/components/explorer/OwnedFileShareSync.tsx",
-        "src/components/explorer/FileVersionsDialog.tsx",
         "server/fileSharing.ts",
         "server/routes/officeFiles.ts"
       ]
@@ -483,38 +478,6 @@
         }
       ],
       "timeoutMs": 900000
-    },
-    {
-      "id": "files-explorer-open-live",
-      "path": "scripts/test-explorer-open-live.ts",
-      "layer": "browser-live",
-      "platform": "any",
-      "resources": [
-        "server-3000",
-        "playwright",
-        "api:fixture"
-      ],
-      "prerequisites": [
-        {
-          "kind": "env",
-          "name": "FLUX_TEST_FIXTURE",
-          "value": "1"
-        },
-        {
-          "kind": "env",
-          "name": "FLUX_API"
-        },
-        {
-          "kind": "env",
-          "name": "FLUX_USER"
-        },
-        {
-          "kind": "env",
-          "name": "FLUX_PASS"
-        }
-      ],
-      "timeoutMs": 900000,
-      "external": true
     },
     {
       "id": "files-office-files-live",
@@ -1145,62 +1108,6 @@
           "scenario": "Изменить свойства синтетического файла и перечитать его из API.",
           "expected": [
             "Изменяются только поля выбранного файла; после повторного чтения метаданные совпадают."
-          ],
-          "status": "NOT_RUN"
-        }
-      ]
-    },
-    {
-      "id": "explorer.versions",
-      "program": "explorer",
-      "label": "Открыть историю версий и восстановить выбранную версию",
-      "sources": [
-        "src/screens/Explorer.tsx",
-        "src/components/explorer/FileVersionsDialog.tsx"
-      ],
-      "triggers": [
-        "button",
-        "context-menu"
-      ],
-      "risk": "normal",
-      "expected": [
-        "История относится к выбранному file ID; восстановление создаёт текущую версию из выбранного снимка."
-      ],
-      "checks": [],
-      "manual": [
-        {
-          "layer": "browser-live",
-          "scenario": "Восстановить версию synthetic file и независимо прочитать содержимое.",
-          "expected": [
-            "История относится к выбранному file ID; восстановление создаёт текущую версию из выбранного снимка."
-          ],
-          "status": "NOT_RUN"
-        }
-      ]
-    },
-    {
-      "id": "explorer.preview",
-      "program": "explorer",
-      "label": "Открыть/закрыть панель предпросмотра выбранного файла",
-      "sources": [
-        "src/screens/Explorer.tsx",
-        "src/components/explorer/FilePreview.tsx"
-      ],
-      "triggers": [
-        "button",
-        "row-selection"
-      ],
-      "risk": "normal",
-      "expected": [
-        "Предпросмотр показывает выбранный объект и сам не меняет его содержимое."
-      ],
-      "checks": [],
-      "manual": [
-        {
-          "layer": "browser-live",
-          "scenario": "Переключить preview для двух синтетических файлов и сверить file ID/содержимое.",
-          "expected": [
-            "Предпросмотр показывает выбранный объект и сам не меняет его содержимое."
           ],
           "status": "NOT_RUN"
         }
@@ -4741,7 +4648,6 @@
       "status": "implemented",
       "sources": [
         "src/lib/fileTypes.ts",
-        "src/components/explorer/ExplorerMenu.tsx",
         "src/screens/OfficeAppHost.tsx"
       ],
       "expected": [

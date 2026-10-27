@@ -187,12 +187,12 @@ async function main() {
       await page.getByTitle('Завершить демонстрацию').click();
       check('диалог проекта отменён без создания записи', await dialog.count() === 0);
 
-      await startTour('import-blank-preview');
+      await startTour('create-folder');
       await page.waitForTimeout(1000);
-      check('ветка импорта ведёт в Проводник и показывает реальную цель', /explorer/.test(await page.evaluate(() => location.hash)) && await page.locator('[data-tour="nav-/explorer"]').first().isVisible());
+      check('ветка папки ведёт в Проводник и показывает реальную цель', /explorer/.test(await page.evaluate(() => location.hash)) && await page.locator('[data-tour="nav-/explorer"]').first().isVisible());
       await page.getByTitle('Пропустить шаг').click();
       await page.waitForTimeout(500);
-      check('импортный сценарий показывает шаг предпросмотра без запуска записи', await page.getByText(/откроется предпросмотр: дерево установок/).isVisible() && await page.getByText('Подтвердить импорт', { exact: true }).count() === 0);
+      check('сценарий папки показывает шаг «Создать → Папку» без создания папки', await page.getByText(/Нажмите «Создать» на панели команд/).isVisible());
       await page.getByTitle('Завершить демонстрацию').click();
 
       const projectsAfter = await page.evaluate(async () => {

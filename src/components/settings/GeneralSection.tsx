@@ -11,8 +11,11 @@ import SectionShell from './SectionShell';
 import FluxLogo from '../FluxLogo';
 import OnlineVisibility from './OnlineVisibility';
 import DisplaySettings from '../shell/DisplaySettings';
+import { useStore } from '../../store/store';
 
 export default function GeneralSection({ theme, toggleTheme, density, setDensity, addToast, user }: any) {
+  const glass = useStore((s) => s.glass);
+  const setGlass = useStore((s) => s.setGlass);
   return (
     <SectionShell title="Общие" desc="Внешний вид программы.">
       <div id="appearance" className="fx-set-group">
@@ -25,6 +28,16 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
         <SettingRow title="Плотность" desc="Сколько строк помещается на экране: таблицы и списки во всех разделах.">
           <Seg label="Плотность" value={density} onChange={setDensity}
             options={[{ value: 'compact', label: 'Компактно' }, { value: 'standard', label: 'Стандарт' }, { value: 'comfortable', label: 'Просторно' }]} />
+        </SettingRow>
+        {/* Прозрачность только у оболочки (Пуск, панель задач, шапки окон, меню,
+            диалоги); таблицы и формы всегда сплошные. Система с «уменьшить
+            прозрачность» (prefers-reduced-transparency) её не получает вовсе */}
+        <SettingRow title="Прозрачность" desc="Пуск, панель задач, заголовки окон, меню и диалоги просвечивают. Рабочие таблицы остаются сплошными.">
+          <Switch label="Прозрачность" checked={glass.on} onChange={(on) => setGlass({ on })} />
+        </SettingRow>
+        <SettingRow title="Уровень прозрачности" desc={`${glass.level} %`}>
+          <input type="range" className="fx-range" min={0} max={100} step={5} value={glass.level} disabled={!glass.on}
+            aria-label="Уровень прозрачности" onChange={(e) => setGlass({ level: Number(e.target.value) })} />
         </SettingRow>
       </div>
 

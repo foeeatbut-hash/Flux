@@ -3,6 +3,7 @@ import { setNotifUser } from '../lib/notifPrefs';
 import { logoutSession, markSessionEstablished } from '../config/env';
 import { useToastStore } from './toastStore';
 import { prepareSessionClose } from '../lib/closeGuard';
+import { applyGlass, readGlass, type GlassState } from '../lib/glass';
 
 type User = {
   id: string;
@@ -26,19 +27,15 @@ interface AppState {
   // Theme state
   theme: 'light' | 'dark';
   toggleTheme: () => void;
-  // Explorer state
-  explorerHistory: (string | null)[];
-  explorerForward: (string | null)[];
-  pushHistory: (folderId: string | null) => void;
-  goBack: () => string | null | undefined;
-  goForward: () => string | null | undefined;
-  clearHistory: () => void;
   // Sync Status
   syncStatus: 'idle' | 'saving' | 'success' | 'error';
   setSyncStatus: (status: 'idle' | 'saving' | 'success' | 'error') => void;
   // Внешний вид рабочего места
   density: Density;
   setDensity: (d: Density) => void;
+  // Прозрачность оболочки (src/lib/glass.ts): вкл/выкл и уровень 0–100
+  glass: GlassState;
+  setGlass: (g: Partial<GlassState>) => void;
 }
 
 // Плотность рабочего места: инженеру нужно видеть больше строк на экране,
@@ -72,6 +69,8 @@ export const useStore = create<AppState>((set, get) => {
 
   const initialDensity = ((typeof window !== 'undefined' && localStorage.getItem(DENSITY_KEY)) || 'standard') as Density;
   applyDensity(initialDensity);
+  const initialGlass = readGlass();
+  applyGlass(initialGlass);
   // Cached profile is presentation metadata, never proof of authorization.
   // main.tsx restores only the server-confirmed profile before mounting React.
   const initialUser: User | null = null;
@@ -136,8 +135,6 @@ export const useStore = create<AppState>((set, get) => {
           user,
           activeProject: lastProject,
           theme: userTheme,
-          explorerHistory: [null],
-          explorerForward: []
         });
       } else {
         set({ user, activeProject: null });
@@ -152,7 +149,7 @@ export const useStore = create<AppState>((set, get) => {
           localStorage.removeItem(`max_active_project_${state.user.id}`);
         }
       }
-      set({ activeProject: project, explorerHistory: [null], explorerForward: [] });
+      set({ activeProject: project });
     },
     
     theme: initialTheme,
@@ -180,37 +177,12 @@ export const useStore = create<AppState>((set, get) => {
       set({ density: d });
     },
 
-    explorerHistory: [null],
-    explorerForward: [],
-    pushHistory: (folderId) => set((state) => {
-      const current = state.explorerHistory[state.explorerHistory.length - 1];
-      if (current === folderId) return state; // don't push duplicates
-      return { 
-        explorerHistory: [...state.explorerHistory, folderId],
-        explorerForward: [] // clear forward history on new navigation
-      };
-    }),
-    goBack: () => {
-      const { explorerHistory, explorerForward } = get();
-      if (explorerHistory.length > 1) {
-        const newHistory = [...explorerHistory];
-        const current = newHistory.pop() as string | null;
-        set({ explorerHistory: newHistory, explorerForward: [current, ...explorerForward] });
-        return newHistory[newHistory.length - 1];
-      }
-      return undefined;
+    glass: initialGlass,
+    setGlass: (g) => {
+      const next = { ...get().glass, ...g };
+      applyGlass(next, true);
+      set({ glass: next });
     },
-    goForward: () => {
-      const { explorerHistory, explorerForward } = get();
-      if (explorerForward.length > 0) {
-        const newForward = [...explorerForward];
-        const next = newForward.shift() as string | null;
-        set({ explorerHistory: [...explorerHistory, next], explorerForward: newForward });
-        return next;
-      }
-      return undefined;
-    },
-    clearHistory: () => set({ explorerHistory: [null], explorerForward: [] }),
 
     syncStatus: 'idle',
     setSyncStatus: (status) => {

@@ -152,17 +152,14 @@ function WindowFrame({
         height: win.h, zIndex: 10 + win.z,
         display: win.minimized || hidden ? 'none' : undefined,
       }}
-      /* Активное окно отличает тень и тёмное название, а не зелёная рамка и
-         зелёный заголовок: акцент по методологии — только у главной кнопки,
-         фокуса и «включено» (01-design.md, раздел 3). Подсветка при
-         подглядывании с панели задач осталась — это указание, а не украшение */
-      className={`absolute flex flex-col rounded-xl overflow-hidden bg-white dark:bg-dark-bg border transition-shadow data-dragging:shadow-[0_30px_70px_-12px_rgb(0_0_0/0.45)] ${
-        peeked
-          ? 'border-emerald-500 shadow-2xl ring-2 ring-emerald-500/40'
-          : isTop
-            ? 'border-slate-300 dark:border-slate-600 shadow-2xl'
-            : 'border-slate-200 dark:border-dark-border shadow-lg'
-      }`}
+      /* Активное окно отличают шапка (темнее, название 600), ободок тёмного
+         тона и большая тень; фоновое — серая шапка, бледное название, слабая
+         тень и лёгкий тон на содержимом (.fx-win в index.css). Зелёной рамки
+         нет: акцент по методологии — только у главной кнопки, фокуса и
+         «включено» (01-design.md, раздел 3). Подсветка при подглядывании с
+         панели задач осталась — это указание, а не украшение */
+      data-active={isTop ? 'true' : 'false'}
+      className={`fx-win absolute flex flex-col overflow-hidden ${peeked ? '!border-emerald-500 !shadow-2xl ring-2 ring-emerald-500/40' : ''}`}
     >
       <div
         onPointerDown={(e) => drag(e, null)}
@@ -172,18 +169,17 @@ function WindowFrame({
            раздел занял заголовок, высоту и фон полосы задаёт он */
         className={claim
           ? `shrink-0 flex items-center select-none ${claim.className}`
-          : `h-[34px] shrink-0 flex items-center gap-2 px-2.5 select-none cursor-grab active:cursor-grabbing
-                    border-b border-slate-200 dark:border-dark-border bg-white dark:bg-dark-bg`}
+          : 'fx-win-head cursor-grab active:cursor-grabbing'}
       >
-        {!claim && Icon && <Icon size={ICON_SIZE.title} className={`shrink-0 ${isTop ? '' : 'opacity-60'}`} />}
-        {!claim && <span className={`flex-1 min-w-0 truncate text-xs font-medium ${isTop ? 'text-slate-800 dark:text-slate-100' : 'text-slate-400 dark:text-slate-500'}`}
+        {!claim && Icon && <Icon size={ICON_SIZE.title} className="shrink-0" />}
+        {!claim && <span className="fx-win-title"
           title={title === def.title ? title : `${title} · ${def.title}`}>{title}</span>}
         {/* Место раздела: пустое и скрытое, пока слот не занят */}
         <div ref={hostRef} data-title-host className={claim ? 'flex-1 min-w-0 self-stretch' : 'hidden'} />
         <button type="button" title="Свернуть" aria-label="Свернуть"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => st.getState().minimize(win.id)}
-          className={`${btn} ${claim ? capClaimed : 'text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-850'}`}>
+          className={`${btn} ${claim ? capClaimed : 'fx-win-cap hover:bg-black/[0.07] dark:hover:bg-white/10'}`}>
           <Minus className="w-3.5 h-3.5" />
         </button>
         {/* Квадратик: нажатие разворачивает, наведение и правая кнопка
@@ -196,13 +192,13 @@ function WindowFrame({
           onContextMenu={(e) => { e.preventDefault(); onSnapOpen(win.id, e.currentTarget as HTMLElement); }}
           onMouseEnter={(e) => onSnapArm(win.id, e.currentTarget as HTMLElement)}
           onMouseLeave={onSnapDisarm}
-          className={`${btn} ${claim ? capClaimed : 'text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-850'}`}>
+          className={`${btn} ${claim ? capClaimed : 'fx-win-cap hover:bg-black/[0.07] dark:hover:bg-white/10'}`}>
           {win.maximized ? <Copy className="w-3.5 h-3.5" /> : <Square className="w-3 h-3" />}
         </button>
         <button type="button" title="Закрыть" aria-label="Закрыть"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => { void st.getState().requestClose(win.id); }}
-          className={`${btn} ${claim ? 'text-slate-500 dark:text-slate-300 hover:bg-[#c42b1c]' : 'text-slate-500 hover:bg-rose-600'} hover:text-white`}>
+          className={`${btn} ${claim ? 'text-slate-500 dark:text-slate-300 hover:bg-[#c42b1c]' : 'fx-win-cap hover:bg-[#c42b1c]'} hover:!text-white`}>
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -219,6 +215,8 @@ function WindowFrame({
           liveLocation={liveLocation}
           globalNavigate={globalNavigate}
         />
+        {/* Лёгкий тон на фоновом окне; у активного прозрачен (.fx-win-shade) */}
+        <div aria-hidden className="fx-win-shade" />
       </div>
 
       {!win.maximized && EDGES.map(({ edge, cls }) => (

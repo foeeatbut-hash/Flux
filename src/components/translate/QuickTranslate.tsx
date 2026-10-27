@@ -121,7 +121,7 @@ export default function QuickTranslate() {
       transition={TRANSITION.enter}
       data-quick-translate
       style={{ left: shown.x, top: shown.y, width: WIDTH }}
-      className="fixed z-[9500] rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl overflow-hidden"
+      className="fx-pop fixed z-[9500] overflow-hidden"
     >
       <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-slate-100 dark:border-slate-850">
         <Languages className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />

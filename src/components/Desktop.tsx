@@ -50,8 +50,8 @@ import DeskProperties from './desktop/DeskProperties';
 import DeskFolder from './desktop/DeskFolder';
 import WindowsDesktop from './desktop/WindowsDesktop';
 
-/** Корзина — это вид Проводника, поэтому и открывается им */
-const BIN_HREF = '/explorer?folder=trash%3Aroot';
+/** Корзина — это Корзина Windows в Проводнике; корзины архива Flux больше нет */
+const BIN_HREF = '/explorer?recycle=1';
 
 export default function Desktop({ screenOrigin }: { screenOrigin?: { x: number; y: number } } = {}) {
   return (window as any).electron?.windowsFiles ? <WindowsDesktop screenOrigin={screenOrigin} /> : <ProjectDesktop />;
@@ -61,7 +61,7 @@ function ProjectDesktop() {
   const user = useStore((s) => s.user);
   const navigate = useNavigate();
   const {
-    items, cells, sortBy, scale, selected, error, personalFolderId, trashCount, groups,
+    items, cells, sortBy, scale, selected, error, personalFolderId, groups,
     load, select, setCell, arrangeBy, setScale, createFolder, rename, remove, share, setStatus,
     acceptDrop, foldIcons, unfoldIcon, renameGroup,
   } = useDesktopStore();
@@ -619,7 +619,6 @@ function ProjectDesktop() {
             y={isDragged ? dragging.y : at.y}
             selected={selected.includes(item.id)}
             dragged={isDragged}
-            badge={item.id === BIN_ID ? trashCount : undefined}
             renaming={renaming?.id === item.id ? renaming.value : null}
             onRenameChange={(v) => setRenaming({ id: item.id, value: v })}
             onRenameCommit={() => { if (renaming) rename(item.id, renaming.value, projectId); setRenaming(null); }}

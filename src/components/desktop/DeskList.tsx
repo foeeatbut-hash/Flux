@@ -73,7 +73,7 @@ export default function DeskList({
                 onDoubleClick={() => onOpen(item)}
                 onContextMenu={(e) => onMenu(e, item)}
                 className={`cursor-default ${
-                  isSel ? 'bg-emerald-100 dark:bg-emerald-950/30' : 'hover:bg-slate-200/60 dark:hover:bg-dark-surface/60'
+                  isSel ? 'fx-sel' : 'fx-hov'
                 }`}
               >
                 <td className="px-2.5 py-1.5 border-b border-slate-200/70 dark:border-dark-border/70">

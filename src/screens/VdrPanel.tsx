@@ -11,6 +11,8 @@ import {
 import { countOf } from '../lib/plural';
 import ImportFileChooser from '../components/ImportFileChooser';
 import { editorHref } from '../lib/officeFiles';
+import { appsFor, openHref } from '../lib/fileTypes';
+import { openInWindowsSaid } from '../lib/saveToWindows';
 import { useModalStore } from '../store/modalStore';
 import { useTranslateStore } from '../store/translateStore';
 import { hasAdminRole } from '../lib/permissions';
@@ -458,6 +460,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
   onClose: () => void; onChanged: () => void;
 }) {
   const { addToast } = useToastStore();
+  const navigate = useNavigate();
   const isNew = !item.id;
   const [f, setF] = useState<Item>({ ...item });
   const [revisions, setRevisions] = useState<any[]>([]);
@@ -495,6 +498,19 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
       addToast('Сохранено', 'success');
       onChanged(); if (isNew) onClose();
     } finally { setBusy(false); }
+  };
+
+  // Прикреплённый файл лежит в архиве Flux, а Проводника с архивом больше нет:
+  // Word, Excel и PDF открываются своими редакторами, остальное — программой Windows
+  const openAttached = async (fileId: string) => {
+    try {
+      const r = await fetch(`/api/files/${encodeURIComponent(fileId)}?meta=1`);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.file) { addToast(d.error || 'Файл не найден', 'error'); return; }
+      const file = { id: fileId, name: String(d.file.name || ''), type: d.file.type, folderId: d.file.folderId };
+      if (appsFor(file)[0]?.id === 'windows') void openInWindowsSaid(fileId, file.name, addToast);
+      else navigate(openHref(file));
+    } catch (e: any) { addToast(e?.message || 'Не удалось открыть файл', 'error'); }
   };
 
   const setReviewCode = async (code: string) => {
@@ -611,9 +627,9 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
             <textarea value={f.remarks} onChange={e => setF(s => ({ ...s, remarks: e.target.value }))} rows={2} className={inputCls} />
           </div>
           {f.fileNodeId && (
-            <button type="button" onClick={() => { window.location.hash = `#/explorer?file=${f.fileNodeId}`; }}
+            <button type="button" onClick={() => void openAttached(f.fileNodeId!)}
               className="fx-btn fx-btn-sm w-full justify-center">
-              <FileText className="w-3.5 h-3.5" /> Прикреплённый файл — открыть в Проводнике
+              <FileText className="w-3.5 h-3.5" /> Прикреплённый файл — открыть
             </button>
           )}
 

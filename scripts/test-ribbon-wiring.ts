@@ -75,7 +75,7 @@ const FROM_ENGINE = new Set([
 
 /** Где искать обработчик сочетания: экраны разделов */
 const KEY_SOURCES = [
-  'src/screens/TranslateScreen.tsx', 'src/screens/Explorer.tsx',
+  'src/screens/TranslateScreen.tsx',
 ];
 
 /** Все ленты — сочетания объявляются и там, где пары «лента ↔ экран» нет */

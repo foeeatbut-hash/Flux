@@ -18,6 +18,45 @@ export function unionDisplays(displays: WorkspaceDisplay[]): DisplayRect {
   return { x, y, w: Math.max(...displays.map(d => d.bounds.x + d.bounds.w)) - x,
     h: Math.max(...displays.map(d => d.bounds.y + d.bounds.h)) - y };
 }
+/**
+ * Каким должно быть общее окно Flux.
+ *
+ * `rect` — охват рабочих областей (workArea), а не границ (bounds) мониторов:
+ * системная панель Windows лежит вне workArea, поэтому окно её просто не
+ * касается и не прячет «полноэкранным» перекрытием монитора. Когда мониторы
+ * одной высоты или стоят вровень, рабочие области сплошь заполняют охват
+ * (`exact`), и окно остаётся обычным прямоугольником без нативной формы.
+ * Если охват шире их объединения (мониторы разной высоты или со смещением),
+ * `shape` — те же рабочие области в координатах окна: форма вырезает только
+ * пустоту и панели, а панель Flux каждого монитора по-прежнему стоит у нижнего
+ * края его workArea.
+ */
+export interface WorkspaceFrame { rect: DisplayRect; shape: DisplayRect[] | null; exact: boolean }
+/** Щель уже этого — округление DIP при дробном масштабе, а не пустое место. */
+export const FRAME_TOLERANCE = 2;
+export function workspaceFrame(displays: WorkspaceDisplay[]): WorkspaceFrame {
+  if (!displays.length) return { rect: { ...EMPTY_WORKSPACE.bounds }, shape: null, exact: true };
+  const areas = displays.map(d => d.workArea);
+  const x = Math.min(...areas.map(a => a.x));
+  const y = Math.min(...areas.map(a => a.y));
+  const rect = { x, y, w: Math.max(...areas.map(a => a.x + a.w)) - x, h: Math.max(...areas.map(a => a.y + a.h)) - y };
+  // Сетка из границ рабочих областей: клетка шире допуска и не накрытая ни
+  // одной областью — настоящая пустота, а не шов в 1 px.
+  const xs = [...new Set(areas.flatMap(a => [a.x, a.x + a.w]))].sort((a, b) => a - b);
+  const ys = [...new Set(areas.flatMap(a => [a.y, a.y + a.h]))].sort((a, b) => a - b);
+  let exact = true;
+  for (let i = 0; i + 1 < xs.length && exact; i++) for (let j = 0; j + 1 < ys.length && exact; j++) {
+    if (xs[i + 1] - xs[i] <= FRAME_TOLERANCE || ys[j + 1] - ys[j] <= FRAME_TOLERANCE) continue;
+    const cx = (xs[i] + xs[i + 1]) / 2, cy = (ys[j] + ys[j + 1]) / 2;
+    if (!areas.some(a => containsPoint(a, cx, cy))) exact = false;
+  }
+  return { rect, exact, shape: exact ? null : areas.map(a => ({ x: a.x - x, y: a.y - y, w: a.w, h: a.h })) };
+}
+/** Равны ли прямоугольники с допуском: Windows при 125 % округляет границы окна. */
+export function sameRect(a: DisplayRect, b: DisplayRect, tolerance = FRAME_TOLERANCE): boolean {
+  return Math.abs(a.x - b.x) <= tolerance && Math.abs(a.y - b.y) <= tolerance
+    && Math.abs(a.w - b.w) <= tolerance && Math.abs(a.h - b.h) <= tolerance;
+}
 export function localDisplayAreas(state: DisplayWorkspace, reservedTaskbarHeight = 0): WorkspaceDisplay[] {
   return state.displays.map(d => ({ ...d,
       bounds: { ...d.bounds, x: d.bounds.x - state.bounds.x, y: d.bounds.y - state.bounds.y },

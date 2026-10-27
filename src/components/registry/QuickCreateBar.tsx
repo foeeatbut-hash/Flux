@@ -75,7 +75,7 @@ export default function QuickCreateBar({
               
           {/* Auto Suggestions list */}
           {newTagIdentifier && matchingSuggestions.length > 0 && (
-            <div className="absolute top-full left-0 w-full mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl z-50 p-2 max-h-64 overflow-y-auto">
+            <div className="fx-pop absolute top-full left-0 w-full mt-1 z-50 p-2 max-h-64 overflow-y-auto">
               <div className="text-xs font-mono font-medium text-slate-400 dark:text-slate-550 pb-1 mb-1 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center pl-1">
                 <span>Существующие теги</span>
                 <span className="text-xs font-sans font-normal lowercase text-slate-500">выберите</span>

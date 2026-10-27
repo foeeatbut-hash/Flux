@@ -5,6 +5,9 @@ import { getPrisma, notifyUser } from '../context.js';
 import { explainDbError } from '../dbError.js';
 import { randomBytes, scrypt } from 'node:crypto';
 import { ensureUserProfileSchema } from '../userProfileSchema.js';
+import { ensureDepartmentSchema } from '../departmentsSchema.js';
+import { DepartmentError, assertAssignable, ensureRootDepartment, listDepartments, historyRows, type BatchCreated, type BatchUser } from '../departments.js';
+import { createImportDepartments, importHistory, resolveRowDepartments, undoImportDepartments } from '../usersImportDepartments.js';
 import { mapEmployeeRows, employeeImportName, USER_IMPORT_FIELDS, validateEmployeeImportMatrix, type UserImportMap } from '../usersImport.js';
 import { isLegacyBootstrapAdmin, legacyBootstrapMigrationError } from '../legacyIdentity.js';
 
@@ -188,6 +191,12 @@ function administrativeGrants(raw: any): boolean {
   } catch (_) { return true; }
 }
 
+/** Куда класть новые подразделения из файла: выбранное действующее или корень */
+function importParent(raw: unknown, list: Array<{ id: string; archivedAt?: unknown }>, rootId: string): string {
+  const id = String(raw || '');
+  return list.some((d) => d.id === id && !d.archivedAt) ? id : rootId;
+}
+
 export function registerUserRoutes(app: Express, d: UserDeps): void {
   deps = d;
   app.use('/api/roles', (req, res, next) => {
@@ -195,7 +204,7 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
     next();
   });
   app.use('/api/users', async (_req, res, next) => {
-    try { await ensureUserProfileSchema(getPrisma()); next(); }
+    try { await ensureDepartmentSchema(getPrisma()); next(); }
     catch (error: any) { res.status(503).json({ message: error?.message || 'Не удалось подготовить схему профиля сотрудника' }); }
   });
 
@@ -211,19 +220,24 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
       if (!validateEmployeeImportMatrix(rows)) return res.status(400).json({ message: 'Файл должен содержать от 1 до 5000 строк данных и иметь допустимый размер таблицы' });
       if (typeof mapping?.symbol !== 'number' || (mode === 'create' && !(typeof mapping?.name === 'number' || (typeof mapping?.lastName === 'number' && typeof mapping?.firstName === 'number')))) return res.status(400).json({ message: mode === 'create' ? 'Назначьте колонки логина и ФИО' : 'Назначьте колонку логина' });
       const prisma = getPrisma();
-      await ensureUserProfileSchema(prisma);
-      const [existing, roles] = await Promise.all([prisma.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, email: true } }), prisma.role.findMany({ select: { code: true } })]);
+      await ensureDepartmentSchema(prisma);
+      const [existing, roles] = await Promise.all([prisma.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, departmentId: true, email: true } }), prisma.role.findMany({ select: { code: true } })]);
       const validRoles = new Set(roles.map((r: any) => r.code));
       const defaultRole = String(req.body?.defaultRole || 'ENGINEER_VENT').toUpperCase();
       if (!validRoles.has(defaultRole)) return res.status(400).json({ message: 'Выберите существующую роль по умолчанию' });
       if (actor.role !== 'OWNER' && defaultRole === 'ADMIN') return res.status(403).json({ message: 'Администратора назначает только владелец' });
-      const result = mapEmployeeRows(rows, mapping, existing, defaultRole, mode, actor.role).map((row) => {
+      const root = await ensureRootDepartment(prisma);
+      const deptList = await listDepartments(prisma);
+      const mapped = mapEmployeeRows(rows, mapping, existing, defaultRole, mode, actor.role);
+      // Подразделение сопоставляется со справочником; чего нет — предлагается создать галочкой
+      const depts = resolveRowDepartments(mapped, deptList, importParent(req.body?.departmentParentId, deptList, root.id));
+      const result = mapped.map((row) => {
         if (!row.error && row.values.role && !validRoles.has(row.values.role)) row.error = `Неизвестная роль: ${row.values.role}`;
         if (!row.error && actor.role !== 'OWNER' && row.values.role === 'ADMIN') row.error = 'Администратора назначает только владелец';
         const { password, ...values } = row.values;
-        return { ...row, values, passwordProvided: !!password };
+        return { ...row, values, passwordProvided: !!password, dept: depts.perRow.get(row.row) };
       });
-      res.json({ rows: result, fields: USER_IMPORT_FIELDS });
+      res.json({ rows: result, fields: USER_IMPORT_FIELDS, departmentsToCreate: depts.toCreate, rootId: root.id });
     } catch (error: any) { res.status(500).json({ message: error?.message || 'Не удалось проверить файл' }); }
   });
 
@@ -235,11 +249,12 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
       if (mode === 'create' ? !administratorPermission(actor, 'admin.users.create') : !administratorPermission(actor, 'admin.users.manage')) return res.status(403).json({ message: 'Нет права выполнять это действие' });
       const { rows, mapping, selected, defaultRole } = req.body || {};
       if (!Array.isArray(selected) || !selected.length || selected.length > 5000 || !validateEmployeeImportMatrix(rows)) return res.status(400).json({ message: 'Выберите корректный список строк (до 5000)' });
-      await ensureUserProfileSchema(prisma);
-      const [existing, roles] = await Promise.all([prisma.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, email: true } }), prisma.role.findMany({ select: { code: true } })]);
+      await ensureDepartmentSchema(prisma);
+      const [existing, roles] = await Promise.all([prisma.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, departmentId: true, email: true } }), prisma.role.findMany({ select: { code: true } })]);
       const validRoles = new Set(roles.map((r: any) => r.code));
       const preview = mapEmployeeRows(rows, mapping || {}, existing, String(defaultRole || 'ENGINEER_VENT').toUpperCase(), mode, actor.role);
       const chosen = preview.filter((r) => selected.includes(r.row));
+      resolveRowDepartments(chosen, await listDepartments(prisma)); // неоднозначное подразделение — ошибка строки, как в предпросмотре
       if (chosen.length !== selected.length || chosen.some((r) => r.error)) return res.status(409).json({ message: 'Список изменился или содержит ошибки. Повторите предпросмотр.' });
       for (const row of chosen) {
         if ((row.values.role && !validRoles.has(row.values.role)) || row.values.role === 'OWNER' || (actor.role !== 'OWNER' && row.values.role === 'ADMIN')) return res.status(403).json({ message: 'Импорт содержит роль, которую нельзя назначить' });
@@ -255,17 +270,25 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
       }
       const credentialRows: Array<{ symbol: string; password: string }> = [];
       const undoItems: EmployeeImportUndoItem[] = [];
+      const historyUsers: BatchUser[] = [];
+      let createdDepartments: BatchCreated[] = [];
       const undoToken = randomBytes(24).toString('base64url');
       const expiresAt = Date.now() + 60 * 60 * 1000;
       await prisma.$transaction(async (tx: any) => {
         // Reload inside the write transaction: the confirmation may have been
         // open while another administrator changed the employee list.
-        const currentUsers = await tx.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, email: true } });
+        const currentUsers = await tx.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, departmentId: true, email: true } });
         const currentRoles = await tx.role.findMany({ select: { code: true } });
         const currentRoleCodes = new Set(currentRoles.map((r: any) => r.code));
         const currentRows = mapEmployeeRows(rows, mapping || {}, currentUsers, String(defaultRole || 'ENGINEER_VENT').toUpperCase(), mode, actor.role);
         const currentChosen = currentRows.filter((r) => selected.includes(r.row));
         if (currentChosen.length !== selected.length || currentChosen.some((r) => r.error || (r.values.role && !currentRoleCodes.has(r.values.role)) || r.values.role === 'OWNER' || (actor.role !== 'OWNER' && r.values.role === 'ADMIN'))) throw Object.assign(new Error('Список сотрудников или ролей изменился после предпросмотра. Повторите предпросмотр.'), { status: 409 });
+        // Подразделения из файла: совпавшие берутся, отмеченные галочкой создаются тут же, в этой транзакции
+        const deptRoot = await ensureRootDepartment(tx);
+        const deptList = await listDepartments(tx);
+        const createKeys = new Set<string>(Array.isArray(req.body?.createDepartments) ? req.body.createDepartments.map(String) : []);
+        const deptPlan = await createImportDepartments(tx, currentChosen, deptList, createKeys, importParent(req.body?.departmentParentId, deptList, deptRoot.id), String(actor.id));
+        createdDepartments = deptPlan.created;
         const oldBatches = await tx.appSetting.findMany({ where: { key: { startsWith: 'employee_import_batch:' } }, select: { id: true, value: true } });
         for (const old of oldBatches) {
           try { if (JSON.parse(old.value)?.expiresAt < Date.now()) await tx.appSetting.delete({ where: { id: old.id } }); } catch { /* malformed expired snapshots are safe to discard */ await tx.appSetting.delete({ where: { id: old.id } }); }
@@ -281,8 +304,10 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
               role: v.role, password: password.hash, isActive: true,
               permissions: JSON.stringify(defaultPermissions()),
               position: v.position || null, department: v.department || null, email: v.email || null,
-            }, select: { id: true, symbol: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, role: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, email: true, signatureImage: true, signatureHeightMm: true, hideOnline: true, lastLoginAt: true, createdAt: true } });
+              departmentId: deptPlan.target.get(row.row) ?? null,
+            }, select: { id: true, symbol: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, role: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, departmentId: true, email: true, signatureImage: true, signatureHeightMm: true, hideOnline: true, lastLoginAt: true, createdAt: true } });
             credentialRows.push({ symbol: user.symbol, password: password.plain });
+            if (user.departmentId) historyUsers.push({ id: user.id, from: null, to: user.departmentId });
             const { id, ...after } = user;
             undoItems.push({ kind: 'create', id, after });
           } else if (existingUser) {
@@ -294,6 +319,11 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
             if (v.position) data.position = v.position;
             if (v.department) data.department = v.department;
             if (v.email) data.email = v.email;
+            const newDept = deptPlan.target.get(row.row);
+            if (newDept && newDept !== (existingUser.departmentId ?? null)) {
+              data.departmentId = newDept;
+              historyUsers.push({ id: existingUser.id, from: existingUser.departmentId ?? null, to: newDept });
+            }
             const before = Object.fromEntries(Object.keys(data).map((key) => [key, existingUser[key]]));
             const changed = await tx.user.updateMany({ where: { id: existingUser.id, ...before }, data });
             if (changed.count !== 1) throw Object.assign(new Error('Сотрудник изменился во время импорта. Повторите предпросмотр.'), { status: 409 });
@@ -301,10 +331,11 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
             undoItems.push({ kind: 'update', id: existingUser.id, before, after });
           }
         }
-        await tx.appSetting.create({ data: { key: `employee_import_batch:${undoToken}`, userId: String(actor.id), value: JSON.stringify({ actorId: String(actor.id), expiresAt, items: undoItems, undone: false }) } });
+        if (historyUsers.length) await tx.userDepartmentHistory.createMany({ data: importHistory(historyUsers, String(actor.id), undoToken) });
+        await tx.appSetting.create({ data: { key: `employee_import_batch:${undoToken}`, userId: String(actor.id), value: JSON.stringify({ actorId: String(actor.id), expiresAt, items: undoItems, createdDepartments, undone: false }) } });
       }, { maxWait: 10000, timeout: 60000 });
       invalidateAuthUser();
-      res.json({ imported: chosen.length, credentials: mode === 'create' ? credentialRows : [], undoToken });
+      res.json({ imported: chosen.length, credentials: mode === 'create' ? credentialRows : [], undoToken, departmentsCreated: createdDepartments.length });
     } catch (error: any) {
       const conflict = error?.status === 409 || ['P2002', 'P2034', 'P2028'].includes(error?.code);
       res.status(conflict ? 409 : 500).json({ message: conflict
@@ -347,6 +378,8 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
             if (restored.count !== 1) throw Object.assign(new Error('Профиль изменился во время отмены. Отмена не выполнена.'), { status: 409 });
           }
         }
+        // Подразделения партии: история, обратные переводы и созданные в файле подразделения
+        await undoImportDepartments(tx, token, String(actor.id), batch.items, batch.createdDepartments || []);
       }, { maxWait: 10000, timeout: 60000 });
       invalidateAuthUser();
       res.json({ success: true, restored: batch.items.length });
@@ -496,8 +529,12 @@ app.post('/api/users', async (req: Request, res: Response) => {
     }
 
     const { validUntil, isActive, permissions } = req.body;
+    // Подразделение: одно, из справочника; без него человек остаётся «без подразделения»
+    const departmentId = req.body.departmentId ? String(req.body.departmentId) : null;
+    if (departmentId) await assertAssignable(prisma, departmentId);
     const newUser = await prisma.user.create({
       data: {
+        departmentId,
         symbol: String(symbol),
         name,
         lastName: parts.lastName,
@@ -518,9 +555,11 @@ app.post('/api/users', async (req: Request, res: Response) => {
           : JSON.stringify(defaultPermissions()),
       }
     });
+    if (departmentId) await prisma.userDepartmentHistory.create({ data: { userId: newUser.id, fromId: null, toId: departmentId, by: String(actor.id), reason: 'Создание сотрудника' } });
     const { password: _pw, ...safeNewUser } = newUser as any;
     res.json(safeNewUser);
   } catch (error: any) {
+    if (error instanceof DepartmentError) return res.status(error.status).json({ message: error.message, error: error.message });
     res.status(500).json({ error: error.message });
   }
 });
@@ -618,8 +657,25 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
         : (typeof permissions === 'string' ? permissions : JSON.stringify(permissions));
     }
 
+    // Подразделение меняет только тот, кто управляет сотрудниками; перевод пишется в историю вместе с правкой
+    let deptChange: BatchUser | null = null;
+    if (req.body.departmentId !== undefined) {
+      if (!administratorPermission(actor, 'admin.users.manage')) return res.status(403).json({ message: 'Нет права переводить сотрудников между подразделениями' });
+      const next = req.body.departmentId ? String(req.body.departmentId) : null;
+      if (next !== (target.departmentId ?? null)) {
+        if (next) await assertAssignable(prisma, next);
+        data.departmentId = next;
+        deptChange = { id, from: target.departmentId ?? null, to: next };
+      }
+    }
     const permsChanged = permissions !== undefined && (data.permissions || null) !== (target.permissions || null);
-    const updated = await prisma.user.update({ where: { id }, data });
+    const updated = deptChange
+      ? await prisma.$transaction(async (tx: any) => {
+          const row = await tx.user.update({ where: { id }, data });
+          await tx.userDepartmentHistory.createMany({ data: historyRows([deptChange!], String(actor.id), '', 'Правка карточки сотрудника') });
+          return row;
+        })
+      : await prisma.user.update({ where: { id }, data });
     invalidateAuthUser(id);   // права и роль применяются немедленно
     // Личное уведомление сотруднику об изменении его прав доступа
     if (permsChanged) {
@@ -628,6 +684,7 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
     const { password: _pw, ...safeUpdated } = updated as any;
     res.json({ success: true, user: safeUpdated });
   } catch (error: any) {
+    if (error instanceof DepartmentError) return res.status(error.status).json({ success: false, message: error.message });
     res.status(500).json({ success: false, message: error.message });
   }
 });

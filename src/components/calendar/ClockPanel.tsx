@@ -1,142 +1,145 @@
 /**
- * Панель по нажатию на часы — как в системе.
+ * Календарь под уведомлениями — нижняя карточка правой панели, как в Windows 11.
  *
  * Часы в трее человек нажимает не чтобы узнать время (оно и так написано), а
- * чтобы посмотреть, что сегодня. Раньше нажатие не делало ничего, и ответа на
- * этот вопрос в оболочке не было вовсе.
+ * чтобы посмотреть, что сегодня и что впереди. Поэтому здесь месяц с сегодняшним
+ * днём и точками у дней с событиями, список событий на сегодня, подключение к
+ * встрече одной кнопкой и переход в раздел «Календарь».
  *
- * Панель всплывает поверх стола и ничего не двигает — как остальные панели
- * трея (docs/os-design.md §2.5).
+ * Карточка не знает, где стоит и когда закрывается: это решает правая колонка
+ * (components/RightDock). Складывается до одной строки с датой — календарь
+ * нужен не всегда, а место справа не резиновое.
  */
 import React from 'react';
-import { useOverlay } from '../../store/overlayStore';
-import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Maximize2, Video } from 'lucide-react';
+import { Plus, Maximize2, Video, ChevronUp, ChevronDown } from 'lucide-react';
 import { useStore } from '../../store/store';
 import { useCalendarStore } from '../../store/calendarStore';
+import { useNotificationStore } from '../../store/notificationStore';
 import { rememberSectionUse } from '../../store/workspaceStore';
 import { openLink } from '../../lib/openLink';
-import { BAR_H } from '../../lib/metrics';
-import { Z } from '../../lib/layers';
 import {
-  monthGrid, occurrences, dayOccurrences, startOfMonth, startOfDay, monthLabel,
+  monthGrid, occurrences, dayOccurrences, startOfMonth, monthLabel,
   timeLabel, untilLabel, sameDay, inMonth, WEEKDAYS, DAY,
 } from '../../lib/calendar';
 
-export default function ClockPanel({ onClose }: { onClose: () => void }) {
-  // Пока это открыто, страница браузера уступает место: родной слой Chromium
-  // выше любой разметки, и без этого панель оказалась бы под страницей
-  useOverlay(true);
+const FOLD_KEY = 'flux_calendar_folded';
+
+/** «вторник, 27 октября» — заголовок карточки */
+const todayTitle = (now: number): string =>
+  new Date(now).toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+
+export default function CalendarCard() {
   const navigate = useNavigate();
+  const setPanelOpen = useNotificationStore((s) => s.setPanelOpen);
   const projectId = useStore((s) => s.activeProject?.id) || '';
   const st = useCalendarStore();
-  const boxRef = React.useRef<HTMLDivElement>(null);
   const [month, setMonth] = React.useState(() => Date.now());
+  const [folded, setFolded] = React.useState(() => {
+    try { return localStorage.getItem(FOLD_KEY) === '1'; } catch (_) { return false; }
+  });
 
   React.useEffect(() => { void st.load(projectId); }, [projectId]);
 
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    const onDown = (e: MouseEvent) => { if (!boxRef.current?.contains(e.target as Node)) onClose(); };
-    window.addEventListener('keydown', onKey);
-    window.addEventListener('mousedown', onDown, true);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      window.removeEventListener('mousedown', onDown, true);
-    };
-  }, [onClose]);
+  const toggleFold = () => setFolded((v) => {
+    try { localStorage.setItem(FOLD_KEY, v ? '0' : '1'); } catch (_) { /* приватный режим */ }
+    return !v;
+  });
 
   const grid = monthGrid(month);
   const list = occurrences(st.visible(), grid[0], grid[41] + DAY);
   const today = dayOccurrences(list, Date.now());
 
-  const go = () => { rememberSectionUse('/calendar'); navigate('/calendar'); onClose(); };
+  const go = () => { rememberSectionUse('/calendar'); navigate('/calendar'); setPanelOpen(false); };
+  const shift = (delta: number) => { const d = new Date(month); d.setMonth(d.getMonth() + delta); setMonth(d.getTime()); };
 
-  return createPortal(
-    <div
-      ref={boxRef}
-      role="dialog"
+  return (
+    <section
       aria-label="Календарь"
-      style={{ right: 8, bottom: BAR_H + 6, zIndex: Z.tray, width: 300 }}
-      className="fx-dialog fixed dark:border-dark-border dark:bg-dark-surface overflow-hidden"
+      data-dock-calendar
+      className="fx-glass rounded-xl overflow-hidden shrink-0 flex flex-col"
     >
-      <div className="flex items-center gap-1 px-3 py-2 border-b border-slate-200 dark:border-dark-border">
-        <button type="button"
-          onClick={() => { const d = new Date(month); d.setMonth(d.getMonth() - 1); setMonth(d.getTime()); }}
-          aria-label="Прошлый месяц"
-          className="w-6 h-6 rounded-lg cursor-pointer text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850">‹</button>
-        <span className="flex-1 text-center text-xs font-medium text-slate-800 dark:text-slate-100">{monthLabel(month)}</span>
-        <button type="button"
-          onClick={() => { const d = new Date(month); d.setMonth(d.getMonth() + 1); setMonth(d.getTime()); }}
-          aria-label="Следующий месяц"
-          className="w-6 h-6 rounded-lg cursor-pointer text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850">›</button>
-      </div>
+      <button type="button" onClick={toggleFold} aria-expanded={!folded}
+        title={folded ? 'Развернуть календарь' : 'Свернуть календарь'}
+        className="flex items-center gap-2 h-10 px-4 cursor-pointer text-left hover:bg-slate-500/10 transition-colors">
+        <span className="flex-1 text-sm font-medium text-slate-800 dark:text-slate-100 first-letter:uppercase">{todayTitle(Date.now())}</span>
+        {folded ? <ChevronUp className="w-4 h-4 text-slate-500" /> : <ChevronDown className="w-4 h-4 text-slate-500" />}
+      </button>
 
-      <div className="px-2 py-2">
-        <div className="grid grid-cols-7 mb-1">
-          {WEEKDAYS.map((d) => (
-            <span key={d} className="text-center text-2xs text-slate-400">{d}</span>
-          ))}
-        </div>
-        <div className="grid grid-cols-7 gap-0.5">
-          {grid.map((day) => {
-            const has = dayOccurrences(list, day).length > 0;
-            const now = sameDay(day, Date.now());
-            const other = !inMonth(day, startOfMonth(month));
-            return (
-              <button key={day} type="button" onClick={go}
-                className={`relative h-7 rounded-lg text-2xs cursor-pointer
-                            ${now ? 'bg-emerald-600 text-white font-semibold'
-                              : other ? 'text-slate-300 dark:text-slate-500'
-                                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-850'}`}>
-                {new Date(day).getDate()}
-                {has && !now && (
-                  <span aria-hidden className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-500" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="px-3 py-2 border-t border-slate-200 dark:border-dark-border max-h-48 overflow-y-auto">
-        <p className="text-xs font-medium text-slate-400 mb-1.5">Сегодня</p>
-        {today.length === 0 && <p className="text-2xs text-slate-400 pb-1">Ничего не назначено.</p>}
-        {today.map((o) => (
-          <div key={`${o.event.id}-${o.startsAt}`} className="flex items-center gap-2 py-1">
-            <span className="shrink-0 w-9 text-2xs font-mono text-slate-400 tabular-nums">
-              {o.event.allDay ? '—' : timeLabel(o.startsAt)}
-            </span>
-            <span className="flex-1 min-w-0">
-              <span className="block text-2xs text-slate-700 dark:text-slate-150 truncate">{o.event.title}</span>
-              <span className="block text-2xs text-slate-400">{untilLabel(o.startsAt)}</span>
-            </span>
-            {o.event.joinUrl && (
-              <button type="button" onClick={() => openLink(o.event.joinUrl)} title="Подключиться"
-                aria-label="Подключиться к встрече"
-                className="shrink-0 w-6 h-6 rounded-lg flex items-center justify-center cursor-pointer
-                           text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40">
-                <Video className="w-3.5 h-3.5" />
-              </button>
-            )}
+      {!folded && (
+        <>
+          <div className="flex items-center gap-1 px-3 pb-1">
+            <span className="flex-1 text-xs font-medium text-slate-600 dark:text-slate-300 first-letter:uppercase">{monthLabel(month)}</span>
+            <button type="button" onClick={() => shift(-1)} aria-label="Прошлый месяц"
+              className="w-7 h-7 rounded-md cursor-pointer text-slate-500 hover:bg-slate-500/15">‹</button>
+            <button type="button" onClick={() => shift(1)} aria-label="Следующий месяц"
+              className="w-7 h-7 rounded-md cursor-pointer text-slate-500 hover:bg-slate-500/15">›</button>
           </div>
-        ))}
-      </div>
 
-      <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-200 dark:border-dark-border
-                      bg-slate-50 dark:bg-dark-bg">
-        <button type="button" onClick={go}
-          className="flex items-center gap-1.5 text-2xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
-          <Plus className="w-3.5 h-3.5" /> Событие
-        </button>
-        <span className="flex-1" />
-        <button type="button" onClick={go}
-          className="flex items-center gap-1.5 text-2xs font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">
-          Открыть <Maximize2 className="w-3 h-3" />
-        </button>
-      </div>
-    </div>,
-    document.body,
+          <div className="px-3 pb-2">
+            <div className="grid grid-cols-7 mb-1">
+              {WEEKDAYS.map((d) => (
+                <span key={d} className="text-center text-2xs text-slate-500 dark:text-slate-400">{d}</span>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-0.5">
+              {grid.map((day) => {
+                const has = dayOccurrences(list, day).length > 0;
+                const now = sameDay(day, Date.now());
+                const other = !inMonth(day, startOfMonth(month));
+                return (
+                  <button key={day} type="button" onClick={go} data-today={now || undefined}
+                    className={`relative h-7 rounded-full text-xs cursor-pointer
+                                ${now ? 'bg-emerald-600 text-white font-semibold'
+                                  : other ? 'text-slate-400 dark:text-slate-500 hover:bg-slate-500/15'
+                                    : 'text-slate-700 dark:text-slate-100 hover:bg-slate-500/15'}`}>
+                    {new Date(day).getDate()}
+                    {has && !now && (
+                      <span aria-hidden className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-500" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="px-4 py-2 border-t border-slate-500/20 max-h-32 overflow-y-auto scrollbar-thin">
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Сегодня</p>
+            {today.length === 0 && <p className="text-xs text-slate-500 dark:text-slate-400 pb-1">Ничего не назначено.</p>}
+            {today.map((o) => (
+              <div key={`${o.event.id}-${o.startsAt}`} className="flex items-center gap-2 py-1">
+                <span className="shrink-0 w-10 text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums">
+                  {o.event.allDay ? '—' : timeLabel(o.startsAt)}
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-xs text-slate-800 dark:text-slate-100 truncate">{o.event.title}</span>
+                  <span className="block text-2xs text-slate-500 dark:text-slate-400">{untilLabel(o.startsAt)}</span>
+                </span>
+                {o.event.joinUrl && (
+                  <button type="button" onClick={() => openLink(o.event.joinUrl)} title="Подключиться"
+                    aria-label="Подключиться к встрече"
+                    className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center cursor-pointer
+                               text-emerald-700 dark:text-emerald-400 hover:bg-slate-500/15">
+                    <Video className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 px-3 h-10 border-t border-slate-500/20">
+            <button type="button" onClick={go}
+              className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-100 cursor-pointer hover:underline">
+              <Plus className="w-3.5 h-3.5" /> Событие
+            </button>
+            <span className="flex-1" />
+            <button type="button" onClick={go}
+              className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-100 cursor-pointer hover:underline">
+              Открыть <Maximize2 className="w-3 h-3" />
+            </button>
+          </div>
+        </>
+      )}
+    </section>
   );
 }

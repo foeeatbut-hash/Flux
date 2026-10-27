@@ -20,7 +20,8 @@ model User {
   middleName        String        @default("") // Отчество
   gender            String        @default("") // "M" | "F" — нужен для склонения и поздравления
   position          String? // Должность сотрудника
-  department        String? // Подразделение сотрудника
+  department        String? // Подразделение сотрудника (старый свободный текст; подсказка при переносе)
+  departmentId      String? // Основное подразделение — одно на человека (Department.id)
   email             String? // Рабочая почта
   birthDate         DateTime? // День рождения: поздравление на главном экране
   role              String        @default("ENGINEER_VENT") // "ADMIN", "MANAGER", "ENGINEER_VENT", "ENGINEER_AUTO"
@@ -38,6 +39,8 @@ model User {
   sentMessages      ChatMessage[] @relation("SentMessages")
   receivedMessages  ChatMessage[] @relation("ReceivedMessages")
   chatGroups        ChatGroup[]   @relation("GroupMembers")
+
+  @@index([departmentId])
 }
 
 model Project {
@@ -972,6 +975,46 @@ model ProjectMember {
 
   @@unique([projectId, userId])
   @@index([userId])
+}
+
+/// Подразделение: узел дерева «Компания → город → отдел → группа».
+///
+/// Не удаляется, а уходит в архив (archivedAt): на него ссылаются история
+/// переводов, а позже — права, проекты и обновления. Корень «Компания»
+/// (kind = 'company', parentId = null) создаётся сам при первом обращении.
+/// Группа (kind = 'group') — необязательный уровень внутри отдела.
+/// См. docs/departments.md.
+model Department {
+  id         String    @id @default(uuid())
+  name       String
+  shortName  String?
+  kind       String    @default("division") // "company" | "branch" | "division" | "group"
+  city       String?
+  timezone   String? // IANA, например "Asia/Novosibirsk"
+  parentId   String?
+  sortOrder  Int       @default(0)
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  createdBy  String    @default("")
+
+  @@index([parentId])
+}
+
+/// История переводов между подразделениями. Пишется в той же транзакции, что и
+/// сам перевод; batchId связывает строки одной массовой операции (по нему
+/// работает откат и отчёт «кто кого перевёл»).
+model UserDepartmentHistory {
+  id      String   @id @default(uuid())
+  userId  String
+  fromId  String?
+  toId    String?
+  by      String   @default("")
+  at      DateTime @default(now())
+  reason  String?
+  batchId String   @default("")
+
+  @@index([userId, at])
+  @@index([batchId])
 }
 
 /// Разговор с помощником: личная переписка одного человека.

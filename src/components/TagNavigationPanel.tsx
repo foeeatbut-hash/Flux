@@ -123,7 +123,7 @@ export default function TagNavigationPanel() {
   return (
     <aside
       aria-label={`Сведения о теге ${target.identifier}`}
-      className="fixed right-3 top-16 z-[70] flex max-h-[calc(100vh-5rem)] w-[min(360px,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl"
+      className="fx-dialog fixed right-3 top-16 z-[70] flex max-h-[calc(100vh-5rem)] w-[min(360px,calc(100vw-1.5rem))] flex-col overflow-hidden"
     >
       <header className="flex items-start gap-3 border-b border-slate-200 dark:border-slate-700 px-4 py-3">
         <div className="min-w-0 flex-1">

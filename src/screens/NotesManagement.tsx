@@ -783,7 +783,7 @@ export default function NotesManagement() {
                     {[...new Set(notes.map(n => n.groupName).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'ru')).map(g => (
                       <button type="button" key={g}
                         onClick={() => { handleNoteChange({ groupName: g }); setGroupMenuOpen(false); }}
-                        className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left text-xs cursor-pointer ${selectedNote.groupName === g ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 font-semibold' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'}`}>
+                        className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left text-xs cursor-pointer ${selectedNote.groupName === g ? 'fx-sel' : 'fx-hov text-slate-700 dark:text-slate-300'}`}>
                         <Folder className="w-3 h-3 text-emerald-500 shrink-0" />
                         <span className="truncate">{g}</span>
                       </button>

@@ -9,6 +9,7 @@
 import {
   buildTaskbar, badgeCount, clockLabel, dateLabel, deadlineLabel, badgeLabel,
   fitButtons, TIDY_FROM, trayFit, type TaskbarSource,
+  runState, peekPlan, PEEK_MAX_THUMBS, PEEK_EDGE, PEEK_CARD_W, PEEK_LIST_W,
 } from '../src/lib/taskbar';
 import { SECTIONS } from '../src/workspace/sections';
 import { readFileSync } from 'fs';
@@ -175,6 +176,36 @@ console.log('Тесная панель');
   check('ширина не измерена — ничего не прячем', trayFit(0).layout === true);
   check('чем у́же, тем короче название',
     trayFit(1440).projectMax >= trayFit(1100).projectMax && trayFit(1100).projectMax >= trayFit(820).projectMax);
+}
+
+console.log('Метка запуска: открыта, активна, свёрнута');
+{
+  const v = buildTaskbar(S, { open: ['/registry', '/mail', '/notes'], activePath: '/registry', counts: NONE, minimized: ['/mail'] });
+  const by = (p: string) => v.buttons.find((b) => b.path === p)!;
+  check('активная — длинная акцентная', runState(by('/registry')) === 'active');
+  check('открытая неактивная — короткая серая', runState(by('/notes')) === 'open');
+  check('свёрнутая — самая бледная', runState(by('/mail')) === 'min' && by('/mail').minimized);
+  check('закрытая метки не имеет', runState(by('/equipment')) === null);
+  check('закрытая не бывает свёрнутой', !by('/equipment').minimized);
+  const both = buildTaskbar(S, { open: ['/mail'], activePath: '/mail', counts: NONE, minimized: ['/mail'] });
+  check('активная важнее свёрнутой', runState(both.buttons.find((b) => b.path === '/mail')!) === 'active');
+}
+
+console.log('Где встают карточки окон над кнопкой');
+{
+  const w = 1200;
+  const one = peekPlan(1, 600, w);
+  check('одно окно — карточка по центру кнопки', Math.abs(one.left + one.width / 2 - 600) <= 1 && one.mode === 'thumbs', one);
+  check('ширина растёт с числом окон', peekPlan(3, 600, w).width > peekPlan(2, 600, w).width);
+  check('у левого края карточки не выходят за панель', peekPlan(3, 10, w).left === PEEK_EDGE, peekPlan(3, 10, w));
+  const right = peekPlan(3, w - 10, w);
+  check('у правого края — тоже', right.left + right.width <= w - PEEK_EDGE + 1, right);
+  check('много окон — строки списка, а не картинки', peekPlan(PEEK_MAX_THUMBS + 1, 600, w).mode === 'list' && peekPlan(PEEK_MAX_THUMBS + 1, 600, w).width === PEEK_LIST_W);
+  check('предельное число окон ещё картинками', peekPlan(PEEK_MAX_THUMBS, 600, w).mode === 'thumbs');
+  const tight = peekPlan(PEEK_MAX_THUMBS, 300, 500);
+  check('на узкой панели карточки не шире панели', tight.width <= 500 - PEEK_EDGE * 2 && tight.left >= PEEK_EDGE, tight);
+  check('ширина панели не измерена — берём естественную', peekPlan(2, 100, 0).width > PEEK_CARD_W);
+  check('ноль окон не ломает расчёт', peekPlan(0, 100, w).width > 0);
 }
 
 console.log('В трее нет второго входа в учётную запись');

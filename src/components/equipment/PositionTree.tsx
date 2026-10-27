@@ -202,7 +202,7 @@ export default function PositionTree({
     <div key={c.id} className="group flex items-center gap-0.5" onContextMenu={(e) => openMenu(e, c)}>
       <button type="button" onClick={() => onPickBlock(c)}
         style={{ paddingLeft: `${pad}px` }}
-        className={`flex-1 min-w-0 flex items-center gap-1.5 pr-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedBlockId === c.id ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}
+        className={`flex-1 min-w-0 flex items-center gap-1.5 pr-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedBlockId === c.id ? 'fx-sel' : 'fx-hov'}`}
         title={[types?.get(c.id) ? classTitle(types.get(c.id)!.cls) : c.role && c.role !== 'БЛОК' ? roleTitle(c.role) : '', types?.get(c.id)?.kind || '', firstTag(c)].filter(Boolean).join(' · ') || undefined}>
         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${c.hasConflict ? 'bg-rose-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
         {/* Тег — второй строкой под названием: в одной строке с ним он
@@ -316,7 +316,7 @@ export default function PositionTree({
                 {expanded[unit.id] ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
               </button>
               <button type="button" onClick={() => onPickUnit(unit)}
-                className={`flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedUnitId === unit.id && !selectedBlockId ? 'bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/40' : 'hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'}`}>
+                className={`flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left cursor-pointer ${selectedUnitId === unit.id && !selectedBlockId ? 'fx-sel' : 'fx-hov'}`}>
                 <Boxes className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                 <span className="text-xs font-medium truncate" title={unit.name}>{unit.name}</span>
               </button>

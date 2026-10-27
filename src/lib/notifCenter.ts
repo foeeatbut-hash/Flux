@@ -236,3 +236,74 @@ export function appOf(n: NotifLike): string {
   if (n.category === 'ДОКУМЕНТЫ') return '/management';
   return '/';
 }
+
+/**
+ * Лента по программам — как в центре уведомлений Windows 11.
+ *
+ * Группа — это программа, про которую уведомление: по адресу перехода, а не по
+ * категории (см. `appOf`). Уведомления Windows группируются по имени
+ * отправившей их программы. Группы идут от свежей к давней, внутри — тоже
+ * свежие сверху.
+ */
+export interface AppGroup {
+  key: string;
+  /** Раздел Flux, у которого берутся значок и название; пусто у чужих программ Windows */
+  route: string;
+  title: string;
+  items: FeedItem[];
+  unread: number;
+}
+
+export function groupByApp(items: FeedItem[], titleOf: (route: string) => string): AppGroup[] {
+  const at = (s: string) => { const t = Date.parse(s); return Number.isNaN(t) ? 0 : t; };
+  const groups = new Map<string, AppGroup>();
+  for (const item of items) {
+    const isWin = item.kind === 'windows';
+    const route = isWin ? '' : appOf(item);
+    const key = isWin ? `win:${item.who || 'Windows'}` : route;
+    let g = groups.get(key);
+    if (!g) {
+      g = { key, route, title: isWin ? (item.who || 'Windows') : titleOf(route), items: [], unread: 0 };
+      groups.set(key, g);
+    }
+    g.items.push(item);
+    if (!item.isRead) g.unread++;
+  }
+  const list = [...groups.values()];
+  for (const g of list) g.items.sort((a, b) => at(b.createdAt) - at(a.createdAt));
+  return list.sort((a, b) => at(b.items[0].createdAt) - at(a.items[0].createdAt));
+}
+
+/**
+ * «Удалить все» и «Очистить» у программы.
+ *
+ * Сервер уведомления не удаляет — это журнал, — поэтому очистка личная: на этом
+ * рабочем месте запоминается момент, до которого всё скрыто. Новое, пришедшее
+ * позже, покажется. Ключ `*` — всё сразу, остальные — ключи групп.
+ */
+export type ClearedMap = Record<string, number>;
+
+export function isCleared(item: { createdAt: string }, groupKey: string, cleared: ClearedMap): boolean {
+  const until = Math.max(cleared['*'] || 0, cleared[groupKey] || 0);
+  const at = Date.parse(item.createdAt);
+  return until > 0 && !Number.isNaN(at) && at <= until;
+}
+
+/** Лента без очищенного */
+export function withoutCleared(items: FeedItem[], cleared: ClearedMap): FeedItem[] {
+  return items.filter((i) => {
+    const key = i.kind === 'windows' ? `win:${i.who || 'Windows'}` : appOf(i);
+    return !isCleared(i, key, cleared);
+  });
+}
+
+/**
+ * Момент очистки: не раньше самого свежего уведомления на экране. Часы сервера
+ * и рабочего места расходятся, и «сейчас» по часам места может оказаться раньше
+ * последнего уведомления — оно бы так и осталось висеть после «Удалить все».
+ */
+export function clearMoment(items: { createdAt: string }[], now = Date.now()): number {
+  let t = now;
+  for (const i of items) { const at = Date.parse(i.createdAt); if (!Number.isNaN(at) && at > t) t = at; }
+  return t;
+}

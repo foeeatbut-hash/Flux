@@ -25,9 +25,12 @@ const { ok, done } = checks();
       const ids: string[] = await page.evaluate(() => (window as any).__windowStore.getState().windows.map((w: any) => w.id));
       const frame = (id: string) => page.locator(`[data-win="${id}"]`);
       const header = (id: string) => frame(id).locator(':scope > div').first();
-      const box = async (id: string) => header(id).evaluate((el) => { const r = el.getBoundingClientRect(); return { h: r.height, bg: getComputedStyle(el).backgroundColor, text: el.textContent || '', caps: [...el.querySelectorAll('button')].filter((b) => ['Свернуть', 'Развернуть', 'Закрыть'].includes(b.getAttribute('aria-label') || '')).map((b) => { const q = b.getBoundingClientRect(); return [q.width, q.height]; }) }; });
+      const box = async (id: string) => header(id).evaluate((el) => { const r = el.getBoundingClientRect(); return { h: r.height, bg: getComputedStyle(el).backgroundColor, active: el.parentElement?.getAttribute('data-active') === 'true', text: el.textContent || '', caps: [...el.querySelectorAll('button')].filter((b) => ['Свернуть', 'Развернуть', 'Закрыть'].includes(b.getAttribute('aria-label') || '')).map((b) => { const q = b.getBoundingClientRect(); return [q.width, q.height]; }) }; });
       const winGeometry = (id: string) => page.evaluate((i) => { const w = (window as any).__windowStore.getState().windows.find((x: any) => x.id === i); return { x: w.x, y: w.y, maximized: w.maximized, minimized: w.minimized }; }, id);
 
+      // Меры шапки снимаются после открытия: пока идёт анимация появления (scale .965→1),
+      // высота 33,99 вместо 34 — замер спорил бы с анимацией, а не с разметкой
+      await page.waitForFunction(() => document.getAnimations().length === 0);
       const before = await box(ids[0]);
       ok('Обычный заголовок: 34 точки, кнопки 28×28 — как до слота', before.h === 34 && before.caps.every(([w, h]) => w === 28 && h === 28) && before.caps.length === 3, before);
       const beforeOther = await box(ids[1]);
@@ -70,8 +73,10 @@ const { ok, done } = checks();
       await page.evaluate((id) => (window as any).__windowStore.getState().restore(id), ids[0]);
       await page.evaluate(() => (window as any).__probe(null));
       await page.waitForFunction((id) => (document.querySelector(`[data-win="${id}"] > div`) as HTMLElement).getBoundingClientRect().height === 34, ids[0]);
+      // Фон шапки зависит от того, активно ли окно (активное темнее, 01-design.md, раздел 4),
+      // поэтому «такой же, как был» сравнивается с обычной шапкой в том же состоянии
       const released = await box(ids[0]);
-      ok('Слот освобождён: заголовок вернулся к 34 точкам с названием раздела', released.h === 34 && released.text.includes('Справочник') && released.bg === before.bg, released);
+      ok('Слот освобождён: заголовок вернулся к 34 точкам с названием раздела', released.h === 34 && released.text.includes('Справочник') && released.bg === ([before, beforeOther].find((b) => b.active === released.active) ?? before).bg, released);
       await page.evaluate((id) => (window as any).__probe(id), ids[0]);
       await frame(ids[0]).locator('[data-explorer-tabs]').waitFor();
       await frame(ids[0]).getByRole('button', { name: 'Закрыть', exact: true }).click();

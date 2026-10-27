@@ -10,18 +10,25 @@ import { useDesktopStore } from '../../../src/store/desktopStore';
 import { useDisplayStore } from '../../../src/store/displayStore';
 import { usePolicyStore } from '../../../src/store/policyStore';
 import { useWindowStore } from '../../../src/store/windowStore';
+import { workspaceFrame } from '../../../workspace/displays';
 
 const screen = {
   id: 1, label: 'Тестовый экран', primary: true, scaleFactor: 1,
   bounds: { x: 0, y: 0, w: 1280, h: 800 },
   workArea: { x: 0, y: 0, w: 1280, h: 760 },
 };
-const update = (showWindowsTaskbar) => useDisplayStore.setState({
-  workspace: { enabled: true, showWindowsTaskbar, displays: [{ ...screen,
-    workArea: screen.workArea,
-  }], bounds: screen.bounds, primaryId: 1, mixedScale: false },
-  available: true,
-});
+// Окно Flux стоит на охвате рабочих областей (как в electron/displays.ts),
+// поэтому bounds состояния — прямоугольник окна, а не границы монитора.
+const layout = (displays, extra = {}) => {
+  const frame = workspaceFrame(displays);
+  useDisplayStore.setState({
+    workspace: { enabled: true, displays, bounds: frame.rect, primaryId: displays[0].id, mixedScale: false, ...extra },
+    available: true,
+  });
+  return frame;
+};
+const update = (showWindowsTaskbar) => layout([screen], { showWindowsTaskbar });
+window.__setLayout = layout;
 useStore.setState({ user: { id: 'desktop-geometry-fixture', name: 'Проверка геометрии', symbol: 'ПГ', role: 'admin' } });
 // Imitate the pre-existing local pin list that used to put Flux shortcuts on desktop.
 useDesktopStore.setState({ apps: ['/mail'] });

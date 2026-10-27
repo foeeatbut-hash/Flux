@@ -6,9 +6,10 @@ import { updateRefusal, sha256File } from './updateSignature';
 import { downloadVerifiedUpdate, assertUpdatePublished, type VerifiedDownload } from './updateDownload';
 import { setupCapture } from './capture';
 import { setupFeedbackCapture } from './feedbackCapture';
+import { setupWindowThumb } from './windowThumb';
 import { setupBrowser, disposeBrowserFor } from './browser';
 import { setupLogs, appendLog, appendLogNow, logsDir } from './logs';
-import { setupDiagnostics } from './diagnostics';
+import { diagnosticsWriter, setupDiagnostics } from './diagnostics';
 import { setupOwnerLogin } from './ownerLogin';
 import { setupAuthStorage, trustedAuthSender, readNativeSession, secureStorageAvailable } from './authStorage';
 import { setupDisplayWorkspace } from './displays';
@@ -179,6 +180,9 @@ app.whenReady().then(async () => {
   // корзина и распознавание, и «приложить снимок» не должно их запускать
   setupFeedbackCapture();
 
+  // Уменьшенные снимки окон для карточек над кнопками панели задач
+  setupWindowThumb();
+
 
   const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');
 
@@ -249,7 +253,8 @@ app.whenReady().then(async () => {
   setupOwnerLogin(() => '');
   setupAuthStorage(() => '');
   const mainClose = setupMainWindowClose(() => mainWindow, trustedAuthSender);
-  const displayWorkspace = setupDisplayWorkspace(() => mainWindow, trustedAuthSender);
+  const displayWorkspace = setupDisplayWorkspace(() => mainWindow, trustedAuthSender,
+    (event, fields) => diagnosticsWriter()?.record(event, fields as any));
   displayWorkspace.attach();
   const localAccess = createLocalFileAccess({ server: () => '',
     token: readNativeSession, fetch: globalThis.fetch });

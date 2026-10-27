@@ -184,6 +184,33 @@ export function ensureSchemaColumns(dbPath: string, logInit: (message: string) =
       )`);
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "ProjectMember_project_user_key" ON "ProjectMember"("projectId", "userId")');
       db.exec('CREATE INDEX IF NOT EXISTS "ProjectMember_userId_idx" ON "ProjectMember"("userId")');
+      // Подразделения (docs/departments.md): справочник и история переводов
+      db.exec(`CREATE TABLE IF NOT EXISTS "Department" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "name" TEXT NOT NULL,
+        "shortName" TEXT,
+        "kind" TEXT NOT NULL DEFAULT 'division',
+        "city" TEXT,
+        "timezone" TEXT,
+        "parentId" TEXT,
+        "sortOrder" INTEGER NOT NULL DEFAULT 0,
+        "archivedAt" DATETIME,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "createdBy" TEXT NOT NULL DEFAULT ''
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "Department_parentId_idx" ON "Department"("parentId")');
+      db.exec(`CREATE TABLE IF NOT EXISTS "UserDepartmentHistory" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "userId" TEXT NOT NULL,
+        "fromId" TEXT,
+        "toId" TEXT,
+        "by" TEXT NOT NULL DEFAULT '',
+        "at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "reason" TEXT,
+        "batchId" TEXT NOT NULL DEFAULT ''
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "UserDepartmentHistory_userId_at_idx" ON "UserDepartmentHistory"("userId", "at")');
+      db.exec('CREATE INDEX IF NOT EXISTS "UserDepartmentHistory_batchId_idx" ON "UserDepartmentHistory"("batchId")');
       db.exec('CREATE TABLE IF NOT EXISTS "AssistantChat" ("id" TEXT NOT NULL PRIMARY KEY, "kind" TEXT NOT NULL DEFAULT \'assistant\', "ownerId" TEXT NOT NULL, "projectId" TEXT NOT NULL DEFAULT \'\', "title" TEXT NOT NULL DEFAULT \'\', "preview" TEXT NOT NULL DEFAULT \'\', "messages" TEXT NOT NULL DEFAULT \'[]\', "search" TEXT NOT NULL DEFAULT \'\', "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, "archivedAt" DATETIME)');
       db.exec('CREATE INDEX IF NOT EXISTS "AssistantChat_owner_project_idx" ON "AssistantChat"("ownerId", "projectId")');
       const assistantChatCols = db.prepare('PRAGMA table_info("AssistantChat")').all() as Array<{ name: string }>;
@@ -275,6 +302,11 @@ export function ensureSchemaColumns(dbPath: string, logInit: (message: string) =
           db.exec('ALTER TABLE "User" ADD COLUMN "lastLoginAt" DATETIME');
           logInit('[DB Migrate] Добавлена колонка User.lastLoginAt');
         }
+        if (!cols.find(c => c.name === 'departmentId')) {
+          db.exec('ALTER TABLE "User" ADD COLUMN "departmentId" TEXT');
+          logInit('[DB Migrate] Добавлена колонка User.departmentId');
+        }
+        db.exec('CREATE INDEX IF NOT EXISTS "User_departmentId_idx" ON "User"("departmentId")');
       }
       const msgCols = db.prepare('PRAGMA table_info("ChatMessage")').all() as Array<{ name: string }>;
       if (msgCols.length > 0) {

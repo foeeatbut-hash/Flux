@@ -106,7 +106,7 @@ export default function WindowsExplorer() {
   const operations = useExplorerOperations({ folder: ref, rootId, selected: selection.selected, reload: folder.reload });
   const ops = operations;
   const [pane, setPane] = React.useState<'none' | 'details' | 'preview'>('none');
-  const [recycle, setRecycle] = React.useState(false);
+  const [recycle, setRecycle] = React.useState(params.get('recycle') === '1');
   const [addressToken, setAddressToken] = React.useState(0);
   const [searchToken, setSearchToken] = React.useState(0);
   const [context, setContext] = React.useState<{ x: number; y: number; entry?: WindowsFileEntry } | null>(null);
@@ -236,6 +236,13 @@ export default function WindowsExplorer() {
     const id = params.get('root');
     const next = id ? placeForRef({ rootId: id, relativePath: params.get('path') || '', ...(params.get('draft') ? { draftId: params.get('draft')! } : {}) }, catalog) : params.get('computer') ? COMPUTER : params.get('network') ? NETWORK : HOME;
     if (placeKey(next) !== placeKey(place)) go(next);
+  }, [params.toString()]);
+  // Ссылка /explorer?recycle=1 (значок «Корзина» на столе) открывает Корзину Windows и в уже
+  // открытом окне; параметр после этого убирается, чтобы возврат на вкладку не открывал её снова
+  React.useEffect(() => {
+    if (params.get('recycle') !== '1') return;
+    setRecycle(true);
+    const next = new URLSearchParams(params); next.delete('recycle'); setParams(next, { replace: true });
   }, [params.toString()]);
   const propertiesRequest = React.useRef(0);
   React.useEffect(() => () => { propertiesRequest.current++; }, []);
