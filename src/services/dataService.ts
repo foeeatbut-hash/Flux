@@ -10,7 +10,9 @@ export interface User {
   firstName?: string;
   middleName?: string;
   position?: string | null;
-  department?: string | null;
+  department?: string | null;   // старый свободный текст; настоящее подразделение — departmentId
+  /** Основное подразделение из справочника (docs/departments.md) */
+  departmentId?: string | null;
   email?: string | null;
   gender?: string;         // 'M' | 'F' | '' — нужен для склонения ФИО
   birthDate?: string | Date | null;
@@ -456,14 +458,14 @@ export const dataService = {
     return request<User[]>('/users');
   },
 
-  async createUser(userData: { symbol: string; name?: string; lastName?: string; firstName?: string; middleName?: string; gender?: string; birthDate?: string | null; role: string; password?: string; validUntil?: string | null; isActive?: boolean; permissions?: string | null }): Promise<User> {
+  async createUser(userData: { symbol: string; name?: string; lastName?: string; firstName?: string; middleName?: string; gender?: string; birthDate?: string | null; role: string; password?: string; validUntil?: string | null; isActive?: boolean; permissions?: string | null; departmentId?: string | null }): Promise<User> {
     return request<User>('/users', {
       method: 'POST',
       body: JSON.stringify(userData),
     });
   },
 
-  async updateUser(id: string, data: { name?: string; lastName?: string; firstName?: string; middleName?: string; gender?: string; birthDate?: string | null; symbol?: string; role?: string; password?: string; isActive?: boolean; validUntil?: string | null; permissions?: string | null }): Promise<{ success: boolean; user?: User; message?: string }> {
+  async updateUser(id: string, data: { name?: string; lastName?: string; firstName?: string; middleName?: string; gender?: string; birthDate?: string | null; symbol?: string; role?: string; password?: string; isActive?: boolean; validUntil?: string | null; permissions?: string | null; departmentId?: string | null }): Promise<{ success: boolean; user?: User; message?: string }> {
     return request(`/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),

@@ -1476,6 +1476,8 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-li[aria-current="true"], .fx-li[aria-selected="true"], .fx-li.is-on { background: var(--flux-sel); font-weight: 500; }
   .fx-li > svg { width: 16px; height: 16px; flex: none; color: var(--flux-text-muted); }
   .fx-li[aria-current="true"] > svg, .fx-li[aria-selected="true"] > svg, .fx-li.is-on > svg { color: var(--flux-accent-text); }
+  /* Куда упадёт переносимое подразделение: тот же цвет выбора и линия акцента, без рамки-карточки */
+  .fx-li.is-drop { background: var(--flux-sel); box-shadow: inset 0 0 0 1px var(--flux-accent); }
   .fx-li .fx-n { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--flux-text-muted); font-variant-numeric: tabular-nums; }
   .fx-gh { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; font-size: 12px; font-weight: 500; color: var(--flux-text-muted); }
   .fx-side { background: var(--flux-bg); border-right: 1px solid var(--flux-line); }

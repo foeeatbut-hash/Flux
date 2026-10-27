@@ -9,6 +9,7 @@ import { useNotificationStore } from '../store/notificationStore';
 import { useFeedbackStore } from '../store/feedbackStore';
 import { useChatStore } from '../store/chatStore';
 import { usePolicyStore } from '../store/policyStore';
+import { useDepartmentStore } from '../store/departmentStore';
 import { useNavigate } from 'react-router-dom';
 import { diagnostic } from '../lib/diagnostics';
 
@@ -318,6 +319,9 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     activeSocket.on('notify:new', handleNotify);
     activeSocket.on('capabilities:changed', handleCapabilities);
     activeSocket.on('connect', handleCapabilities);
+    // Справочник подразделений изменили в другом окне или на другом компьютере
+    const handleDepartments = () => { if (useDepartmentStore.getState().loaded) void useDepartmentStore.getState().load(); };
+    activeSocket.on('departments:changed', handleDepartments);
     activeSocket.on('feedback:changed', handleFeedback);
     activeSocket.on('feedback:unread', handleFeedback);
     // Переписка слушается ОБЩИМ сокетом и всегда, а не только при открытом
@@ -341,6 +345,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       activeSocket.off('notify:new', handleNotify);
       activeSocket.off('capabilities:changed', handleCapabilities);
       activeSocket.off('connect', handleCapabilities);
+      activeSocket.off('departments:changed', handleDepartments);
       activeSocket.off('feedback:changed', handleFeedback);
       activeSocket.off('feedback:unread', handleFeedback);
       useChatStore.getState().unbindSocket(activeSocket);

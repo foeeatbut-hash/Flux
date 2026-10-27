@@ -10,12 +10,20 @@ import { usePresenceStore, presenceLabel } from '../store/presenceStore';
 import PresencePanel from '../components/users/PresencePanel';
 import EmployeeImportDialog from '../components/users/EmployeeImportDialog';
 import UpdateCampaignPanel from '../components/users/UpdateCampaignPanel';
+import DepartmentsTab from '../components/users/DepartmentsTab';
+import DepartmentFilterPane, { matchesDepartmentFilter, type DepartmentFilter } from '../components/users/DepartmentFilterPane';
+import DepartmentPicker from '../components/users/DepartmentPicker';
+import DepartmentUndoBar from '../components/users/DepartmentUndoBar';
+import AssignDialog from '../components/users/AssignDialog';
+import LegacyWizard from '../components/users/LegacyWizard';
+import { useDepartmentStore } from '../store/departmentStore';
+import { departmentLabel } from '../../shared/departments';
 import { cleanUserPermissions } from '../lib/userPermissions';
 import { useAppContext } from '../store/policyStore';
 import { useNavigate } from 'react-router-dom';
 import { fullNameOf } from '../lib/declension';
 import RoleIcon from '../components/RoleIcon';
-import { Plus, Search } from 'lucide-react';
+import { PanelLeft, Plus, Search } from 'lucide-react';
 import { useModalStore } from '../store/modalStore';
 import { countOf } from '../lib/plural';
 import { updateService, type UpdateDevice } from '../services/updateService';
@@ -51,7 +59,19 @@ export default function UsersManagement() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   // Вкладки: список — главное, обновления вынесены отдельно, чтобы не
   // сдвигать список вниз. focus — с какого сотрудника открыта вкладка «Обновления»
-  const [tab, setTab] = useState<'list' | 'updates'>('list');
+  const [tab, setTab] = useState<'list' | 'departments' | 'updates'>('list');
+  // Подразделения (docs/departments.md): фильтр-дерево, отметка строк для перевода, окна мастера
+  const departments = useDepartmentStore((s) => s.departments);
+  const rootId = useDepartmentStore((s) => s.rootId);
+  const unassignedCount = useDepartmentStore((s) => s.unassigned);
+  const [deptFilter, setDeptFilter] = useState<DepartmentFilter>('');
+  const [paneOpen, setPaneOpen] = useState<boolean>(() => { try { return localStorage.getItem('flux_users_dept_pane') !== '0'; } catch { return true; } });
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [assign, setAssign] = useState<{ userIds: string[]; target: string } | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [batch, setBatch] = useState<{ message: string; token: string } | null>(null);
+  const [newDept, setNewDept] = useState('');
+  const [editDept, setEditDept] = useState('');
   const [focus, setFocus] = useState<{ userId: string; n: number } | undefined>();
   const [devices, setDevices] = useState<UpdateDevice[]>([]);
   const [latest, setLatest] = useState('');
@@ -130,9 +150,16 @@ export default function UsersManagement() {
     return () => { alive = false; window.removeEventListener('flux:roles-changed', onChanged); };
   }, []);
 
+  // Новый сотрудник по умолчанию попадает в подразделение, выбранное в фильтре
+  const openCreate = () => {
+    setNewDept(deptFilter && deptFilter !== 'none' ? deptFilter : '');
+    setIsModalOpen(true);
+  };
+
   const openEdit = (emp: User) => {
     if (!editable(emp)) return;
     setEditUser(emp);
+    setEditDept(emp.departmentId || '');
     // У профилей, заведённых до раздельного хранения, частей может не быть —
     // разбираем единую строку, чтобы форма не открылась пустой.
     const w = String(emp.name || '').replace(/\s*\(.*\)\s*$/, '').split(/\s+/).filter(Boolean);
@@ -178,6 +205,8 @@ export default function UsersManagement() {
         isActive: editActive,
         validUntil: editValidUntil ? new Date(`${editValidUntil}T23:59:59`).toISOString() : null,
         permissions: Object.keys(cleanPerms).length ? JSON.stringify(cleanPerms) : null,
+        // Подразделение шлём, только если его изменили: правка карточки без права переводов не должна упираться в отказ
+        ...(editDept !== (editUser.departmentId || '') ? { departmentId: editDept || null } : {}),
       });
       if (!res || res.success !== true) {
         throw new Error((res && res.message) || 'Сервер недоступен — изменения не сохранены');
@@ -239,6 +268,7 @@ export default function UsersManagement() {
 
   useEffect(() => {
     loadUsers();
+    void useDepartmentStore.getState().load();
   }, []);
 
   // 2. Validate and handle user registration
@@ -281,7 +311,8 @@ export default function UsersManagement() {
         symbol: trimmedSymbol,
         password: trimmedPassword,
         role: role,
-        validUntil: validUntil ? new Date(`${validUntil}T23:59:59`).toISOString() : null
+        validUntil: validUntil ? new Date(`${validUntil}T23:59:59`).toISOString() : null,
+        ...(newDept ? { departmentId: newDept } : {}),
       });
       addToast('Сотрудник успешно добавлен в базу данных!', 'success');
       
@@ -357,10 +388,11 @@ export default function UsersManagement() {
       if (pick === 'off' && a !== 'off' && a !== 'expired') return false;
       if (pick === 'soon' && a !== 'soon' && a !== 'expired') return false;
       if (pick === 'nosign' && (e as any).hasSignature) return false;
+      if (!matchesDepartmentFilter(deptFilter, e.departmentId, departments)) return false;
       if (!needle) return true;
       // Ищем и по роли: «покажи всех КИПиА» — обычный вопрос к этому списку
       const role = roleByCode(e.role, roles).name || e.role || '';
-      return `${e.name} ${e.symbol} ${role}`.toLowerCase().includes(needle);
+      return `${e.name} ${e.symbol} ${role} ${departmentLabel(departments, e.departmentId)}`.toLowerCase().includes(needle);
     });
     const byName = (a: User, b: User) => (a.name || '').localeCompare(b.name || '', 'ru');
     if (sortBy === 'role') {
@@ -375,7 +407,13 @@ export default function UsersManagement() {
         new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
     }
     return [...list].sort(byName);
-  }, [usersList, q, pick, sortBy, roles]);
+  }, [usersList, q, pick, sortBy, roles, deptFilter, departments]);
+
+  const deptLabelOf = (emp: User) => departmentLabel(departments, emp.departmentId);
+  const togglePane = () => setPaneOpen((open) => {
+    try { localStorage.setItem('flux_users_dept_pane', open ? '0' : '1'); } catch { /* память браузера недоступна — выбор просто не запомнится */ }
+    return !open;
+  });
 
   /** Инициалы для кружка в строке — «Раупов Хусрав» → «РХ» */
   const initialsOf = (emp: User) => {
@@ -410,20 +448,26 @@ export default function UsersManagement() {
       <SectionHead
         title="Сотрудники"
         count={countOf(counts.total, 'сотрудник')}
-        actions={(mayCreate || mayManage) && <>{<Btn onClick={() => setIsImportOpen(true)} title="Импортировать список сотрудников">Импортировать</Btn>}{mayCreate && <Btn tone="primary" onClick={() => setIsModalOpen(true)} title="Добавить сотрудника"><Plus />Добавить сотрудника</Btn>}</>}
+        actions={(mayCreate || mayManage) && <>{<Btn onClick={() => setIsImportOpen(true)} title="Импортировать список сотрудников">Импортировать</Btn>}{mayCreate && <Btn tone="primary" onClick={() => openCreate()} title="Добавить сотрудника"><Plus />Добавить сотрудника</Btn>}</>}
       >
-        {mayManage && <Tabs label="Разделы" value={tab} onChange={setTab} tabs={[{ value: 'list', label: 'Список' }, { value: 'updates', label: 'Обновления' }]} />}
+        <Tabs label="Разделы" value={tab} onChange={setTab} tabs={[{ value: 'list', label: 'Список' }, { value: 'departments', label: 'Подразделения' }, ...(mayManage ? [{ value: 'updates' as const, label: 'Обновления' }] : [])]} />
       </SectionHead>
       {isOwner && usersList.some((employee: any) => employee.legacyBootstrap) && <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100" role="status">
         Начальный профиль администратора заблокирован. Откройте его карточку и перенесите на личный логин с новым паролем. ID, файлы и история сохранятся.
       </div>}
       {/* Фильтр со счётчиками — он же сводка: вопросы «кто отключён» и «у кого
           истекает» задают чаще, чем ищут человека по фамилии */}
-      {tab === 'updates' && mayManage ? <UpdateCampaignPanel employeeIds={shown.map(employee => employee.id)} focus={focus} /> : <>
+      {batch && <DepartmentUndoBar message={batch.message} token={batch.token} onClose={() => setBatch(null)} onUndone={() => { setBatch(null); setChecked(new Set()); void loadUsers(); addToast('Перевод отменён', 'success'); }} />}
+      {tab === 'updates' && mayManage ? <UpdateCampaignPanel employeeIds={shown.map(employee => employee.id)} focus={focus} />
+      : tab === 'departments' ? <DepartmentsTab users={usersList} canManage={mayManage}
+          onAssign={(userIds, target) => setAssign({ userIds, target })} onWizard={() => setWizardOpen(true)}
+          onBatch={(message, token) => { if (token) setBatch({ message, token }); void loadUsers(); }} />
+      : <>
       <Toolbar>
+        <Btn tone="ghost" size="sm" aria-pressed={paneOpen} onClick={togglePane} title={paneOpen ? 'Скрыть дерево подразделений' : 'Показать дерево подразделений'}><PanelLeft />Подразделения</Btn>
         <label className="relative w-64 max-w-full">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Фамилия, логин или роль" aria-label="Поиск сотрудника" className="pl-7" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Фамилия, логин, роль, подразделение" aria-label="Поиск сотрудника" className="pl-7" />
         </label>
         <FilterSeg label="Отбор сотрудников" value={pick} onChange={setPick} options={[
           { value: 'all', label: 'Все' },
@@ -433,6 +477,11 @@ export default function UsersManagement() {
           { value: 'nosign', label: 'Без подписи', count: counts.nosign },
         ]} />
         <span className="ml-auto" />
+        {mayManage && checked.size > 0 && <>
+          <span className="text-slate-500 dark:text-slate-400">Отмечено {checked.size}</span>
+          <Btn size="sm" tone="primary" onClick={() => setAssign({ userIds: [...checked], target: deptFilter && deptFilter !== 'none' ? deptFilter : '' })}>Перевести в подразделение…</Btn>
+          <Btn size="sm" tone="ghost" onClick={() => setChecked(new Set())}>Снять отметки</Btn>
+        </>}
         <Seg label="Порядок" value={sortBy} onChange={setSortBy} options={[
           { value: 'name', label: 'По фамилии' },
           { value: 'role', label: 'По роли' },
@@ -442,22 +491,27 @@ export default function UsersManagement() {
       {/* Кто здесь сейчас — строкой; кто когда заходил — по нажатию */}
       <PresencePanel people={usersList as any} />
 
-      <div className="fx-page-body">
+      <div className="flex min-h-0 flex-1">
+      {paneOpen && <DepartmentFilterPane departments={departments} value={deptFilter} onChange={(v) => { setDeptFilter(v); setChecked(new Set()); }} total={counts.total} unassigned={unassignedCount} />}
+      <div className="fx-page-body min-w-0">
         {isLoading && usersList.length === 0 ? (
           <Empty title="Загрузка…" />
         ) : usersList.length === 0 ? (
           <Empty title="Сотрудников пока нет" text="Заведите первого — он получит логин, роль и права доступа.">
-            {mayCreate && <Btn tone="primary" onClick={() => setIsModalOpen(true)} className="mt-3">Добавить сотрудника</Btn>}
+            {mayCreate && <Btn tone="primary" onClick={() => openCreate()} className="mt-3">Добавить сотрудника</Btn>}
           </Empty>
         ) : shown.length === 0 ? (
           <Empty title="Никто не подходит под отбор" text="Снимите фильтр или очистите поиск.">
-            <Btn onClick={() => { setQ(''); setPick('all'); }} className="mt-3">Показать всех</Btn>
+            <Btn onClick={() => { setQ(''); setPick('all'); setDeptFilter(''); }} className="mt-3">Показать всех</Btn>
           </Empty>
         ) : (
           <table className="fx-table">
             <thead>
               <tr>
+                {mayManage && <th className="w-8"><input type="checkbox" aria-label="Отметить всех показанных" className="cursor-pointer" checked={shown.length > 0 && shown.every((e) => checked.has(e.id))}
+                  onChange={(ev) => setChecked(ev.target.checked ? new Set(shown.map((e) => e.id)) : new Set())} /></th>}
                 <th>Сотрудник</th>
+                <th className="hidden @[640px]:table-cell">Подразделение</th>
                 <th className="hidden @[720px]:table-cell">Роль</th>
                 <th>Доступ</th>
                 <th className="hidden @[560px]:table-cell">Подпись</th>
@@ -468,7 +522,9 @@ export default function UsersManagement() {
             </thead>
             <tbody>
               {shown.map((emp) => (
-                <tr key={emp.id} onDoubleClick={() => openEdit(emp)} title="Двойное нажатие — открыть карточку сотрудника">
+                <tr key={emp.id} className={checked.has(emp.id) ? 'is-sel' : undefined} onDoubleClick={() => openEdit(emp)} title="Двойное нажатие — открыть карточку сотрудника">
+                  {mayManage && <td className="w-8"><input type="checkbox" className="cursor-pointer" aria-label={`Отметить: ${emp.name}`} checked={checked.has(emp.id)}
+                    onChange={(ev) => setChecked((prev) => { const next = new Set(prev); if (ev.target.checked) next.add(emp.id); else next.delete(emp.id); return next; })} /></td>}
                   {/* ФИО и логин в одной строке: логин нужен всегда, а своей
                       колонки под него нет на узкой ширине */}
                   <td className="w-full max-w-0">
@@ -484,6 +540,7 @@ export default function UsersManagement() {
                       <span className="@[720px]:hidden text-slate-400 truncate">· {roleByCode(emp.role, roles).name}</span>
                     </div>
                   </td>
+                  <td className="hidden @[640px]:table-cell max-w-0 w-48 truncate" title={deptLabelOf(emp)}>{deptLabelOf(emp) || <span className="text-slate-400">—</span>}</td>
                   <td className="hidden @[720px]:table-cell whitespace-nowrap">{getRoleBadge(emp.role)}</td>
                   <td className="whitespace-nowrap">{getAccessBadge(emp)}</td>
                   <td className="hidden @[560px]:table-cell whitespace-nowrap">
@@ -512,6 +569,7 @@ export default function UsersManagement() {
             </tbody>
           </table>
         )}
+      </div>
       </div>
       </>}
 
@@ -549,12 +607,19 @@ export default function UsersManagement() {
             <Field label="Роль в системе">
               <Select value={role} onChange={setRole} disabled={isSubmitting} options={roles.filter(r => r.code !== 'OWNER' && (r.code !== 'ADMIN' || isOwner)).map((r) => ({ value: r.code, label: r.name }))} />
             </Field>
+            <Field label="Подразделение" hint="Выбранное в фильтре списка подставляется само; можно оставить пустым.">
+              <DepartmentPicker value={newDept} onChange={setNewDept} departments={departments} emptyLabel="Без подразделения" disabled={isSubmitting} ariaLabel="Подразделение сотрудника" />
+            </Field>
             <Field label="Срок действия профиля" hint="После этой даты сотрудник не сможет войти. Пусто — бессрочно.">
               <Input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} disabled={isSubmitting} />
             </Field>
           </form>
         </Dialog>
       )}
+      {assign && <AssignDialog userIds={assign.userIds.length ? assign.userIds : [...checked]} departments={departments} initialTarget={assign.target} onClose={() => setAssign(null)}
+        onDone={(message, token) => { setAssign(null); setChecked(new Set()); if (token) setBatch({ message, token }); void loadUsers(); }} />}
+      {wizardOpen && <LegacyWizard departments={departments} rootId={rootId} onClose={() => setWizardOpen(false)}
+        onDone={(message, token) => { setWizardOpen(false); if (token) setBatch({ message, token }); void loadUsers(); }} />}
       {isImportOpen && <EmployeeImportDialog roles={roles} onClose={() => setIsImportOpen(false)} onComplete={() => { void loadUsers(); }} />}
 
       {/* Карточка сотрудника: профиль, срок, права */}
@@ -585,6 +650,9 @@ export default function UsersManagement() {
                 <Input value={editPassword} onChange={(e) => setEditPassword(e.target.value)} disabled={isEditSubmitting} placeholder={(editUser as any).legacyBootstrap ? 'Не менее 8 символов' : 'Не менять'} />
               </Field>
             </div>
+            <Field label="Подразделение" hint={mayManage ? undefined : 'Переводит администратор с правом управления сотрудниками.'}>
+              <DepartmentPicker value={editDept} onChange={setEditDept} departments={departments} emptyLabel="Без подразделения" disabled={isEditSubmitting || !mayManage} ariaLabel="Подразделение сотрудника" />
+            </Field>
             <Field label="Доступ действует до">
               <Input type="date" value={editValidUntil} onChange={(e) => setEditValidUntil(e.target.value)} disabled={isEditSubmitting} />
               <span className="flex flex-wrap gap-1 mt-1.5">
