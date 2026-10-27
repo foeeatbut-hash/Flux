@@ -477,23 +477,25 @@ export default function UsersManagement() {
           { value: 'nosign', label: 'Без подписи', count: counts.nosign },
         ]} />
         <span className="ml-auto" />
-        {mayManage && checked.size > 0 && <>
-          <span className="text-slate-500 dark:text-slate-400">Отмечено {checked.size}</span>
-          <Btn size="sm" tone="primary" onClick={() => setAssign({ userIds: [...checked], target: deptFilter && deptFilter !== 'none' ? deptFilter : '' })}>Перевести в подразделение…</Btn>
-          <Btn size="sm" tone="ghost" onClick={() => setChecked(new Set())}>Снять отметки</Btn>
-        </>}
         <Seg label="Порядок" value={sortBy} onChange={setSortBy} options={[
           { value: 'name', label: 'По фамилии' },
           { value: 'role', label: 'По роли' },
           { value: 'created', label: 'Сначала новые' },
         ]} />
       </Toolbar>
+      {/* Отмеченные строки: массовый перевод — полосой под панелью, а не в ней: панель и так тесная */}
+      {mayManage && checked.size > 0 && <div role="status" className="flex flex-wrap items-center gap-2 border-b border-[var(--flux-line)] bg-[var(--flux-sel)] px-4 py-1.5 text-[13px]">
+        <span className="mr-auto">Отмечено: {countOf(checked.size, 'сотрудник')}</span>
+        <Btn size="sm" tone="primary" onClick={() => setAssign({ userIds: [...checked], target: deptFilter && deptFilter !== 'none' ? deptFilter : '' })}>Перевести в подразделение…</Btn>
+        <Btn size="sm" tone="ghost" onClick={() => setChecked(new Set())}>Снять отметки</Btn>
+      </div>}
       {/* Кто здесь сейчас — строкой; кто когда заходил — по нажатию */}
       <PresencePanel people={usersList as any} />
 
       <div className="flex min-h-0 flex-1">
       {paneOpen && <DepartmentFilterPane departments={departments} value={deptFilter} onChange={(v) => { setDeptFilter(v); setChecked(new Set()); }} total={counts.total} unassigned={unassignedCount} />}
-      <div className="fx-page-body min-w-0">
+      {/* Свой контейнер: ширина таблицы без дерева слева, и колонки прячутся по ней, а не по ширине окна */}
+      <div className="fx-page-body min-w-0 @container">
         {isLoading && usersList.length === 0 ? (
           <Empty title="Загрузка…" />
         ) : usersList.length === 0 ? (

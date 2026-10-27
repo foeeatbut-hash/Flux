@@ -32,7 +32,7 @@ export default function DepartmentsTab({ users, canManage, onAssign, onWizard, o
   const addToast = useToastStore((s) => s.addToast);
   const [selectedId, setSelectedId] = useState('');
   const [showArchived, setShowArchived] = useState(false);
-  const [scope, setScope] = useState<'own' | 'all'>('own');
+  const [scope, setScope] = useState<'own' | 'all'>('all');
   const [form, setForm] = useState<{ mode: 'create' | 'edit' } | null>(null);
   const [archiving, setArchiving] = useState(false);
 
@@ -65,7 +65,16 @@ export default function DepartmentsTab({ users, canManage, onAssign, onWizard, o
   if (!loaded) return <div className="fx-page-body"><Empty title="Загрузка…" /></div>;
   if (error && !departments.length) return <div className="fx-page-body"><Empty title="Подразделения недоступны" text={error}><Btn className="mt-3" onClick={() => void useDepartmentStore.getState().load()}>Повторить</Btn></Empty></div>;
 
-  const zone = selected?.timezone;
+  // Город и пояс у отдела обычно не заданы: действует то, что задано у ближайшего родителя
+  const inherit = (field: 'city' | 'timezone') => {
+    for (let cur = selected, guard = 0; cur && guard < 20; cur = departments.find((d) => d.id === cur!.parentId), guard++) {
+      if (cur[field]) return { value: cur[field] as string, from: cur.id === selected?.id ? '' : cur.name };
+    }
+    return { value: '', from: '' };
+  };
+  const cityInfo = inherit('city');
+  const zoneInfo = inherit('timezone');
+  const zone = zoneInfo.value;
   const isRoot = selected?.kind === 'company';
   return <>
     <Toolbar>
@@ -93,8 +102,8 @@ export default function DepartmentsTab({ users, canManage, onAssign, onWizard, o
           <div className="mt-2">
             <SettingRow title="Вид">{KIND_LABEL[selected.kind] || selected.kind}</SettingRow>
             {!isRoot && <SettingRow title="Где">{departmentLabel(departments, selected.parentId) || 'Компания'}</SettingRow>}
-            <SettingRow title="Город">{selected.city || <span className="text-slate-400">—</span>}</SettingRow>
-            <SettingRow title="Часовой пояс">{zone ? <span className="tabular-nums">{zone}{localTime(zone) && <span className="ml-2 text-slate-400">сейчас {localTime(zone)}</span>}</span> : <span className="text-slate-400">—</span>}</SettingRow>
+            <SettingRow title="Город">{cityInfo.value ? <span>{cityInfo.value}{cityInfo.from && <span className="ml-2 text-slate-400">от «{cityInfo.from}»</span>}</span> : <span className="text-slate-400">—</span>}</SettingRow>
+            <SettingRow title="Часовой пояс">{zone ? <span className="tabular-nums">{zone}{zoneInfo.from && <span className="ml-2 text-slate-400">от «{zoneInfo.from}»</span>}{localTime(zone) && <span className="ml-2 text-slate-400">сейчас {localTime(zone)}</span>}</span> : <span className="text-slate-400">—</span>}</SettingRow>
             <SettingRow title="Людей">{selected.people} в подразделении{selected.total !== selected.people ? ` · ${selected.total} с вложенными` : ''}</SettingRow>
           </div>
           <div className="mt-4 flex items-center gap-3">

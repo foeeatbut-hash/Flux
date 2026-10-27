@@ -28,7 +28,7 @@ export const useDepartmentStore = create<DepartmentState>((set) => ({
   load: () => {
     // Параллельные запросы схлопываются в один: дерево читают сразу несколько компонентов
     inflight ??= departmentService.tree(true)
-      .then((r) => set({ departments: r.departments, rootId: r.rootId, unassigned: r.unassigned, loaded: true, error: '' }))
+      .then((r) => set({ departments: r.departments || [], rootId: r.rootId || '', unassigned: r.unassigned || 0, loaded: true, error: '' }))
       .catch((e: any) => set({ error: e?.message || 'Не удалось загрузить подразделения', loaded: true }))
       .finally(() => { inflight = null; });
     return inflight;

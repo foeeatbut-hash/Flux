@@ -66,7 +66,7 @@ export default function LegacyWizard({ departments, rootId, onClose, onDone }: {
 
   const mark = (g: LegacyGroup) => g.match.status === 'ambiguous'
     ? <Status tone="amber" title={g.match.candidates.join('; ')}>неоднозначно</Status>
-    : g.match.status === 'match' ? <Status tone="emerald">найдено</Status> : <Status tone="sky">нового нет в справочнике</Status>;
+    : g.match.status === 'match' ? <Status tone="emerald">найдено</Status> : <Status tone="sky">нет в справочнике</Status>;
 
   return <Dialog title="Разложить сотрудников по подразделениям" width="max-w-4xl" onClose={onClose} busy={busy}
     footer={<><Btn size="lg" disabled={busy} onClick={onClose}>Закрыть</Btn><Btn size="lg" tone="primary" disabled={busy || !summary.people} onClick={() => void apply()}>{summary.people ? `Разложить ${summary.people}` : 'Разложить'}</Btn></>}>
@@ -85,7 +85,7 @@ export default function LegacyWizard({ departments, rootId, onClose, onDone }: {
               <td title={g.names.join(', ')}><span className="inline-flex items-center gap-2">{g.text}{mark(g)}</span></td>
               <td className="tabular-nums" title={g.names.join(', ')}>{g.count}</td>
               <td className="w-56"><Select aria-label={`Действие для «${g.text}»`} value={r.action} onChange={(v) => set(g.key, { action: v as Action })} disabled={busy}
-                options={[{ value: 'create', label: 'Создать подразделение' }, { value: 'map', label: 'Положить в существующее' }, { value: 'skip', label: 'Пропустить' }]} /></td>
+                options={[{ value: 'create', label: 'Создать новое' }, { value: 'map', label: 'В существующее' }, { value: 'skip', label: 'Пропустить' }]} /></td>
               <td className="w-64">
                 {r.action === 'map' && <DepartmentPicker value={r.departmentId} onChange={(v) => set(g.key, { departmentId: v })} departments={departments} disabled={busy} ariaLabel={`Куда положить «${g.text}»`} />}
                 {r.action === 'create' && (chain.length > 1
