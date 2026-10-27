@@ -175,6 +175,57 @@ export async function upsertEquipmentDocumentBindingInTransaction(
   return { binding, ledger: next };
 }
 
+/**
+ * Убрать из журнала привязок всё, что относилось к удаляемым установке и
+ * позициям: XML-привязки их источников, документы, связанные с установкой, и
+ * ссылки на их позиции в остальных записях. Журнал при этом не стирается:
+ * запись остаётся в `undo` с прежним состоянием, поэтому удаление видно в
+ * истории, а привязку можно вернуть оттуда.
+ *
+ * Вызывается внутри транзакции удаления: привязка не должна пережить установку
+ * (осиротевшая привязка без установки позже блокировала повторный импорт того
+ * же XML), и не должна исчезнуть, если само удаление откатилось.
+ */
+export async function removeEquipmentDocumentBindingsInTransaction(
+  prisma: any,
+  projectId: string,
+  scope: { xmlSourceIds: string[]; systemIds: string[]; elementIds: string[] },
+): Promise<number> {
+  const stored = await readSetting(prisma, projectId);
+  if (!stored) return 0;
+  let current: EquipmentDocumentBindingLedger;
+  try { current = parseLedger(stored.value); }
+  // Повреждённый журнал не должен делать установку неудаляемой
+  catch (error: any) { console.error('[Оборудование] Журнал привязок повреждён, привязки удаляемой установки не сняты:', error?.message || error); return 0; }
+  const sources = new Set(scope.xmlSourceIds);
+  const systems = new Set(scope.systemIds);
+  const elements = new Set(scope.elementIds);
+  let removed = 0;
+  let changed = false;
+  const bindings: EquipmentDocumentBinding[] = [];
+  for (const row of current.bindings) {
+    if (row.projectId !== projectId) { bindings.push(row); continue; }
+    if ((row.xmlSourceId && sources.has(row.xmlSourceId)) || (row.systemId && systems.has(row.systemId))) { removed += 1; changed = true; continue; }
+    if (row.equipmentIds.some(id => elements.has(id))) {
+      changed = true;
+      bindings.push({ ...row, equipmentIds: row.equipmentIds.filter(id => !elements.has(id)), updatedAt: new Date().toISOString() });
+      continue;
+    }
+    bindings.push(row);
+  }
+  if (!changed) return 0;
+  const revision = current.revision + 1;
+  const next: EquipmentDocumentBindingLedger = {
+    revision, bindings,
+    undo: [...current.undo, { id: randomUUID(), beforeRevision: current.revision, afterRevision: revision, before: current.bindings, after: bindings }].slice(-MAX_UNDO),
+  };
+  let value = JSON.stringify(next);
+  while (Buffer.byteLength(value, 'utf8') > MAX_BYTES && next.undo.length) { next.undo.shift(); value = JSON.stringify(next); }
+  const result = await prisma.appSetting.updateMany({ where: { id: stored.id, value: stored.value }, data: { value } });
+  if (result.count !== 1) throw Object.assign(new Error('Источники оборудования изменились параллельно. Повторите удаление.'), { status: 409 });
+  return removed;
+}
+
 async function visibleProject(req: Request, projectId: string) {
   const actor = (req as any).authUser;
   if (!actor?.id) throw Object.assign(new Error('Требуется вход'), { status: 401 });

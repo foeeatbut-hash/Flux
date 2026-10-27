@@ -208,6 +208,25 @@ function safeCode(value: unknown): string {
   return redact(text).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24);
 }
 
+/**
+ * Причина отказа нашего API без данных проекта.
+ *
+ * Сообщения сервера пишутся по-русски шаблоном, а переменное — тег, имя файла,
+ * число — стоит в кавычках или содержит цифры. Поэтому вырезаем именно это:
+ * остаётся «Тег «…» не найден в проекте», по которому видно причину отказа и
+ * не видно, чей тег.
+ */
+export function reasonText(value: unknown): string {
+  return redact(String(value ?? ''))
+    .replace(/«[^»]*»/g, '«…»')
+    .replace(/"[^"]*"/g, '"…"')
+    .replace(/\S*[\\/@]\S*/g, '…')
+    .replace(/\b[A-Za-z]+(?:[-_][A-Za-z0-9]+)+\b/g, '…')
+    .replace(/\S*\d\S*/g, '#')
+    .replace(/\s+/g, ' ').trim()
+    .slice(0, 120);
+}
+
 function finiteNumber(value: unknown): number | null {
   const n = typeof value === 'number' ? value : Number(value);
   return Number.isFinite(n) ? n : null;
@@ -228,6 +247,7 @@ function byKind(kind: FieldKind, value: unknown): string | number | boolean | nu
       return /^[a-z][a-z0-9-]{0,23}:[a-z][a-z0-9-]{0,47}$/.test(text) ? text : null;
     }
     case 'code': return safeCode(value) || null;
+    case 'reason': return reasonText(value) || null;
     case 'route': return routeName(String(value ?? ''));
     // Шаблон приходит из нашего кода, а не от человека: словарь к нему не
     // применяется — он бы съел статические части пути

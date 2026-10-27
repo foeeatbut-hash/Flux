@@ -4,7 +4,8 @@ import type { Express, Request, Response } from 'express';
 import type { Server as SocketIOServer } from 'socket.io';
 import * as XLSX from 'xlsx';
 import { enrichEquipment } from '../equipmentCatalog.js';
-import { getPrisma } from '../context.js';
+import { broadcast, getPrisma } from '../context.js';
+import { detachXmlSourcesInTransaction, type DetachedSource } from '../equipmentSourceDetach.js';
 import { nextProjectEntityId, nextProjectId } from '../entityIds.js';
 import { emitEntitiesChanged, emitEntityChanged, emitProjectDataChanged } from '../entityChanged.js';
 import { parseExcel, parseXML, importParsedDataToDB } from '../excelParser.js';
@@ -586,7 +587,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       // свободны, но открытые окна об этом не знают, пока не придёт событие.
       const found = await prisma.equipmentSystem.findUnique({
         where: { id },
-        select: { id: true, name: true, monoblocks: { select: { id: true, components: { select: { id: true, tags: { select: { id: true, identifier: true } } } } } } },
+        select: { id: true, name: true, projectId: true, monoblocks: { select: { id: true, components: { select: { id: true, tags: { select: { id: true, identifier: true } } } } } } },
       });
       if (!found) return res.json({ success: true, alreadyGone: true });
       const elementIds: string[] = [];
@@ -599,7 +600,11 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       // без внешних ключей, и прежнее удаление оставляло позиции сиротами — они
       // не показывались в разделе, но продолжали держать свои теги «занятыми».
       // Поэтому всё внутри снимаем явно, как при удалении одной позиции.
+      let detached: DetachedSource[] = [];
       await prisma.$transaction(async (tx: any) => {
+        // Привязка XML (и её запись в журнале привязок) не должна пережить
+        // установку: иначе повторная загрузка того же XML упирается в 409
+        detached = await detachXmlSourcesInTransaction(tx, found.projectId, { systemIds: [id], elementIds });
         for (const mono of found.monoblocks || []) for (const component of mono.components || []) {
           if (component.tags?.length) {
             await tx.componentElement.update({
@@ -615,6 +620,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       });
       emitEntitiesChanged('tag', freedTags.keys(), req);
       emitEntitiesChanged('element', elementIds, req);
+      for (const source of detached) broadcast('entity:changed', { kind: 'equipment-source', id: source.sourceId, projectId: found.projectId, at: Date.now() });
       // Как и при удалении одной позиции: убранное оборудование должно быть видно в журнале
       try {
         const me = (req as any).authUser;
@@ -628,7 +634,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           },
         });
       } catch (_) { /* журнал не обязан существовать, удаление уже состоялось */ }
-      res.json({ success: true, freedTags: [...freedTags.values()] });
+      res.json({ success: true, freedTags: [...freedTags.values()], detachedSources: detached });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

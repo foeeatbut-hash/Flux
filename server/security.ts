@@ -49,7 +49,7 @@ export function corsMiddleware(req: Request, res: Response, next: NextFunction) 
     // не пропустит их предварительным запросом, и сломается это только там, где
     // окно и сервер на разных машинах, — то есть у заказчика, а не на своей
     res.setHeader('Access-Control-Allow-Headers', ALLOW_HEADERS);
-    res.setHeader('Access-Control-Expose-Headers', 'X-Flux-Trace, X-Collab-Required, X-Current-SHA256, X-Base-SHA256, X-File-Name');
+    res.setHeader('Access-Control-Expose-Headers', 'X-Flux-Trace, X-Flux-Error, X-Collab-Required, X-Current-SHA256, X-Base-SHA256, X-File-Name');
   }
   // Чужому происхождению заголовков не даём — браузер сам не пустит ответ
   if (req.method === 'OPTIONS') return res.sendStatus(corsOriginAllowed(origin, req.get('host')) ? 200 : 403);

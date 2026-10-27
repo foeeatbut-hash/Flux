@@ -24,13 +24,14 @@ import { getPrisma } from '../context.js';
 import { snapshotName, type Actor } from './policy.js';
 import { LIMITS, type SubmitFeedbackV1 } from '../../feedback/contracts.js';
 
-const HOUR = 3600 * 1000;
+/** Окно предела — минута: флуд ловится быстро, а честного человека не держит. */
+export const RATE_WINDOW_MS = 60 * 1000;
 
-/** Начало текущего часового окна — общее для всех серверов. */
-export const windowStartOf = (now = Date.now()): Date => new Date(Math.floor(now / HOUR) * HOUR);
+/** Начало текущего окна — общее для всех серверов. */
+export const windowStartOf = (now = Date.now()): Date => new Date(Math.floor(now / RATE_WINDOW_MS) * RATE_WINDOW_MS);
 
 /**
- * Занять одно место в часовом пределе. `false` — предел исчерпан.
+ * Занять одно место в пределе окна. `false` — предел исчерпан.
  *
  * Условие `count < limit` стоит внутри UPDATE, а не проверяется отдельным
  * чтением: между чтением и записью проходят другие запросы, и полсотни
@@ -58,8 +59,15 @@ export async function refundRate(prisma: any, actorId: string, kind: 'report' | 
   } catch (_) { /* не вернулось — предел просто отпустит через час */ }
 }
 
-/** Когда предел отпустит. Человеку говорят время, а не «попробуйте позже». */
-export const rateResetAt = (): Date => new Date(windowStartOf().getTime() + HOUR);
+/** Когда предел отпустит. Человеку говорят секунды, а не «попробуйте позже». */
+export const rateResetAt = (): Date => new Date(windowStartOf().getTime() + RATE_WINDOW_MS);
+
+/** Старые окна не нужны: строка на минуту на человека иначе копилась бы вечно. */
+export async function sweepRateWindows(prisma: any, now = Date.now()): Promise<void> {
+  try {
+    await prisma.feedbackRateWindow.deleteMany({ where: { windowStart: { lt: new Date(now - 24 * 3600 * 1000) } } });
+  } catch (_) { /* уберётся на следующем проходе */ }
+}
 
 /**
  * Следующий номер обращения.

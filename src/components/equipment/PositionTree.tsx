@@ -171,7 +171,7 @@ export default function PositionTree({
   const sourceStatus = (c: TreeComponent) => (c.tags || []).map(tag => sourceStatuses?.[`${tag.id}:${c.id}`]).find(Boolean);
   const sourceStatusLabel = (status?: string) => ({
     pending: 'XML обновление', partial: 'XML частично', ambiguous: 'XML выбрать файл', invalid: 'XML ошибка',
-    unstable: 'XML меняется', 'source-unavailable': 'XML нет доступа', 'no-match': 'XML не найден',
+    unstable: 'XML меняется', 'source-unavailable': 'XML нет доступа', 'check-failed': 'XML проверка не удалась', 'no-match': 'XML не найден',
   } as Record<string, string>)[status || ''] || '';
 
   // Ширина дерева — у человека: названия вроде «Электродвигатель 160М6-УХЛ2-400»

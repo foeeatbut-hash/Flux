@@ -138,6 +138,11 @@ export function rendererStatus(): { session: string; queued: number; dropped: nu
   return { session, queued: queue.length, dropped, tail: tail.length, transport: !!bridge(), detailed: detailed() };
 }
 
+function reasonFromHeader(raw: string | null): string | undefined {
+  if (!raw) return undefined;
+  try { return decodeURIComponent(raw); } catch (_) { return undefined; }
+}
+
 /**
  * Обёртка вокруг fetch. Ставится ВНУТРЬ существующей обёртки `config/env`,
  * поэтому видит уже переписанный адрес и уже подставленный токен — то есть то,
@@ -173,6 +178,9 @@ export function diagnosticFetch(fetcher: typeof fetch): typeof fetch {
         serverTrace: own ? response.headers.get('X-Flux-Trace') || undefined : undefined,
         declaredBytes: Number(response.headers.get('content-length')) || undefined,
         outcome: response.ok ? 'ok' : 'error',
+        // Причина отказа приходит заголовком от нашего сервера (шаблон без
+        // данных проекта): тело ответа читает только вызывающий код
+        ...(!response.ok && own ? { reason: reasonFromHeader(response.headers.get('X-Flux-Error')) } : {}),
       });
       measureReading(response, trace, route, start);
       return response;

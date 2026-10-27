@@ -177,13 +177,13 @@ async function main() {
   // администратора: у него дальше свои проверки
   let refused: any = null;
   let created = 0;
-  for (let n = 0; n < LIMITS.reportsPerHour + 2; n++) {
+  for (let n = 0; n < LIMITS.reportsPerMinute * 2 + 2; n++) {
     const r = await api('POST', '/api/feedback/reports', mateToken, submit({ title: `__предел ${stamp} №${n}` }));
     if (r.status === 201) { created++; continue; }
     refused = r;
     break;
   }
-  ok(`до предела прошло ${created} из ${LIMITS.reportsPerHour}`, created === LIMITS.reportsPerHour, created);
+  ok(`до предела прошло ${created} (предел ${LIMITS.reportsPerMinute} в минуту, не час)`, created >= LIMITS.reportsPerMinute && created <= LIMITS.reportsPerMinute * 2, created); // граница минуты может дать второе окно
   ok('следующее отвергнуто', refused?.status === 429, refused?.status);
   ok('и названо по имени', refused?.json?.error?.code === 'RATE_LIMITED', refused?.json?.error);
   ok('человеку сказано, когда попробовать', Number(refused?.retryAfter) > 0, refused?.retryAfter);

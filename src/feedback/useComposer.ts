@@ -133,6 +133,15 @@ export interface Composer {
   ready: boolean;
   draft: Draft | null;
   send: (overrides?: Partial<Fields>) => Promise<string>;
+  /**
+   * Начать форму заново после отправки или после отказа очереди.
+   *
+   * Без этого защёлка от второй отправки оставалась взведённой навсегда: после
+   * отказа очереди (или когда человек хочет написать следующее обращение, не
+   * закрывая окно) «Отправить» молча ничего не делало. `text` возвращает в
+   * форму написанное — для отказа, когда его надо поправить, а не терять.
+   */
+  reopen: (restore?: Partial<Fields>) => void;
   /** Дописать черновик немедленно — при закрытии формы. */
   flush: () => Promise<void>;
   /**
@@ -173,6 +182,15 @@ export function useComposer(
   const sending = useRef(false);
   /** Восстановленный черновик кладём один раз: поверх набранного — не кладём. */
   const restored = useRef(false);
+  /**
+   * Форма отдала написанное очереди: черновик под ключом формы больше не
+   * пишется. Иначе закрытие окна (`flush`) или таймер, поймавший остаток
+   * набора, снова клали бы в хранилище уже отправленный текст, и при
+   * следующем открытии человек видел «старый» текст, который давно ушёл.
+   */
+  const released = useRef(false);
+  /** Что ушло в очередь: нужно, чтобы вернуть написанное, если очередь откажет. */
+  const lastSent = useRef<{ fields: Fields; attachments: DraftAttachment[] } | null>(null);
   /**
    * Снимок вокруг происшествия — с открытия формы, а не с нажатия «Отправить».
    *
@@ -228,12 +246,15 @@ export function useComposer(
   // вложений в хранилище пятьдесят раз в минуту. Задержка короткая — это
   // единственное, что стоит между набранным текстом и его потерей
   useEffect(() => {
-    if (!draft) return;
+    if (!draft || released.current) return;
     if (!fields.title && !fields.description && !attachments.length) return;
     setSave('saving');
     clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       void saveDraft(draft).then((result) => {
+        // Пока писали, форму могли отправить: запись уже не нужна и, главное,
+        // вернула бы в хранилище отправленное
+        if (released.current) { void dropDraft(draft.id); return; }
         setSave(result.ok ? 'saved' : (result as any).reason);
       });
     }, SAVE_DELAY_MS);
@@ -249,10 +270,11 @@ export function useComposer(
    * последний штрих, чтобы не потерять полсекунды последних букв.
    */
   const flush = useCallback(async (): Promise<void> => {
-    if (!draft) return;
+    if (!draft || released.current) return;
     if (!fields.title && !fields.description && !attachments.length) return;
     clearTimeout(timer.current);
     const result = await saveDraft(draft);
+    if (released.current) { await dropDraft(draft.id); return; }
     setSave(result.ok ? 'saved' : (result as any).reason);
   }, [draft, fields.title, fields.description, attachments.length]);
 
@@ -325,11 +347,13 @@ export function useComposer(
       } catch (_) {
         // Даже так пакет не пропадает молча: без описи сервер разберёт
         // события сам и отметит, что окно опись не приложило
-        const own = rendererSource(shot.snapshotId, LIMITS.bundleBytes);
-        files.push({
-          id: newRequestId(), name: EVENTS_NAME, kind: 'DIAGNOSTICS',
-          blob: new Blob([own.text], { type: 'application/x-ndjson' }),
-        });
+        try {
+          const own = rendererSource(shot.snapshotId, LIMITS.bundleBytes);
+          files.push({
+            id: newRequestId(), name: EVENTS_NAME, kind: 'DIAGNOSTICS',
+            blob: new Blob([own.text], { type: 'application/x-ndjson' }),
+          });
+        } catch (_) { /* записей не будет — обращение уйдёт и без них, а не зависнет */ }
       }
     }
 
@@ -368,15 +392,55 @@ export function useComposer(
       return why;
     }
     setSentKey(fixed.id);
-    // Место формы свободно: написанное уехало и живёт теперь под своим ключом
+    // Место формы свободно: написанное уехало и живёт теперь под своим ключом.
+    // Сначала взводим запрет записи и чистим форму, и только потом стираем
+    // черновик: в обратном порядке таймер или закрытие окна успевали вернуть
+    // отправленный текст в хранилище, и он всплывал в следующем обращении
+    released.current = true;
+    lastSent.current = { fields: going, attachments: attachments.slice() };
     clearTimeout(timer.current);
+    setFields((prev) => ({ ...emptyFields(prev.sectionKey, prev.type), technicalEvents: prev.technicalEvents, appContext: prev.appContext }));
+    setAttachments([]);
+    setSave('idle');
     await dropDraft(draft.id);
     setError('');
     return '';
   }, [draft, deploymentId, fields, appVersion, attachments, draftId, userId]);
 
+  // Отказ, где нужен человек (правка текста, повторный вход): написанное
+  // возвращается в форму вместе с причиной, а пакет уходит из очереди. Раньше
+  // текст оставался только в мёртвом пакете, защёлка отправки не снималась, и
+  // «Отправить» молча переставала работать до закрытия окна
+  useEffect(() => {
+    if (!sentKey) return undefined;
+    const watching = sentKey;
+    return submissionQueue.subscribe((items) => {
+      const mine = items.find((i) => i.key === watching);
+      if (!mine || !['NEEDS_REVIEW', 'NEEDS_SIGN_IN'].includes(mine.state)) return;
+      const back = lastSent.current;
+      if (!back) return;
+      lastSent.current = null;
+      void submissionQueue.discard(watching);
+      setFields(back.fields);
+      setAttachments(back.attachments);
+      sending.current = false;
+      released.current = false;
+      setSentKey('');
+      setError(mine.note || 'Отправить не вышло');
+    });
+  }, [sentKey]);
+
+  const reopen = useCallback((restore?: Partial<Fields>) => {
+    sending.current = false;
+    released.current = false;
+    lastSent.current = null;
+    setSentKey('');
+    setError('');
+    if (restore) setFields((prev) => ({ ...prev, ...restore }));
+  }, []);
+
   return {
     fields, setFields, attachments, addFile, addBlob, dropFile,
-    meta, metaError, save, error, ready: built.ok, draft, send, flush, sentKey,
+    meta, metaError, save, error, ready: built.ok, draft, send, reopen, flush, sentKey,
   };
 }
