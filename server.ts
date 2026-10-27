@@ -79,6 +79,7 @@ import { registerGuideRoutes } from './server/routes/guide.js';
 import { registerTranslateRoutes } from './server/routes/translate.js';
 import { registerCalendarRoutes } from './server/routes/calendar.js';
 import { registerMemberRoutes } from './server/routes/members.js';
+import { registerDepartmentRoutes } from './server/routes/departments.js';
 import { registerEquipmentUndoRoutes } from './server/routes/equipmentUndo.js';
 import { registerTagPolicyRoutes } from './server/routes/tagPolicy.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
@@ -745,6 +746,11 @@ app.use(async (req: Request, res: Response, next) => {
     // (имя/пароль) может каждый, но не роль/права/срок
     const isUserRoute = /^\/api\/users\/[^/]+$/.test(route);
     if (!isPrivilegedUser(user)) {
+      // Дерево подразделений видят все; менять его и переводить людей — только администратор
+      // (в маршруте дополнительно проверяется право admin.users.manage)
+      if (/^\/api\/departments(\/|$)/.test(route) && (!['GET', 'HEAD'].includes(req.method) || route.startsWith('/api/departments/legacy'))) {
+        return res.status(403).json({ error: 'Доступно только администратору' });
+      }
       if ((route === '/api/users' && req.method === 'POST') ||
           (isUserRoute && req.method === 'DELETE')) {
         return res.status(403).json({ error: 'Доступно только администратору' });
@@ -942,6 +948,7 @@ registerImportDictRoutes(app);
 // Сотрудники, роли и личные настройки уведомлений вынесены
 // в server/routes/users.ts
 registerUserRoutes(app, { hashPassword, invalidateRolePerms, invalidateAuthUser, refreshHiddenOnline });
+registerDepartmentRoutes(app);
 
 // Обновления программы: публикация, раздача и отзыв — server/updates.ts.
 // Файл едет в общую базу: сервера приложения у сотрудников нет, общая только она

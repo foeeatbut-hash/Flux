@@ -45,6 +45,7 @@ const AREA: Record<string, { word: string; route: string }> = {
   chat: { word: 'сообщение', route: '/chat' },
   mail: { word: 'письмо', route: '/mail' },
   users: { word: 'сотрудника', route: '/users' },
+  departments: { word: 'подразделение', route: '/users' },
   vdr: { word: 'строку ВДР', route: '/management' },
   procurement: { word: 'закупку', route: '/management' },
   updates: { word: 'обновление', route: '/settings?section=updates' },
@@ -63,6 +64,13 @@ const SPECIAL: { test: (m: string, p: string[]) => boolean; what: string; route:
   { test: (m, p) => m === 'DELETE' && p[0] === 'updates', what: 'Отозвал релиз', route: '/settings?section=updates' },
   { test: (m, p) => m === 'POST' && p[0] === 'users' && p[2] === 'permissions', what: 'Изменил права сотрудника', route: '/users' },
   { test: (m, p) => m === 'PUT' && p[0] === 'users' && p[2] === 'permissions', what: 'Изменил права сотрудника', route: '/users' },
+  // Подразделения: «Создал подразделение» — по умолчанию; особые действия называем прямо
+  { test: (m, p) => m === 'POST' && p[0] === 'departments' && p[1] === 'assign', what: 'Перевёл сотрудников в подразделение', route: '/users' },
+  { test: (m, p) => m === 'POST' && p[0] === 'departments' && p[1] === 'undo', what: 'Отменил перевод сотрудников', route: '/users' },
+  { test: (m, p) => m === 'POST' && p[0] === 'departments' && p[1] === 'legacy', what: 'Разложил сотрудников по подразделениям', route: '/users' },
+  { test: (m, p) => m === 'POST' && p[0] === 'departments' && p[2] === 'archive', what: 'Отправил подразделение в архив', route: '/users' },
+  { test: (m, p) => m === 'POST' && p[0] === 'departments' && p[2] === 'restore', what: 'Вернул подразделение из архива', route: '/users' },
+  { test: (m, p) => m === 'PUT' && p[0] === 'departments' && p[2] === 'move', what: 'Перенёс подразделение', route: '/users' },
 
 ];
 
@@ -106,5 +114,7 @@ const SKIP = [
 export function isNoise(path: string): boolean {
   const parts = headOf(path);
   if (!parts.length) return true;
+  // Предпросмотр перевода людей ничего не меняет — в журнал не пишется
+  if (parts[0] === 'departments' && parts[parts.length - 1] === 'preview') return true;
   return SKIP.includes(parts[0]) || SKIP.includes(`${parts[0]}/${parts[1]}`);
 }

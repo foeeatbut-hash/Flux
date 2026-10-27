@@ -9,7 +9,9 @@ const USER_PROFILE_TABLES: TableSpec[] = [{
     { name: 'position', kind: 'text' },
     { name: 'department', kind: 'text' },
     { name: 'email', kind: 'text' },
+    { name: 'departmentId', kind: 'text', indexed: true },
   ],
+  indexes: [{ name: 'User_departmentId_idx', cols: ['departmentId'] }],
 }];
 
 export async function ensureUserProfileSchema(prisma: any): Promise<void> {
