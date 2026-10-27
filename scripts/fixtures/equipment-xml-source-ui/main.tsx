@@ -22,6 +22,9 @@ const untaggedMode = new URLSearchParams(location.search).get('untagged') === '1
 const rebindMode = new URLSearchParams(location.search).get('rebind') === '1';
 const updatesMode = new URLSearchParams(location.search).get('updates') === '1';
 const projectSwitchMode = new URLSearchParams(location.search).get('switch') === '1';
+// ?orphan=1 — привязка XML, чью установку удалили до исправления: список отдаёт её отдельно
+const orphanMode = new URLSearchParams(location.search).get('orphan') === '1';
+let orphans: any[] = orphanMode ? [{ sourceId: 'source-gone', tagId: 'tag-gone', elementId: 'element-gone', tagIdentifier: '3700-B01-AS-001A', lastImportedRevision: 'B' }] : [];
 let source: any = raceMode || viewerMode || rebindMode ? { sourceId: 'source-old', projectId: 'project-fixture', tagId: 'tag-1', elementId: 'element-1', targetType: 'component', tagIdentifier: 'L23', boundIdentifier: 'L23', revisionOrder: ['A', 'B'], selectedRule: { kind: 'exact-tag' }, lastImportedRevision: 'A', lastImportedSha256: 'a'.repeat(64), updatedAt: '2026-10-01T00:00:00.000Z', latestCandidate: { id: 'candidate-b', revision: 'B', status: 'pending', updatedAt: '2026-10-02T00:00:00.000Z' } } : null;
 const updateSources: any[] = [
   { sourceId: 'source-old', projectId: 'project-fixture', tagId: 'tag-1', tagIdentifier: 'L23', elementId: 'element-1', targetType: 'component', revisionOrder: ['A', 'B'], selectedRule: { kind: 'exact-tag' }, lastImportedRevision: 'A', updatedAt: '2026-10-01T00:00:00.000Z', latestCandidate: { id: 'candidate-b', revision: 'B', status: 'pending', updatedAt: '2026-10-02T00:00:00.000Z', changes: [{ id: 'airflow' }], structuralCount: 1 } },
@@ -58,7 +61,7 @@ window.fetch = async (input, init) => {
     sourceReads += 1;
     if (raceMode && sourceReads === 1) await new Promise(resolve => setTimeout(resolve, 500));
     if (updatesMode && projectSwitchMode && sourceReads === 1) await new Promise(resolve => setTimeout(resolve, 500));
-    if (updatesMode) return new Response(JSON.stringify({ sources: updateSources }), { status: 200 });
+    if (updatesMode) return new Response(JSON.stringify({ sources: updateSources, orphans }), { status: 200 });
     return new Response(JSON.stringify({ sources: source ? [source] : [] }), { status: 200 });
   }
   if (updatesMode && url.endsWith('/equipment/projects/project-other/sources') && !init?.method) return new Response(JSON.stringify({ sources: otherProjectSources }), { status: 200 });
@@ -98,6 +101,7 @@ window.fetch = async (input, init) => {
   }
   if (url.includes('/import-undo/')) return new Response(JSON.stringify({ action: 'restore' }), { status: 200 });
   if (url.endsWith('/equipment/import-undo')) { delete fixtureCandidate.decisions['struct-engine']; delete fixtureCandidate.undoBatchId; return new Response(JSON.stringify({ restored: true }), { status: 200 }); }
+  if (url.endsWith('/sources/source-gone') && init?.method === 'DELETE') { orphans = []; return new Response(JSON.stringify({ ok: true }), { status: 200 }); }
   if (url.endsWith('/sources/source-1') && init?.method === 'DELETE') { source = null; return new Response(JSON.stringify({ ok: true }), { status: 200 }); }
   return originalFetch(input, init);
 };

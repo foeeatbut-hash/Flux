@@ -799,7 +799,8 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
                 </div>
 
                 {/* Позиции */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {/* У выгрузки САПР панель без отступов: закреплённые шапка таблицы и подвал плана прилипают к её краю */}
+                <div className={`flex-1 overflow-y-auto ${activeJob.cad ? '' : 'p-4 space-y-3'}`}>
                   {/* Выгрузка САПР: разобрана точно; план, теги и подтверждение — здесь же, без второго окна */}
                   {activeJob.cad && (
                     <EquipmentSourceImportDialog key={activeJob.id} embedded projectId={projectId} categories={categories} canManage={canManage}

@@ -66,6 +66,7 @@ export interface KindType {
   route: string;
   pattern: string;
   frame: string;
+  reason: string;
   code: string;
   ms: number;
   bytes: number;

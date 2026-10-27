@@ -242,7 +242,7 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       const targetElementIds = [...new Set([...latest.values()].flatMap(candidate => Object.keys(candidate.expectedVersions || {})))];
       const targetElements = targetElementIds.length ? await prisma.componentElement.findMany({ where: { id: { in: targetElementIds } }, include: { tags: true } }) : [];
       const targetTags = new Map(targetElements.map((element: any) => [element.id, (element.tags || []).map((tag: any) => tag.id)]));
-      res.json({ orphans: orphanRows.map((row: any) => ({ sourceId: row.id, tagIdentifier: row.tagIdentifier || '', lastImportedRevision: row.lastImportedRevision || null })), sources: rows.map((row: any) => {
+      res.json({ orphans: orphanRows.map((row: any) => ({ sourceId: row.id, tagId: row.tagId || '', elementId: row.elementId, tagIdentifier: row.tagIdentifier || '', lastImportedRevision: row.lastImportedRevision || null })), sources: rows.map((row: any) => {
         const candidate = latest.get(row.id) || null;
         const ids = new Set([row.elementId, ...Object.keys(candidate?.expectedVersions || {})]);
         return { ...sourceDto(row, byId.get(row.tagId)), targetTags: [...ids].map(elementId => ({ elementId, tagIds: targetTags.get(elementId) || (elementId === row.elementId && row.tagId ? [row.tagId] : []) })), latestCandidate: candidate };

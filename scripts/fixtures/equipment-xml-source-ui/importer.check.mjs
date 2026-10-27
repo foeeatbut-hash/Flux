@@ -68,6 +68,59 @@ try {
   if (await applyRacePage.getByTestId('import-done').innerText()) throw new Error('A delayed apply callback ran after switching projects');
   if (await applyRacePage.evaluate(() => localStorage.getItem('flux.equipmentSources.local.v1'))) throw new Error('A delayed apply saved a binding after switching projects');
   await applyRacePage.close();
+  // Панель плана на длинном плане: таблица в одну строку на позицию, без вложенной прокрутки,
+  // с закреплёнными шапкой и подвалом, групповыми действиями и фильтром-сводкой
+  for (const theme of ['light', 'dark']) {
+    const planPage = await browser.newPage({ viewport: { width: 1100, height: 700 }, colorScheme: theme });
+    planPage.on('pageerror', error => { throw error; });
+    await planPage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?initial=1&rows=31&theme=${theme}`);
+    await planPage.getByRole('heading', { name: /Предпросмотр/ }).waitFor();
+    const table = planPage.getByRole('table');
+    await table.waitFor();
+    const rowCount = await table.locator('tbody tr').count();
+    if (rowCount !== 32) throw new Error(`Plan table must have one row per position (32), got ${rowCount}`);
+    const geometry = await planPage.evaluate(() => {
+      const section = document.querySelector('[aria-label="План импорта"]');
+      const nested = Array.from(section.querySelectorAll('*')).filter(el => /auto|scroll/.test(getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight + 1).length;
+      const heights = Array.from(section.querySelectorAll('tbody tr')).map(row => Math.round(row.getBoundingClientRect().height));
+      const selects = section.querySelectorAll('select').length;
+      return { nested, maxRow: Math.max(...heights), selects, scroll: document.documentElement.scrollWidth, width: innerWidth };
+    });
+    if (geometry.nested) throw new Error(`Plan list must not scroll inside itself: ${JSON.stringify(geometry)}`);
+    if (geometry.maxRow > 40) throw new Error(`Plan rows must be a single line (<=40px): ${JSON.stringify(geometry)}`);
+    if (geometry.selects) throw new Error(`Plan must use Flux selects, not native: ${JSON.stringify(geometry)}`);
+    if (geometry.scroll > geometry.width + 1) throw new Error(`Horizontal overflow: ${JSON.stringify(geometry)}`);
+    await planPage.evaluate(() => window.scrollTo(0, 900));
+    await planPage.waitForTimeout(150);
+    const pinned = await planPage.evaluate(() => {
+      const head = document.querySelector('[aria-label="План импорта"] thead th').getBoundingClientRect();
+      const confirm = Array.from(document.querySelectorAll('button')).find(button => button.textContent.includes('Подтвердить импорт')).getBoundingClientRect();
+      return { headTop: Math.round(head.top), confirmBottom: Math.round(confirm.bottom), viewport: innerHeight };
+    });
+    if (pinned.headTop > 1 || pinned.confirmBottom > pinned.viewport) throw new Error(`Table header and confirm footer must stay pinned: ${JSON.stringify(pinned)}`);
+    await planPage.screenshot({ path: path.join(os.tmpdir(), `equipment-plan-table-${theme}.png`) });
+    await planPage.evaluate(() => window.scrollTo(0, 0));
+    // Сводка — фильтр: «Новых» оставляет новые позиции, а пункт «Требуют выбора» ведёт к спорной
+    await planPage.getByRole('button', { name: /^Требуют выбора/ }).click();
+    if (await table.locator('tbody tr').count() !== 1) throw new Error('Filter "Требуют выбора" must leave only the undecided row');
+    if (!(await planPage.getByRole('button', { name: 'Подтвердить импорт' }).isDisabled())) throw new Error('Confirm must stay disabled while a tag choice is open');
+    // Групповые действия: все новые — «Создать», все точные — «Связать»
+    await planPage.getByRole('button', { name: /^Все/ }).click();
+    await planPage.getByRole('button', { name: /^Связать все точные/ }).click();
+    await planPage.getByRole('button', { name: /^Создать все новые/ }).click();
+    const labels = await table.locator('tbody tr button[aria-haspopup="listbox"]').evaluateAll(buttons => buttons.map(button => button.textContent.trim()));
+    if (labels.filter(text => text === 'Связать').length !== 4 || labels.filter(text => text === 'Создать').length < 26) throw new Error(`Bulk actions did not apply: ${JSON.stringify(labels)}`);
+    // Спорная строка решается из списка действий, после чего импорт можно подтвердить
+    await table.getByRole('button', { name: /Действие с тегом L23-DM-010A/ }).click();
+    await planPage.getByRole('option', { name: /^Связать с L23-DM-010A-1/ }).click();
+    await planPage.getByRole('button', { name: 'Подтвердить импорт' }).click();
+    await planPage.getByText(/^Импортирован:/).waitFor();
+    const applied = (await planPage.evaluate(() => window.__importLog)).find(entry => entry.url.endsWith('/apply'));
+    const decided = applied?.body?.tagLinks?.find(link => link.identifier === 'L23-DM-010A');
+    if (decided?.action !== 'link' || decided.existingTagId !== 'tag-x1') throw new Error(`Apply must carry the chosen tag link: ${JSON.stringify(decided)}`);
+    if (applied.body.tagLinks.filter(link => link.action === 'link').length !== 5) throw new Error('Apply must carry 4 exact links plus the decided one');
+    await planPage.close();
+  }
   const documentPage = await browser.newPage({ viewport: { width: 900, height: 850 }, colorScheme: 'dark' });
   await documentPage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?document=1`);
   await documentPage.getByText('L23.xlsx', { exact: true }).waitFor();

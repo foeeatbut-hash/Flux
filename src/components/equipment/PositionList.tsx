@@ -55,7 +55,7 @@ export default function PositionList({ systems, types, onOpen, onClose, sourceSt
   );
   const groups = React.useMemo(() => groupRows(shown, pref.by), [shown, pref.by]);
   const tagged = rows.filter((r) => r.tag).length;
-  const sourceLabel = (status?: string) => ({ pending: 'Есть XML-обновление', partial: 'XML рассмотрен частично', ambiguous: 'Нужно выбрать XML', invalid: 'XML повреждён', unstable: 'XML меняется', 'source-unavailable': 'Папка XML недоступна', 'no-match': 'Подходящий XML не найден' } as Record<string, string>)[status || ''];
+  const sourceLabel = (status?: string) => ({ pending: 'Есть XML-обновление', partial: 'XML рассмотрен частично', ambiguous: 'Нужно выбрать XML', invalid: 'XML повреждён', unstable: 'XML меняется', 'source-unavailable': 'Папка XML недоступна', 'check-failed': 'Проверка XML не удалась', 'no-match': 'Подходящий XML не найден' } as Record<string, string>)[status || ''];
 
   const toggleClass = (cls: string) =>
     setClasses((cur) => (cur.includes(cls) ? cur.filter((c) => c !== cls) : [...cur, cls]));

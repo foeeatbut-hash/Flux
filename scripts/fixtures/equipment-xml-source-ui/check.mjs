@@ -205,6 +205,25 @@ const runUpdatesDialog = async () => {
   await narrow.close();
 };
 
+// Привязка удалённой установки: не «Источник недоступен», а «Установка удалена» с действием
+const runUpdatesOrphan = async () => {
+  const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: 'light' });
+  page.on('pageerror', error => failures.push(`updates-orphan: ${error.message}`));
+  await page.addInitScript(() => { localStorage.setItem('flux.equipmentXmlAutoCheck', '0'); });
+  await page.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/?updates=1&orphan=1`);
+  const dialog = page.getByRole('dialog', { name: /Обновления источников/ });
+  await dialog.waitFor();
+  const section = dialog.getByRole('region', { name: 'Привязки удалённых установок' });
+  await section.getByText('3700-B01-AS-001A').waitFor();
+  if (await dialog.getByText('Источник недоступен').count()) throw new Error('Orphan binding must not be shown as an unavailable source');
+  if (await dialog.locator('table tbody tr').filter({ hasText: '3700-B01-AS-001A' }).count()) throw new Error('Orphan binding must not be a row of the checkable sources table');
+  await section.getByRole('button', { name: 'Убрать привязку' }).click();
+  await dialog.getByText('Привязка 3700-B01-AS-001A убрана.').waitFor();
+  if (await dialog.getByRole('region', { name: 'Привязки удалённых установок' }).count()) throw new Error('Orphan section must disappear after removing the binding');
+  await page.screenshot({ path: '/tmp/flux-equipment-xml-updates-orphan-light.png', fullPage: true });
+  await page.close();
+};
+
 const runUpdatesProjectSwitch = async () => {
   const page = await browser.newPage({ viewport: { width: 900, height: 850 }, colorScheme: 'dark' });
   page.on('pageerror', error => failures.push(`updates-project-switch: ${error.message}`));
@@ -273,6 +292,7 @@ try {
   for (const theme of ['light', 'dark']) await runSingleFolderRebind(theme);
   await runFolderRebindCasConflict();
   await runUpdatesDialog();
+  await runUpdatesOrphan();
   await runUpdatesProjectSwitch();
   for (const width of [360, 1100]) for (const theme of ['light', 'dark']) await runUntaggedBindingAndRemap(width, theme);
   if (failures.length) throw new Error(failures.join('\n'));

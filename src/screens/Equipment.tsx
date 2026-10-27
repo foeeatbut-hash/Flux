@@ -38,7 +38,7 @@ import { normalizeSpecs, type SpecParam, type ParamConflict } from '../lib/specs
 import BlockCard from '../components/equipment/BlockCard';
 import EquipmentXmlSourcePanel from '../components/equipment/EquipmentXmlSourcePanel';
 import EquipmentXmlUpdatesDialog from '../components/equipment/EquipmentXmlUpdatesDialog';
-import { scanEquipmentSource, type EquipmentSourceCandidate } from '../lib/equipmentSourcesLocal';
+import { removeEquipmentSourceBinding, scanEquipmentSource, type EquipmentSourceCandidate } from '../lib/equipmentSourcesLocal';
 import { findLatestBoundDocument, loadEquipmentDocumentBindings, resolveEquipmentSourceBinding } from '../lib/equipmentDocumentBindings';
 import type { EquipmentDocumentBinding } from '../../equipment/documentBindings';
 import PositionTree, { blockLabel, type TreeMode } from '../components/equipment/PositionTree';
@@ -79,7 +79,7 @@ export default function Equipment() {
   const [systems, setSystems] = useState<SystemUnit[]>([]);
   const [loading, setLoading] = useState(false);
   const [tags, setTags] = useState<PickerTag[]>([]);
-  const [xmlSourceStatuses, setXmlSourceStatuses] = useState<Record<string, { status: string; revision?: string }>>({});
+  const [xmlSourceStatuses, setXmlSourceStatuses] = useState<Record<string, { status: string; revision?: string; message?: string }>>({});
   const [documentSourceStatuses, setDocumentSourceStatuses] = useState<Record<string, { status: string; revision?: string; fileRef?: import('../lib/windowsFiles').WindowsFileRef; sourceFolder?: import('../lib/windowsFiles').WindowsFileRef; sha256?: string }>>({});
   const [documentBindingsForUpdates, setDocumentBindingsForUpdates] = useState<EquipmentDocumentBinding[]>([]);
   const [showXmlUpdatesOnly, setShowXmlUpdatesOnly] = useState(false);
@@ -126,12 +126,12 @@ export default function Equipment() {
       const bindings = bindingsView?.bindings || [];
       const cadBindings = new Map<string, EquipmentDocumentBinding>();
       for (const binding of bindings) if (binding.kind === 'cad-xml') cadBindings.set(binding.xmlSourceId || binding.id, binding);
-      const next: Record<string, { status: string; revision?: string }> = {};
-      const setSourceStatus = (source: any, status: string, revision?: string) => {
+      const next: Record<string, { status: string; revision?: string; message?: string }> = {};
+      const setSourceStatus = (source: any, status: string, revision?: string, message?: string) => {
         const targets: any[] = Array.isArray(source.targetTags) ? source.targetTags : [{ elementId: source.elementId, tagIds: [source.tagId] }];
         for (const target of targets) {
           const tagIds = target.tagIds?.length ? target.tagIds : source.tagId ? [source.tagId] : [''];
-          for (const tagId of tagIds) next[sourceStatusKey(String(tagId), String(target.elementId))] = { status, revision };
+          for (const tagId of tagIds) next[sourceStatusKey(String(tagId), String(target.elementId))] = { status, revision, ...(message ? { message } : {}) };
         }
       };
       if (!canManageEquipment) {
@@ -175,6 +175,8 @@ export default function Equipment() {
             });
             const payload = await checked.json().catch(() => ({}));
             if (generation !== sourceScanGeneration.current) return;
+            // Отказ сервера (409, 410…) — не «источник недоступен»: называем причину из ответа
+            if (!checked.ok) { setSourceStatus(source, hasSharedReview ? sharedStatus : 'check-failed', source.latestCandidate?.revision || picked.revision, String(payload.error || `Сервер ответил ${checked.status}`)); continue; }
             setSourceStatus(source, payload.candidate ? payload.candidate.status : (payload.unchanged ? 'noChanges' : 'source-unavailable'), payload.candidate?.revision || picked.revision);
           } catch (_) { setSourceStatus(source, hasSharedReview ? sharedStatus : 'source-unavailable', source.latestCandidate?.revision); }
         }
@@ -654,8 +656,13 @@ export default function Equipment() {
     // а освободившиеся теги в окне привязки оставались «занятыми» до перезахода
     try {
       const res = await fetch(api(`/systems/${unit.id}`), { method: 'DELETE' });
-      if (!res.ok) throw new Error('отказ сервера');
-    } catch (_) { addToast('Не удалось удалить установку', 'error'); return; }
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(payload?.error || 'отказ сервера');
+      // Локальные папки ревизий снятых привязок принадлежали удалённой установке
+      if (activeProject?.id) for (const gone of payload?.detachedSources || []) {
+        try { removeEquipmentSourceBinding(activeProject.id, gone.sourceId, gone.tagId || '', gone.elementId); } catch (_) { /* хранилище недоступно: на сервере привязка уже снята */ }
+      }
+    } catch (reason) { addToast(reason instanceof Error && reason.message && reason.message !== 'отказ сервера' ? `Не удалось удалить установку: ${reason.message}` : 'Не удалось удалить установку', 'error'); return; }
     addToast('Удалено', 'success'); setSelectedBlockId(null); loadSystems(); loadTags();
   };
 

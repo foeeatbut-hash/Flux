@@ -14,6 +14,12 @@ interface CustomSelectProps {
   options: CustomSelectOption[];
   placeholder?: string;
   className?: string;
+  /** Подпись для чтения с экрана и подсказка: в таблице рядом с селектором подписи нет */
+  ariaLabel?: string;
+  disabled?: boolean;
+  /** Список шире самого селектора (в тесной ячейке таблицы) и прижат к правому краю */
+  menuClassName?: string;
+  menuAlign?: "left" | "right";
 }
 
 export default function CustomSelect({
@@ -22,6 +28,10 @@ export default function CustomSelect({
   options,
   placeholder = "-- выбрать --",
   className = "",
+  ariaLabel,
+  disabled = false,
+  menuClassName = "",
+  menuAlign = "left",
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
@@ -55,7 +65,7 @@ export default function CustomSelect({
     }
   }, [isOpen, value, options]);
 
-  const handleToggle = () => setIsOpen(!isOpen);
+  const handleToggle = () => { if (!disabled) setIsOpen(!isOpen); };
 
   const handleSelectOption = (optVal: string) => {
     onChange(optVal);
@@ -119,8 +129,11 @@ export default function CustomSelect({
         type="button"
         aria-haspopup="listbox"
         aria-expanded={isOpen}
+        aria-label={ariaLabel}
+        title={ariaLabel ? `${ariaLabel}: ${selectedOption ? selectedOption.label : placeholder}` : undefined}
+        disabled={disabled}
         onClick={handleToggle}
-        className="fx-input flex items-center justify-between gap-2 text-left cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 transition-ui"
+        className="fx-input flex items-center justify-between gap-2 text-left cursor-pointer hover:bg-slate-50 disabled:cursor-default disabled:opacity-60 dark:hover:bg-slate-900 transition-ui"
       >
         <span className="truncate">
           {selectedOption ? selectedOption.label : placeholder}
@@ -140,7 +153,7 @@ export default function CustomSelect({
             exit={{ opacity: 0, transition: { duration: 0.08 } }}
             transition={{ ...TRANSITION.enter, duration: 0.12 }}
             style={{ animation: 'none', transformOrigin: 'top left' }}
-            className="fx-pop absolute left-0 z-[999] mt-1 w-full max-h-60 overflow-y-auto scrollbar-thin"
+            className={`fx-pop absolute ${menuAlign === "right" ? "right-0" : "left-0"} z-[999] mt-1 w-full max-h-60 overflow-y-auto scrollbar-thin ${menuClassName}`}
             role="listbox"
           >
             {options.map((opt, idx) => {

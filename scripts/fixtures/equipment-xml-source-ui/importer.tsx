@@ -5,6 +5,7 @@ import EquipmentImportPreview from '../../../src/components/EquipmentImportPrevi
 import { equipmentDocumentImportSource } from '../../../src/lib/equipmentDocumentBindings';
 import { useStore } from '../../../src/store/store';
 import { fluxPickerMock } from './pickerMock';
+import { buildBigPlan } from './bigPlan';
 import './fixture.css';
 
 const rootId = 'source-import-fixture';
@@ -28,6 +29,9 @@ window.fetch = async (input, init) => {
   (window as any).__importLog.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : null });
   if (url.endsWith('/equipment/source-import/preview')) {
     if (new URLSearchParams(location.search).get('race') === '1') await new Promise(resolve => setTimeout(resolve, 500));
+    // ?rows=N — длинный план для снимков и проверки прокрутки
+    const bigRows = Number(new URLSearchParams(location.search).get('rows') || 0);
+    if (bigRows) return new Response(JSON.stringify({ success: true, fileName: 'L23.xml', sha256: 'a'.repeat(64), revision: 'A', previewToken: 'fixture-preview-token', unitTag: { identifier: 'L23', action: 'create' }, plan: buildBigPlan('L23', bigRows) }), { status: 200 });
     return new Response(JSON.stringify({ success: true, fileName: 'L23.xml', sha256: 'a'.repeat(64), revision: 'A', previewToken: 'fixture-preview-token', unitTag: { identifier: 'L23', action: 'create' }, plan: {
     systems: [{ name: 'L23', title: 'L23', action: 'create' }],
     blocks: [{ key: 'L23‖B1', systemName: 'L23', title: 'Вентилятор', equipType: 'ВЕНТИЛЯТОР', action: 'create', params: [{ group: 'Воздух', key: 'Расход воздуха', value: '8060', unit: 'м³/ч', status: 'new' }], changedCount: 1, overrideImpact: 1 }],
