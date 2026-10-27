@@ -66,15 +66,15 @@ async function main() {
       await assert.rejects(ensureUserProfileSchema(users.prisma), /Основная таблица User отсутствует/);
       users.sqlite.exec('CREATE TABLE User(id TEXT PRIMARY KEY); INSERT INTO User VALUES (\'employee\')');
       await Promise.all(Array.from({ length: 8 }, () => ensureUserProfileSchema(users.prisma)));
-      assert.equal(users.executed.length, 3, 'поля профиля добавлены один раз');
-      assert.deepEqual(users.sqlite.prepare('SELECT * FROM User').get(), { id: 'employee', position: null, department: null, email: null });
+      assert.equal(users.executed.length, 5, 'поля профиля (три текстовых, подразделение) и индекс добавлены один раз');
+      assert.deepEqual(users.sqlite.prepare('SELECT * FROM User').get(), { id: 'employee', position: null, department: null, email: null, departmentId: null });
       const userReads = users.reads();
       await ensureUserProfileSchema(users.prisma);
       assert.equal(users.reads(), userReads);
       setPrisma(users.prisma);
       await ensureUserProfileSchema(users.prisma);
       assert.ok(users.reads() > userReads);
-      assert.equal(users.executed.length, 3, 'смена поколения перечитывает профиль без повторного ALTER');
+      assert.equal(users.executed.length, 5, 'смена поколения перечитывает профиль без повторного ALTER');
     } finally { users.sqlite.close(); }
   } finally { a.sqlite.close(); b.sqlite.close(); setPrisma(null); setDialect('sqlite'); }
 
