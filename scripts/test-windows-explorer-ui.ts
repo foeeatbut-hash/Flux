@@ -56,10 +56,18 @@ async function loadUntil(page: Page, count: number) {
     page.on('console', (message) => { if (message.type() === 'error') errors.push(`${message.text()} (${message.location().url})`); });
     await page.goto(`${BASE}/scripts/fixtures/windows-explorer-ui.html`);
     await page.locator('[data-windows-explorer]').waitFor();
-    ok('Архив старых файлов находится в панели Проводника без отдельного раздела на главной', await page.getByRole('treeitem', { name: 'Архив Flux' }).count() === 1 && await page.getByRole('button', { name: 'Документы проекта', exact: true }).count() === 0);
-    await page.getByRole('treeitem', { name: 'Архив Flux' }).click();
-    await page.getByTestId('route').filter({ hasText: 'projectFiles=1' }).waitFor();
-    ok('Переход в архив оставляет старый просмотр FileNode доступным без преобразования', (await page.getByTestId('route').textContent())?.includes('projectFiles=1') === true);
+    ok('«Архива Flux» в панели Проводника нет, как и «Документов проекта» на главной', await page.getByRole('treeitem', { name: 'Архив Flux' }).count() === 0 && await page.getByRole('button', { name: 'Документы проекта', exact: true }).count() === 0);
+    // Старая ссылка на файл архива не падает: тост объясняет, что файл больше не открывается, а параметры убираются из адреса
+    await page.evaluate(() => (window as any).__go('/explorer?file=old-file&folder=old-folder'));
+    await page.locator('[data-windows-explorer]').waitFor();
+    await page.getByText('Файл из прежнего архива Flux больше не открывается в Проводнике').waitFor();
+    ok('Ссылка на файл прежнего архива показывает сообщение и остаётся в новом Проводнике', await page.locator('[data-windows-explorer]').count() === 1 && !(await page.getByTestId('route').textContent())?.includes('file='));
+    await page.evaluate(() => (window as any).__go('/explorer?folder=old-folder'));
+    await page.getByText('Папка из прежнего архива Flux больше не открывается в Проводнике').waitFor();
+    ok('Ссылка на папку прежнего архива говорит про папку', await page.locator('[data-windows-explorer]').count() === 1);
+    await page.evaluate(() => (window as any).__go('/explorer?recycle=1'));
+    await page.getByRole('heading', { name: 'Корзина', exact: true }).waitFor();
+    ok('Ссылка ?recycle=1 открывает Корзину Windows', await page.locator('[data-windows-explorer]').count() === 1);
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path='));
     await page.locator('[data-windows-explorer]').waitFor();
     await page.getByRole('row', { name: /Проекты/ }).waitFor();

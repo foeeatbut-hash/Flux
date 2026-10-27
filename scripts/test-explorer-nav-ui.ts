@@ -194,7 +194,7 @@ const MENU = '[data-context-menu]';
     // ── Панель навигации ─────────────────────────────────────────────────────
     await fresh();
     const titles = () => page.locator('[role="treeitem"]').evaluateAll((rows) => rows.map((row) => row.getAttribute('title')));
-    ok('Порядок: Главная, закреплённое, облако, Этот компьютер с дисками, Сеть, архив Flux — без «Галереи»', JSON.stringify(await titles()) === JSON.stringify(['Главная', 'Рабочий стол', 'Загрузки', 'Документы', '2026', '1_PDF', 'Новая папка', 'Яндекс Диск', 'Этот компьютер', 'Локальный диск (C:)', 'Новый том (D:)', 'Новый том (E:)', 'Проект ВДР', 'Сеть', 'Открыть сохранённый архив Flux']), await titles());
+    ok('Порядок: Главная, закреплённое, облако, Этот компьютер с дисками, Сеть — без «Галереи» и без «Архива Flux»', JSON.stringify(await titles()) === JSON.stringify(['Главная', 'Рабочий стол', 'Загрузки', 'Документы', '2026', '1_PDF', 'Новая папка', 'Яндекс Диск', 'Этот компьютер', 'Локальный диск (C:)', 'Новый том (D:)', 'Новый том (E:)', 'Проект ВДР', 'Сеть']), await titles());
     ok('Булавка справа у закреплённых: четыре; у частых папок её нет', await page.locator('[role="treeitem"] svg[aria-label="Закреплено"]').count() === 4 && await nav('1_PDF').locator('svg[aria-label="Закреплено"]').count() === 0);
     ok('Подсвечена открытая «Главная», и только она', JSON.stringify(await page.locator('[role="treeitem"][aria-current="page"]').evaluateAll((rows) => rows.map((r) => r.getAttribute('title')))) === JSON.stringify(['Главная']));
     ok('Диски читаются лениво: до раскрытия мост о подпапках дисков не спрашивали', (await callsOf('children')).length === 0);
@@ -250,7 +250,7 @@ const MENU = '[data-context-menu]';
     await page.keyboard.press('ArrowDown');
     ok('Стрелка вниз — к следующей строке', await page.evaluate(() => (document.activeElement as HTMLElement).title) === 'Рабочий стол');
     await page.keyboard.press('End');
-    ok('End — к последней строке (архив Flux), Home — к первой', await page.evaluate(() => (document.activeElement as HTMLElement).title) === 'Открыть сохранённый архив Flux');
+    ok('End — к последней строке («Сеть»), Home — к первой', await page.evaluate(() => (document.activeElement as HTMLElement).title) === 'Сеть');
     await page.keyboard.press('Home');
     { const focused = await page.evaluate(() => (document.activeElement as HTMLElement).title); ok('Home — к первой', focused === 'Главная', focused); }
     await nav('Этот компьютер').focus();

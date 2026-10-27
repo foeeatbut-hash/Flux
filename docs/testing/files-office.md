@@ -89,13 +89,7 @@ Additional scoped regressions added during remaining-action review:
   browser checks on the disposable fixture. An initial attempt hit the
   pre-restart server and read the old `![](x)` output; the result recorded here
   is the successful run after both fixture servers loaded the source change.
-- `scripts/test-explorer-open-live.ts` passed all four checks on the isolated
-  loopback fixture: double-click opens one Office window, no empty-editor
-  window appears, the Office file URL is selected, and an Explorer deep link
-  selects the document for preview. A diagnostic rerun captured both views;
-  its only browser error was the fixture server's Vite HMR WebSocket handshake,
-  with no application or React exception. This does not establish native
-  Windows window behavior.
+- `scripts/test-explorer-open-live.ts` удалён вместе со старым Проводником (архив Flux): он проверял двойной щелчок и ссылку `/explorer?file=` в его списке. Ссылки на файлы прежнего архива теперь покрывает `scripts/test-windows-explorer-ui.ts` (сообщение и очистка адреса).
 - `scripts/test-remaining-files-notes-ui.ts` mounts the real
   `NotesManagement` screen against mocked API responses. It checks pinning
   a grouped note above the list, visibility while its source group is

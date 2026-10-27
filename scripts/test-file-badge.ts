@@ -54,9 +54,9 @@ console.log('Один значок во всех местах');
   // Каждое место, где показывают файл, берёт один компонент — иначе значки
   // снова разойдутся, как разошлись пять прежних
   const places = [
-    'src/components/desktop/DeskIcon.tsx', 'src/components/explorer/FileItems.tsx',
+    'src/components/desktop/DeskIcon.tsx',
     'src/components/StartMenu.tsx', 'src/screens/OfficeHome.tsx',
-    'src/components/insight/parts.tsx', 'src/components/explorer/ExplorerMenu.tsx',
+    'src/components/insight/parts.tsx',
   ];
   for (const p of places) check(`${p} берёт FileBadge`, /import FileBadge from/.test(readFileSync(p, 'utf8')));
   const sections = readFileSync('src/workspace/sections.tsx', 'utf8');
