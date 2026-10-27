@@ -64,7 +64,9 @@ async function run() {
 
     // Список: колонка, фильтр-дерево, поиск по подразделению
     check('Колонка «Подразделение» в списке', await page.getByRole('columnheader', { name: 'Подразделение' }).count() === 1);
-    check('В строке — путь «Город / Отдел»', await page.locator('.fx-table tbody tr', { hasText: 'Раупов Хусрав' }).getByText('Новосибирск / ОВиК').count() === 1);
+    // В ячейке — конечный отдел и город мелко; полный путь — в подсказке ячейки
+    const deptCell = page.locator('.fx-table tbody tr', { hasText: 'Раупов Хусрав' }).locator('td[title="Новосибирск / ОВиК"]');
+    check('В строке — отдел и город, путь в подсказке', await deptCell.count() === 1 && (await deptCell.innerText()).startsWith('ОВиК') && await deptCell.locator('span').innerText() === 'Новосибирск');
     check('Фильтр-дерево показывает число людей', await page.locator('[role=tree] [role=treeitem]', { hasText: 'Новосибирск' }).first().locator('.fx-n').innerText() === '3');
     await page.locator('[role=treeitem]', { hasText: 'Автоматика' }).click();
     check('Выбор подразделения оставляет его людей', await page.locator('.fx-table tbody tr').count() === 1);
