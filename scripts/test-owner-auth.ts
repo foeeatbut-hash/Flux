@@ -9,6 +9,7 @@ import { registerUserRoutes } from '../server/routes/users';
 import { registerAuthRoutes } from '../server/routes/auth';
 import { registerOwnerRoutes } from '../server/routes/owner';
 import { setPrisma } from '../server/context';
+import { departmentTableSpecs } from '../server/departmentsSchema';
 
 let ok = 0, fail = 0;
 const eq = (name: string, got: unknown, want: unknown) => {
@@ -43,6 +44,11 @@ eq('просроченное право не работает', administratorPer
 for (const [route, method] of [['/api/db/config', 'GET'], ['/api/db/download', 'GET'], ['/api/backup/settings', 'POST'], ['/api/updates/upload', 'POST'], ['/api/updates/1.2.3', 'DELETE'], ['/API/ROLES/abc/', 'PUT']]) eq(`${method} ${route} требует владельца`, requiresOwner(route, method), true);
 eq('сотрудник может скачивать выпуски', requiresOwner('/api/updates/download/1.2.3'), false);
 
+const fakeTables: Record<string, { cols: string[]; indexes: { name: string; cols: string[]; unique?: boolean }[] }> = {
+  User: { cols: ['id', 'position', 'department', 'email', 'departmentId'], indexes: [{ name: 'User_departmentId_idx', cols: ['departmentId'] }] },
+  ...Object.fromEntries(departmentTableSpecs().map(spec => [spec.table, { cols: spec.cols.map(col => col.name), indexes: (spec.indexes || []).map(idx => ({ name: idx.name, cols: idx.cols, unique: idx.unique })) }])),
+};
+
 async function runHttp() {
   const users = new Map<string, any>([
     ['owner', { id: 'owner', symbol: 'owner', name: 'Владелец', role: 'OWNER', password: '', isActive: true }],
@@ -53,7 +59,16 @@ async function runHttp() {
   const settings = new Map<string, any>();
   setPrisma({
     // Isolated schema metadata used by the profile-column preflight.
-    $queryRawUnsafe: async (sql: string) => sql.startsWith('PRAGMA table_info') ? ['id', 'position', 'department', 'email'].map(name => ({ name })) : [],
+    // Метаданные схемы как у базы после миграций: колонки профиля и подразделения
+    // в User и таблицы подразделений — из тех же описаний, что проверяет сервер
+    $queryRawUnsafe: async (sql: string) => {
+      const name = (sql.match(/PRAGMA \w+\("?([^")]+)"?\)/) || [])[1] || '';
+      const table = fakeTables[name];
+      if (sql.startsWith('PRAGMA table_info')) return table ? table.cols.map(col => ({ name: col })) : [];
+      if (sql.startsWith('PRAGMA index_list')) return table ? table.indexes.map(idx => ({ name: idx.name, unique: idx.unique ? 1 : 0, partial: 0 })) : [];
+      if (sql.startsWith('PRAGMA index_info')) return (Object.values(fakeTables).flatMap(t => t.indexes).find(idx => idx.name === name)?.cols || []).map(col => ({ name: col }));
+      return [];
+    },
     $executeRawUnsafe: async () => 0,
     user: {
       findUnique: async ({ where }: any) => [...users.values()].find(u => where.id ? u.id === where.id : u.symbol === where.symbol) || null,
