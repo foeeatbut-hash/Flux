@@ -416,7 +416,7 @@ export default function Dashboard() {
             под ним, и читать найденное было невозможно. */}
         {query.trim() && (
           <div role="listbox" aria-label="Результаты поиска"
-            className="absolute z-30 left-0 right-0 mt-1.5 rounded-lg flux-surface bg-white dark:bg-dark-panel shadow-xl overflow-hidden">
+            className="fx-pop absolute z-30 left-0 right-0 mt-1.5 overflow-hidden">
             {hits.length === 0 ? (
               <p className="px-3.5 py-3 text-xs text-slate-500 dark:text-dark-text-muted">
                 Ничего не нашлось. Попробуйте код тега, название заметки или раздела.

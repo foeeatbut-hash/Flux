@@ -260,8 +260,8 @@
   --flux-focus: var(--color-emerald-600);
   /* Роли для общих элементов fx-* (docs/methodology/01-design.md, раздел 3) */
   --flux-line-strong: var(--color-slate-300);  /* рамка поля и обычной кнопки */
-  --flux-hover: var(--color-slate-50);         /* наведение на строку */
-  --flux-sel: var(--color-slate-100);          /* выбранная строка и пункт */
+  --flux-hover: var(--color-slate-100);        /* наведение на строку */
+  --flux-sel: var(--color-slate-200);          /* выбранная строка и пункт */
   --flux-text-faint: oklch(66% 0.010 163);     /* прочерк, выключенное */
   --flux-accent-text: var(--color-emerald-700);/* ссылка, значок выбранного */
   --flux-ok: oklch(62% 0.13 163);
@@ -359,8 +359,8 @@
   --flux-accent-on: var(--color-dark-bg);
   --flux-focus: oklch(76% 0.130 163);
   --flux-line-strong: oklch(34% 0.012 163);
-  --flux-hover: oklch(22% 0.010 163);
-  --flux-sel: oklch(25.5% 0.012 163);
+  --flux-hover: var(--color-dark-panel);
+  --flux-sel: oklch(30% 0.014 163);
   --flux-text-faint: oklch(56% 0.012 163);
   --flux-accent-text: oklch(78% 0.120 163);
   --flux-ok: oklch(72% 0.13 163);
@@ -1562,6 +1562,14 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-menu-item:disabled { opacity: .45; cursor: not-allowed; }
   .fx-menu-sep { height: 1px; margin: 4px 0; background: var(--flux-line); }
 
+  /* ── Единые состояния строки и пункта вне fx-li / fx-table / fx-menu-item ──
+     Наведение — --flux-hover, выбран — --flux-sel и вес 500; цвета акцента
+     нет (01-design.md, раздел 3). Класс вешается на строку, карточку-пункт,
+     кнопку списка; рамки и радиус задаёт сама разметка. */
+  .fx-hov { transition: background-color var(--flux-dur-fast) var(--flux-ease); }
+  .fx-hov:hover { background: var(--flux-hover); }
+  .fx-sel { background: var(--flux-sel); color: var(--flux-text); font-weight: 500; }
+
   /* ── Диалог ── */
   /* Диалог — дочернее окно и всегда «активное»: ободок и тень те же, что у
      активного окна, иначе он сливается с родителем, лежащим под ним */
@@ -1656,8 +1664,8 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-btn:active, .fx-ibtn:active { transform: none; }
 }
 @keyframes fx-dialog-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
-@keyframes fx-dialog-flash-a { 0%, 100% { box-shadow: var(--flux-shadow-modal); } 30%, 70% { box-shadow: var(--flux-shadow-modal), 0 0 0 3px oklch(62% 0.13 163 / .45); } }
-@keyframes fx-dialog-flash-b { 0%, 100% { box-shadow: var(--flux-shadow-modal); } 30%, 70% { box-shadow: var(--flux-shadow-modal), 0 0 0 3px oklch(62% 0.13 163 / .45); } }
+@keyframes fx-dialog-flash-a { 0%, 100% { box-shadow: var(--flux-shadow-win); } 30%, 70% { box-shadow: var(--flux-shadow-win), 0 0 0 3px oklch(62% 0.13 163 / .45); } }
+@keyframes fx-dialog-flash-b { 0%, 100% { box-shadow: var(--flux-shadow-win); } 30%, 70% { box-shadow: var(--flux-shadow-win), 0 0 0 3px oklch(62% 0.13 163 / .45); } }
 
 /* ═══════════════════════════════════════════════════════════
    Каталог (docs/methodology/03-programs/catalog.md)

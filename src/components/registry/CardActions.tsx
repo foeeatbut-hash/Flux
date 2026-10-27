@@ -50,8 +50,7 @@ export default function CardActions(p: CardActionsProps) {
     <>
       {m && createPortal(
         <div
-          className="fixed z-[120] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800
-                     shadow-2xl rounded-xl py-1.5 min-w-[240px] text-xs"
+          className="fx-pop fixed z-[120] py-1.5 min-w-[240px] text-xs"
           /* Меню не должно уезжать за край окна: у нижних карточек оно
              открывалось наполовину за экраном и половина пунктов пропадала */
           style={{ top: Math.min(m.y, window.innerHeight - 230), left: Math.min(m.x, window.innerWidth - 260) }}
@@ -101,8 +100,7 @@ export default function CardActions(p: CardActionsProps) {
       {q && createPortal(
         <div
           data-card-panel
-          className="fixed z-[120] flex items-center gap-0.5 p-1 bg-white dark:bg-slate-950
-                     border border-slate-200 dark:border-slate-800 shadow-2xl rounded-xl"
+          className="fx-pop fixed z-[120] flex items-center gap-0.5 p-1"
           style={{ top: Math.min(q.y, window.innerHeight - 52), left: Math.min(q.x, window.innerWidth - 300) }}
           onClick={(e) => e.stopPropagation()}
         >

@@ -23,8 +23,9 @@ console.log('Кого чем открываем');
 {
   const pdf = { id: 'f1', name: 'АР-01.pdf', type: 'PDF', folderId: 'd1' };
   check('чертёж открывает Чертёж', appsFor(pdf)[0].id === 'pdf', appsFor(pdf).map((a) => a.id));
-  check('и предлагает Проводник вторым', appsFor(pdf)[1]?.id === 'explorer');
-  check('у чертежа есть выбор', hasChoice(pdf));
+  check('Проводника среди программ для файла архива Flux больше нет',
+    !appsFor(pdf).some((a) => a.id === 'explorer') && !('explorer' in FILE_APPS), appsFor(pdf).map((a) => a.id));
+  check('у чертежа PDF выбора нет: одна своя программа', !hasChoice(pdf));
 
   const oldPdf = { id: 'f2', name: 'Схема.PDF' };
   check('чертёж без типа узнаётся по имени', isPdf(oldPdf) && appsFor(oldPdf)[0].id === 'pdf');
@@ -36,7 +37,8 @@ console.log('Кого чем открываем');
   check('копия .xlsx из .xls открывается как обычная книга', appsFor(linked)[0].id === 'excel', appsFor(linked).map((a) => a.id));
 
   const any = { id: 'f6', name: 'Фото.jpg', folderId: 'd2' };
-  check('картинку показывает Проводник', appsFor(any)[0].id === 'explorer');
+  check('картинку отдаём Windows: предпросмотра в Проводнике нет', appsFor(any).length === 1 && appsFor(any)[0].id === 'windows',
+    appsFor(any).map((a) => a.id));
 
   // Тупик, из-за которого «не все файлы открываются»: своей программы нет, и
   // раньше человек упирался в значок с подписью «Файл». Теперь есть выход
@@ -86,13 +88,10 @@ console.log('Адреса');
     openHref({ id: 'f9', name: 'Выгрузка.csv' }));
   check('старый .doc не открывается редактором (совет пересохранить)',
     !openHref({ id: 'f9', name: 'Старый.doc' }).startsWith('/doc'), openHref({ id: 'f9', name: 'Старый.doc' }));
-  check('в Проводнике открывается вместе с папкой',
-    openHref({ id: 'f6', folderId: 'd2' }) === '/explorer?file=f6&folder=d2');
-  check('без папки — просто файлом',
-    openHref({ id: 'f7' }) === '/explorer?file=f7', openHref({ id: 'f7' }));
-  check('опасные знаки в имени папки не ломают адрес',
-    openHref({ id: 'a b', folderId: 'п/п' }) === '/explorer?file=a%20b&folder=%D0%BF%2F%D0%BF',
-    openHref({ id: 'a b', folderId: 'п/п' }));
+  check('файл без своей программы открывается через Windows, а не предпросмотром Проводника',
+    openHref({ id: 'f6', folderId: 'd2' }) === '/explorer?open=f6', openHref({ id: 'f6', folderId: 'd2' }));
+  check('опасные знаки в идентификаторе не ломают адрес',
+    openHref({ id: 'a b/п' }) === '/explorer?open=a%20b%2F%D0%BF', openHref({ id: 'a b/п' }));
 }
 
 console.log('Двойное нажатие всегда что-то делает');
@@ -106,7 +105,7 @@ console.log('Двойное нажатие всегда что-то делает
   }
   const archive = appsFor({ id: 'archive-1', name: 'Архив.zip', folderId: 'd' });
   check('архив открывается в Архиваторе', archive[0]?.id === 'archive', archive.map((a) => a.id));
-  check('для архива остаётся Проводник вторым способом', archive[1]?.id === 'explorer', archive.map((a) => a.id));
+  check('для архива Проводник не предлагается', archive.length === 1, archive.map((a) => a.id));
   check('архив ведёт в его содержимое', openHref({ id: 'archive-1', name: 'Архив.zip' }) === '/archives?file=archive-1',
     openHref({ id: 'archive-1', name: 'Архив.zip' }));
   // А у того, что открывается своей программой, чужой в списке быть не должно
@@ -119,19 +118,18 @@ console.log('Двойное нажатие всегда что-то делает
 
 console.log('Открывается ли во Flux (по нему рисуется «закрытый» значок)');
 {
-  const opens = ['a.docx', 'a.xlsx', 'a.xlsm', 'a.xls', 'a.csv', 'a.pdf', 'a.PDF', 'a.txt', 'a.log', 'a.md', 'a.json', 'a.xml',
-    'a.png', 'a.jpg', 'a.jpeg', 'a.gif', 'a.bmp', 'a.webp', 'a.svg', 'a.zip', 'a.rar', 'a.7z'];
-  const closed = ['a.doc', 'a.rtf', 'a.odt', 'a.ods', 'a.ppt', 'a.pptx', 'a.dwg', 'a.dxf', 'a.e3s', 'a.exe', 'a.msi', 'a.bat', 'a.lnk',
+  const opens = ['a.docx', 'a.xlsx', 'a.xlsm', 'a.xls', 'a.csv', 'a.pdf', 'a.PDF', 'a.md', 'a.zip', 'a.rar', 'a.7z'];
+  // Картинки и простой текст раньше показывал предпросмотр Проводника; его нет, их открывает Windows
+  const closed = ['a.txt', 'a.log', 'a.json', 'a.xml', 'a.png', 'a.jpg', 'a.jpeg', 'a.gif', 'a.bmp', 'a.webp', 'a.svg', 'a.doc', 'a.rtf', 'a.odt', 'a.ods', 'a.ppt', 'a.pptx', 'a.dwg', 'a.dxf', 'a.e3s', 'a.exe', 'a.msi', 'a.bat', 'a.lnk',
     'a.mp4', 'a.mp3', 'a.dll', 'a.psd', 'a.tif', 'a.html', 'Без расширения'];
   for (const name of opens) check(`${name} открывается во Flux`, canOpenInFlux(name));
   for (const name of closed) check(`${name} не открывается во Flux`, !canOpenInFlux(name));
   check('PDF без расширения, но с типом из базы, открывается', canOpenInFlux({ id: 'x', name: 'Чертёж', type: 'PDF' }));
   // Ответ обязан совпадать с маршрутизацией: если первым пунктом «Открыть с помощью»
-  // стоит Проводник или Windows, а картинки и текста тут нет — Flux файл не открывает
+  // стоит Windows — Flux файл не открывает
   for (const name of [...opens, ...closed]) {
     const first = appsFor({ id: 'x', name })[0].id;
-    const previewable = faceOf(name) === 'image' || faceOf(name) === 'plain';
-    const routed = !(first === 'explorer' || first === 'windows') || previewable;
+    const routed = first !== 'windows';
     check(`${name}: canOpenInFlux совпадает с маршрутом «${first}»`, canOpenInFlux(name) === routed);
   }
 }

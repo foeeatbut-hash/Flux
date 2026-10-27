@@ -192,15 +192,6 @@ export const FILE_APPS: Record<string, FileApp> = {
     path: () => '/sheet',
     href: (f) => `/sheet?convert=${q(f.id)}`,
   },
-  // Предпросмотр Проводника — тоже способ открыть: для картинки, бланка и
-  // всего, для чего своего редактора нет, он и есть единственный
-  explorer: {
-    id: 'explorer', name: 'Проводник',
-    path: () => '/explorer',
-    href: (f) => (f.folderId
-      ? `/explorer?file=${q(f.id)}&folder=${q(f.folderId)}`
-      : `/explorer?file=${q(f.id)}`),
-  },
   // Открыть тем, чем открывает Windows: для чертежей САПР, архивов и всего
   // прочего, чему у нас программы нет и не будет. Раньше такой файл упирался
   // в значок с подписью «Файл» — то есть в тупик
@@ -240,21 +231,19 @@ export const isMarkdownFile = (f: FileLike): boolean => /\.(md|markdown)$/i.test
 /**
  * Открывается ли файл внутри Flux — единственный ответ на этот вопрос.
  *
- * Открывается то, для чего `appsFor` называет свою программу или предпросмотр:
- * архив, PDF, Word (.docx), Excel (.xlsx, .xlsm, .xls, .csv), заметка Markdown,
- * картинка и простой текст. Всё остальное — старый .doc, чертёж САПР, видео,
+ * Открывается то, для чего `appsFor` называет свою программу:
+ * архив, PDF, Word (.docx), Excel (.xlsx, .xlsm, .xls, .csv), заметка Markdown.
+ * Всё остальное — картинка, простой текст, старый .doc, чертёж САПР, видео,
  * исполняемый файл, неизвестный формат — Flux только показывает в списке и
- * отдаёт Windows. По этому ответу значок рисует «закрытый» лист (lib/fileBadge.ts):
- * человек видит ещё до двойного нажатия, что файл откроется не здесь.
+ * отдаёт Windows: предпросмотра в Проводнике больше нет. По этому ответу
+ * значок рисует «закрытый» лист (lib/fileBadge.ts): человек видит ещё до двойного нажатия, что файл откроется не здесь.
  *
  * Не дописывать сюда формат, которого у нас нет: значок обещал бы то, чего
  * Flux не сделает (см. то же правило в начале файла).
  */
 export function canOpenInFlux(f: FileLike | string): boolean {
   const file: FileLike = typeof f === 'string' ? { id: '', name: f } : f;
-  if (isArchive(file) || isPdf(file) || isOffice(file) || isMarkdownFile(file)) return true;
-  const face = faceOf(file);
-  return face === 'image' || face === 'plain';
+  return isArchive(file) || isPdf(file) || isOffice(file) || isMarkdownFile(file);
 }
 
 /**
@@ -262,21 +251,17 @@ export function canOpenInFlux(f: FileLike | string): boolean {
  * остальные предлагаются в «Открыть с помощью».
  */
 export function appsFor(f: FileLike): FileApp[] {
-  if (isArchive(f)) return [FILE_APPS.archive, FILE_APPS.explorer];
-  if (isPdf(f)) return [FILE_APPS.pdf, FILE_APPS.explorer];
-  // Офисный файл открывается редактором, а не предпросмотром. Предпросмотр
-  // остаётся вторым пунктом: иногда человеку нужно просто посмотреть
-  // Word и Excel — в своих редакторах, прямо в файле
-  if (isWordFile(f)) return [FILE_APPS.word, FILE_APPS.explorer];
-  if (isExcelFile(f)) return [FILE_APPS.excel, FILE_APPS.explorer];
-  if (isOffice(f) && faceOf(f) === 'sheet') return [FILE_APPS.sheetCopy, FILE_APPS.explorer];
-  if (isMarkdownFile(f)) return [FILE_APPS.notes, FILE_APPS.explorer];
-  // Картинку и текст показывает предпросмотр, и этого достаточно. Всё
-  // остальное — чертёж САПР, архив, модель — отдаём Windows: у неё для этого
-  // программа есть, а у нас нет
-  const face = faceOf(f);
-  if (face === 'image' || face === 'plain') return [FILE_APPS.explorer, FILE_APPS.windows];
-  return [FILE_APPS.explorer, FILE_APPS.windows];
+  if (isArchive(f)) return [FILE_APPS.archive];
+  if (isPdf(f)) return [FILE_APPS.pdf];
+  // Офисный файл открывается своим редактором прямо в файле
+  if (isWordFile(f)) return [FILE_APPS.word];
+  if (isExcelFile(f)) return [FILE_APPS.excel];
+  if (isOffice(f) && faceOf(f) === 'sheet') return [FILE_APPS.sheetCopy];
+  if (isMarkdownFile(f)) return [FILE_APPS.notes];
+  // Картинку, текст, чертёж САПР, модель — всё, для чего у Flux своей программы
+  // нет, отдаём Windows: у неё программа есть. Предпросмотра в Проводнике больше
+  // нет: Проводник работает с файлами Windows, а не с архивом Flux
+  return [FILE_APPS.windows];
 }
 
 /** Адрес, по которому файл открывается сам собой — двойным нажатием */

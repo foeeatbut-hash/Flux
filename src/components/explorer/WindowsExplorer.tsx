@@ -106,7 +106,7 @@ export default function WindowsExplorer() {
   const operations = useExplorerOperations({ folder: ref, rootId, selected: selection.selected, reload: folder.reload });
   const ops = operations;
   const [pane, setPane] = React.useState<'none' | 'details' | 'preview'>('none');
-  const [recycle, setRecycle] = React.useState(false);
+  const [recycle, setRecycle] = React.useState(params.get('recycle') === '1');
   const [addressToken, setAddressToken] = React.useState(0);
   const [searchToken, setSearchToken] = React.useState(0);
   const [context, setContext] = React.useState<{ x: number; y: number; entry?: WindowsFileEntry } | null>(null);

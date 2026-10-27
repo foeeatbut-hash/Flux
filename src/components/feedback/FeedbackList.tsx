@@ -72,7 +72,7 @@ export default function FeedbackList({ rows, activeId, onPick }: {
             <button key={row.id} type="button" onClick={() => onPick(row.id)}
               style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${item.start}px)` }}
               className={`text-left px-3 py-2 border-b border-slate-100 dark:border-slate-850 cursor-pointer
-                ${activeId === row.id ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-900'}`}>
+                ${activeId === row.id ? 'fx-sel' : 'fx-hov'}`}>
               <span className="flex items-center gap-2">
                 <Icon className="w-3.5 h-3.5 shrink-0 text-slate-400" />
                 <span className="text-xs font-mono text-slate-500 dark:text-slate-400">{reportNumber(row.number)}</span>

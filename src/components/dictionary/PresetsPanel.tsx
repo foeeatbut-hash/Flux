@@ -111,7 +111,7 @@ export default function PresetsPanel({ dictionaries, activePresetId, setActivePr
                   <div
                     key={preset.id}
                     onClick={() => !isEditing && setActivePresetId(preset.id)}
-                    className={`p-2.5 rounded-lg border flex items-center justify-between transition-ui cursor-pointer ${isActive ? "bg-emerald-50/40 dark:bg-emerald-950/10 border-emerald-500" : "bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border-slate-200/60 dark:border-slate-850"}`}
+                    className={`p-2.5 rounded-lg border flex items-center justify-between transition-ui cursor-pointer ${isActive ? "fx-sel border-[var(--flux-line-strong)]" : "bg-white dark:bg-slate-900 hover:bg-[var(--flux-hover)] border-[var(--flux-line)]"}`}
                   >
                     {isEditing ? (
                       <div className="flex items-center gap-1.5 flex-1 mr-2" onClick={(e) => e.stopPropagation()}>

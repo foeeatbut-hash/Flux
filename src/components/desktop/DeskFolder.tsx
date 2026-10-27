@@ -57,8 +57,7 @@ export default function DeskFolder({ group, items, scale, onOpen, onOut, onRenam
         role="dialog"
         aria-label={`Папка «${group.name}»`}
         onMouseDown={(e) => e.stopPropagation()}
-        className="w-full max-w-lg rounded-2xl border border-white/20 dark:border-slate-700
-                   bg-white/90 dark:bg-dark-surface/95 shadow-2xl p-4"
+        className="fx-dialog w-full max-w-lg p-4"
       >
         <div className="flex items-center gap-2 mb-3 pb-3 border-b border-slate-200/80 dark:border-slate-800">
           <input

@@ -432,7 +432,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                         return (
                           <div key={b.key}
                             style={{ paddingLeft: `${32 + depth * 12}px` }}
-                            className={`flex items-start gap-1.5 pr-1.5 py-1.5 rounded-lg cursor-pointer ${activeBlock === b.key ? 'bg-emerald-50 dark:bg-emerald-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-850'} ${isExcluded(b.key) ? 'opacity-40' : ''}`}
+                            className={`flex items-start gap-1.5 pr-1.5 py-1.5 rounded-lg cursor-pointer ${activeBlock === b.key ? 'fx-sel' : 'fx-hov'} ${isExcluded(b.key) ? 'opacity-40' : ''}`}
                             onClick={() => setActiveBlock(b.key)}>
                             <input type="checkbox" checked={!isExcluded(b.key)} onClick={e => e.stopPropagation()} onChange={() => toggleBlock(b.key)} className="w-3.5 h-3.5 mt-px shrink-0 accent-emerald-500 cursor-pointer" />
                             {/* Название целиком (до двух строк), тег и отметки — под ним:

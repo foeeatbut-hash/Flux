@@ -102,7 +102,7 @@ export default function MarkingDictPanel({ dictionaries, activeMarkingTab, setAc
                     <div
                       key={cat.id}
                       onClick={() => !isEditing && setActiveMarkingTab(cat.id)}
-                      className={`p-3 rounded-lg border flex items-center justify-between transition-ui ${isSelected ? "bg-emerald-500/10 border-emerald-550/40" : "bg-white dark:bg-slate-900 border-slate-200/60 dark:border-slate-850 hover:bg-slate-100/40 dark:hover:bg-slate-800/40"} ${!isEditing ? "cursor-pointer" : ""}`}
+                      className={`p-3 rounded-lg border flex items-center justify-between transition-ui ${isSelected ? "fx-sel border-[var(--flux-line-strong)]" : "bg-white dark:bg-slate-900 border-[var(--flux-line)] hover:bg-[var(--flux-hover)]"} ${!isEditing ? "cursor-pointer" : ""}`}
                     >
                       {isEditing ? (
                         <div className="flex items-center gap-1 flex-1 mr-2" onClick={(e) => e.stopPropagation()}>

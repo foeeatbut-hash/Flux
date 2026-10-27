@@ -3,7 +3,9 @@ import { Tag as TagIcon, FileText, ExternalLink } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { MailMentions as Found } from '../../services/mailService';
 import { openInProject } from '../../lib/projectScope';
-import { openHref } from '../../lib/fileTypes';
+import { appsFor, openHref } from '../../lib/fileTypes';
+import { openInWindowsSaid } from '../../lib/saveToWindows';
+import { useToastStore } from '../../store/toastStore';
 import { useStore } from '../../store/store';
 import { useTagNavigationStore } from '../../store/tagNavigationStore';
 
@@ -64,6 +66,7 @@ function Chip({ icon: Icon, label, project, title, onClick }: {
 
 export default function MailMentions({ found, loading }: Props) {
   const navigate = useNavigate();
+  const addToast = useToastStore((s) => s.addToast);
   const activeId = useStore((st: any) => st.activeProject?.id || null);
 
   // Название проекта пишем только у чужого. Своё повторять незачем: подпись
@@ -114,8 +117,12 @@ export default function MailMentions({ found, loading }: Props) {
             onClick={() => openInProject({
               what: `Файл «${f.name}»`,
               projectId: f.projectId,
-              // Тем же, чем двойной щелчок: Word и Excel — в редакторе, прочее — в Проводнике
-              open: () => navigate(openHref({ id: f.id, name: f.name, folderId: f.folderId })),
+              // Тем же, чем двойной щелчок: Word и Excel — в редакторе, прочее — программой Windows
+              open: () => {
+                const file = { id: f.id, name: f.name, folderId: f.folderId };
+                if (appsFor(file)[0]?.id === 'windows') void openInWindowsSaid(f.id, f.name, addToast);
+                else navigate(openHref(file));
+              },
             })}
           />
         ))}

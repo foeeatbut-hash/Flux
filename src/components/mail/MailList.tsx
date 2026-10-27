@@ -152,10 +152,9 @@ export default function MailList({
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(t.threadKey); } }}
             className={`group relative flex items-center gap-2 px-2 border-b border-slate-100 dark:border-slate-850 cursor-pointer transition-colors outline-none
               focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-inset
-              ${isOpen ? 'bg-emerald-50/70 dark:bg-emerald-950/30'
-                : isPicked ? 'bg-sky-50/70 dark:bg-sky-950/25'
-                : t.unread ? 'bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-850'
-                : 'bg-slate-50/60 dark:bg-slate-950/40 hover:bg-slate-100/70 dark:hover:bg-slate-850'}`}
+              ${isOpen || isPicked ? 'fx-sel'
+                : t.unread ? 'bg-white dark:bg-slate-900 hover:bg-[var(--flux-hover)]'
+                : 'bg-slate-50/60 dark:bg-slate-950/40 hover:bg-[var(--flux-hover)]'}`}
             // Высота строки — из общей настройки плотности программы. С поправкой
             // в 4 px три режима дают 32, 38 и 46 — почти в точности три режима
             // Gmail, к которым человек привык

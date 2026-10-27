@@ -71,7 +71,7 @@ function StageListEditor({ stages, onChange, isAdmin, addToast }: {
                   <Icon className="w-4.5 h-4.5" />
                 </button>
                 {editingIconFor === s.id && (
-                  <div className="absolute top-full left-0 mt-1 z-30 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-2 grid grid-cols-8 gap-1 w-72">
+                  <div className="fx-pop absolute top-full left-0 mt-1 z-30 p-2 grid grid-cols-8 gap-1 w-72">
                     {Object.keys(STAGE_ICONS).map(name => {
                       const I = STAGE_ICONS[name];
                       return (

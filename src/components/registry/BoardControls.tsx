@@ -88,7 +88,7 @@ export default function BoardControls({
         {/* Выбор главного родителя: его дерево выделяется и центрируется */}
         {centerPickerOpen && (
           <div
-            className="absolute top-full right-0 mt-1.5 w-72 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden"
+            className="fx-pop absolute top-full right-0 mt-1.5 w-72 z-50 overflow-hidden"
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >
@@ -140,7 +140,7 @@ export default function BoardControls({
 
         {axisPickerOpen && (
           <div
-            className="absolute top-full right-0 mt-1.5 w-64 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden p-1.5 space-y-0.5"
+            className="fx-pop absolute top-full right-0 mt-1.5 w-64 z-50 overflow-hidden p-1.5 space-y-0.5"
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >

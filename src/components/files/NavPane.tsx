@@ -1,9 +1,7 @@
 import React from 'react';
 import { ChevronRight, Pin } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import ContextMenu, { type MenuItem } from '../ContextMenu';
 import PlaceIcon from './PlaceIcon';
-import { ArchivesAppIcon } from '../icons/FluxIcons';
 import { ICON_SIZE } from '../../lib/metrics';
 import { useNavTree } from './useNavTree';
 import { usePlaceCatalog } from './usePlaceCatalog';
@@ -32,7 +30,6 @@ export default function NavPane({ place, onOpen, onOpenInNewTab }: {
   /** Пункт «Открыть в новой вкладке» в меню; без него пункта нет */
   onOpenInNewTab?: (place: Place) => void;
 }) {
-  const navigate = useNavigate();
   const { catalog, quick, quickSupported, loaded } = usePlaceCatalog();
   const { rows, toggle } = useNavTree(place, catalog, quick, quickSupported);
   const { width, setWidth, remember } = useNavWidth();
@@ -65,17 +62,7 @@ export default function NavPane({ place, onOpen, onOpenInNewTab }: {
     if (at < 0) return;
     const row = items.find((item) => item.key === nodes[at].dataset.navKey);
     const go = (index: number) => { event.preventDefault(); nodes[Math.min(nodes.length - 1, Math.max(0, index))]?.focus(); };
-    // «Архив Flux» стоит под разделителем и не входит в items: без этой ветки фокус на нём
-    // был ловушкой — ни стрелки, ни Home, ни Enter не работали
-    if (!row) {
-      if (nodes[at].dataset.navKey !== 'flux-archive') return;
-      if (event.key === 'ArrowUp') go(at - 1);
-      else if (event.key === 'ArrowDown') go(at);
-      else if (event.key === 'Home') go(0);
-      else if (event.key === 'End') go(nodes.length - 1);
-      else if (event.key === 'Enter') { event.preventDefault(); navigate('/explorer?projectFiles=1'); }
-      return;
-    }
+    if (!row) return;
     if (event.key === 'ArrowDown') go(at + 1);
     else if (event.key === 'ArrowUp') go(at - 1);
     else if (event.key === 'Home') go(0);
@@ -141,11 +128,6 @@ export default function NavPane({ place, onOpen, onOpenInNewTab }: {
               </span>
             </div>
           ))}
-        <div role="separator" className="mx-2 my-1 border-t border-[#e5e5e5] dark:border-[#202020]" />
-        <div role="treeitem" data-nav-key="flux-archive" aria-level={1} tabIndex={-1} title="Открыть сохранённый архив Flux" onClick={() => navigate('/explorer?projectFiles=1')} className="group relative cursor-default select-none outline-none" style={{ height: SIZE.navItem }}>
-          <span aria-hidden className={`absolute inset-y-px left-px right-[3px] rounded group-focus-visible:outline group-focus-visible:outline-2 group-focus-visible:outline-[#0067c0] dark:group-focus-visible:outline-[#4cc2ff] ${T.paneHover}`} />
-          <span className="relative flex h-full items-center" style={{ paddingLeft: 13, paddingRight: 10 }}><ArchivesAppIcon size={ICON_SIZE.row} className="ml-6 mr-1.5" /><span className="min-w-0 flex-1 truncate">Архив Flux</span></span>
-        </div>
       </div>
       <div role="separator" aria-orientation="vertical" aria-label="Ширина панели навигации" aria-valuemin={NAV_MIN} aria-valuemax={NAV_MAX} aria-valuenow={width} tabIndex={0}
         data-nav-resizer onPointerDown={drag}
