@@ -9,7 +9,7 @@ import { setupFeedbackCapture } from './feedbackCapture';
 import { setupWindowThumb } from './windowThumb';
 import { setupBrowser, disposeBrowserFor } from './browser';
 import { setupLogs, appendLog, appendLogNow, logsDir } from './logs';
-import { setupDiagnostics } from './diagnostics';
+import { diagnosticsWriter, setupDiagnostics } from './diagnostics';
 import { setupOwnerLogin } from './ownerLogin';
 import { setupAuthStorage, trustedAuthSender, readNativeSession, secureStorageAvailable } from './authStorage';
 import { setupDisplayWorkspace } from './displays';
@@ -253,7 +253,8 @@ app.whenReady().then(async () => {
   setupOwnerLogin(() => '');
   setupAuthStorage(() => '');
   const mainClose = setupMainWindowClose(() => mainWindow, trustedAuthSender);
-  const displayWorkspace = setupDisplayWorkspace(() => mainWindow, trustedAuthSender);
+  const displayWorkspace = setupDisplayWorkspace(() => mainWindow, trustedAuthSender,
+    (event, fields) => diagnosticsWriter()?.record(event, fields as any));
   displayWorkspace.attach();
   const localAccess = createLocalFileAccess({ server: () => '',
     token: readNativeSession, fetch: globalThis.fetch });

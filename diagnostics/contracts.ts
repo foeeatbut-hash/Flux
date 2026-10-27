@@ -154,6 +154,15 @@ export const EVENTS = {
   'electron.process': { pid: 'count', type: 'name', cpuPercent: 'count', workingSetKB: 'count', peakWorkingSetKB: 'count' },
   'window.state': { id: 'count', state: 'name' },
   'workspace.window': { action: 'name', section: 'route', count: 'count', minimized: 'flag' },
+  // Геометрия режима «все мониторы»: по записи на монитор, окно и каждый
+  // прямоугольник формы. Нужна, чтобы по архиву увидеть, где Windows держит
+  // свою панель. Только числа: x/y/w/h — границы монитора, окна или формы,
+  // ax/ay/aw/ah — рабочая область, scalePct — масштаб в процентах.
+  'display.layout': {
+    action: 'name', trigger: 'name', index: 'count', id: 'count', primary: 'flag', scalePct: 'count',
+    x: 'count', y: 'count', w: 'count', h: 'count', ax: 'count', ay: 'count', aw: 'count', ah: 'count',
+    exact: 'flag', shapes: 'count', retries: 'count',
+  },
   'desktop.snapshot': { error: 'name', code: 'code' },
   'window.load-error': { id: 'count', code: 'code', mainFrame: 'flag' },
   'renderer.gone': { id: 'count', reason: 'name', exitCode: 'code' },
