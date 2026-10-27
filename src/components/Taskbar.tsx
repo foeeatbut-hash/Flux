@@ -405,7 +405,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
                           text-xs whitespace-nowrap transition-[color,background-color,transform] duration-[80ms]
                           active:scale-[0.94] motion-reduce:active:scale-100 ${
                 b.active
-                  ? 'bg-slate-300 dark:bg-slate-700 text-slate-900 dark:text-white font-medium ring-1 ring-inset ring-slate-400 dark:ring-slate-600'
+                  ? 'bg-slate-200 dark:bg-slate-600 text-slate-900 dark:text-white font-medium ring-1 ring-inset ring-slate-300 dark:ring-slate-500'
                   : b.running
                     ? 'bg-slate-100 dark:bg-slate-900/60 text-slate-700 dark:text-slate-100 hover:bg-slate-200/60 dark:hover:bg-slate-800'
                     : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800'

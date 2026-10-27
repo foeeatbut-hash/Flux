@@ -6,6 +6,7 @@
  */
 import React from 'react';
 import { useWindowStore } from '../store/windowStore';
+import { topWindow } from '../lib/windows';
 import {
   canThumb, captureThumb, coverage, forgetThumb, cachedThumb, shouldCapture, type Rect,
 } from '../lib/windowThumb';
@@ -45,9 +46,13 @@ export function snapshotWindows(ids: string[], opts: { panelShown?: boolean; for
 }
 
 /**
- * Один раз на панель: снимать окно в тот миг, когда его сворачивают, и
- * забывать снимки закрытых окон. Подписка на хранилище срабатывает до
- * отрисовки, поэтому окно в этот момент ещё целое на экране.
+ * Один раз на панель: снимать окно в тот миг, когда оно перестаёт быть верхним
+ * или его сворачивают, и забывать снимки закрытых окон.
+ *
+ * Окно, оказавшееся под другими, снять уже нельзя — на картинке было бы чужое
+ * содержимое. Зато в момент потери верха оно ещё целое на экране: подписка на
+ * хранилище срабатывает до отрисовки. Так у каждого окна под наведением есть
+ * снимок «каким его видели в последний раз».
  */
 export function useThumbKeeper(): void {
   React.useEffect(() => {
@@ -59,10 +64,15 @@ export function useThumbKeeper(): void {
         const cur = now.get(old.id);
         if (!cur) { forgetThumb(old.id); continue; }
         if (cur.minimized && !old.minimized) {
-          // Снимок делается по прежнему состоянию: окно ещё видно
           const rect = rectOf(old.id);
           if (rect) void captureThumb(old.id, rect);
         }
+      }
+      const before = topWindow(prev.windows.filter((w) => w.desk === prev.desk));
+      const after = topWindow(state.windows.filter((w) => w.desk === state.desk));
+      if (before && before.id !== after?.id && !before.minimized && now.get(before.id)?.minimized === false) {
+        const rect = rectOf(before.id);
+        if (rect) void captureThumb(before.id, rect);
       }
     });
   }, []);

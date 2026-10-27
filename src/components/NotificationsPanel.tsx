@@ -159,7 +159,7 @@ export default function NotificationsPanel() {
       {/* Шапка: название, тихий режим, «прочитать всё», «удалить все». Градиент
           и значок в цветной плитке по методологии ушли */}
       <div className="flex items-center gap-1 h-11 px-4 shrink-0">
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-50 mr-auto">Уведомления</h2>
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mr-auto">Уведомления</h2>
         <button type="button" aria-label="Не беспокоить"
           title={quietNow ? `Тихий режим ${untilLabel(quiet!)} — всплывашек не будет, счётчики считают` : 'Не беспокоить'}
           onClick={(e) => {
@@ -178,7 +178,7 @@ export default function NotificationsPanel() {
           </button>
         )}
         <button type="button" onClick={clearAll} disabled={feedAll.length === 0}
-          className="h-7 px-2 rounded-md text-xs font-medium cursor-pointer text-slate-700 dark:text-slate-200
+          className="h-7 px-2 rounded-md text-xs font-medium cursor-pointer text-slate-700 dark:text-slate-100
                      hover:bg-slate-500/20 disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent">
           Удалить все
         </button>
@@ -216,7 +216,7 @@ export default function NotificationsPanel() {
           <div key={g.key} data-notif-group={g.key} className="mb-2 last:mb-0">
             <div className="group flex items-center gap-2 h-8 px-2 sticky top-0 z-10">
               {g.route ? <AppIcon path={g.route} size={16} /> : <Bell className="w-4 h-4 text-slate-500" />}
-              <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{g.title}</span>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-100 truncate">{g.title}</span>
               {g.unread > 0 && <span className="fx-badge fx-badge-accent">{g.unread}</span>}
               <button type="button" onClick={() => clearFeed(g.key, clearMoment(g.items))}
                 title={`Очистить: ${g.title}`} aria-label={`Очистить: ${g.title}`}

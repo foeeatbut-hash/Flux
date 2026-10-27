@@ -98,7 +98,7 @@ export default function RightDock({ bounds }: { bounds?: DisplayRect } = {}) {
     };
     const onDown = (e: MouseEvent) => {
       const t = e.target as HTMLElement | null;
-      if (!t || t.closest('[data-right-dock], [data-tray-toggle], .fx-pop, [role="dialog"]')) return;
+      if (!t || t.closest('[data-right-dock], [data-tray-toggle], [data-context-menu], .fx-pop, .fx-dialog')) return;
       setNotifOpen(false);
     };
     window.addEventListener('keydown', onKey);

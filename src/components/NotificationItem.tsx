@@ -29,7 +29,7 @@ export default function NotificationItem({ n, snoozing, onSnoozeMenu, onSnooze, 
         <span aria-label={n.isRead ? undefined : 'Не прочитано'}
           className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${n.isRead ? 'bg-transparent' : 'bg-emerald-500'}`} />
         <div className={`min-w-0 flex-1 break-words text-sm leading-snug ${
-          n.kind === 'personal' ? 'font-medium text-slate-900 dark:text-slate-50' : 'text-slate-800 dark:text-slate-200'
+          n.kind === 'personal' ? 'font-medium text-slate-900 dark:text-slate-100' : 'text-slate-800 dark:text-slate-100'
         }`}>{n.title}</div>
         {n.kind === 'personal' && <span className="text-2xs shrink-0 text-slate-500 dark:text-slate-400">вам</span>}
       </div>
@@ -42,7 +42,7 @@ export default function NotificationItem({ n, snoozing, onSnoozeMenu, onSnooze, 
         {n.kind === 'personal' && (snoozing ? (
           SNOOZE_CHOICES.map((c) => (
             <button key={c.id} type="button" onClick={() => onSnooze(c.id)}
-              className="px-1.5 py-0.5 rounded-md text-2xs font-semibold text-slate-700 dark:text-slate-200
+              className="px-1.5 py-0.5 rounded-md text-2xs font-semibold text-slate-700 dark:text-slate-100
                          hover:bg-slate-500/20 cursor-pointer">
               {c.label}
             </button>

@@ -55,9 +55,12 @@ export default function GuideDockPanel() {
 
   const Comp = def.Component;
   return (
-    <section aria-label="Помощник" data-dock-assistant className="fx-glass rounded-xl overflow-hidden relative h-full min-h-0">
-      {/* Кнопки поверх свободного правого края шапки Guide: рамки окна у карточки нет */}
-      <div className="absolute top-1.5 right-2 z-20 flex items-center gap-0.5">
+    <section aria-label="Помощник" data-dock-assistant className="fx-glass rounded-xl overflow-hidden h-full min-h-0 flex flex-col">
+      {/* Собственная строка карточки: рамки окна у неё нет, а шапка Guide занята
+          проектом и действиями беседы — класть кнопки поверх неё значило бы
+          перекрывать их */}
+      <div className="flex items-center gap-0.5 h-9 pl-4 pr-2 shrink-0">
+        <span className="mr-auto text-xs font-semibold text-slate-600 dark:text-slate-300">Помощник</span>
         <button type="button" title="Открыть в окне" aria-label="Открыть в окне"
           onClick={() => { setOpen(false); globalNavigate(START); }}
           className="w-7 h-7 rounded-md flex items-center justify-center cursor-pointer text-slate-600 dark:text-slate-300 hover:bg-slate-500/20">
@@ -68,6 +71,7 @@ export default function GuideDockPanel() {
           <X className="w-4 h-4" />
         </button>
       </div>
+      <div className="relative flex-1 min-h-0">
       {access !== 'open' ? (
         <div className="fx-empty"><div className="fx-empty-title">Помощник закрыт</div>
           <div className="fx-empty-text">Раздел «Flux Guide» недоступен: его выдаёт администратор.</div></div>
@@ -84,6 +88,7 @@ export default function GuideDockPanel() {
           </UNSAFE_NavigationContext.Provider>
         </PaneContext.Provider>
       )}
+      </div>
     </section>
   );
 }

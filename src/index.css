@@ -1729,3 +1729,6 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
 @media (prefers-reduced-motion: reduce) {
   .fx-peek-in, .fx-dock-in, .fx-dock-out { animation: none; }
 }
+/* Заголовок Guide в узкой карточке остаётся в одну строку: ужиматься должен
+   выбор проекта, а не название */
+[data-dock-assistant] .fx-head > span { white-space: nowrap; }

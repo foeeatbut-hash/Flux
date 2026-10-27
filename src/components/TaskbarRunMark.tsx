@@ -6,6 +6,9 @@
  *  - open   — короткая серая: программа открыта, но другое окно активно;
  *  - min    — самая короткая и бледная: все окна программы свёрнуты.
  *
+ * Метка стоит внутри нижнего края кнопки: полоса кнопок обрезает всё, что
+ * выходит за кнопку, и метка под ней оставалась бы невидимой.
+ *
  * Ширина метки постоянна, меняется только scaleX: переход идёт на видеокарте
  * (transform), а не пересчётом раскладки, и метка именно «вырастает» при
  * активации. При первом появлении — вырастает из нуля.
@@ -42,7 +45,7 @@ export default function TaskbarRunMark({ state }: { state: RunState }) {
       aria-hidden
       data-run-mark={state}
       style={{
-        height: RUN_MARK, width: RUN_MARK_W, bottom: -RUN_MARK, left: '50%', marginLeft: -RUN_MARK_W / 2,
+        height: RUN_MARK, width: RUN_MARK_W, bottom: 2, left: '50%', marginLeft: -RUN_MARK_W / 2,
         transform: `scaleX(${SCALE[state]})`,
         transition: reducedMotion() ? 'none' : `transform ${DUR.base}ms ${EASE.move}, background-color ${DUR.base}ms ${EASE.move}`,
       }}

@@ -11,7 +11,7 @@ WindowDialog, токены окон в index.css, персонализацию. 
 
 - [x] 1. IPC-снимок (electron/windowThumb.ts), lib/windowThumb, useWindowThumbs, метка запуска, карточки, меню
 - [x] 2. Правые панели: колонки, центр уведомлений по программам, календарь, помощник
-- [ ] 3. Проверки (tsc, run-checks, UI-наборы), снимки
+- [x] 3. Проверки (tsc, run-checks, UI-наборы), снимки: test-taskbar-ui 70 проверок, remaining-shell-ui и icons-shell-ui зелёные
 - [ ] 4. shell.md
 
 Следующее: прогон UI-наборов с Vite/Chromium, снимки tb-*.png, shell.md.

@@ -89,10 +89,10 @@ export default function CalendarCard() {
                 const other = !inMonth(day, startOfMonth(month));
                 return (
                   <button key={day} type="button" onClick={go} data-today={now || undefined}
-                    className={`relative h-8 rounded-full text-xs cursor-pointer
+                    className={`relative h-7 rounded-full text-xs cursor-pointer
                                 ${now ? 'bg-emerald-600 text-white font-semibold'
                                   : other ? 'text-slate-400 dark:text-slate-500 hover:bg-slate-500/15'
-                                    : 'text-slate-700 dark:text-slate-200 hover:bg-slate-500/15'}`}>
+                                    : 'text-slate-700 dark:text-slate-100 hover:bg-slate-500/15'}`}>
                     {new Date(day).getDate()}
                     {has && !now && (
                       <span aria-hidden className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-500" />
@@ -103,7 +103,7 @@ export default function CalendarCard() {
             </div>
           </div>
 
-          <div className="px-4 py-2 border-t border-slate-500/20 max-h-40 overflow-y-auto scrollbar-thin">
+          <div className="px-4 py-2 border-t border-slate-500/20 max-h-32 overflow-y-auto scrollbar-thin">
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Сегодня</p>
             {today.length === 0 && <p className="text-xs text-slate-500 dark:text-slate-400 pb-1">Ничего не назначено.</p>}
             {today.map((o) => (
@@ -129,12 +129,12 @@ export default function CalendarCard() {
 
           <div className="flex items-center gap-2 px-3 h-10 border-t border-slate-500/20">
             <button type="button" onClick={go}
-              className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer hover:underline">
+              className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-100 cursor-pointer hover:underline">
               <Plus className="w-3.5 h-3.5" /> Событие
             </button>
             <span className="flex-1" />
             <button type="button" onClick={go}
-              className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 cursor-pointer hover:underline">
+              className="flex items-center gap-1.5 text-xs font-medium text-slate-700 dark:text-slate-100 cursor-pointer hover:underline">
               Открыть <Maximize2 className="w-3 h-3" />
             </button>
           </div>
