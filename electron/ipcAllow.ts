@@ -31,6 +31,7 @@ export const INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   'desktop:capture',
   'feedback:capture-window',
   'feedback:capture-region',
+  'taskbar:window-thumb',
 ]);
 
 export const SEND_CHANNELS: ReadonlySet<string> = new Set([

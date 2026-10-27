@@ -63,29 +63,29 @@ const ok = (n: string, c: boolean, d?: any) =>
       ok('колонка кончается над панелью задач', dock1.bottom <= bar.top + 1, { колонка: dock1.bottom, панель: bar.top });
     }
 
-    console.log('3. Помощник открывается, не закрывая уведомления');
-    await page.click('[data-tour="assistant-btn"]');
+    console.log('3. Помощник открывается, не закрывая уведомления, и не перекрывает их');
+    await page.click('[data-tour="guide-btn"]');
     await page.waitForTimeout(500);
     const both = await page.evaluate(() => ({
-      dock: !!document.querySelector('[data-right-dock]'),
-      parts: document.querySelectorAll('[data-dock-part]').length,
+      columns: document.querySelectorAll('[data-dock-column]').length,
+      notif: !!document.querySelector('[data-dock-notifications]'),
+      calendar: !!document.querySelector('[data-dock-calendar]'),
+      assistant: !!document.querySelector('[data-dock-assistant]'),
     }));
-    ok('в колонке две панели, а не одна', both.parts === 2, both);
-    const dock2 = await box('[data-right-dock]');
-    if (dock2 && bar) {
-      ok('и вдвоём они не лезут на панель задач', dock2.bottom <= bar.top + 1, { колонка: dock2.bottom, панель: bar.top });
-    }
-    ok('между ними есть разделитель', await page.locator('[data-dock-divider]').count() === 1);
+    ok('в колонке две панели, а не одна', both.columns === 2 && both.notif && both.assistant, both);
+    ok('под уведомлениями стоит календарь', both.calendar, both);
+    const cols = await page.evaluate(() => [...document.querySelectorAll('[data-dock-column]')]
+      .map((c) => { const r = c.getBoundingClientRect(); return { id: c.getAttribute('data-dock-column'), left: r.left, right: r.right, bottom: r.bottom }; })
+      .sort((x, y) => x.left - y.left));
+    ok('колонки рядом и не перекрываются', cols.length === 2 && cols[0].right <= cols[1].left + 0.5, cols);
+    ok('помощник левее уведомлений', cols[0]?.id === 'assistant', cols);
+    ok('и вдвоём они не лезут на панель задач', !!bar && cols.every((c) => c.bottom <= bar.top + 1), { cols, панель: bar?.top });
 
-    console.log('4. На узком экране — вкладки, а не две панели впритык');
+    console.log('4. На узком экране остаётся одна панель');
     await page.setViewportSize({ width: 1000, height: 800 });
     await page.waitForTimeout(500);
-    const narrow = await page.evaluate(() => ({
-      parts: document.querySelectorAll('[data-dock-part]').length,
-      tabs: document.querySelectorAll('[data-dock-tab]').length,
-    }));
-    ok('показана одна панель', narrow.parts === 1, narrow);
-    ok('и две вкладки для переключения', narrow.tabs === 2, narrow);
+    const narrow = await page.evaluate(() => document.querySelectorAll('[data-dock-column]').length);
+    ok('показана одна панель', narrow === 1, narrow);
   } catch (e: any) {
     f++;
     console.error('  ✗ проба не дошла до конца:', e?.message || e);

@@ -29,7 +29,8 @@ import { useMailStore } from '../store/mailStore';
 import { useWindowStore, openPaths, activeWindowPath, windowsOf } from '../store/windowStore';
 import TaskbarRunMark from './TaskbarRunMark';
 import { useDesktopStore } from '../store/desktopStore';
-import { buildTaskbar, clockLabel, deadlineLabel, badgeLabel, trayFit } from '../lib/taskbar';
+import { buildTaskbar, clockLabel, deadlineLabel, badgeLabel, trayFit, runState, PEEK_DELAY, PEEK_GRACE } from '../lib/taskbar';
+import { snapshotWindows, useThumbKeeper } from './useWindowThumbs';
 import { BAR_H, BAR_BTN, BAR_ICON, TRAY_ICON, BAR_EDGE, CHIP_H } from '../lib/metrics';
 import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
@@ -38,7 +39,7 @@ import TaskbarPeek from './TaskbarPeek';
 import { AppIcon } from './icons/FluxIcons';
 import ProjectSwitcher from './ProjectSwitcher';
 import DbStatusTray from './shell/DbStatusTray';
-import ClockPanel from './calendar/ClockPanel';
+import { useAssistantDockStore } from '../store/assistantDockStore';
 import { useUpdateStore, updateReady } from '../store/updateStore';
 import UpdateDialog, { claimUpdateDialogOpen, useUpdateReminders } from './UpdateDialog';
 import { displayForRect } from '../../workspace/displays';
@@ -73,32 +74,68 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
   const feedbackUnread = useFeedbackStore((s) => s.unread.total);
   const togglePanel = useNotificationStore((s) => s.togglePanel);
   const notifOpen = useNotificationStore((s) => s.panelOpen);
-  const setNotifOpen = useNotificationStore((s) => s.setPanelOpen);
   const unreadByAccount = useMailStore((s) => s.unreadByAccount);
   const now = useNow();
   const [menu, setMenu] = React.useState<{ x: number; y: number; path: string } | null>(null);
   const [startOpen, setStartOpen] = React.useState(false);
-  // Наведение раскрывает список окон программы. 400 мс — столько же, сколько
-  // ждёт всплывающая подсказка: быстрое движение мимо кнопки ничего не открывает
-  const [peek, setPeek] = React.useState<{ path: string; left: number } | null>(null);
+  // Наведение раскрывает карточки окон программы. 400 мс — столько же, сколько
+  // ждёт всплывающая подсказка: быстрое движение мимо кнопки ничего не открывает.
+  // Когда карточки уже на экране, соседняя кнопка переключает их сразу — иначе
+  // при переходе вдоль панели они мигали бы, а уход гасит их без задержки
+  // (кроме короткой паузы, чтобы мышь успела дойти от кнопки до карточки)
+  const [peek, setPeek] = React.useState<{ path: string; center: number } | null>(null);
+  const peekRef = React.useRef(peek);
+  peekRef.current = peek;
   const peekTimer = React.useRef<any>(null);
+  const leaveTimer = React.useRef<any>(null);
+  const centerOf = (el: HTMLElement) => {
+    const bar = barRef.current?.getBoundingClientRect();
+    const btn = el.getBoundingClientRect();
+    return btn.left - (bar?.left || 0) + btn.width / 2;
+  };
+  /** Есть ли у программы окна на этом столе и мониторе — иначе показывать нечего */
+  const hasWindows = (path: string) => windowsOf(windows, path, desk).length > 0;
+  const showPeek = (path: string, el: HTMLElement) => {
+    // Снимки берутся ДО появления карточек: они стоят над столом и попали бы в кадр
+    const ids = windowsOf(windows, path, desk).map((w) => w.id);
+    snapshotWindows(ids, { panelShown: peekRef.current !== null });
+    setPeek({ path, center: centerOf(el) });
+  };
   const armPeek = (path: string, el: HTMLElement) => {
     clearTimeout(peekTimer.current);
-    peekTimer.current = setTimeout(() => {
-      const row = rowRef.current?.getBoundingClientRect();
-      const btn = el.getBoundingClientRect();
-      setPeek({ path, left: Math.max(0, btn.left - (row?.left || 0) + (row ? rowRef.current!.scrollLeft : 0)) });
-    }, 400);
+    clearTimeout(leaveTimer.current);
+    if (!hasWindows(path)) {
+      // Кнопка без окон: карточки соседней программы уходят вместе с мышью
+      if (peekRef.current) setPeek(null);
+      return;
+    }
+    if (peekRef.current) { showPeek(path, el); return; }
+    // Снимок начинается сейчас, а не через 400 мс: к показу он уже готов
+    snapshotWindows(windowsOf(windows, path, desk).map((w) => w.id));
+    peekTimer.current = setTimeout(() => showPeek(path, el), PEEK_DELAY);
   };
-  const disarmPeek = () => { clearTimeout(peekTimer.current); };
-  React.useEffect(() => () => clearTimeout(peekTimer.current), []);
+  const disarmPeek = () => {
+    clearTimeout(peekTimer.current);
+    clearTimeout(leaveTimer.current);
+    if (peekRef.current) leaveTimer.current = setTimeout(() => setPeek(null), PEEK_GRACE);
+  };
+  const keepPeek = () => clearTimeout(leaveTimer.current);
+  React.useEffect(() => () => { clearTimeout(peekTimer.current); clearTimeout(leaveTimer.current); }, []);
+  React.useEffect(() => {
+    if (!peek) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPeek(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [!!peek]);
+  useThumbKeeper();
   const rowRef = React.useRef<HTMLDivElement>(null);
   const barRef = React.useRef<HTMLDivElement>(null);
   const startRef = React.useRef<HTMLButtonElement>(null);
   // Список свёрнутых кнопок: открывается тем же меню, что и правая кнопка
   const [moreMenu, setMoreMenu] = React.useState<{ x: number; y: number } | null>(null);
-  // Панель календаря по часам — такая же панель трея, как уведомления
-  const [clockOpen, setClockOpen] = React.useState(false);
+  // Помощник — такая же правая панель, как уведомления
+  const assistOpen = useAssistantDockStore((s) => s.open);
+  const toggleAssist = useAssistantDockStore((s) => s.toggle);
   const [showUpdateDialog, setShowUpdateDialog] = React.useState(false);
   useUpdateReminders();
   React.useEffect(() => {
@@ -164,6 +201,15 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
   );
 
   const highlighted = activeWindowPath(windows, desk);
+  // Раздел «свёрнут», когда свёрнуты все его окна на этом столе: метка под
+  // кнопкой тогда бледнее, и видно, что за ней можно вернуться
+  const minimizedPaths = React.useMemo(
+    () => open.filter((p) => {
+      const mine = windowsOf(windows, p, desk);
+      return mine.length > 0 && mine.every((w) => w.minimized);
+    }),
+    [windows, desk, open],
+  );
 
   const mail = React.useMemo(
     () => Object.values(unreadByAccount).reduce((a, b) => a + (b || 0), 0),
@@ -200,8 +246,9 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
       counts: { mail, chat: chatUnread, feedback: feedbackUnread },
       isAdmin: hasAdminRole(user as any),
       width,
+      minimized: minimizedPaths,
     }),
-    [sources, open, highlighted, mail, chatUnread, feedbackUnread, user?.role, width],
+    [sources, open, highlighted, mail, chatUnread, feedbackUnread, user?.role, width, minimizedPaths],
   );
 
 
@@ -209,15 +256,17 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
     (path: string) => windowsOf(windows, path, desk).length,
     [windows, desk],
   );
-  /** Нажали по кнопке со стопкой: список окон открывается сразу, без задержки */
+  /** Нажали по кнопке со стопкой: карточки открываются сразу, без задержки */
   const armPeekNow = (path: string, el: HTMLElement) => {
-    const row = rowRef.current?.getBoundingClientRect();
-    const btn = el.getBoundingClientRect();
-    setPeek({ path, left: Math.max(0, btn.left - (row?.left || 0) + (rowRef.current?.scrollLeft || 0)) });
+    clearTimeout(peekTimer.current);
+    clearTimeout(leaveTimer.current);
+    showPeek(path, el);
   };
 
   const menuItems: MenuItem[] = menu ? [
     { label: 'Открыть', onClick: () => openSection(menu.path) },
+    ...(SECTIONS.find((s) => s.path === menu.path)?.multi && !SECTIONS.find((s) => s.path === menu.path)?.fileOnly
+      ? [{ label: 'Новое окно', onClick: () => useWindowStore.getState().openAnother(menu.path) }] : []),
     ...(SECTIONS.find((s) => s.path === menu.path)?.fileOnly ? [] : [
       { label: 'Открыть в отдельном окне', onClick: () => openSectionWindow(menu.path) },
       barPins.includes(menu.path)
@@ -232,19 +281,6 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
       },
     }] : []),
   ] : [];
-
-  // Кнопка Flux Guide в трее: открывает окно Guide на «Вопросах» — быстрый
-  // способ спросить, не отвлекаясь от текущего раздела (F1 остаётся для справки)
-  const openGuide = () => {
-    const st = useWindowStore.getState();
-    const win = st.windows.find((w) => w.path === '/guide' && w.desk === st.desk && !w.minimized);
-    if (win) {
-      // Уже открыто: поднимаем наверх вместо второго окна того же раздела
-      st.focus?.(win.id);
-      return;
-    }
-    st.open('/guide?tab=questions');
-  };
 
   /**
    * Обновление в трее. Раздел настроек открывается сразу на нужном месте:
@@ -331,20 +367,26 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
               key={b.path}
               type="button"
               onClick={(e) => {
-                // Окон несколько — выбирают из списка, а не наугад поднимают
+                // Окон несколько — выбирают из карточек, а не наугад поднимают
                 if (countOfWindows(b.path) > 1) {
-                  armPeekNow(b.path, e.currentTarget as HTMLElement);
+                  if (peek?.path === b.path) setPeek(null);
+                  else armPeekNow(b.path, e.currentTarget as HTMLElement);
                   return;
                 }
+                setPeek(null);
                 openSection(b.path);
               }}
               onMouseEnter={(e) => armPeek(b.path, e.currentTarget as HTMLElement)}
               onMouseLeave={disarmPeek}
+              onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
               onAuxClick={(e) => {
-                // Средним — ещё одно окно той же программы, привычка из браузера
+                // Средним — новое окно той же программы, как в системе. Разделу,
+                // у которого окно одно, нового не дать: его просто открывают
                 if (e.button !== 1) return;
                 e.preventDefault();
-                openSectionWindow(b.path);
+                setPeek(null);
+                if (SECTIONS.find((x) => x.path === b.path)?.multi) useWindowStore.getState().openAnother(b.path);
+                else openSection(b.path);
               }}
               onContextMenu={(e) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY, path: b.path }); }}
               title={b.title}
@@ -388,7 +430,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
               )}
               {/* Подчёркивание — «запущена». Видно боковым зрением и не спорит
                   с заливкой активной кнопки */}
-              {b.running && <TaskbarRunMark active={!!b.active} />}
+              {b.running && <TaskbarRunMark state={runState(b)!} />}
             </button>
           );
         })}
@@ -488,46 +530,57 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
 
         <button
           type="button"
-          onClick={openGuide}
-          title="Flux Guide: справка, вопросы и данные проекта"
+          onClick={toggleAssist}
+          aria-pressed={assistOpen}
+          data-tray-toggle
+          title="Flux Guide: справка, вопросы и данные проекта (F1 — справка в окне)"
           data-tour="guide-btn"
           style={{ width: BAR_BTN, height: BAR_BTN }}
-          className={trayBtn(false)}
+          className={trayBtn(assistOpen)}
         >
           <MessageCircleQuestion size={TRAY_ICON} />
         </button>
 
-        <button
-          type="button"
-          onClick={togglePanel}
-          title={isQuiet(quiet)
-            ? `Тихий режим ${untilLabel(quiet!)} — уведомления копятся, но не всплывают`
-            : notifUnread > 0 ? `Уведомления: ${notifUnread} непрочитанных` : 'Уведомления'}
-          data-tour="notif-btn"
-          style={{ width: BAR_BTN, height: BAR_BTN }}
-          className={trayBtn(notifOpen)}
-        >
-          {isQuiet(quiet) ? <BellOff size={TRAY_ICON} /> : <Bell size={TRAY_ICON} />}
-          {notifUnread > 0 && (
-            <span aria-hidden className={`absolute top-1.5 right-2 w-2 h-2 rounded-full ${chatUnread > 0 ? 'bg-emerald-500' : 'bg-rose-600'}`} />
-          )}
-        </button>
+        {/* Уведомления и часы — одна группа вплотную друг к другу, как в системе:
+            часы остаются в самом углу, колокольчик слева от них. Оба открывают
+            один и тот же правый центр уведомлений с календарём под списком:
+            смотрят на часы не чтобы узнать время, а чтобы понять, что сегодня */}
+        <div className="flex items-center">
+          <button
+            type="button"
+            onClick={togglePanel}
+            aria-pressed={notifOpen}
+            data-tray-toggle
+            title={isQuiet(quiet)
+              ? `Тихий режим ${untilLabel(quiet!)} — уведомления копятся, но не всплывают`
+              : notifUnread > 0 ? `Уведомления: ${notifUnread} непрочитанных` : 'Уведомления'}
+            data-tour="notif-btn"
+            style={{ width: BAR_BTN - 4, height: BAR_BTN }}
+            className={trayBtn(notifOpen)}
+          >
+            {isQuiet(quiet) ? <BellOff size={TRAY_ICON} /> : <Bell size={TRAY_ICON} />}
+            {notifUnread > 0 && (
+              <span aria-hidden className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ${chatUnread > 0 ? 'bg-emerald-500' : 'bg-rose-600'}`} />
+            )}
+          </button>
 
-        {/* Часы нажимаются: человек смотрит на них не чтобы узнать время, а
-            чтобы понять, что сегодня. Раньше нажатие не делало ничего */}
-        <button
-          type="button"
-          onClick={() => { setNotifOpen(false); setClockOpen((v) => !v); }}
-          aria-expanded={clockOpen}
-          title="Календарь: что сегодня и что впереди"
-          className={`flex flex-col items-end leading-tight px-3 tabular-nums select-none rounded-lg
-                      cursor-pointer transition-colors ${clockOpen
-            ? 'bg-slate-200/70 dark:bg-slate-800'
-            : 'hover:bg-slate-200/60 dark:hover:bg-slate-800'}`}
-        >
-          <b className="text-sm font-medium text-slate-800 dark:text-slate-150">{clockLabel(now)}</b>
-          <span className="text-2xs text-slate-500 dark:text-slate-400">{deadlineLabel(null, now)}</span>
-        </button>
+          <button
+            type="button"
+            onClick={togglePanel}
+            aria-expanded={notifOpen}
+            data-tray-toggle
+            data-tour="clock-btn"
+            title="Уведомления и календарь: что сегодня и что впереди"
+            style={{ height: BAR_BTN }}
+            className={`flex flex-col items-end justify-center leading-tight px-2.5 tabular-nums select-none rounded-lg
+                        cursor-pointer transition-colors ${notifOpen
+              ? 'bg-slate-200/70 dark:bg-slate-800'
+              : 'hover:bg-slate-200/60 dark:hover:bg-slate-800'}`}
+          >
+            <b className="text-sm font-medium text-slate-800 dark:text-slate-150">{clockLabel(now)}</b>
+            <span className="text-2xs text-slate-500 dark:text-slate-400">{deadlineLabel(null, now)}</span>
+          </button>
+        </div>
 
         {/* Учётная запись живёт в Пуске, как в системе. Круг с инициалами стоял
             здесь же и повторял его подвал целиком — человек, роль, тема,
@@ -551,10 +604,9 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
         />
       </div>
 
-      {clockOpen && <ClockPanel onClose={() => setClockOpen(false)} />}
-
       {peek && (
-        <TaskbarPeek path={peek.path} displayId={displayId} left={peek.left + 12} onClose={() => setPeek(null)} />
+        <TaskbarPeek path={peek.path} displayId={displayId} center={peek.center} barWidth={barWidth}
+          onEnter={keepPeek} onLeave={disarmPeek} onClose={() => setPeek(null)} />
       )}
       {moreMenu && (
         <ContextMenu

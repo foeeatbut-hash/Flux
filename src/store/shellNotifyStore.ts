@@ -11,7 +11,7 @@
 import { create } from 'zustand';
 import {
   isQuiet, quietUntil, snoozeUntil, dueSnoozed,
-  type NotifLike, type QuietId, type SnoozeId,
+  type NotifLike, type QuietId, type SnoozeId, type ClearedMap,
 } from '../lib/notifCenter';
 
 /** Всплывашка живёт своей жизнью: уведомление могло прийти и от напоминания */
@@ -37,6 +37,7 @@ export interface SnoozedToast { until: number; toast?: Omit<ShellToast, 'at'> }
 
 const QUIET_KEY = 'flux_quiet_until';
 const SNOOZE_KEY = 'flux_snoozed';
+const CLEARED_KEY = 'flux_notif_cleared';
 
 interface ShellNotifyState {
   toasts: ShellToast[];
@@ -44,6 +45,11 @@ interface ShellNotifyState {
   quiet: number | null;
   /** Отложенные: номер уведомления → до какого времени спрятано */
   snoozed: Record<string, SnoozedToast>;
+
+  /** До какого момента скрыта лента: ключ `*` — вся, прочие — группы программ */
+  cleared: ClearedMap;
+  /** «Удалить все» (`*`) или «Очистить» у одной программы */
+  clearFeed: (key: string, until: number) => void;
 
   /** Показать всплывашку. В тихом режиме — молча пропустить */
   push: (t: Omit<ShellToast, 'at'>) => void;
@@ -81,6 +87,14 @@ const loadSnoozed = (): Record<string, SnoozedToast> => {
   } catch (_) { return {}; }
 };
 
+const loadCleared = (): ClearedMap => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(CLEARED_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object') return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([, v]) => typeof v === 'number')) as ClearedMap;
+  } catch (_) { return {}; }
+};
+
 const saveSnoozed = (v: Record<string, SnoozedToast>) => {
   try { localStorage.setItem(SNOOZE_KEY, JSON.stringify(v)); } catch (_) { /* приватный режим */ }
 };
@@ -89,6 +103,15 @@ export const useShellNotifyStore = create<ShellNotifyState>((set, get) => ({
   toasts: [],
   quiet: num(QUIET_KEY),
   snoozed: loadSnoozed(),
+  cleared: loadCleared(),
+
+  clearFeed: (key, until) => {
+    const cleared = { ...get().cleared, [key]: until };
+    // Общая очистка поглощает частные: хранить их дальше незачем
+    if (key === '*') for (const k of Object.keys(cleared)) if (k !== '*' && cleared[k] <= until) delete cleared[k];
+    try { localStorage.setItem(CLEARED_KEY, JSON.stringify(cleared)); } catch (_) { /* приватный режим */ }
+    set({ cleared });
+  },
 
   push: (t) => {
     const { quiet, snoozed, toasts } = get();

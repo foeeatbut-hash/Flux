@@ -35,6 +35,8 @@ export interface TaskbarButton {
   running: boolean;
   /** Активный раздел активной панели */
   active: boolean;
+  /** Все окна раздела свёрнуты: метка под кнопкой бледнее и короче */
+  minimized: boolean;
 }
 
 export interface TaskbarView {
@@ -125,9 +127,12 @@ export function buildTaskbar(
     isAdmin?: boolean;
     /** Ширина полосы кнопок в точках; 0 — ещё не измерена */
     width?: number;
+    /** Разделы, у которых свёрнуты все окна */
+    minimized?: string[];
   },
 ): TaskbarView {
   const openSet = new Set(opts.open);
+  const minSet = new Set(opts.minimized || []);
   const allowed = sections.filter((s) => !s.adminOnly || opts.isAdmin);
 
   const pinned = allowed.filter((s) => s.pinned);
@@ -143,6 +148,7 @@ export function buildTaskbar(
     badge: badgeCount(s.badge, opts.counts),
     running: openSet.has(s.path),
     active: s.path === opts.activePath,
+    minimized: openSet.has(s.path) && minSet.has(s.path),
   }));
 
   // Имена остаются доступными метками, а ширина считается по компактным кнопкам значков.
@@ -154,6 +160,49 @@ export function buildTaskbar(
     hidden: buttons.slice(shown),
     tidy: opts.open.length >= TIDY_FROM,
   };
+}
+
+/** Как рисовать метку под кнопкой: активная — длинная акцентная, свёрнутая — бледная и короткая */
+export function runState(b: Pick<TaskbarButton, 'running' | 'active' | 'minimized'>): 'active' | 'open' | 'min' | null {
+  if (!b.running) return null;
+  if (b.active) return 'active';
+  return b.minimized ? 'min' : 'open';
+}
+
+/** Сколько ждать, прежде чем показать карточки окон: быстрое движение мимо кнопки ничего не открывает */
+export const PEEK_DELAY = 400;
+/** Пауза при уходе: мышь пересекает зазор между кнопкой и карточкой, и карточка не должна успеть погаснуть */
+export const PEEK_GRACE = 60;
+/** Ширина карточки окна и промежуток между карточками */
+export const PEEK_CARD_W = 188;
+export const PEEK_GAP = 8;
+export const PEEK_PAD = 8;
+/** Больше окон — карточки с картинками перестают помещаться, и список переходит в строки */
+export const PEEK_MAX_THUMBS = 5;
+/** Ширина списка строк */
+export const PEEK_LIST_W = 280;
+/** Отступ карточек от края панели */
+export const PEEK_EDGE = 8;
+
+export interface PeekPlan {
+  mode: 'thumbs' | 'list';
+  width: number;
+  /** Отступ слева в точках от левого края панели */
+  left: number;
+}
+
+/**
+ * Где встанут карточки: по центру над своей кнопкой, но не за краем панели.
+ * `center` — середина кнопки от левого края панели.
+ */
+export function peekPlan(count: number, center: number, barWidth: number): PeekPlan {
+  const n = Math.max(1, count);
+  const mode = n > PEEK_MAX_THUMBS ? 'list' : 'thumbs';
+  const natural = mode === 'list' ? PEEK_LIST_W : n * PEEK_CARD_W + (n - 1) * PEEK_GAP + PEEK_PAD * 2;
+  const width = barWidth > 0 ? Math.min(natural, Math.max(0, barWidth - PEEK_EDGE * 2)) : natural;
+  const max = Math.max(PEEK_EDGE, (barWidth || width + PEEK_EDGE * 2) - width - PEEK_EDGE);
+  const left = Math.round(Math.min(max, Math.max(PEEK_EDGE, center - width / 2)));
+  return { mode, width, left };
 }
 
 /** Время «12:47» — двузначные часы и минуты, без секунд */

@@ -6,6 +6,7 @@ import { updateRefusal, sha256File } from './updateSignature';
 import { downloadVerifiedUpdate, assertUpdatePublished, type VerifiedDownload } from './updateDownload';
 import { setupCapture } from './capture';
 import { setupFeedbackCapture } from './feedbackCapture';
+import { setupWindowThumb } from './windowThumb';
 import { setupBrowser, disposeBrowserFor } from './browser';
 import { setupLogs, appendLog, appendLogNow, logsDir } from './logs';
 import { setupDiagnostics } from './diagnostics';
@@ -178,6 +179,9 @@ app.whenReady().then(async () => {
   // Снимок своего окна для обращения — отдельно от захвата данных: у того своя
   // корзина и распознавание, и «приложить снимок» не должно их запускать
   setupFeedbackCapture();
+
+  // Уменьшенные снимки окон для карточек над кнопками панели задач
+  setupWindowThumb();
 
 
   const CONFIG_FILE = path.join(ventAppDataPath, 'config.json');

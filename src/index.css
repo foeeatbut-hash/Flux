@@ -1603,3 +1603,24 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
     .cat-collapse { transition: none; }
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   Панель задач: карточки окон и правые панели
+   (docs/methodology/03-programs/shell.md, «Трей и правые панели»)
+   ═══════════════════════════════════════════════════════════ */
+/* Карточки окон над кнопкой: поднимаются на 6 px и проявляются. Анимация висит
+   на самой карточке только при первом появлении; переезд на соседнюю кнопку
+   идёт без неё, чтобы ряд карточек не мигал */
+.fx-peek { box-shadow: var(--flux-shadow-pop); }
+.fx-peek-in { animation: fx-peek-in var(--flux-dur-fast) var(--flux-ease) backwards; }
+@keyframes fx-peek-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+/* Правые панели: въезд справа на 24 px, уход короче прихода. Конечное
+   состояние у въезда не фиксируется (backwards): transform на предке сломал бы
+   вложенным position:fixed (меню, подсказки) их опору */
+.fx-dock-in { animation: fx-dock-in var(--flux-dur-base) var(--flux-ease) backwards; }
+.fx-dock-out { animation: fx-dock-out var(--flux-dur-exit) var(--flux-ease-exit) both; pointer-events: none; }
+@keyframes fx-dock-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+@keyframes fx-dock-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateX(24px); } }
+@media (prefers-reduced-motion: reduce) {
+  .fx-peek-in, .fx-dock-in, .fx-dock-out { animation: none; }
+}
