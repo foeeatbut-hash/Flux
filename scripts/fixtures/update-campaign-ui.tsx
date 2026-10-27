@@ -11,6 +11,6 @@ useStore.setState({ user: { id: 'admin', name: 'Администратор', rol
 function Fixture() {
   const [ids, setIds] = useState(Array.from({ length: 27 }, (_, i) => `employee${i}`));
   (window as any).__filterEmployees = setIds;
-  return <main className="p-3"><UpdateCampaignPanel employeeIds={ids} /></main>;
+  return <main className="fx-page" style={{ height: "100vh" }}><UpdateCampaignPanel employeeIds={ids} /></main>;
 }
 createRoot(document.getElementById('mount')!).render(<Fixture />);

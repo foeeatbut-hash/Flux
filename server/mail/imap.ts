@@ -73,7 +73,7 @@ export async function closeAll(): Promise<void> {
 }
 
 function makeClient(c: MailCreds): ImapFlow {
-  return new ImapFlow({
+  const client = new ImapFlow({
     host: c.imapHost,
     port: c.imapPort || 993,
     secure: c.imapSecure !== false,
@@ -92,7 +92,21 @@ function makeClient(c: MailCreds): ImapFlow {
     // тысяча писем на медленном канале идёт дольше минуты
     socketTimeout: 120000,
   });
+  // Событие 'error' без слушателя в Node роняет весь процесс. Ошибку соединения
+  // получает тот, кто ждёт connect() или очередную команду, а обрыв посреди
+  // простоя (сервер закрыл сокет, пока ящик никто не трогал) — никто, поэтому
+  // слушатель ставим сразу, а не после успешного входа
+  client.on('error', () => { /* разбор — у вызвавшего команду */ });
+  return client;
 }
+
+/**
+ * Соединения, которые ещё устанавливаются. Список писем и открытое письмо
+ * просят соединение одновременно; без общего ожидания каждый заводил своё,
+ * второе затирало первое в пуле, и первое оставалось висеть открытым без
+ * владельца до перезапуска сервера.
+ */
+const connecting = new Map<string, Promise<ImapFlow>>();
 
 async function connect(c: MailCreds): Promise<ImapFlow> {
   const existing = pool.get(c.id);
@@ -100,16 +114,25 @@ async function connect(c: MailCreds): Promise<ImapFlow> {
     if (existing.idleTimer) clearTimeout(existing.idleTimer);
     return existing.client;
   }
-  if (existing) await closeConnection(c.id);
+  const pending = connecting.get(c.id);
+  if (pending) return pending;
 
-  const client = makeClient(c);
-  await client.connect();
-  pool.set(c.id, { client, idleTimer: null, busy: false });
-  // Обрыв связи не должен оставлять в пуле мёртвое соединение: следующий
-  // запрос иначе упадёт на нём, а не переподключится
-  client.on('close', () => { pool.delete(c.id); });
-  client.on('error', () => { pool.delete(c.id); });
-  return client;
+  const attempt = (async () => {
+    if (existing) await closeConnection(c.id);
+    const client = makeClient(c);
+    await client.connect();
+    pool.set(c.id, { client, idleTimer: null, busy: false });
+    // Обрыв связи не должен оставлять в пуле мёртвое соединение: следующий
+    // запрос иначе упадёт на нём, а не переподключится. Но убирать из пула
+    // можно только своё: закрывающееся старое соединение не должно выбросить
+    // новое, уже занявшее его место
+    const drop = () => { if (pool.get(c.id)?.client === client) pool.delete(c.id); };
+    client.on('close', drop);
+    client.on('error', drop);
+    return client;
+  })().finally(() => { connecting.delete(c.id); });
+  connecting.set(c.id, attempt);
+  return attempt;
 }
 
 /** Выполнить работу в папке, освободив её в любом случае. */
@@ -152,12 +175,20 @@ export function explainError(err: any): string {
   if (low.includes('econnrefused')) {
     return 'Сервер отказал в соединении. Проверьте порт: обычно 993 с шифрованием.';
   }
-  if (low.includes('etimedout') || low.includes('timeout')
-      || low.includes('failed to establish connection')) {
-    return 'Сервер не ответил вовремя. Проверьте сеть и не закрыт ли порт межсетевым экраном — для IMAP это обычно 993.';
-  }
   if (low.includes('certificate') || low.includes('self-signed') || low.includes('altnames')) {
     return 'Не сошёлся сертификат сервера. Проверьте адрес — возможно, указан не тот узел.';
+  }
+  // Порт и шифрование не совпали: SSL на порту 143 или без SSL на 993. Сервер в
+  // ответ молчит или рвёт связь, и по тексту это не отличить от закрытого порта —
+  // поэтому подсказка про пару «порт — шифрование» нужна в обоих случаях
+  if (low.includes('wrong version number') || low.includes('ssl routines')
+      || low.includes('econnreset') || low.includes('unexpected close')
+      || low.includes('connection not available') || low.includes('socket hang up')) {
+    return 'Сервер оборвал соединение. Проверьте порт и шифрование: 993 — с SSL, 143 — без SSL (STARTTLS).';
+  }
+  if (low.includes('etimedout') || low.includes('timeout')
+      || low.includes('failed to establish connection')) {
+    return 'Сервер не ответил вовремя. Проверьте сеть, порт и шифрование (993 — с SSL, 143 — STARTTLS) и не закрыт ли порт межсетевым экраном.';
   }
   return raw || 'Не удалось соединиться с почтовым сервером.';
 }
@@ -167,6 +198,9 @@ export function explainError(err: any): string {
 export interface VerifyResult { ok: boolean; error: string; folders: number }
 
 export async function verify(c: MailCreds): Promise<VerifyResult> {
+  if (!c.imapHost) {
+    return { ok: false, error: 'Не указан сервер входящей почты (IMAP)', folders: 0 };
+  }
   let client: ImapFlow | null = null;
   try {
     client = makeClient(c);
@@ -289,7 +323,7 @@ export async function fetchHeaders(
   c: MailCreds,
   path: string,
   opts: { since?: Date; minUid?: number; limit?: number },
-): Promise<{ rows: HeaderRow[]; state: FolderState }> {
+): Promise<{ rows: HeaderRow[]; state: FolderState; more: boolean }> {
   return inMailbox(c, path, async (client) => {
     const mb: any = client.mailbox;
     const state: FolderState = {
@@ -297,24 +331,35 @@ export async function fetchHeaders(
       uidNext: Number(mb?.uidNext ?? 0),
       total: Number(mb?.exists ?? 0),
     };
-    if (!state.total) return { rows: [], state };
+    if (!state.total) return { rows: [], state, more: false };
 
     // Ищем нужные uid, а не тянем всю папку: в ящике на 200 тысяч писем
     // перечисление «1:*» само по себе занимает минуты
     let uids: number[];
     if (opts.minUid && opts.minUid > 0) {
-      uids = await client.search({ uid: `${opts.minUid + 1}:*` }, { uid: true }) as number[];
+      // Диапазон «N:*» в IMAP всегда включает последнее письмо папки, даже если
+      // его uid меньше N, — отсекаем его сами, иначе при отсутствии новых писем
+      // каждая проверка принимала бы за новое одно и то же
+      const min = opts.minUid;
+      uids = (await client.search({ uid: `${min + 1}:*` }, { uid: true }) as number[]).filter((u) => u > min);
     } else if (opts.since) {
       uids = await client.search({ since: opts.since }, { uid: true }) as number[];
     } else {
       uids = await client.search({ all: true }, { uid: true }) as number[];
     }
-    if (!uids?.length) return { rows: [], state };
+    if (!uids?.length) return { rows: [], state, more: false };
 
-    // Свежие важнее: если упёрлись в ограничение, берём последние
     uids.sort((a, b) => a - b);
     const limit = opts.limit || 500;
-    const take = uids.length > limit ? uids.slice(uids.length - limit) : uids;
+    // Первая загрузка: свежие важнее, берём последние. Дозагрузка после
+    // `minUid`: берём САМЫЕ СТАРЫЕ из новых и сообщаем, что остались ещё, —
+    // иначе при пачке больше лимита метка «скачано до» перепрыгивала через
+    // пропущенные письма, и они терялись навсегда
+    const incremental = Boolean(opts.minUid && opts.minUid > 0);
+    const take = uids.length > limit
+      ? (incremental ? uids.slice(0, limit) : uids.slice(uids.length - limit))
+      : uids;
+    const more = incremental && uids.length > take.length;
 
     const rows: HeaderRow[] = [];
     for await (const msg of client.fetch(
@@ -346,7 +391,28 @@ export async function fetchHeaders(
         hasFiles: structureHasFiles(msg.bodyStructure),
       });
     }
-    return { rows, state };
+    return { rows, state, more };
+  });
+}
+
+/**
+ * Актуальные флаги уже известных писем. Нужны, чтобы подтянуть то, что человек
+ * поменял в телефоне или веб-почте: дозагрузка берёт только новые письма и
+ * чужих отметок «прочитано» не видит.
+ */
+export async function fetchFlags(
+  c: MailCreds, path: string, uids: number[],
+): Promise<Map<number, { seen: boolean; flagged: boolean; answered: boolean }>> {
+  const out = new Map<number, { seen: boolean; flagged: boolean; answered: boolean }>();
+  if (!uids.length) return out;
+  return inMailbox(c, path, async (client) => {
+    for await (const msg of client.fetch(uids.join(','), { flags: true, uid: true }, { uid: true })) {
+      const flags: Set<string> = (msg.flags as Set<string>) || new Set();
+      out.set(Number(msg.uid), {
+        seen: flags.has('\\Seen'), flagged: flags.has('\\Flagged'), answered: flags.has('\\Answered'),
+      });
+    }
+    return out;
   });
 }
 
@@ -391,7 +457,9 @@ export async function fetchBody(c: MailCreds, path: string, uid: number, size = 
     // разберётся с кодировками, вложенными письмами и картинками внутри
     if (!size || size <= FULL_PARSE_LIMIT) {
       const one: any = await client.fetchOne(String(uid), { source: true }, { uid: true });
-      if (!one?.source) return { text: '', html: '', attachments: [] };
+      // Пустой ответ — не «письмо без текста»: такое письмо закрепилось бы в
+      // базе пустым навсегда, и при следующем открытии сервер уже не спрашивали
+      if (!one?.source) throw new Error('Письма нет на сервере — возможно, его удалили в другом приложении.');
       const parsed: any = await simpleParser(one.source);
       return {
         text: String(parsed.text || ''),

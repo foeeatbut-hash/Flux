@@ -12,7 +12,7 @@ import { parseAddrList, displayName, initialsOf, toneOf, type AvatarTone } from 
 import { useToastStore } from '../../store/toastStore';
 import { reportSaveError, saveBlob } from '../../lib/saveToWindows';
 import { useStore } from '../../store/store';
-import { useEscapeClose } from '../../lib/useDismiss';
+import { WindowDialog } from '../ui/WindowDialog';
 import { sanitizeMailHtml, mailFrameDoc, textToHtml, highlightMentions } from '../../lib/mailHtml';
 import MailMentions from './MailMentions';
 import {
@@ -657,7 +657,6 @@ function FolderPicker({ attachment, onClose, onDone }: {
   const [picked, setPicked] = useState('');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
-  useEscapeClose(true, () => { if (!busy) onClose(); });
 
   useEffect(() => {
     let alive = true;
@@ -679,11 +678,9 @@ function FolderPicker({ attachment, onClose, onDone }: {
   };
 
   return (
-    <div className="fixed inset-0 z-[85] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Куда сохранить вложение">
-      <div className="fixed inset-0 fx-backdrop" onClick={() => !busy && onClose()} />
-      <div className="flex min-h-full items-center justify-center p-4">
-        <div className="fx-dialog relative w-full max-w-md p-5 flex flex-col gap-3">
-          <h3 className="text-base font-semibold text-slate-900 dark:text-white">Сохранить в Проводник</h3>
+    <WindowDialog onClose={onClose} busy={busy} label="Куда сохранить вложение"
+      className="fx-dialog w-full max-w-md p-5 flex flex-col gap-3">
+          <h3 data-dialog-drag className="text-base font-semibold text-slate-900 dark:text-white">Сохранить в Проводник</h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 break-words">
             {attachment.fileName} · {humanSize(attachment.size)}
           </p>
@@ -715,9 +712,7 @@ function FolderPicker({ attachment, onClose, onDone }: {
               Сохранить
             </button>
           </div>
-        </div>
-      </div>
-    </div>
+        </WindowDialog>
   );
 }
 

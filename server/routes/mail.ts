@@ -11,7 +11,8 @@ import {
 } from '../mail/access.js';
 import { watchAccount, stopWatch, restartWatch } from '../mail/idle.js';
 import { verifySmtp } from '../mail/send.js';
-import { discover } from '../mail/discover.js';
+import { discover, defaultImapSecure, defaultSmtpSecure } from '../mail/discover.js';
+import { attachmentFile } from '../mail/attachFile.js';
 
 /**
  * Маршруты раздела «Почта».
@@ -118,7 +119,13 @@ async function ownedMessage(req: Request, id: string) {
 }
 
 const str = (v: any, max = 300) => String(v ?? '').trim().slice(0, max);
-const num = (v: any, def: number) => (Number.isFinite(Number(v)) ? Number(v) : def);
+// Пустая строка для Number() — это 0, и пустое поле формы становилось числом
+const num = (v: any, def: number) => (v === '' || v === null || v === undefined || !Number.isFinite(Number(v)) ? def : Number(v));
+/** Порт сервера: целое от 1 до 65535, иначе — значение по умолчанию */
+const portOf = (v: any, def: number) => {
+  const n = num(v, def);
+  return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : def;
+};
 
 export interface MailDeps {
   userDataPath: string;
@@ -126,11 +133,6 @@ export interface MailDeps {
   enforce: (req: Request, res: Response, feature: string) => Promise<boolean>;
   /** Тот же вопрос молча — когда право лишь меняет вид ответа */
   mayFeature: (req: Request, feature: string) => Promise<boolean>;
-}
-
-/** Каталог для вложений — рядом с файлами Чата. */
-function mailDir(userDataPath: string, accountId: string, messageId: string): string {
-  return path.join(userDataPath, 'mail_files', accountId, messageId);
 }
 
 export function registerMailRoutes(app: Express, deps: MailDeps): void {
@@ -197,8 +199,17 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
         if (already) return res.status(400).json({ error: 'Такой общий ящик уже подключён' });
       }
 
+      // Один личный ящик подключается один раз: повторное нажатие «Подключить»
+      // после неудачной проверки иначе плодило одинаковые ящики в списке
+      if (!shared) {
+        const dup = await prisma.mailAccount.findFirst({ where: { scope: 'PERSONAL', ownerId: me.id, email } });
+        if (dup) return res.status(400).json({ error: 'Этот ящик у вас уже подключён — откройте его настройки' });
+      }
+
       const p = presetFor(email);
       const sealed = seal(password);
+      const imapPort = portOf(req.body?.imapPort, p?.imapPort || 993);
+      const smtpPort = portOf(req.body?.smtpPort, p?.smtpPort || 465);
       const acc = await prisma.mailAccount.create({
         data: {
           scope: shared ? 'SHARED' : 'PERSONAL',
@@ -210,11 +221,13 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
           email,
           displayName: str(req.body?.displayName, 120) || me.name || '',
           imapHost: str(req.body?.imapHost, 200) || p?.imapHost || '',
-          imapPort: num(req.body?.imapPort, p?.imapPort || 993),
-          imapSecure: req.body?.imapSecure !== false,
+          imapPort,
+          // Шифрование, не названное явно, определяется портом: форма шлёт только
+          // порты, а на 143 и 587 SSL с первого байта не работает
+          imapSecure: typeof req.body?.imapSecure === 'boolean' ? req.body.imapSecure : defaultImapSecure(imapPort),
           smtpHost: str(req.body?.smtpHost, 200) || p?.smtpHost || '',
-          smtpPort: num(req.body?.smtpPort, p?.smtpPort || 465),
-          smtpSecure: req.body?.smtpSecure !== false,
+          smtpPort,
+          smtpSecure: typeof req.body?.smtpSecure === 'boolean' ? req.body.smtpSecure : defaultSmtpSecure(smtpPort),
           login: str(req.body?.login, 200) || email,
           secret: sealed.secret,
           secretNonce: sealed.nonce,
@@ -239,14 +252,24 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
       const data: any = {};
       const b = req.body || {};
       if (b.label !== undefined) data.label = str(b.label, 80);
+      // Адрес можно поправить, пока ящик ни разу не читался: опечатка в адресе —
+      // самая частая причина неудачной первой проверки, а после неё форма
+      // работает уже как правка. Прочитанный ящик не переименовать: письма в
+      // базе привязаны к тому адресу, с которого их скачали
+      if (b.email !== undefined && !acc.lastSyncAt) {
+        const e = str(b.email, 200).toLowerCase();
+        if (e.includes('@')) data.email = e;
+      }
       if (b.sortOrder !== undefined) data.sortOrder = num(b.sortOrder, acc.sortOrder);
       if (b.displayName !== undefined) data.displayName = str(b.displayName, 120);
       if (b.imapHost !== undefined) data.imapHost = str(b.imapHost, 200);
-      if (b.imapPort !== undefined) data.imapPort = num(b.imapPort, acc.imapPort);
-      if (b.imapSecure !== undefined) data.imapSecure = b.imapSecure !== false;
+      if (b.imapPort !== undefined) data.imapPort = portOf(b.imapPort, acc.imapPort);
+      if (typeof b.imapSecure === 'boolean') data.imapSecure = b.imapSecure;
+      else if (b.imapPort !== undefined) data.imapSecure = defaultImapSecure(data.imapPort);
       if (b.smtpHost !== undefined) data.smtpHost = str(b.smtpHost, 200);
-      if (b.smtpPort !== undefined) data.smtpPort = num(b.smtpPort, acc.smtpPort);
-      if (b.smtpSecure !== undefined) data.smtpSecure = b.smtpSecure !== false;
+      if (b.smtpPort !== undefined) data.smtpPort = portOf(b.smtpPort, acc.smtpPort);
+      if (typeof b.smtpSecure === 'boolean') data.smtpSecure = b.smtpSecure;
+      else if (b.smtpPort !== undefined) data.smtpSecure = defaultSmtpSecure(data.smtpPort);
       if (b.login !== undefined) data.login = str(b.login, 200);
       if (b.active !== undefined) data.active = b.active !== false;
       if (b.syncDays !== undefined) data.syncDays = Math.max(1, Math.min(3650, num(b.syncDays, acc.syncDays)));
@@ -300,14 +323,18 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
       if (!acc) return res.status(404).json({ error: 'Ящик не найден' });
       const password = unseal(acc.secret, acc.secretNonce);
       if (!password) return res.json({ imap: { ok: false, error: 'Пароль не задан или не читается' } });
-      const result = await imap.verify({ ...credsOf(acc), password });
       // Отправку проверяем тоже — раньше это было только обещано в пояснении, а
       // неверный сервер исходящих обнаруживался в момент, когда человек нажимал
-      // «Отправить» на готовом письме и терял его
-      const smtp = await verifySmtp({
-        smtpHost: acc.smtpHost, smtpPort: acc.smtpPort, smtpSecure: acc.smtpSecure !== false,
-        login: acc.login || acc.email, password,
-      });
+      // «Отправить» на готовом письме и терял его. Обе проверки идут вместе: у
+      // каждой свои сроки ожидания, и вдвоём подряд окно «Проверяем связь…»
+      // висело бы больше минуты
+      const [result, smtp] = await Promise.all([
+        imap.verify({ ...credsOf(acc), password }),
+        verifySmtp({
+          smtpHost: acc.smtpHost, smtpPort: acc.smtpPort, smtpSecure: acc.smtpSecure !== false,
+          login: acc.login || acc.email, password,
+        }),
+      ]);
       const prisma = getPrisma();
       await prisma.mailAccount.update({
         where: { id: acc.id },
@@ -526,8 +553,12 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
         return res.status(400).json({ error: 'Нечего отмечать' });
       }
 
-      const msgs = await prisma.mailMessage.findMany({ where: { id: { in: ids } } });
-      if (!msgs.length) return res.json({ ok: true, changed: 0 });
+      const found = await prisma.mailMessage.findMany({ where: { id: { in: ids } } });
+      if (!found.length) return res.json({ ok: true, changed: 0 });
+      // Доступ проверяется по ящику первого письма, поэтому остальные должны
+      // быть из него же: иначе в список можно подмешать id чужих писем, и
+      // они были бы изменены с правами своего ящика
+      const msgs = found.filter((m: any) => m.accountId === found[0].accountId);
 
       const access = await readableAccount(req, msgs[0].accountId);
       if (!access) return res.status(404).json({ error: 'Письма не найдены' });
@@ -581,8 +612,10 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
       const toKind = str(req.body?.to, 20).toUpperCase(); // TRASH | ARCHIVE | INBOX
       if (!ids.length) return res.status(400).json({ error: 'Нечего переносить' });
 
-      const msgs = await prisma.mailMessage.findMany({ where: { id: { in: ids } } });
-      if (!msgs.length) return res.json({ ok: true });
+      const found = await prisma.mailMessage.findMany({ where: { id: { in: ids } } });
+      if (!found.length) return res.json({ ok: true });
+      // Только письма одного ящика — того, к которому проверен доступ
+      const msgs = found.filter((m: any) => m.accountId === found[0].accountId);
 
       const access = await readableAccount(req, msgs[0].accountId);
       if (!access) return res.status(404).json({ error: 'Письма не найдены' });
@@ -643,9 +676,8 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
       const buf = await imap.fetchAttachment(credsOf(owned.acc), folder.path, owned.msg.uid, att.partId);
       if (!buf) return res.status(502).json({ error: 'Не удалось получить вложение с почтового сервера' });
 
-      const dir = mailDir(deps.userDataPath, owned.acc.id, owned.msg.id);
-      fs.mkdirSync(dir, { recursive: true });
-      const full = path.join(dir, safeName);
+      const full = attachmentFile(deps.userDataPath, owned.acc.id, owned.msg.id, att.id, att.fileName);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
       fs.writeFileSync(full, buf);
       await prisma.mailAttachment.update({ where: { id: att.id }, data: { filePath: full, size: buf.length } });
       res.download(full, safeName);

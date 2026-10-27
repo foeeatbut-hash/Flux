@@ -53,7 +53,8 @@ export default function Popover({ anchor, onClose, align = 'left', children, lab
       const el = ref.current;
       if (!el || !anchor) return;
       const a = anchor.getBoundingClientRect();
-      const box = el.getBoundingClientRect();
+      // Размер без анимационного transform появления
+      const box = { width: el.offsetWidth, height: el.offsetHeight };
       const vw = window.innerWidth;
       const vh = window.innerHeight;
 

@@ -264,7 +264,7 @@ export default function BoardCard({
 
       {/* EXPANDED SECTION */}
       {isExpanded && (
-        <div className="border-t border-slate-105 dark:border-slate-850 animate-fadeIn text-slate-800 dark:text-slate-300">
+        <div className="border-t border-slate-105 dark:border-slate-850 fx-fade-in text-slate-800 dark:text-slate-300">
           
           {/* INFO TAG FLUID/DEPT */}
           <div className="px-4 py-2 bg-slate-50/40 dark:bg-slate-950/20 text-xs text-slate-400 flex justify-between border-b border-slate-100 dark:border-slate-900 font-medium">

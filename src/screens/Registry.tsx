@@ -26,6 +26,7 @@ import {
   Check,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { TRANSITION } from '../lib/motion';
 import { createPortal } from 'react-dom';
 import TagImportWizard from '../components/TagImportWizard';
 import { encodeShare } from '../lib/shareLink';
@@ -2016,7 +2017,7 @@ export default function Registry() {
   }
 
   return (
-    <div id="registry-screen-root" className="fx-page @container animate-fadeIn">
+    <div id="registry-screen-root" className="fx-page @container fx-fade-in">
       <RegistryHeader
         tagCount={tags.length}
         activeTab={activeTab}
@@ -2099,10 +2100,10 @@ export default function Registry() {
           {activeTab === 'board' && (
             <motion.div
               key="canvas-board"
-              initial={{ opacity: 0, y: 15 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.15 }}
+              exit={{ opacity: 0, transition: TRANSITION.exit }}
+              transition={TRANSITION.enter}
               className="h-full w-full flex flex-col min-h-0"
             >
               {/* THE GRAPH SPACE WITH OVERLAID CONTROLS */}
@@ -2148,7 +2149,7 @@ export default function Registry() {
             >
               {/* Режим связывания: подсказка сверху по центру */}
               {linkingFrom && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-sky-600 text-white px-3 py-2 rounded-xl shadow-lg text-xs font-semibold animate-in fade-in slide-in-from-top-2">
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-sky-600 text-white px-3 py-2 rounded-xl shadow-lg text-xs font-semibold fx-fade-in">
                   <Link2 className="w-4 h-4" />
                   Кликните тег-получатель связи
                   <button type="button" onClick={() => setLinkingFrom(null)} className="ml-1 px-1.5 py-0.5 rounded bg-white/20 hover:bg-white/30 cursor-pointer">Esc — отмена</button>
@@ -2159,7 +2160,7 @@ export default function Registry() {
                   Показываем, пока пользователь не подвигал холст — дальше она
                   только загораживает. */}
               {showCanvasHint && (
-              <div className="absolute bottom-3 left-3 z-30 text-2xs text-slate-400 dark:text-slate-500 bg-white/95 dark:bg-slate-950/95 backdrop-blur px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 pointer-events-none select-none">
+              <div className="absolute bottom-3 left-3 z-30 text-2xs text-slate-400 dark:text-slate-500 bg-white/95 dark:bg-slate-950/95 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-800 pointer-events-none select-none">
                 ПКМ — двигать холст · колесо — масштаб · {linkMode === 'click'
                   ? <><Link2 className="w-2.5 h-2.5 inline -mt-0.5" /> на карточке — связать</>
                   : <>тяни от точек-портов — связать</>}
@@ -2284,7 +2285,7 @@ export default function Registry() {
 
               {/* Панель выделения: сколько выбрано + быстрые действия */}
               {selectedTagIds.size > 0 && (
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-900 shadow-lg text-xs">
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-white/95 dark:bg-slate-950/95 px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-900 shadow-lg text-xs">
                   <span className="font-medium text-emerald-700 dark:text-emerald-300">Выбрано: {selectedTagIds.size}</span>
                   <button type="button"
                     onClick={() => fitToTags(tags.filter(t => selectedTagIds.has(t.id)))}
@@ -2380,7 +2381,7 @@ export default function Registry() {
 
         {/* Панель выделения для вкладок «Дерево связей» и «Спецификация» */}
         {selectedTagIds.size > 0 && activeTab !== 'board' && createPortal(
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-2 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-900 shadow-lg text-xs">
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] flex items-center gap-2 bg-white/95 dark:bg-slate-950/95 px-3 py-2 rounded-xl border border-emerald-200 dark:border-emerald-900 shadow-lg text-xs">
             <span className="font-medium text-emerald-700 dark:text-emerald-300">Выбрано: {selectedTagIds.size}</span>
             <button type="button"
               onClick={() => shareTagsInChat(Array.from(selectedTagIds))}
@@ -2403,10 +2404,10 @@ export default function Registry() {
         {activeTab === 'tree' && (
           <motion.div
             key="tree-wood-tab"
-            initial={{ opacity: 0, y: 15 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -15 }}
-            transition={{ duration: 0.15 }}
+            exit={{ opacity: 0, transition: TRANSITION.exit }}
+            transition={TRANSITION.enter}
             className="h-full w-full overflow-y-auto space-y-4 text-left pr-1"
           >
             {/* Подсказка по способу связывания в дереве */}
@@ -2436,10 +2437,10 @@ export default function Registry() {
         {activeTab === 'exchange' && (
           <motion.div
             key="exchange-tab"
-            initial={{ opacity: 0, y: 15 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -15 }}
-            transition={{ duration: 0.15 }}
+            exit={{ opacity: 0, transition: TRANSITION.exit }}
+            transition={TRANSITION.enter}
             className="h-full w-full overflow-y-auto pr-1"
           >
             <ExchangeTab total={tags.length}
@@ -2452,10 +2453,10 @@ export default function Registry() {
         {activeTab === 'segments' && (
           <motion.div
             key="segment-aggregator-tab"
-            initial={{ opacity: 0, y: 15 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -15 }}
-            transition={{ duration: 0.15 }}
+            exit={{ opacity: 0, transition: TRANSITION.exit }}
+            transition={TRANSITION.enter}
             className="h-full w-full overflow-y-auto space-y-4 text-left pr-1"
           >
             <SegmentCollectorTab collector={collector} dictionaries={dictionaries} splitSegments={splitSegments} />
@@ -2466,10 +2467,10 @@ export default function Registry() {
         {activeTab === 'table' && (
           <motion.div
             key="table-spec-tab"
-            initial={{ opacity: 0, y: 15 }}
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -15 }}
-            transition={{ duration: 0.15 }}
+            exit={{ opacity: 0, transition: TRANSITION.exit }}
+            transition={TRANSITION.enter}
             className="h-full w-full flex flex-col min-h-0 text-left pr-1"
           >
             <SpecTable
@@ -2711,7 +2712,7 @@ export default function Registry() {
         </div>
 
         {configList.length > 0 && isTreeDescVisible && (
-          <div className="space-y-1.5 pb-2 text-left animate-fadeIn" style={{ marginLeft: `${(level * 24) + 38}px` }}>
+          <div className="space-y-1.5 pb-2 text-left fx-fade-in" style={{ marginLeft: `${(level * 24) + 38}px` }}>
             {configList.map((desc: any) => {
               const s = statusConfig[desc.status] || statusConfig.draft;
               const Icon = s.icon;

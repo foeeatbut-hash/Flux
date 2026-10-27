@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { WindowDialogOrEmbedded } from '../ui/WindowDialog';
 import { AlertTriangle, Check, FolderOpen, Loader2, Upload, X } from 'lucide-react';
 import { expandEquipmentUnitGroup, inferEquipmentSourceFilenameRule } from '../../../equipment/sourceXml';
 import { autoFixTag, PERMISSIVE_TAG_POLICY } from '../../../equipment/tagPolicy';
@@ -300,9 +301,12 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
     <>
     <ImportFileChooser ref={filePicker} accept=".xml" label="Выбрать XML" trigger={() => null} onFiles={() => {}} onWindowsFile={(ref, entry, context) => { void chooseFile({ ref, name: entry.name, ...context }); }} />
     <ImportFileChooser ref={folderPicker} selectFolder label="Выбрать папку XML" trigger={() => null} onFiles={() => {}} onWindowsFolder={ref => { void changeFolder(ref); }} />
-    <div className={inline ? 'flex flex-col rounded-xl border border-slate-200 dark:border-slate-800' : embedded ? 'flex h-full min-h-0 flex-col overflow-hidden' : 'fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/40 p-3'} role={inline ? 'region' : 'dialog'} aria-modal={embedded || inline ? undefined : true} aria-labelledby="equipment-source-import-title">
-      <div className={inline ? 'flex w-full flex-col' : embedded ? 'flex h-full min-h-0 w-full flex-col overflow-hidden' : 'flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md dark:border-slate-700 dark:bg-slate-950'}>
-        {inline ? <header className="border-b border-slate-200 px-3 py-2 dark:border-slate-800"><h3 id="equipment-source-import-title" className="text-sm font-semibold">Загрузка установки из XML</h3><p className="text-xs text-slate-500 dark:text-slate-400">План строится по этому файлу; данные проекта изменятся только после подтверждения.</p></header> : <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800"><div><h2 id="equipment-source-import-title" className="text-sm font-semibold">Загрузить оборудование из XML</h2><p className="text-xs text-slate-500 dark:text-slate-400">Сначала проверьте план; данные проекта изменятся только после подтверждения.</p></div><button type="button" onClick={close} disabled={busy} aria-label="Закрыть" className="rounded p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-900"><X className="h-4 w-4" /></button></header>}
+    {/* Встроенная карточка (inline) и встроенный режим мастера — блок без окна;
+        отдельно открытый импорт — дочернее окно программы */}
+    <WindowDialogOrEmbedded embedded={embedded || inline} onClose={close} busy={busy} label="Загрузить оборудование из XML"
+      embeddedClassName={inline ? 'flex flex-col rounded-xl border border-slate-200 dark:border-slate-800' : 'flex h-full min-h-0 w-full flex-col overflow-hidden'}
+      className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-md dark:border-slate-700 dark:bg-slate-950">
+        {inline ? <header className="border-b border-slate-200 px-3 py-2 dark:border-slate-800"><h3 id="equipment-source-import-title" className="text-sm font-semibold">Загрузка установки из XML</h3><p className="text-xs text-slate-500 dark:text-slate-400">План строится по этому файлу; данные проекта изменятся только после подтверждения.</p></header> : <header data-dialog-drag className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800"><div><h2 id="equipment-source-import-title" className="text-sm font-semibold">Загрузить оборудование из XML</h2><p className="text-xs text-slate-500 dark:text-slate-400">Сначала проверьте план; данные проекта изменятся только после подтверждения.</p></div><button type="button" onClick={close} disabled={busy} aria-label="Закрыть" className="rounded p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-900"><X className="h-4 w-4" /></button></header>}
         <div className={inline ? 'space-y-3 p-3' : 'min-h-0 flex-1 space-y-3 overflow-y-auto p-4'}>
           {!canManage && <div className="rounded border border-amber-300 bg-amber-50 p-2 text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">Недостаточно прав для импорта оборудования.</div>}
           {!inline && <div className="flex flex-wrap items-end gap-2">
@@ -342,8 +346,7 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
           {inline ? <span /> : <button type="button" onClick={close} disabled={busy} className="rounded border border-slate-300 px-3 py-2 text-xs dark:border-slate-700">Закрыть</button>}
           <div className="flex flex-wrap gap-2">{file && <button type="button" onClick={() => void requestPlan()} disabled={!canManage || busy || !category || !tagIdentifier.trim()} className="rounded border border-slate-300 px-3 py-2 text-xs disabled:opacity-50 dark:border-slate-700">{busy && !plan ? <Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" /> : null}{inline && plan ? 'Обновить план' : 'Показать план'}</button>}{plan && <button type="button" onClick={() => void applyImport()} disabled={!canManage || busy || !safeToApply || !units.length && !blocks.length || applyTagLinks.some((link: any) => ['ambiguous', 'invalid'].includes(link.action))} title={!safeToApply ? 'Сначала разрешите все спорные сопоставления и теги.' : undefined} className="inline-flex items-center gap-1 rounded bg-emerald-700 px-3 py-2 text-xs text-white disabled:opacity-50"><Check className="h-3.5 w-3.5" />{selectedTags.filter(tag => !doneTags.includes(tag)).length > 1 ? `Подтвердить импорт · ${selectedTags.filter(tag => !doneTags.includes(tag)).length} установки` : 'Подтвердить импорт'}</button>}</div>
         </footer>
-      </div>
-    </div>
+      </WindowDialogOrEmbedded>
     </>
   );
 }

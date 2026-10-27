@@ -209,7 +209,7 @@ function ElectronTitleBar() {
         onMouseEnter={() => { clearTimeout(hideTimer.current); setNear(true); }}
         onDoubleClick={() => wc?.maximize?.()}
         className="fixed flex items-center gap-0.5 pl-1 pr-1 rounded-xl select-none
-                   bg-slate-900/95 border border-slate-700 shadow-2xl backdrop-blur-sm"
+                   bg-slate-900/95 border border-slate-700 shadow-2xl"
       >
         <button
           type="button"

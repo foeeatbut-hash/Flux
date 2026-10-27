@@ -7,7 +7,7 @@
  * собой предпросмотр и обновление сопоставлений оборудования.
  */
 import React from 'react';
-import { motion } from 'motion/react';
+import { WindowDialog } from '../ui/WindowDialog';
 import { Boxes } from 'lucide-react';
 
 interface EquipmentImportDialogProps {
@@ -20,15 +20,9 @@ interface EquipmentImportDialogProps {
 
 export default function EquipmentImportDialog({ files, categories, onPick, onClose }: EquipmentImportDialogProps) {
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-[70] fx-backdrop" onClick={() => onClose()}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 10 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="fx-dialog dark:bg-dark-panel dark:border-dark-border w-[min(94vw,460px)] max-h-[88vh] overflow-hidden flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-dark-border bg-slate-50 dark:bg-dark-surface flex items-center gap-3">
+    <WindowDialog onClose={() => onClose()} label="Загрузить в оборудование"
+      className="fx-dialog dark:bg-dark-panel dark:border-dark-border w-[min(94vw,460px)] max-h-[88vh] overflow-hidden flex flex-col">
+        <div data-dialog-drag className="px-5 py-4 border-b border-slate-100 dark:border-dark-border bg-slate-50 dark:bg-dark-surface flex items-center gap-3">
           <Boxes className="w-5 h-5 text-emerald-600" />
           <div className="flex flex-col">
             <h2 className="text-base font-semibold text-slate-900 dark:text-white">Загрузить в оборудование</h2>
@@ -54,7 +48,6 @@ export default function EquipmentImportDialog({ files, categories, onPick, onClo
             Отмена
           </button>
         </div>
-      </motion.div>
-    </div>
+      </WindowDialog>
   );
 }

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { X, Send, Paperclip, Loader2, AlertTriangle, PenLine, Minus, Languages } from 'lucide-react';
 import { mailService, type MailAccount, type MailSignature } from '../../services/mailService';
-import { useEscapeClose } from '../../lib/useDismiss';
+import { WindowDialog } from '../ui/WindowDialog';
 import { sanitizeMailHtml } from '../../lib/mailHtml';
 import { useToastStore } from '../../store/toastStore';
 import { useTranslateStore } from '../../store/translateStore';
@@ -72,7 +72,6 @@ export default function MailCompose({ account, mode, messageId, onClose, onSent 
   const [keepRu, setKeepRu] = useState(true);
   const many = useTranslateStore((s) => s.many);
 
-  useEscapeClose(true, () => { if (!sending) onClose(); });
 
   /**
    * Русский текст → английский, прямо в поле письма.
@@ -152,16 +151,9 @@ export default function MailCompose({ account, mode, messageId, onClose, onSent 
   };
 
   return (
-    <div className="fixed inset-0 z-[80] overflow-y-auto" role="dialog" aria-modal="true" aria-label={TITLES[mode]}>
-      <div className="fixed inset-0 fx-backdrop" onClick={() => !sending && onClose()} />
-      <div className="flex min-h-full items-center justify-center p-4">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.97, y: 12 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: 0.15 }}
-          className="fx-dialog @container relative w-full max-w-3xl max-h-[90vh] flex flex-col"
-        >
-          <div className="shrink-0 flex items-center justify-between gap-2 px-5 py-3 border-b border-slate-200 dark:border-slate-800">
+    <WindowDialog onClose={onClose} busy={sending} label={TITLES[mode]}
+      className="fx-dialog @container w-full max-w-3xl max-h-[90vh] flex flex-col">
+          <div data-dialog-drag className="shrink-0 flex items-center justify-between gap-2 px-5 py-3 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-2 min-w-0">
               <PenLine className="w-4 h-4 shrink-0 text-emerald-700 dark:text-emerald-400" />
               <h3 className="flex-1 min-w-0 truncate text-base font-semibold text-slate-900 dark:text-white">{TITLES[mode]}</h3>
@@ -312,8 +304,6 @@ export default function MailCompose({ account, mode, messageId, onClose, onSent 
               </button>
             </div>
           </div>
-        </motion.div>
-      </div>
-    </div>
+        </WindowDialog>
   );
 }

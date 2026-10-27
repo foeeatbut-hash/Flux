@@ -19,7 +19,9 @@ let sendCommand: (name: RibbonCommandName) => void = () => undefined;
 window.__fluxFixture = {
   ops,
   changeHash: () => { state.baseHash += "-external"; },
-  setTheme: (theme) => document.getElementById('root')?.classList.toggle('dark', theme === 'dark'),
+  // Тема — на <html>, как в программе (src/store/store.ts): диалоги уходят
+  // порталом в body, и класс на #root их бы не накрыл
+  setTheme: (theme) => { document.documentElement.classList.toggle('dark', theme === 'dark'); document.getElementById('root')?.classList.toggle('dark', theme === 'dark'); },
   // Команда ленты «Flux» — то, что редактор присылает хосту (useFluxRibbon)
   command: (name) => sendCommand(name),
   setTemplate: (template) => { state.template = template; },

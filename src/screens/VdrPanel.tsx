@@ -1,4 +1,5 @@
 import { Toolbar, Btn, IconBtn, FilterSeg, Status, type Tone } from '../components/ui';
+import { WindowDialog } from '../components/ui/WindowDialog';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/store';
@@ -532,9 +533,9 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end fx-backdrop" onClick={onClose}>
-      <div className="w-[520px] max-w-[94vw] h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
+    <WindowDialog onClose={onClose} label="Карточка строки реестра"
+      className="fx-dialog w-[520px] max-w-[94vw] h-[86vh] flex flex-col overflow-hidden">
+        <div data-dialog-drag className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <span className="font-semibold text-slate-800 dark:text-white truncate flex-1">{isNew ? 'Новая строка' : (f.contractorNo || f.titleRu || 'Строка реестра')}</span>
           {!isNew && <Status tone={STATUS_META[f.status]?.tone || 'slate'}>{STATUS_META[f.status]?.label || f.status}</Status>}
           <button type="button" title="Закрыть карточку" onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
@@ -706,8 +707,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
             </div>
           </div>
         )}
-      </div>
-    </div>
+      </WindowDialog>
   );
 }
 
@@ -790,9 +790,9 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 fx-backdrop" onClick={onClose}>
-      <div className="fx-dialog w-full max-w-2xl max-h-[88vh] overflow-y-auto p-5 space-y-3" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
+    <WindowDialog onClose={onClose} label="Реквизиты реестра"
+      className="fx-dialog w-full max-w-2xl max-h-[88vh] overflow-y-auto p-5 space-y-3">
+        <div data-dialog-drag className="flex items-center justify-between">
           <h3 className="font-semibold text-slate-800 dark:text-white">Реквизиты реестра (титульный лист)</h3>
           <button type="button" title="Закрыть реквизиты" onClick={onClose} className="p-1 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"><X className="w-4 h-4" /></button>
         </div>
@@ -853,7 +853,6 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
           <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
           <button type="button" onClick={save} disabled={busy} className="fx-btn fx-btn-primary">Сохранить</button>
         </div>
-      </div>
-    </div>
+      </WindowDialog>
   );
 }

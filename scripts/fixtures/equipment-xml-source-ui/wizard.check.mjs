@@ -66,7 +66,8 @@ try {
         };
     });
     assert(layout.dialogScrollWidth <= layout.dialogWidth && layout.workspaceScrollWidth <= layout.workspaceWidth, 'responsive wizard has no horizontal clipping', layout);
-    if (label !== 'wide') assert(layout.mainWidth >= layout.dialogWidth * 0.75 && layout.mainScrollWidth <= layout.mainWidth, 'responsive wizard keeps its preview usable', layout);
+    // scrollWidth по стандарту целое, ширина из getBoundingClientRect дробная: сравниваем с округлением вверх
+    if (label !== 'wide') assert(layout.mainWidth >= layout.dialogWidth * 0.75 && layout.mainScrollWidth <= Math.ceil(layout.mainWidth), 'responsive wizard keeps its preview usable', layout);
     assert(layout.footerButton && layout.footerButton.left >= layout.footerButton.dialogLeft && layout.footerButton.right <= layout.footerButton.dialogRight && layout.footerButton.scrollWidth <= layout.footerButton.width, 'responsive wizard footer action wraps within the dialog', layout.footerButton);
     assert(layout.footerButton && layout.footerButton.top >= layout.footerButton.footerTop && layout.footerButton.bottom <= layout.footerButton.footerBottom && layout.footerButton.scrollHeight <= layout.footerButton.height, 'responsive wizard footer action fits vertically', layout.footerButton);
     if (label !== 'medium') await page.screenshot({ path: `/tmp/equipment-import-wizard-${label}-${theme}.png`, fullPage: true });
@@ -112,7 +113,8 @@ try {
   assert(cadEntries.some(entry => entry.path.endsWith('/equipment/parse-calc')), 'CAD XML takes the production parse-calc route');
   assert(!cadEntries.some(entry => entry.path.endsWith('/equipment/source-import/apply')), 'CAD XML parse does not write before user confirmation');
   assert(!(await cadPage.getByRole('button', { name: /Выбрать XML/ }).count()), 'CAD XML plan does not ask to pick the file again');
-  assert(!(await cadPage.locator('[aria-modal="true"]').count()), 'CAD XML plan opens no second dialog');
+  // Сам мастер — окно-диалог (aria-modal), второго окна быть не должно
+  assert((await cadPage.locator('[aria-modal="true"]').count()) <= 1, 'CAD XML plan opens no second dialog');
   await cadPage.screenshot({ path: `${process.env.FLUX_SHOTS || '/tmp'}/wizard-cad-inline.png` });
   assert(await cadPage.getByLabel('Тег оборудования').inputValue() === 'L23', 'CAD XML source tag is populated from the selected XML');
   const previewBody = cadEntries.find(entry => entry.path.endsWith('/equipment/source-import/preview'))?.body;

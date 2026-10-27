@@ -69,6 +69,13 @@ const LAST_ACCOUNT = 'flux_mail_account';
 const LAST_FOLDER = 'flux_mail_folder';
 let foldersRequestVersion = 0;
 let threadsRequestVersion = 0;
+/**
+ * Ящики, для которых первая синхронизация уже запускалась сама. Только что
+ * подключённый ящик пуст, пока его не прочитали, и человек видел пустую почту
+ * с нажатием «Проверить» как единственным выходом. Один раз на ящик, иначе
+ * ящик, который сервер так и не отдал, гонял бы синхронизацию по кругу.
+ */
+const autoSynced = new Set<string>();
 
 export function selectOpenMailThread(threads: MailThread[], openKey: string, activeThread: MailThread | null): MailThread | null {
   if (!openKey) return null;
@@ -132,6 +139,11 @@ export const useMailStore = create<MailState>((set, get) => ({
     try {
       const { folders, shared } = await mailService.folders(accountId);
       if (requestVersion !== foldersRequestVersion || get().accountId !== accountId) return;
+      if (!folders.length && !autoSynced.has(accountId) && !get().syncing) {
+        autoSynced.add(accountId);
+        void get().sync();
+        return;
+      }
       // Счётчик у ящика — сумма по папкам, но без «Отправленных», «Корзины» и
       // «Спама»: непрочитанное там человека не касается
       const counted = folders
@@ -215,6 +227,13 @@ export const useMailStore = create<MailState>((set, get) => ({
     try {
       const { report } = await mailService.sync(accountId, opts);
       set({ syncing: false, error: report.error || '' });
+      // Сервер записал в ящик итог проверки (ошибку или её отсутствие), а
+      // плашка над списком читает его из загруженных ящиков: без обновления
+      // она показывала бы давнюю ошибку после успешной проверки
+      try {
+        const fresh = await mailService.accounts();
+        if (get().accountId === accountId) set({ accounts: fresh.accounts });
+      } catch (_) { /* список ящиков обновится при следующем заходе */ }
       await get().loadFolders();
     } catch (err: any) {
       set({ syncing: false, error: err?.message || 'Синхронизация не удалась' });

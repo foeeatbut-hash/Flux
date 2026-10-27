@@ -1,4 +1,5 @@
 import React from 'react';
+import { WindowDialog } from '../ui/WindowDialog';
 import { FileSpreadsheet, FileText, FileArchive, Folder, FolderPlus } from 'lucide-react';
 import ContextMenu, { type MenuItem } from '../ContextMenu';
 import { useToastStore } from '../../store/toastStore';
@@ -126,15 +127,14 @@ function NameDialog({ place, kind, name, setName, inputRef, busy, onSubmit, onCa
   place: CreatePlace; kind: CreateKind; name: string; setName: (value: string) => void;
   inputRef: React.RefObject<HTMLInputElement | null>; busy: boolean; onSubmit: () => void; onCancel: () => void;
 }) {
-  return <div className="fixed inset-0 z-[100] grid place-items-center bg-black/40 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
-    <div role="dialog" aria-modal="true" aria-labelledby="windows-create-title" className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-md dark:border-dark-border dark:bg-dark-surface">
-      <h2 id="windows-create-title" className="text-lg font-semibold">{createTitle(place, kind)}</h2>
+  return <WindowDialog onClose={onCancel} label={createTitle(place, kind)} resizable={false}
+    className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-md dark:border-dark-border dark:bg-dark-surface">
+      <h2 id="windows-create-title" data-dialog-drag className="text-lg font-semibold">{createTitle(place, kind)}</h2>
       <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{createHint(place)}</p>
       <label className="mt-4 block text-sm">Имя<input ref={inputRef} value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') onSubmit(); if (event.key === 'Escape') onCancel(); }} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 dark:border-dark-border dark:bg-dark-bg" /></label>
       <div className="mt-4 flex justify-end gap-2">
         <button type="button" onClick={onCancel} className="rounded-md border border-slate-300 px-3 py-2 text-sm dark:border-dark-border">Отмена</button>
         <button type="button" onClick={onSubmit} disabled={busy} className="rounded-md bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600">Создать</button>
       </div>
-    </div>
-  </div>;
+  </WindowDialog>;
 }

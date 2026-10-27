@@ -4,6 +4,7 @@ import { useInsightStore, type InsightMode } from '../../store/insightStore';
 import WhereUsedView from './WhereUsedView';
 import ProjectCheckView from './ProjectCheckView';
 import ChangeListView from './ChangeListView';
+import { WindowDialog, topWindowId } from '../ui/WindowDialog';
 
 /**
  * Выдвижная панель связей: одно окно на три вопроса о проекте.
@@ -25,8 +26,10 @@ const HEAD: Record<InsightMode, { icon: React.ComponentType<{ className?: string
 
 export default function InsightDrawer() {
   const { mode, target, back, close, goBack, openCheck, openChanges } = useInsightStore();
+  // Родитель панели — верхнее окно на момент открытия; блокируется оно, не весь экран
+  const owner = React.useMemo(() => (mode ? topWindowId() : ''), [mode]);
 
-  // Esc закрывает панель, но только верхний слой: если поверх открыт общий
+  // Esc закрывает панель (своим слушателем, а не WindowDialog: тот не знает про «назад»), но только верхний слой: если поверх открыт общий
   // поиск, он закрывается первым — он и обрабатывает клавишу у себя
   useEffect(() => {
     if (!mode) return;
@@ -44,17 +47,9 @@ export default function InsightDrawer() {
   const { icon: Icon, title, hint } = HEAD[mode];
 
   return (
-    <div className="fixed inset-0 z-[70] flex justify-end">
-      {/* Затемнение: показывает, что программа ждёт ответа именно здесь */}
-      <button
-        type="button"
-        aria-label="Закрыть панель"
-        onClick={close}
-        className="absolute inset-0 cursor-default fx-backdrop"
-      />
-
-      <aside className="relative h-full w-full max-w-[660px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col animate-[insight-in_180ms_ease-out]">
-        <header className="shrink-0 flex items-center gap-2.5 px-3 py-3 border-b border-slate-200 dark:border-slate-800">
+    <WindowDialog key={owner} winId={owner} onClose={close} closeOnEsc={false} label={title}
+      className="fx-dialog w-[660px] max-w-full h-[86vh] flex flex-col overflow-hidden">
+        <header data-dialog-drag className="shrink-0 flex items-center gap-2.5 px-3 py-3 border-b border-slate-200 dark:border-slate-800">
           {back && (
             <button type="button" onClick={goBack} title="Назад"
               className="fx-ibtn">
@@ -92,7 +87,6 @@ export default function InsightDrawer() {
           {mode === 'check' && <ProjectCheckView />}
           {mode === 'changes' && <ChangeListView />}
         </div>
-      </aside>
-    </div>
+    </WindowDialog>
   );
 }

@@ -56,6 +56,21 @@ export function smtpCandidates(domain: string): Candidate[] {
   ];
 }
 
+/**
+ * Шифрование по порту, когда человек его не указал.
+ *
+ * Форма присылает только порты, а серверы подставляются по домену и подбору:
+ * Outlook отдаёт SMTP на 587, подбор находит IMAP на 143. Если всё равно
+ * ставить SSL «по умолчанию», такой ящик не подключится вовсе — на этих
+ * портах шифрование начинается командой STARTTLS, а не с первого байта.
+ */
+export function defaultImapSecure(port: number): boolean {
+  return Number(port) !== 143;
+}
+export function defaultSmtpSecure(port: number): boolean {
+  return Number(port) === 465;
+}
+
 /** Домен из адреса; пустая строка — адрес не похож на адрес */
 export function domainOf(email: string): string {
   const at = String(email || '').lastIndexOf('@');
@@ -102,23 +117,27 @@ export interface Found {
 }
 
 /**
- * Найти сервер для адреса. Кандидаты пробуются по порядку и по одному:
- * параллельная проверка пяти узлов выглядит быстрее, но у почты предприятия
- * лишние соединения нередко упираются в защиту от перебора.
+ * Найти сервер для адреса. Кандидаты одного назначения пробуются по порядку
+ * и по одному: параллельная проверка пяти узлов выглядит быстрее, но у почты
+ * предприятия лишние соединения нередко упираются в защиту от перебора.
  */
 export async function discover(email: string, timeoutMs = 4000): Promise<Found> {
   const domain = domainOf(email);
   if (!domain || !domain.includes('.')) {
     return { imap: null, smtp: null, why: 'Адрес не похож на почтовый: в нём нет домена после «@».' };
   }
-  let imap: Candidate | null = null;
-  for (const c of imapCandidates(domain)) {
-    if (await probe(c, timeoutMs)) { imap = c; break; }
-  }
-  let smtp: Candidate | null = null;
-  for (const c of smtpCandidates(domain)) {
-    if (await probe(c, timeoutMs)) { smtp = c; break; }
-  }
+  // Входящие и исходящие ищутся одновременно: это разные порты, и защита от
+  // перебора их не путает, а подбор вместо сорока секунд укладывается в двадцать
+  const first = async (list: Candidate[]): Promise<Candidate | null> => {
+    for (const c of list) {
+      if (await probe(c, timeoutMs)) return c;
+    }
+    return null;
+  };
+  const [imap, smtp] = await Promise.all([
+    first(imapCandidates(domain)),
+    first(smtpCandidates(domain)),
+  ]);
   const why = imap
     ? ''
     : `Ни один из привычных адресов сервера для «${domain}» не ответил. `

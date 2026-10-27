@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { X, Send } from 'lucide-react';
-import { Z } from '../../lib/layers';
-import { useEscapeClose } from '../../lib/useDismiss';
+import { WindowDialog } from '../ui/WindowDialog';
 import { getMeta, submitReport } from '../../feedback/feedbackApi';
 import { newRequestId } from '../../../feedback/contracts';
 import { catalogDataIssueTitle, validateCatalogDataIssue, type CatalogDataIssueContext } from './dataIssue';
@@ -27,7 +26,6 @@ export default function DataIssueDialog({ context, onClose }: Props) {
   const [sending, setSending] = useState(false);
   const [sentNumber, setSentNumber] = useState<number | null>(null);
 
-  useEscapeClose(true, () => { if (!sending) onClose(); });
 
   const send = async () => {
     const invalid = validateCatalogDataIssue(context, description, proposedValue, sourceText);
@@ -70,12 +68,9 @@ export default function DataIssueDialog({ context, onClose }: Props) {
 
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center p-4 fx-backdrop" style={{ zIndex: Z.modal }}
-      onMouseDown={() => { if (!sending) onClose(); }}>
-      <section role="dialog" aria-modal="true" aria-labelledby="catalog-data-issue-title"
-        className="fx-dialog flex max-h-[88vh] w-full max-w-xl flex-col overflow-hidden dark:border-dark-border dark:bg-dark-surface"
-        onMouseDown={(event) => event.stopPropagation()}>
-        <header className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-dark-border">
+    <WindowDialog onClose={onClose} busy={sending} label="Сообщить о неточности"
+      className="fx-dialog flex max-h-[88vh] w-full max-w-xl flex-col overflow-hidden dark:border-dark-border dark:bg-dark-surface">
+        <header data-dialog-drag className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-dark-border">
           <h2 id="catalog-data-issue-title" className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
             {sentNumber !== null ? 'Сообщение отправлено' : 'Сообщить о неточности'}
           </h2>
@@ -144,7 +139,6 @@ export default function DataIssueDialog({ context, onClose }: Props) {
             </footer>
           </>
         )}
-      </section>
-    </div>
+    </WindowDialog>
   );
 }

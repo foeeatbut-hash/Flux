@@ -12,8 +12,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Paperclip, Trash2, Check, Send, Eye, Pencil, Camera } from 'lucide-react';
-import { Z } from '../../lib/layers';
-import { useEscapeClose } from '../../lib/useDismiss';
+import { WindowDialog } from '../ui/WindowDialog';
 import { useComposer, saveNote, type Fields } from '../../feedback/useComposer';
 import { submissionQueue, type QueueItem } from '../../feedback/submissionQueue';
 import { LIMITS, TYPES, TYPE_NAMES, FREQUENCIES, FREQUENCY_NAMES, IMPACTS, IMPACT_NAMES, newRequestId }
@@ -100,7 +99,6 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
   /** Идёт выбор области: форма убрана, поверх окна — рамка. */
   const [picking, setPicking] = useState(false);
 
-  useEscapeClose(true, () => { if (!sending) onClose(); });
 
   /**
    * За отправкой следим через очередь: она переживает закрытие окна, и «идёт
@@ -192,12 +190,10 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
       <RegionPicker onCancel={() => setPicking(false)}
         onPick={(region) => void shootRegion(region)} />
     )}
-    <div className="fixed inset-0 flex items-center justify-center backdrop-blur-[1px] p-4 fx-backdrop"
-      style={{ zIndex: Z.modal, ...(hidden || picking ? { visibility: 'hidden' as const } : {}) }}
-      onPaste={paste} onMouseDown={() => { if (!busy) onClose(); }}>
-      <div role="dialog" aria-label="Обращение" onMouseDown={(e) => e.stopPropagation()}
-        className="fx-dialog w-full max-w-2xl max-h-[88vh] flex flex-col dark:border-dark-border dark:bg-dark-surface overflow-hidden">
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-dark-border">
+    <WindowDialog onClose={onClose} busy={busy} label="Обращение"
+      boxProps={{ onPaste: paste, style: hidden || picking ? { visibility: 'hidden' } : undefined }}
+      className="fx-dialog w-full max-w-2xl max-h-[88vh] flex flex-col dark:border-dark-border dark:bg-dark-surface overflow-hidden">
+        <div data-dialog-drag className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 dark:border-dark-border">
           <span className="text-sm font-semibold text-slate-800 dark:text-slate-100">
             {preview ? 'Что уйдёт' : 'Обращение'}
           </span>
@@ -409,8 +405,7 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
           )}
         </div>
         )}
-      </div>
-    </div>
+      </WindowDialog>
     </>
   );
 }

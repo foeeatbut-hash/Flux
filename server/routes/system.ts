@@ -58,8 +58,13 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
     const databaseMode = loadAppConfig().current_db_type;
     const dialect = getDialect();
     try {
+      // Время одного запроса к базе отдельно от дороги до сервера: индикатор
+      // связи в трее отличает «медленная сеть» от «медленная база»
+      const started = performance.now();
       const needsSetup = await getPrisma().user.count() === 0;
-      res.json({ ok: true, uptime: Math.round(process.uptime()), version: appVersion, needsSetup, databaseMode, dialect });
+      const dbMs = Math.round((performance.now() - started) * 10) / 10;
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ ok: true, uptime: Math.round(process.uptime()), version: appVersion, needsSetup, databaseMode, dialect, dbMs });
     } catch (_) { res.status(503).json({ ok: false, version: appVersion, needsSetup: null, databaseMode, dialect, error: 'База временно недоступна' }); }
   });
 

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Plus, Search, Tag as TagIcon, X } from 'lucide-react';
-import { useEscapeClose } from '../../lib/useDismiss';
+import { WindowDialog } from '../ui/WindowDialog';
 import { useTagCheck, tagHint, tagPrefixOf } from './useTagCheck';
 
 /**
@@ -38,7 +38,6 @@ const tagName = (t: PickerTag): string => {
 };
 
 export default function TagPickerModal({ projectId, tags, currentComponentId, parentTag, onPick, onCreate, onClose }: Props) {
-  useEscapeClose(true, onClose);
   const [query, setQuery] = useState(() => tagPrefixOf(parentTag || ''));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -77,10 +76,9 @@ export default function TagPickerModal({ projectId, tags, currentComponentId, pa
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 fx-backdrop" onClick={onClose}>
-      <div className="fx-dialog w-full max-w-lg p-5" onClick={e => e.stopPropagation()}
-        role="dialog" aria-label="Привязать тег">
-        <div className="flex items-center justify-between mb-4">
+    <WindowDialog onClose={onClose} label="Привязать тег"
+      className="fx-dialog w-full max-w-lg p-5">
+        <div data-dialog-drag className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold">Привязать тег</h3>
           <button type="button" title="Закрыть" onClick={onClose} className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"><X className="w-5 h-5" /></button>
         </div>
@@ -139,7 +137,6 @@ export default function TagPickerModal({ projectId, tags, currentComponentId, pa
             );
           })}
         </div>
-      </div>
-    </div>
+      </WindowDialog>
   );
 }

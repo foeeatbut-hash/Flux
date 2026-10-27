@@ -5,6 +5,7 @@ import { CHUNK_MAX, CHUNK_MIN, chunkSizeFor } from './limits.js';
 import express from 'express';
 import crypto from 'crypto';
 import { readUpdateSignature } from '../electron/updateSignature.js';
+import { newestFirst } from './updateOrder.js';
 import { ensureTables as ensureDbTables, getDialect } from './ddl.js';
 import { clientDialect, resetSchemaPreparations } from './schemaRuntime.js';
 import { registerUpdateCampaignRoutes } from './routes/updateCampaigns.js';
@@ -18,6 +19,11 @@ export function pickRelease<T extends { version: string }>(list: T[], ok: (r: T)
   }
   return { release: null, broken };
 }
+
+/** Файл выпуска в базе не тот, что подписан: такой выпуск не предлагается и не отдаётся */
+class DamagedRelease extends Error {}
+/** Не хватает кусков: это видно по счёту без чтения файла, помнить такой выпуск как порченый не нужно */
+class MissingChunks extends DamagedRelease {}
 
 export interface UpdateDeps {
   getPrisma: () => any;
@@ -74,40 +80,67 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
     try { const rows = await db.$queryRawUnsafe('SELECT @@max_allowed_packet AS n'); return Number(rows?.[0]?.n || 0); }
     catch (_) { return 0; }
   };
+  // Поколения, у которых целостность не подтвердилась при скачивании или ревизии.
+  // Полный хеш на каждой проверке сотрудника (раз в пять минут у каждого)
+  // перечитывал из общей базы весь exe; теперь вся строгая проверка — при
+  // публикации, скачивании и ревизии владельца, а /latest и /check берут
+  // метаданные записи и сверяют число кусков, а найденную порчу помнят здесь
+  const damaged = new Map<string, string>();
+  // Старые записи без поколения не хранят свой хеш: проверяем их целиком, но один раз
+  const legacyVerified = new Set<string>();
   const releaseSignature = async (db: any, r: any): Promise<string> => r.signature || (await db.appSetting.findFirst({ where: { key: `update.sig.${r.version}`, userId: null } }))?.value || '';
   /** Read every byte before advertising/serving a release. Count alone cannot detect truncated chunks. */
   const verifiedParts = async (db: any, generation: string, expected: { size: number; sha256: string; chunkCount?: number }) => {
     await ensureUpdateChunks(db);
     const parts = await db.appUpdateChunk.findMany({ where: { version: generation }, orderBy: { idx: 'asc' }, select: { idx: true, data: true } });
-    if (!parts.length || (expected.chunkCount && parts.length !== expected.chunkCount)) throw new Error('В базе неполный файл обновления. Загрузите новый выпуск.');
+    if (!parts.length || (expected.chunkCount && parts.length !== expected.chunkCount)) throw new DamagedRelease('В базе неполный файл обновления. Загрузите новый выпуск.');
     const hash = crypto.createHash('sha256'); let size = 0;
     for (let i = 0; i < parts.length; i++) {
-      if (parts[i].idx !== i || !parts[i].data) throw new Error('В базе пропущен кусок обновления.');
+      if (parts[i].idx !== i || !parts[i].data) throw new DamagedRelease('В базе пропущен кусок обновления.');
       const bytes = Buffer.from(parts[i].data);
-      if (!bytes.length) throw new Error('В базе пустой кусок обновления.');
+      if (!bytes.length) throw new DamagedRelease('В базе пустой кусок обновления.');
       parts[i].data = bytes; hash.update(bytes); size += bytes.length;
     }
-    if (size !== expected.size || hash.digest('hex') !== expected.sha256) throw new Error('Файл в общей базе не совпадает с подписанным выпуском.');
+    if (size !== expected.size || hash.digest('hex') !== expected.sha256) throw new DamagedRelease('Файл в общей базе не совпадает с подписанным выпуском.');
     return parts;
   };
-  const availability = async (db: any, r: any) => {
+  /**
+   * Можно ли отдавать выпуск. `full` читает и хеширует каждый кусок — это
+   * ревизия владельца; обычная проверка идёт по метаданным записи и числу
+   * кусков, не поднимая из базы сам файл.
+   */
+  const availability = async (db: any, r: any, full = false) => {
     if (!isPublished(r)) return { ok: false, size: 0, why: 'Выпуск не опубликован или отозван' };
+    const generation = r.generation || r.version;
     try {
       const signature = await releaseSignature(db, r), signed = signatureManifest(signature);
       if (!signed || signed.version !== r.version) throw new Error('Подпись выпуска не подтверждена');
       if (r.generation && (r.size !== signed.size || r.sha256 !== signed.sha256)) throw new Error('Описание выпуска не совпадает с подписью');
-      await verifiedParts(db, r.generation || r.version, { ...signed, chunkCount: r.chunkCount });
+      const known = damaged.get(generation);
+      if (known && !full) throw new DamagedRelease(known);
+      const legacyKey = `${r.version}:${signature}`;
+      if (full || (!r.generation && !legacyVerified.has(legacyKey))) {
+        await verifiedParts(db, generation, { ...signed, chunkCount: r.chunkCount });
+        if (!r.generation) legacyVerified.add(legacyKey);
+      } else if (r.generation) {
+        await ensureUpdateChunks(db);
+        if (!r.chunkCount || await db.appUpdateChunk.count({ where: { version: generation } }) !== r.chunkCount) throw new MissingChunks('В базе неполный файл обновления. Загрузите новый выпуск.');
+      }
+      damaged.delete(generation);
       return { ok: true, size: signed.size, why: '', signature };
-    } catch (e: any) { return { ok: false, size: 0, why: String(e?.message || e) }; }
+    } catch (e: any) {
+      if (e instanceof DamagedRelease && !(e instanceof MissingChunks)) damaged.set(generation, e.message);
+      return { ok: false, size: 0, why: String(e?.message || e) };
+    }
   };
 
   app.get('/api/updates/latest', async (_req: Request, res: Response) => {
     try {
       const db = deps.getPrisma();
-      const list: any[] = await db.appUpdate.findMany({ where: { state: { in: ['published', 'legacy'] } }, orderBy: { createdAt: 'desc' }, take: 10 });
-      // Проверяем новые выпуски по порядку и останавливаемся на первом
-      // доступном. Полный хеш всех старых файлов при каждой проверке
-      // сотрудника задерживал ответ даже при исправном свежем выпуске.
+      // «Новее» — по номеру версии, а не по дате публикации (см. newestFirst);
+      // в записях нет самих файлов, поэтому читать их все дёшево
+      const list: any[] = newestFirst(await db.appUpdate.findMany({ where: { state: { in: ['published', 'legacy'] } } })).slice(0, 10);
+      // Проверяем новые выпуски по порядку и останавливаемся на первом доступном.
       const broken: { version: string; why: string }[] = [];
       let release: any = null;
       let selected: Awaited<ReturnType<typeof availability>> | null = null;
@@ -128,10 +161,10 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
   app.get('/api/updates/audit', requireOwnerMiddleware, async (_req: Request, res: Response) => {
     try {
       const db = deps.getPrisma();
-      const list: any[] = await db.appUpdate.findMany({ where: { state: { in: ['published', 'legacy'] } }, orderBy: { createdAt: 'desc' } });
+      const list: any[] = newestFirst(await db.appUpdate.findMany({ where: { state: { in: ['published', 'legacy'] } } }));
       const broken: { version: string; why: string }[] = [];
       for (const r of list) {
-        const state = await availability(db, r);
+        const state = await availability(db, r, true);
         if (!state.ok) broken.push({ version: r.version, why: state.why });
       }
       res.json({ checked: list.length, broken });
@@ -238,9 +271,11 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
   app.get('/api/updates/download/:version', async (req: Request, res: Response) => {
     const version = validVersion(req.params.version);
     if (!version) return res.status(404).json({ error: 'Версия не указана' });
+    let generation = '';
     try {
       const db = deps.getPrisma(), r = await db.appUpdate.findUnique({ where: { version } });
       if (!isPublished(r)) return res.status(404).json({ error: 'Выпуск не опубликован или отозван' });
+      generation = r.generation || version;
       const signature = await releaseSignature(db, r), signed = signatureManifest(signature);
       if (!signed || signed.version !== version) return res.status(409).json({ error: 'Подпись выпуска не подтверждена' });
       if (r.generation && (r.size !== signed.size || r.sha256 !== signed.sha256)) return res.status(409).json({ error: 'Описание выпуска повреждено' });
@@ -262,6 +297,9 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       }
       res.end();
     } catch (e: any) {
+      // Порча, найденная при скачивании, закрывает выпуск и для /latest: сотрудники
+      // получат предыдущий исправный, а не будут раз за разом падать на этом
+      if (e instanceof DamagedRelease && generation) damaged.set(generation, e.message);
       if (res.headersSent) res.destroy(e);
       else res.status(409).json({ error: e?.message || 'Не удалось отдать полный файл обновления' });
     }

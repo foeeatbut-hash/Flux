@@ -1,4 +1,5 @@
 import React from 'react';
+import { WindowDialog } from '../ui/WindowDialog';
 import { ArrowDown, ArrowUp, Eye, EyeOff, GripVertical, RotateCcw, Search, X } from 'lucide-react';
 import { classById, classOrder } from '../../../equipment/classes';
 import {
@@ -52,12 +53,6 @@ export default function CategoryViewDialog(p: Props) {
   const [drag, setDrag] = React.useState<Drag>(null);
   const [busy, setBusy] = React.useState(false);
 
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') p.onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [p]);
-
   const legacy = p.legacyOf(cls);
   const cv = viewOf(draft, cls, legacy);
   const catalog = React.useMemo(() => catalogOf(p.positions.filter((x) => x.cls === cls)), [p.positions, cls]);
@@ -93,10 +88,9 @@ export default function CategoryViewDialog(p: Props) {
   const btn = 'inline-flex items-center gap-1 px-2 py-1 rounded-lg text-2xs font-semibold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer';
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 fx-backdrop" onMouseDown={p.onClose}>
-      <div role="dialog" aria-label="Вид категории" onMouseDown={(e) => e.stopPropagation()}
-        className="fx-dialog w-full max-w-4xl h-[min(640px,90vh)] flex flex-col overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
+    <WindowDialog onClose={p.onClose} busy={busy} label="Вид категории"
+      className="fx-dialog w-full max-w-4xl h-[min(640px,90vh)] flex flex-col overflow-hidden">
+        <div data-dialog-drag className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
           <Eye className="w-4 h-4 text-emerald-600" />
           <b className="text-sm">Вид категории · {p.categoryLabel}</b>
           <span className="text-2xs text-slate-400">какие параметры показывать у каждого типа и в каком порядке</span>
@@ -199,7 +193,6 @@ export default function CategoryViewDialog(p: Props) {
             {busy ? 'Сохраняю…' : 'Сохранить вид'}
           </button>
         </div>
-      </div>
-    </div>
+      </WindowDialog>
   );
 }

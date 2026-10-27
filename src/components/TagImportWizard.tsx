@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { motion, AnimatePresence } from 'motion/react';
+import { WindowDialog } from './ui/WindowDialog';
+import { AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
 import {
   X, FileSpreadsheet, Download, ClipboardPaste, Folder as FolderIcon,
@@ -11,7 +11,6 @@ import { useToastStore } from '../store/toastStore';
 import { countOf } from '../lib/plural';
 import { reportSaveError, saveBlob } from '../lib/saveToWindows';
 import { FIELDS, FIELD_LABEL, detectField, FieldKey as SharedFieldKey } from '../capture/fields';
-import { useEscapeClose } from '../lib/useDismiss';
 import FileBadge from './ui/FileBadge';
 import { ICON_SIZE } from '../lib/metrics';
 
@@ -28,8 +27,6 @@ interface Props {
 }
 
 export default function TagImportWizard({ projectId, existingCodes, onClose, onImported }: Props) {
-  // Во время загрузки окно не закрываем: импорт уже идёт
-  useEscapeClose(true, () => { if (!importing) onClose(); });
 
   const { addToast } = useToastStore();
   const [step, setStep] = useState<'source' | 'map'>('source');
@@ -179,18 +176,11 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
     runImport('add');
   };
 
-  return createPortal(
-    <div className="fixed inset-0 z-[100] overflow-hidden" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 fx-backdrop" onClick={() => !importing && onClose()} />
-      <div className="absolute inset-0 flex items-center justify-center p-4">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.97, y: 12 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: 0.16 }}
-          className="fx-dialog relative w-full max-w-5xl h-[88vh] flex flex-col overflow-hidden"
-        >
-          {/* HEADER */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 shrink-0">
+  return (
+    <WindowDialog onClose={onClose} busy={importing} label="Импорт тегов"
+      className="fx-dialog w-full max-w-5xl h-[88vh] flex flex-col overflow-hidden">
+          {/* HEADER — за него окно и перетаскивают */}
+          <div data-dialog-drag className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 shrink-0">
             <div className="flex items-center gap-2.5 min-w-0">
               {step === 'map' && (
                 <button type="button" onClick={() => setStep('source')} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 cursor-pointer">
@@ -359,15 +349,11 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
               </>
             )}
           </div>
-        </motion.div>
-      </div>
 
       {/* PASTE MODAL */}
       <AnimatePresence>
         {pasteOpen && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-            <div className="absolute inset-0 fx-backdrop" onClick={() => setPasteOpen(false)} />
-            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="fx-dialog relative w-full max-w-2xl p-5">
+          <WindowDialog onClose={() => setPasteOpen(false)} label="Вставка из буфера" className="fx-dialog w-full max-w-2xl p-5">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2"><ClipboardPaste className="w-4 h-4 text-emerald-600" /> Вставка из буфера</h4>
                 <button type="button" onClick={() => setPasteOpen(false)} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 cursor-pointer"><X className="w-4 h-4" /></button>
@@ -378,17 +364,14 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
                 <button type="button" onClick={() => setPasteOpen(false)} className="px-4 py-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-sm font-semibold cursor-pointer">Отмена</button>
                 <button type="button" onClick={handlePaste} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg text-sm font-semibold cursor-pointer">Разобрать</button>
               </div>
-            </motion.div>
-          </div>
+          </WindowDialog>
         )}
       </AnimatePresence>
 
       {/* DUPLICATE DIALOG */}
       <AnimatePresence>
         {dupDialog && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-            <div className="absolute inset-0 fx-backdrop" onClick={() => setDupDialog(null)} />
-            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="fx-dialog relative w-full max-w-md p-5">
+          <WindowDialog onClose={() => setDupDialog(null)} label="Такие теги уже есть" className="fx-dialog w-full max-w-md p-5">
               <div className="flex items-center gap-2 mb-2 text-amber-600">
                 <AlertTriangle className="w-5 h-5" />
                 <h4 className="text-sm font-semibold text-slate-900 dark:text-white">Такие теги уже есть</h4>
@@ -408,27 +391,22 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
                 </button>
                 <button type="button" onClick={() => setDupDialog(null)} className="w-full px-4 py-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-sm font-semibold cursor-pointer">Отмена</button>
               </div>
-            </motion.div>
-          </div>
+          </WindowDialog>
         )}
       </AnimatePresence>
 
       {/* RESULT TOAST CARD */}
       <AnimatePresence>
         {result && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-            <div className="absolute inset-0 fx-backdrop" onClick={onClose} />
-            <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }} className="fx-dialog relative w-full max-w-sm p-6 text-center">
+          <WindowDialog onClose={onClose} label="Импорт завершён" className="fx-dialog w-full max-w-sm p-6 text-center">
               <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center text-emerald-600 mx-auto mb-3"><Check className="w-6 h-6" /></div>
               <h4 className="text-base font-semibold text-slate-900 dark:text-white mb-1">Импорт завершён</h4>
               <p className="text-sm text-slate-500 mb-1">Создано: <strong className="text-emerald-600">{result.created}</strong> · Обновлено: <strong className="text-emerald-600">{result.updated}</strong></p>
               {result.duplicates.length > 0 && <p className="text-xs text-rose-500 mb-3">Дубли добавлены: {result.duplicates.length} (выделены в списках и дереве)</p>}
               <button type="button" onClick={onClose} className="fx-btn fx-btn-primary mt-3 w-full">Готово</button>
-            </motion.div>
-          </div>
+          </WindowDialog>
         )}
       </AnimatePresence>
-    </div>,
-    document.body
+    </WindowDialog>
   );
 }

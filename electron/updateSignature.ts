@@ -20,6 +20,7 @@
  */
 import crypto from 'crypto';
 import { UPDATE_PUBLIC_KEY_HEX } from './updateKey';
+import { compareVersions } from '../shared/versionCompare';
 
 export const UPDATE_SIG_PREFIX = 'FLUXUPD1';
 
@@ -64,16 +65,8 @@ export function readUpdateSignature(sig: string, keyHex = UPDATE_PUBLIC_KEY_HEX)
   }
 }
 
-/** Сравнение номеров выпуска «1.17.2»; хвост после дефиса не учитывается */
-export function compareVersions(a: string, b: string): number {
-  const pa = String(a || '').split('-')[0].split('.').map((x) => parseInt(x, 10) || 0);
-  const pb = String(b || '').split('-')[0].split('.').map((x) => parseInt(x, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] || 0) - (pb[i] || 0);
-    if (d) return d > 0 ? 1 : -1;
-  }
-  return 0;
-}
+// Порядок версий общий с окном и сервером: shared/versionCompare.ts
+export { compareVersions };
 
 /**
  * Можно ли запускать скачанное. Пустая строка — можно; иначе причина словами.

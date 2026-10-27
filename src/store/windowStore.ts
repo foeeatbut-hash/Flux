@@ -22,6 +22,7 @@ import { sectionAccess } from '../lib/appPolicy';
 import { appContext } from './policyStore';
 import { useStore } from './store';
 import { diagnostic } from '../lib/diagnostics';
+import { closeWithMotion, isClosing, markFlip, markFresh } from '../lib/windowMotion';
 import { displayAt, displayForRect, displaySnap, rebaseRect, recoverRect, type WorkspaceDisplay, type DisplayRect } from '../../workspace/displays';
 
 const KEY = 'flux_windows';
@@ -231,8 +232,12 @@ export const useWindowStore = create<WindowState>((set, get) => {
       const bounds = display?.workArea;
       const rect = initialRect(bounds || area, windows.length);
       if (bounds) { rect.x += bounds.x; rect.y += bounds.y; }
+      const id = newId();
+      // Открытие показываем только окну, которое попросил человек; окна из
+      // сохранённой раскладки появляются сразу (см. lib/windowMotion)
+      markFresh(id);
       update((list) => [...list, {
-        id: newId(), path: pathOf(href), href, desk: get().desk, ...rect,
+        id, path: pathOf(href), href, desk: get().desk, ...rect,
         z, minimized: false, maximized: false, restore: null,
       }]);
     },
@@ -268,7 +273,12 @@ export const useWindowStore = create<WindowState>((set, get) => {
      * src/lib/closeGuard.ts; для остальных это по-прежнему мгновенное закрытие.
      */
     requestClose: async (id) => {
+      // Окно уже уходит: второе нажатие не должно снова спрашивать содержимое
+      if (isClosing(id)) return true;
       if (!(await mayClose(id))) return false;
+      // Спросили и услышали «можно» — показываем уход, и только потом убираем
+      // окно из списка: удалить раньше значило бы оборвать анимацию на первом кадре
+      await closeWithMotion(id);
       get().close(id);
       return true;
     },
@@ -303,13 +313,13 @@ export const useWindowStore = create<WindowState>((set, get) => {
       update((list) => list.map((w) => (w.id === id ? { ...w, minimized: true } : w)));
     },
     restore: (id) => get().focus(id),
-    maximize: (id) => update(list => list.map(w => {
+    maximize: (id) => { markFlip([id]); update(list => list.map(w => {
       if (w.id !== id) return w;
       const display = displayForRect(get().displays, w);
       if (!display) return toggleMaximize(w, get().area);
       if (w.maximized) return recoverRect({ ...w, ...(w.restore || initialRect(display.workArea, 0)), maximized: false, restore: null }, get().displays);
       return { ...w, ...display.workArea, maximized: true, restore: { x: w.x, y: w.y, w: w.w, h: w.h } };
-    })),
+    })); },
 
     move: (id, dx, dy) => update((list) => list.map((w) => {
       if (w.id !== id) return w;
@@ -327,6 +337,7 @@ export const useWindowStore = create<WindowState>((set, get) => {
     applySnap: (id, zone) => {
       if (!zone) { set({ snapping: null }); return; }
       const area = get().area;
+      markFlip([id]);
       update((list) => list.map((w) => {
         if (w.id !== id) return w;
         const display = get().displays.find(d => d.id === get().snappingDisplayId) || displayForRect(get().displays, w);
@@ -346,6 +357,7 @@ export const useWindowStore = create<WindowState>((set, get) => {
       const display = state.displays.find(d => d.id === displayId) || (win ? displayForRect(state.displays, win) : null);
       const rect = shareRect(share, display?.workArea || state.area);
       if (display) { rect.x += display.workArea.x; rect.y += display.workArea.y; }
+      markFlip([id]);
       update((list) => list.map((w) => {
         if (w.id !== id) return w;
         return {
@@ -366,6 +378,7 @@ export const useWindowStore = create<WindowState>((set, get) => {
       const placed = displays.length ? displays.flatMap(d => tile(
         mine.filter(w => displayForRect(displays, w)?.id === d.id), d.workArea,
       ).map(w => w.minimized ? w : ({ ...w, x: w.x + d.workArea.x, y: w.y + d.workArea.y }))) : tile(mine, get().area);
+      markFlip(mine.map((w) => w.id));
       update((list) => list.map((w) => placed.find((p) => p.id === w.id) || w));
     },
     minimizeAll: () => {

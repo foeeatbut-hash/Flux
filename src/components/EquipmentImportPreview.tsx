@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useEscapeClose } from '../lib/useDismiss';
+import { WindowDialogOrEmbedded } from './ui/WindowDialog';
 import {
   X, Loader2, CheckCircle2, AlertTriangle, FileSpreadsheet, ChevronRight, ChevronDown,
   Plus, RefreshCw, Minus, Pencil,
@@ -93,7 +94,8 @@ const actionBadge = (a: PlanBlock['action']) =>
   : { icon: Minus, cls: 'text-slate-400 bg-slate-100 dark:bg-slate-800', text: 'без изменений' };
 
 export default function EquipmentImportPreview({ fileIds = [], draft, category, categoryLabel, projectId, onClose, onDone, embedded = false }: Props) {
-  useEscapeClose(true, onClose);
+  // Отдельным окном Esc закрывает WindowDialog; встроенный шаг закрывает себя сам
+  useEscapeClose(embedded, onClose);
 
   const [idx, setIdx] = useState(0);
   const [fileName, setFileName] = useState('');
@@ -327,10 +329,11 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
   const matchCount = (plan?.matches?.length || 0) + (plan?.systemRows?.length || 0) + missingShown.length;
 
   return (
-    <div className={embedded ? 'h-full min-h-0 w-full flex flex-col' : 'fixed inset-0 z-[75] flex items-center justify-center p-4 fx-backdrop'} onClick={embedded ? undefined : onClose}>
-      <div className={embedded ? 'min-h-0 flex-1 flex flex-col overflow-hidden border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950' : 'fx-dialog w-full max-w-5xl h-[85vh] flex flex-col'} onClick={embedded ? undefined : e => e.stopPropagation()}>
+    <WindowDialogOrEmbedded embedded={embedded} onClose={onClose} label="Предпросмотр импорта"
+      embeddedClassName="h-full min-h-0 w-full flex flex-col overflow-hidden border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950"
+      className="fx-dialog w-full max-w-5xl h-[85vh] flex flex-col">
         {/* Шапка */}
-        <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
+        <div data-dialog-drag className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <FileBadge file={fileName || 'Таблица.xlsx'} size={ICON_SIZE.row} />
           <div className="min-w-0 flex-1">
             <div className="font-medium text-slate-800 dark:text-white truncate">{fileName || 'Загрузка…'}</div>
@@ -582,8 +585,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
             </div>
           </>
         )}
-      </div>
-    </div>
+      </WindowDialogOrEmbedded>
   );
 }
 

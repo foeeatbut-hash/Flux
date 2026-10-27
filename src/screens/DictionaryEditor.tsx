@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import SymbolsEditor from '../components/SymbolsEditor';
 import { useStore } from "../store/store";
 import { motion } from "motion/react";
+import { TRANSITION } from "../lib/motion";
 import CustomSelect from "../components/CustomSelect";
 import {
   Plus,
@@ -432,10 +433,10 @@ export default function DictionaryEditor() {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.2 }}
+      exit={{ opacity: 0, transition: TRANSITION.exit }}
+      transition={TRANSITION.enter}
       className="fx-page @container"
     >
       <SectionHead title="Справочник"

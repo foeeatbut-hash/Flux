@@ -179,9 +179,13 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     set({ phase: 'installing' });
     try {
       const r = await elec().quitAndInstall(campaignId);
-      // Главный процесс мог сбросить скачанный файл после отказа проверки.
-      // Повтор должен заново скачать и проверить выпуск, а не застрять в ready.
-      if (r?.success === false) set({ phase: 'failed', error: r.error || 'Не удалось запустить установку' });
+      // Отказ закрыть программу (несохранённая правка) — не сбой: файл скачан и
+      // проверен, фаза остаётся «готов», и повтор не качает его заново. Иначе
+      // кампания каждую минуту тянула бы ~150 МБ, пока открыта правка.
+      if (r?.success === false && r.deferred) set({ phase: 'ready', error: r.error || 'Обновление отложено' });
+      // Прочие отказы: главный процесс мог сбросить файл после неудачной проверки.
+      // Повтор проверит его на диске или скачает заново, а не застрянет в ready.
+      else if (r?.success === false) set({ phase: 'failed', error: r.error || 'Не удалось запустить установку' });
     } catch (err: any) { set({ phase: 'failed', error: String(err?.message || err) }); }
   },
 }));

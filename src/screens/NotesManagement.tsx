@@ -9,6 +9,7 @@ import { htmlToMarkdown, looksLikeHtml, noteText } from '../lib/htmlToMarkdown';
 import { saveNewFile } from '../lib/officeFiles';
 import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { motion, AnimatePresence } from 'motion/react';
+import { TRANSITION } from '../lib/motion';
 import {
   Plus, Search, BookOpen, Calendar, Trash2, ExternalLink,
   Save, FileText, CheckCircle2, RefreshCw, Pin, PinOff, Copy, Download, FileType2, Printer,
@@ -455,10 +456,10 @@ export default function NotesManagement() {
 
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -12 }}
-      transition={{ duration: 0.25 }}
+      exit={{ opacity: 0, transition: TRANSITION.exit }}
+      transition={TRANSITION.enter}
       className="h-full flex overflow-x-auto select-none"
     >
       {/* LEFT SIDEBAR: NOTES DIRECTORY */}

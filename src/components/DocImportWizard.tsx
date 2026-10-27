@@ -1,5 +1,5 @@
+import { WindowDialog } from './ui/WindowDialog';
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import {
   X, FileSpreadsheet, FileText, Upload, ClipboardPaste, Loader2, CheckCircle2, FolderTree,
   AlertTriangle, ChevronDown, ChevronRight, Trash2, ScanLine, Plus,
@@ -491,13 +491,6 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
     return () => window.removeEventListener('paste', onPaste);
   }, [handleFiles]);
 
-  // Esc — закрыть
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   // При закрытии мастера освобождаем тяжёлые воркеры OCR (языковые модели в памяти)
   useEffect(() => {
     return () => { import('../import/ocr').then(m => m.terminateOcrPool()).catch(() => {}); };
@@ -616,19 +609,20 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
 
   // ── Рендер ──────────────────────────────────────────────────────────────────
 
-  return createPortal(
-    <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 fx-backdrop" onClick={onClose}>
+  // Дочернее окно Оборудования: двигается и тянется, блокирует только его
+  return (
+    <WindowDialog onClose={onClose} label="Импорт из документов"
+      className="fx-dialog w-full max-w-5xl h-[86vh] flex flex-col overflow-hidden">
       <div
-        className="fx-dialog w-full max-w-5xl h-[86vh] flex flex-col overflow-hidden"
-        onClick={e => e.stopPropagation()}
+        className="flex min-h-0 flex-1 flex-col"
         {...(allowDrop ? {
           onDragOver: (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); setIsDragOver(true); },
           onDragLeave: () => setIsDragOver(false),
           onDrop: handleDrop,
         } : {})}
       >
-        {/* Шапка */}
-        <div className="flex flex-wrap items-center justify-between gap-y-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
+        {/* Шапка — за неё окно и перетаскивают */}
+        <div data-dialog-drag className="flex flex-wrap items-center justify-between gap-y-2 px-4 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="w-8 h-8 shrink-0 rounded-lg bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center">
               <ScanLine className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
@@ -956,6 +950,7 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
 
       {/* Второй шаг: тот же предпросмотр, что у ввоза расчёта из Проводника */}
       {preview && (
+        <div className="absolute inset-0 z-30 flex flex-col bg-white dark:bg-slate-950">
         <EquipmentImportPreview
           draft={{ units: preview.units, fileName: preview.fileName, ...(documentSource ? { sourceBinding: documentSource } : {}) }}
           category={category}
@@ -965,8 +960,8 @@ export default function DocImportWizard({ projectId, categories, onClose, onImpo
           onDone={previewDone}
           embedded
         />
+        </div>
       )}
-    </div>,
-    document.body
+    </WindowDialog>
   );
 }

@@ -45,6 +45,9 @@ async function openWatch(w: Watch): Promise<void> {
   if (!password) { stopWatch(w.accountId); return; }
 
   const inbox = await prisma.mailFolder.findFirst({ where: { accountId: acc.id, kind: 'INBOX' } });
+  // Пока мы читали базу, наблюдение могли остановить (правка настроек, удаление
+  // ящика) — открывать после этого соединение значило бы оставить его без хозяина
+  if (w.stopped) return;
   if (!inbox) { retry(w); return; }
 
   const client = new ImapFlow({
@@ -72,15 +75,25 @@ async function openWatch(w: Watch): Promise<void> {
 
   try {
     await client.connect();
+    if (w.stopped) { try { client.close(); } catch (_) { /* уже закрыт */ } return; }
     await client.mailboxOpen(inbox.path);
+    if (w.stopped) { try { client.close(); } catch (_) { /* уже закрыт */ } return; }
     w.fails = 0;
     // Пока нас не было, письма могли прийти — досинхронизируем сразу
     void onNew(w.accountId, inbox.id, true);
   } catch (err: any) {
     w.client = null;
+    // Повтор назначаем ниже сами; обработчик закрытия назначил бы второй, и
+    // пауза росла бы вдвое быстрее задуманного
+    client.removeAllListeners('close');
     try { client.close(); } catch (_) { /* уже закрыт */ }
-    // Неверный пароль повторять бессмысленно — пишем в ящик и умолкаем
-    if (/AUTHENTICATIONFAILED|Invalid credentials|LOGIN failed/i.test(String(err?.message || ''))) {
+    // Неверный пароль повторять бессмысленно — пишем в ящик и умолкаем. Текст
+    // сервера у imapflow лежит в responseText, а в message только «Command
+    // failed»: проверка одного message не узнавала отказ, и наблюдение каждые
+    // десять минут пробовало неверный пароль снова — до блокировки ящика
+    const refusal = `${err?.responseText || ''} ${err?.message || ''}`;
+    if (err?.authenticationFailed
+        || /AUTHENTICATIONFAILED|Invalid credentials|LOGIN failed|authentication failed/i.test(refusal)) {
       await prisma.mailAccount.update({
         where: { id: w.accountId },
         data: { lastError: 'Сервер не принял логин или пароль — проверьте настройки ящика' },

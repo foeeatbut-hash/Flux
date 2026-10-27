@@ -29,6 +29,7 @@ import { visibleSections } from '../lib/appPolicy';
 import { useAppContext } from '../store/policyStore';
 import { countOf } from '../lib/plural';
 import { motion } from 'motion/react';
+import { TRANSITION } from '../lib/motion';
 import SeasonalBackdrop from '../components/SeasonalBackdrop';
 import { splitFullName } from '../lib/declension';
 import { ICON_SIZE } from '../lib/metrics';
@@ -342,7 +343,7 @@ export default function Dashboard() {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18 }}
+      transition={TRANSITION.enter}
       className="relative z-10 max-w-[1600px] mx-auto min-h-full flex flex-col gap-5 text-[13px] text-slate-800 dark:text-dark-text-main"
     >
       {/* ── Шапка: над чем работаем ──

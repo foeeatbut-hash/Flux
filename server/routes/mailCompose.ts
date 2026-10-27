@@ -192,15 +192,25 @@ export function registerMailComposeRoutes(app: Express, deps: ComposeDeps): void
 
       const mine = String(access.acc.email || '').toLowerCase();
       const notMe = (a: string) => a && !a.toLowerCase().includes(mine);
+      // Письмо написано нами же (открыли из «Отправленных»): «ответить» тогда
+      // значит написать тому, кому оно было адресовано, а не самому себе
+      const fromMe = Boolean(mine) && String(src.fromAddr || '').toLowerCase() === mine;
 
       let to = '';
       let cc = '';
       if (mode === 'REPLY') {
-        to = src.fromAddr ? `${src.fromName ? `${src.fromName} <${src.fromAddr}>` : src.fromAddr}` : '';
+        to = fromMe
+          ? splitAddrs(src.toAddrs).join(', ')
+          : (src.fromAddr ? `${src.fromName ? `${src.fromName} <${src.fromAddr}>` : src.fromAddr}` : '');
       } else if (mode === 'REPLY_ALL') {
-        to = src.fromAddr || '';
-        // Себя из копии убираем: иначе каждый ответ приходит и себе самому
-        cc = [...splitAddrs(src.toAddrs), ...splitAddrs(src.ccAddrs)].filter(notMe).join(', ');
+        if (fromMe) {
+          to = splitAddrs(src.toAddrs).join(', ');
+          cc = splitAddrs(src.ccAddrs).filter(notMe).join(', ');
+        } else {
+          to = src.fromAddr || '';
+          // Себя из копии убираем: иначе каждый ответ приходит и себе самому
+          cc = [...splitAddrs(src.toAddrs), ...splitAddrs(src.ccAddrs)].filter(notMe).join(', ');
+        }
       }
 
       const subject = mode === 'FORWARD' ? forwardSubject(src.subject) : replySubject(src.subject);
@@ -241,12 +251,15 @@ export function registerMailComposeRoutes(app: Express, deps: ComposeDeps): void
         ? await prisma.mailMessage.findUnique({ where: { id: inReplyToId } })
         : null;
 
+      // Вложить можно только файл из каталогов почты. Путь приходит от браузера,
+      // и без этой проверки любой вошедший сотрудник приложил бы к письму себе
+      // любой файл сервера — базу, ключ шифрования
       const files = Array.isArray(req.body?.files)
         ? req.body.files.slice(0, 20).map((f: any) => ({
             fileName: str(f?.fileName, 200) || 'файл',
             filePath: String(f?.filePath || ''),
             mimeType: str(f?.mimeType, 80),
-          })).filter((f: any) => f.filePath && fs.existsSync(f.filePath))
+          })).filter((f: any) => f.filePath && attachable(deps.userDataPath, f.filePath))
         : [];
 
       const result = await sendMail(accountId, {
@@ -286,10 +299,28 @@ export function registerMailComposeRoutes(app: Express, deps: ComposeDeps): void
         messageId: result.messageId,
         appended: result.appended,
         // Письмо ушло, но копия в «Отправленные» не легла — это стоит сказать
-        warning: result.appended ? '' : 'Письмо отправлено, но копия в «Отправленные» не сохранилась.',
+        warning: result.rejected.length
+          ? `Письмо отправлено, но сервер не принял адреса: ${result.rejected.join(', ')}.`
+          : (result.appended ? '' : 'Письмо отправлено, но копия в «Отправленные» не сохранилась.'),
       });
     } catch (err) { sendError(res, err); }
   });
+}
+
+/** Каталоги, откуда можно брать вложения исходящего письма */
+export function attachable(userDataPath: string, file: string): boolean {
+  return ['mail_files', 'mail_out'].some((d) => insideDir(path.join(userDataPath, d), file));
+}
+
+/** Лежит ли существующий файл внутри каталога (по настоящему пути, без обходов через ../ и ссылки). */
+export function insideDir(dir: string, file: string): boolean {
+  try {
+    const base = fs.realpathSync(dir);
+    const real = fs.realpathSync(file);
+    return real.startsWith(base + path.sep) && fs.statSync(real).isFile();
+  } catch (_) {
+    return false;
+  }
 }
 
 function escapeHtml(s: string): string {

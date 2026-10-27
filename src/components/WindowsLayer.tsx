@@ -30,6 +30,8 @@ import { displayAt, displayForRect, displaySnap, type DisplayRect } from '../../
 import { shareRect } from '../lib/layouts';
 import { BAR_H, ICON_SIZE } from '../lib/metrics';
 import { Z } from '../lib/layers';
+import { appear, stopMotion } from '../lib/windowMotion';
+import { useWindowMotion } from './useWindowMotion';
 
 /** Восемь краёв: четыре стороны и четыре угла */
 const EDGES: { edge: Edge; cls: string }[] = [
@@ -71,6 +73,8 @@ function WindowFrame({
   // minimum. In that case the window occupies the available viewport so its
   // controls and contents remain reachable.
   const compactViewport = window.innerWidth < MIN_W;
+  const frameRef = React.useRef<HTMLDivElement>(null);
+  useWindowMotion(frameRef, win, hidden);
 
   /**
    * Перетаскивание и размер на указателе, а не на мыши: одним кодом работают
@@ -84,6 +88,12 @@ function WindowFrame({
     st.getState().focus(win.id);
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
+    // Окно идёт за курсором 1:1: недоигранный переход снимаем, иначе его
+    // transform сдвинул бы окно относительно руки. Тащимое окно приподнято —
+    // тень сильнее (атрибут читает класс рамы)
+    const frame = frameRef.current;
+    stopMotion(frame);
+    if (!edge) frame?.setAttribute('data-dragging', '');
     let last = { x: e.clientX, y: e.clientY };
 
     const onMove = (ev: PointerEvent) => {
@@ -104,6 +114,7 @@ function WindowFrame({
       }
     };
     const onUp = () => {
+      frame?.removeAttribute('data-dragging');
       el.releasePointerCapture(e.pointerId);
       el.removeEventListener('pointermove', onMove);
       el.removeEventListener('pointerup', onUp);
@@ -133,6 +144,7 @@ function WindowFrame({
       role="dialog"
       aria-label={title}
       data-win={win.id}
+      ref={frameRef}
       onPointerDownCapture={() => { if (!isTop) st.getState().focus(win.id); }}
       style={{
         left: compactViewport ? 0 : win.x, top: win.y,
@@ -144,7 +156,7 @@ function WindowFrame({
          зелёный заголовок: акцент по методологии — только у главной кнопки,
          фокуса и «включено» (01-design.md, раздел 3). Подсветка при
          подглядывании с панели задач осталась — это указание, а не украшение */
-      className={`absolute flex flex-col rounded-xl overflow-hidden bg-white dark:bg-dark-bg border transition-shadow ${
+      className={`absolute flex flex-col rounded-xl overflow-hidden bg-white dark:bg-dark-bg border transition-shadow data-dragging:shadow-[0_30px_70px_-12px_rgb(0_0_0/0.45)] ${
         peeked
           ? 'border-emerald-500 shadow-2xl ring-2 ring-emerald-500/40'
           : isTop
@@ -504,7 +516,7 @@ export default function WindowsLayer() {
 
       {/* Куда встанет окно по выбранной доле — зажигаем место на столе */}
       {shareHint && (
-        <div aria-hidden style={(() => { const bounds = snap?.bounds || { x: 0, y: 0, ...area }; const r = shareRect(shareHint, bounds); return { left: r.x + bounds.x, top: r.y + bounds.y, width: r.w, height: r.h }; })()}
+        <div aria-hidden ref={appear} style={(() => { const bounds = snap?.bounds || { x: 0, y: 0, ...area }; const r = shareRect(shareHint, bounds); return { left: r.x + bounds.x, top: r.y + bounds.y, width: r.w, height: r.h }; })()}
           className="absolute z-[59] rounded-xl border-2 border-emerald-500 bg-emerald-500/10 pointer-events-none" />
       )}
 
@@ -527,6 +539,7 @@ export default function WindowsLayer() {
       {snapping && (
         <div
           aria-hidden
+          ref={appear}
           style={(() => { const r = displaySnap(snapping, snapBounds); return { left: r.x, top: r.y, width: r.w, height: r.h }; })()}
           className="absolute z-[9] rounded-xl border-2 border-emerald-500 bg-emerald-500/10 pointer-events-none"
         />

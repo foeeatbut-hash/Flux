@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useId } from 'react';
 import { useOverlay } from '../store/overlayStore';
 import { useModalStore } from '../store/modalStore';
-import { AnimatePresence, motion } from 'motion/react';
+import { useWindowStore } from '../store/windowStore';
+import { WindowDialog } from './ui/WindowDialog';
 import { AlertCircle, FileQuestion, HelpCircle, X } from 'lucide-react';
 
 export default function ModalProvider() {
@@ -25,13 +26,15 @@ export default function ModalProvider() {
     }
   }, [currentModal]);
 
-  // Esc закрывает окно — как и все остальные всплывающие окна программы
-  useEffect(() => {
-    if (!currentModal) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeModal(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [currentModal, closeModal]);
+  // Вопрос принадлежит окну, из которого его задали: верхнему видимому окну
+  // этого стола в момент вызова. Блокируется только оно, остальные программы
+  // доступны, как в системе
+  const owner = React.useMemo(() => {
+    if (!currentModal) return '';
+    const { windows, desk } = useWindowStore.getState();
+    const visible = windows.filter((w) => w.desk === desk && !w.minimized);
+    return visible.length ? visible.reduce((a, b) => (b.z > a.z ? b : a)).id : '';
+  }, [currentModal]);
 
   if (!currentModal) return null;
 
@@ -53,25 +56,12 @@ export default function ModalProvider() {
   // круге убран: он повторял заголовок и был той самой «плиткой со значком»
   const Icon = currentModal.type === 'alert' ? AlertCircle : currentModal.type === 'confirm' ? HelpCircle : FileQuestion;
   return (
-    <AnimatePresence>
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="absolute inset-0 fx-backdrop"
-          onClick={() => closeModal()}
-        />
-        <motion.div
-           initial={{ opacity: 0, y: 6 }}
-           animate={{ opacity: 1, y: 0 }}
-           exit={{ opacity: 0, y: 6 }}
-           transition={{ duration: 0.14 }}
-           role="dialog" aria-modal="true" aria-labelledby={titleId}
-           className="relative w-full max-w-md fx-dialog overflow-hidden"
-        >
+    <WindowDialog key={owner} winId={owner} onClose={() => closeModal()} resizable={false}
+      label={typeof currentModal.title === 'string' ? currentModal.title : undefined}
+      className="w-full max-w-md fx-dialog overflow-hidden">
+      <div>
            <form onSubmit={handleSubmit}>
-              <div className="fx-dialog-head pr-10">
+              <div className="fx-dialog-head pr-10" data-dialog-drag>
                 <Icon className={`w-4 h-4 shrink-0 ${danger ? 'text-rose-600 dark:text-rose-400' : currentModal.type === 'alert' ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`} />
                 <h3 id={titleId} className="min-w-0">{currentModal.title}</h3>
               </div>
@@ -125,8 +115,7 @@ export default function ModalProvider() {
            >
               <X />
            </button>
-        </motion.div>
       </div>
-    </AnimatePresence>
+    </WindowDialog>
   );
 }

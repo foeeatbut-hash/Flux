@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Mail, X, Loader2, CheckCircle2, AlertTriangle, ExternalLink, KeyRound, ChevronDown } from 'lucide-react';
 import { mailService, type MailAccount, type MailPreset } from '../../services/mailService';
-import { useEscapeClose } from '../../lib/useDismiss';
+import { WindowDialog } from '../ui/WindowDialog';
 
 /**
  * Подключение почтового ящика.
@@ -28,7 +28,15 @@ const field = 'w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-s
 const label = 'block text-xs font-semibold text-slate-600 dark:text-slate-400 mb-1';
 
 export default function MailAccountForm({ account, mayShared = false, onClose, onSaved }: Props) {
-  const editing = Boolean(account);
+  /**
+   * Ящик, который уже лежит на сервере. Сначала это только правимый ящик, но
+   * ящик, сохранённый этой же формой, — тоже: проверка связи могла не пройти, и
+   * человек поправит пароль и нажмёт кнопку снова. Без запоминания второе
+   * нажатие создавало бы второй такой же ящик.
+   */
+  const [savedId, setSavedId] = useState('');
+  const existingId = account?.id || savedId;
+  const editing = Boolean(existingId);
   const [email, setEmail] = useState(account?.email || '');
   const [password, setPassword] = useState('');
   const [displayNameValue, setDisplayName] = useState(account?.displayName || '');
@@ -52,7 +60,6 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
   const [seeking, setSeeking] = useState(false);
   const [error, setError] = useState('');
 
-  useEscapeClose(true, () => { if (!busy) onClose(); });
 
   /**
    * Подставляем настройки, как только адрес похож на адрес.
@@ -162,9 +169,13 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
       // Пустой пароль при правке — «не менять», а не «стереть»
       if (password) data.password = password;
 
-      const saved = editing
-        ? await mailService.updateAccount(account!.id, data)
+      const saved = existingId
+        ? await mailService.updateAccount(existingId, data)
         : await mailService.addAccount(data);
+      setSavedId(saved.account.id);
+      // Ящик уже есть в базе, даже если связь не сойдётся: список слева должен
+      // его показать, а не ждать удачной проверки
+      onSaved();
 
       // Сразу проверяем связь: узнать о неверном пароле лучше здесь, чем
       // потом в пустом списке писем
@@ -190,11 +201,9 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
   };
 
   return (
-    <div className="fixed inset-0 z-[80] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Подключение почтового ящика">
-      <div className="fixed inset-0 fx-backdrop" onClick={() => !busy && onClose()} />
-      <div className="flex min-h-full items-center justify-center p-4">
-        <div className="fx-dialog @container relative w-full max-w-xl max-h-[88vh] overflow-y-auto scrollbar-thin p-6">
-          <div className="flex items-center justify-between gap-2 mb-5 border-b border-slate-100 dark:border-slate-800 pb-3">
+    <WindowDialog onClose={onClose} busy={busy} label="Подключение почтового ящика"
+      className="fx-dialog @container w-full max-w-xl max-h-[88vh] overflow-y-auto scrollbar-thin p-6">
+          <div data-dialog-drag className="flex items-center justify-between gap-2 mb-5 border-b border-slate-100 dark:border-slate-800 pb-3">
             <div className="flex items-center gap-2 min-w-0 text-emerald-700 dark:text-emerald-400">
               <Mail className="w-5 h-5 shrink-0" />
               <h3 className="flex-1 min-w-0 truncate text-lg font-semibold text-slate-900 dark:text-white">
@@ -243,7 +252,7 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
               <div>
                 <label className={label} htmlFor="mail-email">Адрес почты</label>
                 <input
-                  id="mail-email" type="email" value={email} disabled={editing || busy}
+                  id="mail-email" type="email" value={email} disabled={Boolean(account) || busy}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="ivanov@yandex.ru" className={field} autoComplete="email"
                 />
@@ -406,8 +415,6 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
               </button>
             </div>
           </form>
-        </div>
-      </div>
-    </div>
+        </WindowDialog>
   );
 }

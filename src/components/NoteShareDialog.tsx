@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { WindowDialog } from './ui/WindowDialog';
 import { X, Search, Eye, Pencil, Users2, Loader2, Check } from 'lucide-react';
 import { dataService, User, UserNote } from '../services/dataService';
 import { ENV_CONFIG, getAuthToken } from '../config/env';
 import { useToastStore } from '../store/toastStore';
 import { initials } from '../lib/declension';
-import { useEscapeClose } from '../lib/useDismiss';
 
 /**
  * «Поделиться заметкой»: выбрать коллег и уровень доступа.
@@ -19,7 +18,6 @@ export default function NoteShareDialog({ note, onClose, onSaved }: {
   onClose: () => void;
   onSaved?: () => void;
 }) {
-  useEscapeClose(true, onClose);
   const { addToast } = useToastStore();
   const [people, setPeople] = useState<User[]>([]);
   const [shares, setShares] = useState<Record<string, boolean>>({});   // userId → canEdit
@@ -99,11 +97,10 @@ export default function NoteShareDialog({ note, onClose, onSaved }: {
     return parts.lastName ? initials(parts) : (p.name || p.symbol);
   };
 
-  return createPortal(
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-      <div className="absolute inset-0 fx-backdrop" onClick={onClose} />
-      <div className="fx-dialog relative w-full max-w-md overflow-hidden flex flex-col max-h-[80vh]">
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
+  return (
+    <WindowDialog onClose={onClose} label="Поделиться заметкой"
+      className="fx-dialog w-full max-w-md overflow-hidden flex flex-col max-h-[80vh]">
+        <div data-dialog-drag className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="text-base font-semibold text-slate-900 dark:text-white flex items-center gap-2">
               <Users2 className="w-4.5 h-4.5 text-emerald-600" /> Поделиться заметкой
@@ -192,8 +189,6 @@ export default function NoteShareDialog({ note, onClose, onSaved }: {
             </button>
           </div>
         </div>
-      </div>
-    </div>,
-    document.body,
+      </WindowDialog>
   );
 }

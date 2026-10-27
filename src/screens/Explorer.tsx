@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
+import { TRANSITION } from '../lib/motion';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import EquipmentImportPreview from '../components/EquipmentImportPreview';
 import { countOf } from '../lib/plural';
@@ -48,6 +49,7 @@ import {
   FileRowItem, FileCardItem,
 } from '../components/explorer/FileItems';
 import FileProperties from '../components/explorer/FileProperties';
+import { WindowDialog } from '../components/ui/WindowDialog';
 import { FileIcon } from '../components/icons/FluxIcons';
 
 
@@ -1365,10 +1367,10 @@ function ProjectExplorer() {
 
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.2 }}
+      exit={{ opacity: 0, transition: TRANSITION.exit }}
+      transition={TRANSITION.enter}
       className="h-full flex flex-col bg-white dark:bg-dark-bg border border-slate-205 dark:border-dark-border rounded-xl shadow-xs overflow-hidden text-sm transition-ui" 
       onClick={() => setSelectedIds(new Set())}
     >
@@ -1634,8 +1636,9 @@ function ProjectExplorer() {
                   key="skeleton"
                   className="w-full text-left border-collapse select-none table-fixed"
                   initial={{ opacity: 0 }}
+                  transition={TRANSITION.enter}
                   animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
+                  exit={{ opacity: 0, transition: TRANSITION.exit }}
                 >
                   <thead className="sticky top-0 bg-white dark:bg-dark-surface shadow-xs border-b border-slate-200 dark:border-dark-border z-10 text-xs text-slate-500 dark:text-dark-text-muted font-medium">
                     <tr>
@@ -1660,8 +1663,9 @@ function ProjectExplorer() {
                   key="list"
                   className="w-full text-left border-collapse table-fixed"
                   initial={{ opacity: 0 }}
+                  transition={TRANSITION.enter}
                   animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
+                  exit={{ opacity: 0, transition: TRANSITION.exit }}
                 >
                   <thead className="sticky top-0 bg-white dark:bg-dark-surface shadow-xs border-b border-slate-200 dark:border-dark-border z-10 text-xs text-slate-500 dark:text-dark-text-muted font-medium">
                     <tr>
@@ -1780,9 +1784,9 @@ function ProjectExplorer() {
                 key="grid"
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.98 }}
-                transition={{ duration: 0.15 }}
-                className="w-full h-full animate-in fade-in"
+                exit={{ opacity: 0, transition: TRANSITION.exit }}
+                transition={TRANSITION.enter}
+                className="w-full h-full fx-fade-in"
               >
                {allCurrentItems.length === 0 ? (
                   <div className="p-4 flex flex-wrap gap-4 items-start content-start">
@@ -1955,7 +1959,7 @@ function ProjectExplorer() {
            <div className="p-4">
               <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                  <div 
-                    className="bg-emerald-600 h-2 rounded-full transition-ui duration-300 ease-out" 
+                    className="bg-emerald-600 h-2 rounded-full transition-ui duration-200 ease-out" 
                     style={{ width: `${Math.round((uploadProgress.current / uploadProgress.total) * 100)}%` }}
                  />
               </div>
@@ -1976,15 +1980,9 @@ function ProjectExplorer() {
       )}
 
       {assignTagModal && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 fx-backdrop" onClick={() => setAssignTagModal(null)}>
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            className="fx-dialog w-[500px] max-w-full overflow-hidden flex flex-col max-h-[80vh]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-805 bg-slate-50 dark:bg-slate-950 flex items-center gap-3">
+        <WindowDialog onClose={() => setAssignTagModal(null)} label="Назначить тег"
+          className="fx-dialog w-[500px] max-w-full overflow-hidden flex flex-col max-h-[80vh]">
+            <div data-dialog-drag className="px-5 py-4 border-b border-slate-100 dark:border-slate-805 bg-slate-50 dark:bg-slate-950 flex items-center gap-3">
               <Tag className="w-5 h-5 text-emerald-500" />
               <h2 className="text-base font-semibold text-slate-900 dark:text-white">Назначение тегов</h2>
             </div>
@@ -2078,8 +2076,7 @@ function ProjectExplorer() {
                 Сохранить
               </button>
             </div>
-          </motion.div>
-        </div>
+          </WindowDialog>
       )}
 
       {/* Выбор категории оборудования для импорта выделенных файлов */}

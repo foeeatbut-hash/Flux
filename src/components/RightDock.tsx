@@ -89,7 +89,7 @@ export default function RightDock({ bounds }: { bounds?: DisplayRect } = {}) {
       ref={boxRef}
       style={{ zIndex: Z.tray, width: Math.min(PANEL_W, bounds?.w ?? PANEL_W), ...(bounds ? { left: bounds.x + Math.max(0, bounds.w - PANEL_W), top: bounds.y, height: Math.max(1, bounds.h - BAR_H) } : { right: 'var(--flux-rail-w, 0px)', bottom: 'var(--flux-taskbar-h, 0px)' }) }}
       data-right-dock
-      className="absolute top-0 flex flex-col bg-white dark:bg-slate-900 border-l
+      className="fx-panel-in absolute top-0 flex flex-col bg-white dark:bg-slate-900 border-l
                  border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden"
     >
       {/* Вкладки — только на узком экране: на широком обе панели видны сразу,
