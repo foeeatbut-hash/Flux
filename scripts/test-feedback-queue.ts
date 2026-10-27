@@ -29,8 +29,9 @@ const calls: Call[] = [];
 /** Что отвечать на очередной запрос: по кусочку пути. */
 let plan: (method: string, url: string, body: any) => any;
 
-const json = (data: unknown, status = 200) => ({
+const json = (data: unknown, status = 200, headers: Record<string, string> = {}) => ({
   ok: status < 400, status,
+  headers: { get: (name: string) => headers[name] ?? null },
   text: async () => JSON.stringify(status < 400 ? { data } : { error: data }),
 });
 
@@ -84,7 +85,7 @@ async function main() {
   ok('401 — надо войти заново', stateForError(new ApiError('X', '', 401)) === 'NEEDS_SIGN_IN');
   ok('403 не повторяется без человека', stateForError(new ApiError('X', '', 403)) === 'NEEDS_REVIEW');
   ok('413 не повторяется без человека', stateForError(new ApiError('X', '', 413)) === 'NEEDS_REVIEW');
-  ok('429 не повторяется без человека', stateForError(new ApiError('X', '', 429)) === 'NEEDS_REVIEW');
+  ok('429 — предел частоты, отпустит сам: повторим', stateForError(new ApiError('X', '', 429)) === 'FAILED_RETRYABLE');
 
   console.log('\n3. Обычная отправка с вложением');
   calls.length = 0;
@@ -188,6 +189,29 @@ async function main() {
   ok('попытки не тратились', denied?.attempts === 0, denied?.attempts);
   ok('причина названа словами', String(denied?.note).includes('Нет права'), denied?.note);
   q4.clear();
+
+  console.log('\n6.1. Предел частоты отпускает сам: ждём названное время и не тратим попытки');
+  calls.length = 0;
+  let throttle = 2;
+  plan = (method, url) => {
+    if (method === 'POST' && /\/feedback\/reports$/.test(url)) {
+      if (throttle-- > 0) return json({ code: 'RATE_LIMITED', message: 'Слишком много' }, 429, { 'Retry-After': '1' });
+      return json({ id: 'r6', number: 9 });
+    }
+    return json({ code: 'NOT_FOUND', message: url }, 404);
+  };
+  const q4b = new SubmissionQueue();
+  await q4b.enqueue(pack() as any);
+  const waiting = await settle(q4b, 'dep|u1|d1', ['FAILED_RETRYABLE', 'NEEDS_REVIEW', 'SENT']);
+  ok('429 — не вопрос к человеку', waiting?.state === 'FAILED_RETRYABLE', waiting);
+  ok('попытки не потрачены', waiting?.attempts === 0, waiting?.attempts);
+  ok('сказано, сколько ждать', /через 1 с/.test(String(waiting?.note)), waiting?.note);
+  for (let i = 0; i < 600 && q4b.snapshot()[0]?.state !== 'SENT'; i++) await new Promise((r) => setTimeout(r, 10));
+  ok('после ожидания обращение ушло само', q4b.snapshot()[0]?.state === 'SENT', q4b.snapshot()[0]);
+  ok('карточка создана один раз', calls.filter((c) => /\/feedback\/reports$/.test(c.url) && c.method === 'POST').length === 3);
+  await q4b.discard('dep|u1|d1');
+  ok('discard убирает пакет из очереди', q4b.snapshot().length === 0);
+  q4b.clear();
 
   console.log('\n7. Отмена');
   // Состояние подтверждения наступает по-настоящему: сервер принял запрос и

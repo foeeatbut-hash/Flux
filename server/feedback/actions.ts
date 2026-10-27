@@ -204,11 +204,11 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
     if (wantsInternal && !ctx.triage) return fail(res, ERRORS.FORBIDDEN, 'Внутренние заметки пишут те, кто разбирает');
     const visibility = wantsInternal ? 'INTERNAL' as const : 'PUBLIC' as const;
 
-    const allowed = await reserveRate(ctx.prisma, ctx.actor.id, 'comment', LIMITS.commentsPerHour);
+    const allowed = await reserveRate(ctx.prisma, ctx.actor.id, 'comment', LIMITS.commentsPerMinute);
     if (!allowed) {
-      const at = rateResetAt();
-      res.setHeader('Retry-After', String(Math.max(1, Math.ceil((at.getTime() - Date.now()) / 1000))));
-      return fail(res, ERRORS.RATE_LIMITED, `Больше ${LIMITS.commentsPerHour} сообщений в час не принимаем`);
+      const wait = Math.max(1, Math.ceil((rateResetAt().getTime() - Date.now()) / 1000));
+      res.setHeader('Retry-After', String(wait));
+      return fail(res, ERRORS.RATE_LIMITED, `Слишком много сообщений подряд (не больше ${LIMITS.commentsPerMinute} в минуту). Подождите ${wait} с`);
     }
 
     // Внутренняя заметка не уходит автору никогда — даже если он же и обработчик

@@ -119,7 +119,7 @@ export default function FeedbackComposer({ userId, appVersion, sectionKey = '', 
     // Ключ берём у формы, а не собираем из `draftId`: отправленное переезжает
     // под собственный ключ очереди, и подписка по ключу формы не находила бы
     // ничего — окно показывало бы «отправляем» до конца дня
-    if (!composer.sentKey) return undefined;
+    if (!composer.sentKey) { setQueued(null); return undefined; }
     return submissionQueue.subscribe((items) => {
       const mine = items.find((i) => i.key === composer.sentKey);
       setQueued(mine || null);

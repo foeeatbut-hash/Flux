@@ -152,7 +152,10 @@ function ElectronTitleBar() {
   const left = Math.round(
     lane.x + (x === null ? Math.max(8, (lane.w - WIDTH) / 2) : Math.min(Math.max(8, x), Math.max(8, lane.w - WIDTH - 8))),
   );
-  const visible = pinned || near;
+  // Пока открыта панель обращения, верхняя панель остаётся: панель встаёт под её
+  // кнопкой, и если бы оболочка уехала вверх через полторы секунды, под
+  // обращением остался бы пустой промежуток, а кнопку закрытия было бы не достать
+  const visible = pinned || near || problemOpen;
 
   // Панельку тянут за насечку слева — вдоль верхнего края. Само окно двигают
   // за её середину: это область перетаскивания окна (WebkitAppRegion)
@@ -253,6 +256,7 @@ function ElectronTitleBar() {
             title="Сообщить о проблеме"
             aria-label="Сообщить о проблеме"
             aria-expanded={problemOpen}
+            data-problem-toggle
             style={{ ...noDrag, ...btnBox }}
             className={`${btn} relative rounded-lg ${problemOpen ? 'bg-slate-700 text-white' : 'hover:bg-slate-800'}`}
           >

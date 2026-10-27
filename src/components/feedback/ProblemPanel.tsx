@@ -132,6 +132,11 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
   const text = fields.description;
   const [queued, setQueued] = useState<QueueItem | null>(null);
   const [complaint, setComplaint] = useState('');
+  // Пока форма не вернула управление, второе нажатие не нужно: кнопка занята
+  const [submitting, setSubmitting] = useState(false);
+  // Форма очищается в момент отправки, а на экране до подтверждения должно
+  // оставаться то, что уехало, — показываем это отдельно
+  const [sentText, setSentText] = useState('');
   const [shown, setShown] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
@@ -148,7 +153,7 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
   }, []);
 
   useEffect(() => {
-    if (!composer.sentKey) return undefined;
+    if (!composer.sentKey) { setQueued(null); return undefined; }
     return submissionQueue.subscribe((items) => {
       setQueued(items.find((i) => i.key === composer.sentKey) || null);
     });
@@ -162,6 +167,9 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
   // Клик мимо панели сворачивает её — как и любую панель оболочки
   useEffect(() => {
     const outside = (e: MouseEvent) => {
+      // Кнопка в верхней панели сама закрывает панель по клику: если закрыть её
+      // здесь, клик по кнопке тут же открыл бы панель заново
+      if ((e.target as Element | null)?.closest?.('[data-problem-toggle]')) return;
       if (box.current && !box.current.contains(e.target as Node)) dismiss();
     };
     // На следующем кадре: иначе тот же клик, что открыл панель, её и закроет
@@ -177,11 +185,17 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
     // Заголовок и сообщение подаются прямо в отправку: человек нажал
     // «Отправить», и уехать должно написанное им, а не то, что успело дойти до
     // следующей отрисовки
-    const refused = await composer.send({
-      title: titleFrom(clean), description: clean, technicalEvents: true, appContext: true,
-    });
-    if (refused) setComplaint(refused);
+    setSubmitting(true);
+    try {
+      const refused = await composer.send({
+        title: titleFrom(clean), description: clean, technicalEvents: true, appContext: true,
+      });
+      if (refused) setComplaint(refused); else setSentText(clean);
+    } finally { setSubmitting(false); }
   };
+
+  /** Следующее обращение, не закрывая панель. */
+  const another = () => { composer.reopen(); setQueued(null); setSentText(''); setComplaint(''); };
 
   /**
    * Забрать написанное файлом.
@@ -201,7 +215,7 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
   };
 
   const progress = progressOf(queued, composer.save);
-  const busy = !!queued && !progress.done && queued.state !== 'NEEDS_REVIEW';
+  const busy = submitting || (!!queued && !progress.done);
   const noStorage = composer.save === 'quota' || composer.save === 'unavailable';
   const number = queued?.reportNumber || '';
 
@@ -258,7 +272,7 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
           <>
             <label className="block">
               <span className="sr-only">Что случилось</span>
-              <textarea autoFocus value={text} rows={4} maxLength={LIMITS.description.max}
+              <textarea autoFocus value={busy && !text ? sentText : text} rows={4} maxLength={LIMITS.description.max}
                 disabled={busy}
                 onChange={(e) => {
                   setFields((prev) => ({ ...prev, description: e.target.value }));
@@ -270,14 +284,14 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
                            px-3 py-2 text-sm text-slate-800 dark:text-slate-150 outline-none
                            focus:border-emerald-400 resize-none disabled:opacity-60" />
             </label>
-            {complaint && <p className="text-xs text-rose-600 dark:text-rose-400">{complaint}</p>}
+            {(complaint || composer.error) && <p className="text-xs text-rose-600 dark:text-rose-400">{complaint || composer.error}</p>}
           </>
         )}
       </div>
 
       <div className="flex items-center gap-2 px-3 py-2 border-t border-slate-200 dark:border-dark-border">
         <span className="min-w-0 flex-1 text-2xs text-slate-500 dark:text-slate-400 truncate">
-          {progress.done ? '' : progress.text}
+          {progress.done ? '' : (submitting && !progress.text ? 'Отправляем…' : progress.text)}
           {/* Отказ хранилища — единственное состояние, где предлагаем файл:
               это аварийное спасение текста, а не второй способ отправки */}
           {!progress.done && noStorage && ' · Не удалось сохранить текст'}
@@ -290,6 +304,9 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
                          text-slate-700 dark:text-slate-300">
               Открыть
             </a>
+            <button type="button" onClick={another} className="fx-btn">
+              Ещё одно
+            </button>
             <button type="button" onClick={closeProblemPanel}
               className="fx-btn fx-btn-primary">
               Готово

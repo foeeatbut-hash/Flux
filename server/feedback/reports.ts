@@ -120,12 +120,12 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
 
     // Место в пределе занимается до записи и возвращается, если запись не
     // удалась: иначе всплеск одновременных отправок проскочит целиком
-    const allowed = await reserveRate(prisma, actor.id, 'report', LIMITS.reportsPerHour);
+    const allowed = await reserveRate(prisma, actor.id, 'report', LIMITS.reportsPerMinute);
     if (!allowed) {
-      const at = rateResetAt();
-      res.setHeader('Retry-After', String(Math.max(1, Math.ceil((at.getTime() - Date.now()) / 1000))));
+      const wait = Math.max(1, Math.ceil((rateResetAt().getTime() - Date.now()) / 1000));
+      res.setHeader('Retry-After', String(wait));
       return fail(res, ERRORS.RATE_LIMITED,
-        `Больше ${LIMITS.reportsPerHour} обращений в час не принимаем. Следующее — после ${at.toLocaleTimeString('ru-RU')}`);
+        `Слишком много обращений подряд (не больше ${LIMITS.reportsPerMinute} в минуту). Подождите ${wait} с`);
     }
 
     try {

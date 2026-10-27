@@ -200,6 +200,23 @@ export class SubmissionQueue {
     return true;
   }
 
+  /**
+   * Забыть пакет совсем: убрать из очереди и стереть его копию в хранилище.
+   *
+   * Для отказов, где решает человек: форма забирает написанное обратно, и
+   * оставлять в очереди мёртвый пакет нельзя — он вечно висел бы в списке и
+   * занимал одно из мест лимита черновиков, мешая писать новые обращения.
+   */
+  async discard(key: string): Promise<void> {
+    clearTimeout(this.timers.get(key));
+    this.timers.delete(key);
+    this.aborts.get(key)?.abort();
+    this.items.delete(key); this.packages.delete(key);
+    this.order = this.order.filter((k) => k !== key);
+    this.tell();
+    await dropDraft(key);
+  }
+
   /** Повторить руками после того, как автоматические попытки кончились. */
   retry(key: string): void {
     const item = this.items.get(key);
@@ -309,15 +326,20 @@ export class SubmissionQueue {
   private async afterFailure(key: string, error: any): Promise<void> {
     const item = this.items.get(key)!;
     const state = stateForError(error);
-    const note = error instanceof ApiError ? error.message : 'Не удалось отправить';
+    const throttled = error instanceof ApiError && error.status === 429;
+    const note = throttled
+      ? `Слишком много обращений подряд. Отправим через ${Math.max(1, Math.ceil((error.retryAfterMs || 5000) / 1000))} с`
+      : (error instanceof ApiError ? error.message : 'Не удалось отправить');
     if (state !== 'FAILED_RETRYABLE') { await this.put(key, { state, note }); return; }
 
-    const attempts = item.attempts + 1;
+    // Отказ по пределу частоты — не неудача отправки: ждём названное сервером
+    // время и не тратим попытки, иначе пачка обращений подряд «сгорела» бы
+    const attempts = throttled ? item.attempts : item.attempts + 1;
     if (attempts >= MAX_ATTEMPTS) {
       await this.put(key, { state: 'FAILED_RETRYABLE', attempts, note: `${note}. Нажмите «Повторить»` });
       return;
     }
-    await this.put(key, { state: 'FAILED_RETRYABLE', attempts, note: `${note}. Попробуем снова` });
+    await this.put(key, { state: 'FAILED_RETRYABLE', attempts, note: throttled ? note : `${note}. Попробуем снова` });
     // Между записью состояния и заводом ожидания очередь могли распустить —
     // тогда ожидание уже некому обслуживать, и оно осталось бы висеть
     if (this.stopped) return;
@@ -327,7 +349,7 @@ export class SubmissionQueue {
       if (!current || current.state !== 'FAILED_RETRYABLE') return;
       void this.put(key, { state: 'QUEUED' });
       void this.pump();
-    }, nextDelay(attempts - 1));
+    }, throttled ? Math.max(1000, error.retryAfterMs || 5000) + 250 : nextDelay(attempts - 1));
     this.timers.set(key, timer);
     // Ожидание не держит очередь: следующий пакет поедет, не дожидаясь этого
   }

@@ -20,6 +20,7 @@
  */
 
 import { getPrisma, onDatabaseSwapped } from '../context.js';
+import { sweepRateWindows } from './service.js';
 
 /** Как часто проходить. Раз в час: спешить здесь некуда. */
 const TICK_MS = 60 * 60 * 1000;
@@ -76,6 +77,8 @@ export async function sweepUploads(now = new Date()): Promise<{ dropped: number;
       expired++;
     }
   } catch (_) { /* то же самое: молча ждём следующего прохода */ }
+
+  await sweepRateWindows(prisma, now.getTime());
 
   return { dropped, expired };
 }

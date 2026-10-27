@@ -14,17 +14,20 @@ import type { SubmitFeedbackV1 } from '../../feedback/contracts';
 import { saveBlob } from '../lib/saveToWindows';
 
 export class ApiError extends Error {
-  constructor(readonly code: string, message: string, readonly status: number, readonly details?: unknown) {
+  constructor(readonly code: string, message: string, readonly status: number, readonly details?: unknown,
+    /** Сколько сервер просит подождать (заголовок Retry-After), мс. */
+    readonly retryAfterMs: number = 0) {
     super(message);
   }
   /** Стоит ли повторять само собой: сеть и временная недоступность — да. */
   get retryable(): boolean {
-    return this.status === 0 || this.status === 503 || this.status >= 500;
+    // 429 — предел частоты: он отпустит сам, человеку тут делать нечего
+    return this.status === 0 || this.status === 429 || this.status === 503 || this.status >= 500;
   }
   /** Нужен человек: поправить текст, разобраться с вложением, войти заново. */
   get needsPerson(): boolean {
     return this.status === 400 || this.status === 403 || this.status === 409
-      || this.status === 413 || this.status === 415 || this.status === 429;
+      || this.status === 413 || this.status === 415;
   }
 }
 
@@ -45,7 +48,9 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   try { parsed = text ? JSON.parse(text) : {}; } catch (_) { parsed = {}; }
   if (!res.ok) {
     const error = parsed?.error || {};
-    throw new ApiError(String(error.code || 'UNKNOWN'), String(error.message || `Ошибка ${res.status}`), res.status, error.details);
+    const waitSec = Number(res.headers?.get?.('Retry-After'));
+    throw new ApiError(String(error.code || 'UNKNOWN'), String(error.message || `Ошибка ${res.status}`), res.status, error.details,
+      Number.isFinite(waitSec) && waitSec > 0 ? Math.min(waitSec, 600) * 1000 : 0);
   }
   return parsed?.data as T;
 }
