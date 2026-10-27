@@ -19,6 +19,7 @@ import { emitProjectDataChanged } from '../entityChanged.js';
 import { upsertEquipmentDocumentBindingInTransaction } from './equipmentDocumentBindings.js';
 import type { EquipmentDocumentBindingInput } from '../../equipment/documentBindings.js';
 import { notifyExporters } from '../e3Impact.js';
+import { findOrphanXmlSources } from '../equipmentSourceDetach.js';
 
 type RequestData = {
   projectId?: unknown; category?: unknown; fileName?: unknown; revision?: unknown;
@@ -165,10 +166,17 @@ export function registerEquipmentSourceImportRoutes(app: Express): void {
       const rootKey = blockKey(input.unitName, '', '__unit__');
       const rootLink = preview.tagLinks.find(link => link.blockKey === rootKey && tagKey(link.identifier) === tagKey(input.identifier));
       if (!rootLink || ['invalid', 'ambiguous'].includes(rootLink.action)) throw error(rootLink?.problem || `Тег «${input.identifier}» нельзя связать с установкой по правилам проекта.`);
+      // Старая привязка того же тега без установки: импорт её переиспользует.
+      // Человек должен знать об этом заранее, а не узнать по следам в списке.
+      const priorSources = rootLink.existingTagId ? await getPrisma().equipmentXmlSource.findMany({ where: {
+        projectId: input.projectId, targetType: 'system', tagId: rootLink.existingTagId, deletedAt: null,
+      } }) : [];
+      const orphans = await findOrphanXmlSources(getPrisma(), input.projectId, priorSources);
       res.json({
         success: true, fileName: input.fileName, sha256: input.sha256, revision: input.revision,
         unitTag: { identifier: input.identifier, existingTagId: rootLink.existingTagId || null, action: rootLink.action },
         plan: preview, previewToken,
+        ...(orphans.length ? { replacesOrphanBinding: { sourceId: orphans[0].id, revision: orphans[0].lastImportedRevision || null } } : {}),
       });
     } catch (err: any) { sendError(res, err, err.status || 500); }
   });
@@ -239,7 +247,11 @@ export function registerEquipmentSourceImportRoutes(app: Express): void {
             tx.componentElement.findFirst({ where: { id: racedSource.elementId, itemCode: '__unit__', monoblock: { systemId: racedSource.systemId || '', name: '__unit__' } }, include: { tags: true } }),
           ]);
           if (tag && system && element && (element.tags || []).some((item: any) => item.id === tag.id)) return { duplicate: true as const, source: racedSource, tag, system, root: element };
-          throw error('Найдено прежнее сохранение этой ревизии, но его привязка повреждена; повторный импорт остановлен.', 409);
+          // Привязка без установки (установку удалили) — не повреждение: она
+          // заменяется ниже, а импорт идёт как первый для этой установки.
+          if (!(await findOrphanXmlSources(tx, input.projectId, [racedSource])).length) {
+            throw error('Найдено прежнее сохранение этой ревизии, но его привязка повреждена; повторный импорт остановлен.', 409);
+          }
         }
         const summary = await importEquipmentToDB(tx, input.projectId, input.category, input.fileName, selectedResult, mode, links,
           { userId: String(actor.id) }, { choices: reviewedChoices, full: edited, removeMissing: true, deferEntityChanged: true, deferNotifications: true, inTransaction: true });
@@ -259,12 +271,28 @@ export function registerEquipmentSourceImportRoutes(app: Express): void {
         const priorBinding = await tx.equipmentXmlSource.findFirst({ where: {
           projectId: input.projectId, targetType: 'system', tagId: tag.id, deletedAt: null,
         }, orderBy: { createdAt: 'asc' } });
-        if (priorBinding && (priorBinding.systemId !== system.id || priorBinding.elementId !== root.id)) {
+        // Привязка осиротела, если её установку или служебную позицию удалили
+        // раньше (до того, как удаление стало снимать привязку). Живой установки
+        // за ней нет, поэтому она не «связана с другой установкой»: её запись и
+        // ID переиспользуются, а старые кандидаты, привязанные к исчезнувшим
+        // позициям, помечаются устаревшими и остаются историей.
+        const movesFromGone = !!priorBinding && (priorBinding.systemId !== system.id || priorBinding.elementId !== root.id)
+          && (await findOrphanXmlSources(tx, input.projectId, [priorBinding])).length > 0;
+        if (priorBinding && !movesFromGone && (priorBinding.systemId !== system.id || priorBinding.elementId !== root.id)) {
           throw error('Тег источника уже связан с другой установкой. Сначала проверьте или перепривяжите источник.', 409);
+        }
+        if (priorBinding && movesFromGone) {
+          await tx.equipmentXmlCandidate.updateMany({ where: { sourceId: priorBinding.id, status: { in: ['pending', 'partial'] } }, data: { status: 'stale' } });
         }
         const source = priorBinding
           ? await tx.equipmentXmlSource.update({ where: { id: priorBinding.id }, data: {
             tagIdentifier: input.identifier, selectedRule: JSON.stringify(input.rule),
+            ...(movesFromGone ? {
+              systemId: system.id, elementId: root.id, createdById: String(actor.id),
+              // Ревизии прежней установки к новой не относятся
+              lastImportedRevision: null, lastImportedSha256: null, lastImportedAt: null,
+              lastReviewedRevision: null, lastReviewedSha256: null, lastReviewedAt: null,
+            } : {}),
             ...(sourceBaselineApplied ? { lastImportedRevision: input.revision, lastImportedSha256: input.sha256, lastImportedAt: now,
               lastReviewedRevision: input.revision, lastReviewedSha256: input.sha256, lastReviewedAt: now } : {}),
           } })

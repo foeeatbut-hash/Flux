@@ -21,6 +21,7 @@ import { recordTagCreated, TAG_SOURCE } from '../tagHistory.js';
 import { blockKey } from '../specUtils.js';
 import { nextProjectEntityId } from '../entityIds.js';
 import { upsertEquipmentDocumentBindingInTransaction } from './equipmentDocumentBindings.js';
+import { detachXmlSourcesInTransaction, findOrphanXmlSources } from '../equipmentSourceDetach.js';
 import type { EquipmentDocumentBindingInput } from '../../equipment/documentBindings.js';
 
 const authUserOf = (req: Request) => (req as any).authUser || null;
@@ -78,12 +79,18 @@ async function access(req: Request, projectId: string, manage = true) {
   return actor;
 }
 
-async function sourceInProject(req: Request, manage = true) {
+async function sourceInProject(req: Request, manage = true, allowOrphan = false) {
   const prisma = getPrisma();
   const projectId = String(req.params.projectId || '');
   const actor = await access(req, projectId, manage);
   const source = await prisma.equipmentXmlSource.findFirst({ where: { id: String(req.params.sourceId || ''), projectId, deletedAt: null } });
   if (!source) throw Object.assign(new Error('Источник не найден в этом проекте'), { status: 404 });
+  // Установку удалили раньше, чем это стало снимать привязку. Проверять и
+  // сравнивать тут нечего, а 409 «позиция не существует» человеку ничего не
+  // говорит: называем причину и путь — «Убрать привязку» в окне обновлений.
+  if (!allowOrphan && (await findOrphanXmlSources(prisma, projectId, [source])).length) {
+    throw Object.assign(new Error('Установка этого источника удалена. Уберите привязку в окне «Обновления источников» или загрузите XML заново.'), { status: 410 });
+  }
   const tag = source.tagId ? await prisma.tag.findFirst({ where: { id: source.tagId, projectId } }) : null;
   if (source.tagId && !tag) throw Object.assign(new Error('Тег источника больше не найден в проекте'), { status: 409 });
   if (!tag) return { prisma, projectId, actor, source, tag: null, renamed: false };
@@ -216,7 +223,12 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
     try {
       const prisma = getPrisma(); const projectId = String(req.params.projectId || '');
       await access(req, projectId, false);
-      const rows = await prisma.equipmentXmlSource.findMany({ where: { projectId, deletedAt: null }, orderBy: { createdAt: 'asc' } });
+      const allRows = await prisma.equipmentXmlSource.findMany({ where: { projectId, deletedAt: null }, orderBy: { createdAt: 'asc' } });
+      // Привязки без установки (удалённой раньше) не проверяются и не сравниваются:
+      // окно обновлений показывает их отдельной строкой «Установка удалена»
+      const orphanRows = await findOrphanXmlSources(prisma, projectId, allRows);
+      const orphanIds = new Set(orphanRows.map((row: any) => row.id));
+      const rows = allRows.filter((row: any) => !orphanIds.has(row.id));
       const tags = await prisma.tag.findMany({ where: { id: { in: rows.map((row: any) => row.tagId).filter(Boolean) }, projectId } });
       const byId = new Map(tags.map((tag: any) => [tag.id, tag]));
       // Список опрашивается часто: тяжёлые поля (changes/decisions/parsedSpecs) читаем только у последней
@@ -230,7 +242,7 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       const targetElementIds = [...new Set([...latest.values()].flatMap(candidate => Object.keys(candidate.expectedVersions || {})))];
       const targetElements = targetElementIds.length ? await prisma.componentElement.findMany({ where: { id: { in: targetElementIds } }, include: { tags: true } }) : [];
       const targetTags = new Map(targetElements.map((element: any) => [element.id, (element.tags || []).map((tag: any) => tag.id)]));
-      res.json({ sources: rows.map((row: any) => {
+      res.json({ orphans: orphanRows.map((row: any) => ({ sourceId: row.id, tagIdentifier: row.tagIdentifier || '', lastImportedRevision: row.lastImportedRevision || null })), sources: rows.map((row: any) => {
         const candidate = latest.get(row.id) || null;
         const ids = new Set([row.elementId, ...Object.keys(candidate?.expectedVersions || {})]);
         return { ...sourceDto(row, byId.get(row.tagId)), targetTags: [...ids].map(elementId => ({ elementId, tagIds: targetTags.get(elementId) || (elementId === row.elementId && row.tagId ? [row.tagId] : []) })), latestCandidate: candidate };
@@ -289,8 +301,9 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
 
   app.delete('/api/equipment/projects/:projectId/sources/:sourceId', async (req, res) => {
     try {
-      const { prisma, source } = await sourceInProject(req);
-      await prisma.equipmentXmlSource.update({ where: { id: source.id }, data: { deletedAt: new Date() } });
+      const { prisma, source } = await sourceInProject(req, true, true);
+      // Вместе с записью уходит и привязка в журнале источников проекта
+      await prisma.$transaction((tx: any) => detachXmlSourcesInTransaction(tx, source.projectId, { sourceIds: [source.id] }));
       emitSourceChanged(source.projectId, source.id);
       res.json({ ok: true });
     } catch (err: any) { sendError(res, err, err.status || 500); }

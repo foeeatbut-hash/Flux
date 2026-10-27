@@ -25,7 +25,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { RequestHandler, Request } from 'express';
 import { FileWriter } from '../diagnostics/node/writer';
 import { monitorRuntime } from '../diagnostics/node/runtime';
-import { newTraceId, routeName, safeError, safeName } from '../diagnostics/event';
+import { newTraceId, reasonText, routeName, safeError, safeName } from '../diagnostics/event';
 
 /** Куда пишем. Electron передаёт путь; отдельный сервер выбирает свой. */
 export function diagnosticsDir(): string {
@@ -153,6 +153,24 @@ export const traceRequest: RequestHandler = (req, res, next) => {
     }
   } catch (_) { /* сбор не имеет права уронить запрос */ }
 
+  // Текст отказа нашего API: без него в архиве «409» не отличить от другого
+  // «409». Тело читать нечем — берём то, что обработчик отдаёт в res.json, и
+  // сразу сводим к шаблону (`reasonText`: без кавычек, цифр и путей). Тот же
+  // шаблон уходит в заголовок, чтобы окно записало его у себя в `fetch.headers`.
+  let reason = '';
+  try {
+    const sendJson = res.json.bind(res);
+    res.json = ((body?: any) => {
+      try {
+        if (res.statusCode >= 400 && typeof body?.error === 'string' && !res.headersSent) {
+          reason = reasonText(body.error);
+          if (reason) res.setHeader('X-Flux-Error', encodeURIComponent(reason));
+        }
+      } catch (_) { /* сбор не имеет права уронить ответ */ }
+      return sendJson(body);
+    }) as typeof res.json;
+  } catch (_) { /* то же самое */ }
+
   let ended = false;
   const finish = (aborted: boolean) => {
     if (ended) return;
@@ -162,6 +180,7 @@ export const traceRequest: RequestHandler = (req, res, next) => {
         trace, interaction, phase: 'end', method, route: nameOf(req),
         ...(actorOf(req) ? { actor: actorOf(req) } : {}),
         status: String(res.statusCode),
+        ...(reason ? { reason } : {}),
         durationMs: performance.now() - start,
         aborted,
         requestBytes,

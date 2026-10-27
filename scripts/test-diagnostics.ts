@@ -206,7 +206,7 @@ console.log('\n4. Словарь событий: записать можно т�
 
 console.log('\n5. Словарь описан целиком');
 {
-  const KINDS: FieldKind[] = ['id', 'name', 'route', 'pattern', 'frame', 'code', 'ms', 'bytes', 'chars', 'count', 'flag', 'phase', 'outcome', 'app', 'action', 'channel'];
+  const KINDS: FieldKind[] = ['id', 'name', 'route', 'pattern', 'frame', 'code', 'reason', 'ms', 'bytes', 'chars', 'count', 'flag', 'phase', 'outcome', 'app', 'action', 'channel'];
   const strange: string[] = [];
   for (const name of EVENT_NAMES) {
     const spec = specOf(name);
@@ -235,6 +235,21 @@ console.log('\n5. Словарь описан целиком');
   ok('имя события короткое и без пробелов',
     EVENT_NAMES.every((n) => /^[a-z][a-z0-9.-]{2,39}$/.test(n)),
     EVENT_NAMES.filter((n) => !/^[a-z][a-z0-9.-]{2,39}$/.test(n)));
+}
+
+console.log('\n5а. Причина отказа API: шаблон без данных проекта');
+{
+  const withReason = EVENT_NAMES.filter((n) => Object.values(EVENTS[n]).includes('reason' as never));
+  ok('причина отказа есть только у ответа сервера и ответа в окне',
+    withReason.join(',') === 'fetch.headers,http.end', withReason);
+  const clean = (text: string) => cleanFields('http.end', { status: '409', reason: text } as any)!.reason as string;
+  const shown = clean('Тег «3700-B01-AS-001A» не найден в проекте');
+  ok('название тега в кавычках вырезано, шаблон виден', shown === 'Тег «…» не найден в проекте', shown);
+  ok('число и идентификатор с цифрами заменены', clean('Файл 12 из 40 не принят') === 'Файл # из # не принят');
+  ok('путь и адрес не проходят', !/Users|@/.test(clean('Не открыть C:\\Users\\Иван\\a.xml или ivan@corp.ru')));
+  ok('пароль из строки подключения не проходит', !clean('mysql://root:pa55w0rd@db/flux недоступна').includes('pa55w0rd'));
+  ok('длинный текст обрезан', clean('Очень длинная причина '.repeat(30)).length <= 120);
+  ok('в запись ничего не попадает без значения', cleanFields('http.end', { status: '200' } as any)!.reason === undefined);
 }
 
 console.log('\n6. Идентификаторы');

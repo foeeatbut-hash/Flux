@@ -41,6 +41,12 @@ export type Outcome = 'ok' | 'error' | 'cancelled' | 'conflict' | 'skipped';
  *   словарь нельзя, иначе `/api/users/:id/signature` снова схлопнется в
  *   `/api/users/:id/:id` и подпись станет неотличима от прав;
  * - `frame` — кадр стека без пути, номера строки и случайных идентификаторов;
+ * - `reason` — единственное исключение из «свободного текста»: шаблон отказа
+ *   нашего собственного API («Тег «…» не найден»). Из текста вырезаны всё в
+ *   кавычках, всё с цифрами, пути и адреса, остаток обрезан до 120 знаков;
+ *   `reasonText` в `event.ts`. Нужен только событиям `fetch.headers` и
+ *   `http.end` со статусом 4xx/5xx: без него архив показывает «409» и не
+ *   показывает, почему;
  * - `code` — код ошибки или состояния: короткий, обезличивается;
  * - `ms` — миллисекунды по монотонным часам;
  * - `bytes`, `chars`, `count` — байты, знаки, штуки. Три разных вида именно
@@ -49,7 +55,7 @@ export type Outcome = 'ok' | 'error' | 'cancelled' | 'conflict' | 'skipped';
  * - `phase`, `outcome` — служебные перечисления участка работы.
  */
 export type FieldKind =
-  | 'id' | 'name' | 'route' | 'pattern' | 'frame' | 'code'
+  | 'id' | 'name' | 'route' | 'pattern' | 'frame' | 'code' | 'reason'
   | 'ms' | 'bytes' | 'chars' | 'count'
   | 'flag' | 'phase' | 'outcome' | 'app' | 'action' | 'channel';
 
@@ -101,7 +107,7 @@ export const COMMON = {
 export const EVENTS = {
   // ── Запрос из окна ────────────────────────────────────────────────────────
   'fetch.start': { method: 'name', route: 'route' },
-  'fetch.headers': { method: 'name', route: 'route', status: 'code', serverTrace: 'id', declaredBytes: 'bytes' },
+  'fetch.headers': { method: 'name', route: 'route', status: 'code', serverTrace: 'id', declaredBytes: 'bytes', reason: 'reason' },
   'fetch.consume': { route: 'route', reader: 'name', totalMs: 'ms', ok: 'flag', error: 'name' },
   'fetch.error': { method: 'name', route: 'route', error: 'name' },
 
@@ -111,7 +117,7 @@ export const EVENTS = {
   // связи принадлежит именно этому человеку, и сервер не может отдать ему свои
   // записи об ЕГО запросах, не рискуя отдать заодно записи о чужих
   'http.start': { method: 'name', route: 'pattern', requestBytes: 'bytes', actor: 'id' },
-  'http.end': { method: 'name', route: 'pattern', status: 'code', aborted: 'flag', requestBytes: 'bytes', responseBytes: 'bytes', actor: 'id' },
+  'http.end': { method: 'name', route: 'pattern', status: 'code', aborted: 'flag', requestBytes: 'bytes', responseBytes: 'bytes', actor: 'id', reason: 'reason' },
 
   // ── База ──────────────────────────────────────────────────────────────────
   // startMs — смещение от начала запроса. Без него две операции, шедшие
