@@ -17,7 +17,7 @@ import DepartmentUndoBar from '../components/users/DepartmentUndoBar';
 import AssignDialog from '../components/users/AssignDialog';
 import LegacyWizard from '../components/users/LegacyWizard';
 import { useDepartmentStore } from '../store/departmentStore';
-import { departmentLabel } from '../../shared/departments';
+import { departmentLabel, departmentPath } from '../../shared/departments';
 import { cleanUserPermissions } from '../lib/userPermissions';
 import { useAppContext } from '../store/policyStore';
 import { useNavigate } from 'react-router-dom';
@@ -542,7 +542,15 @@ export default function UsersManagement() {
                       <span className="@[720px]:hidden text-slate-400 truncate">· {roleByCode(emp.role, roles).name}</span>
                     </div>
                   </td>
-                  <td className="hidden @[640px]:table-cell max-w-0 w-48 truncate" title={deptLabelOf(emp)}>{deptLabelOf(emp) || <span className="text-slate-400">—</span>}</td>
+                  {/* Конечный отдел крупно, город мелко: путь «Новосибирск / ОВиК / Бригада 1»
+                      обрезался с конца, и в узкой колонке оставался один город */}
+                  <td className="hidden @[640px]:table-cell max-w-0 w-48 truncate" title={deptLabelOf(emp)}>{(() => {
+                    const path = departmentPath(departments, emp.departmentId);
+                    const leaf = path[path.length - 1];
+                    if (!leaf) return <span className="text-slate-400">—</span>;
+                    const city = path.length > 1 ? path.find((d) => d.kind === 'branch') : undefined;
+                    return <>{leaf.name}{city && city.id !== leaf.id && <span className="ml-1.5 text-xs text-slate-500 dark:text-slate-400">{city.name}</span>}</>;
+                  })()}</td>
                   <td className="hidden @[720px]:table-cell whitespace-nowrap">{getRoleBadge(emp.role)}</td>
                   <td className="whitespace-nowrap">{getAccessBadge(emp)}</td>
                   <td className="hidden @[560px]:table-cell whitespace-nowrap">
