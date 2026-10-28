@@ -24,7 +24,9 @@ model User {
   departmentId      String? // Основное подразделение — одно на человека (Department.id)
   email             String? // Рабочая почта
   birthDate         DateTime? // День рождения: поздравление на главном экране
-  role              String        @default("ENGINEER_VENT") // "ADMIN", "MANAGER", "ENGINEER_VENT", "ENGINEER_AUTO"
+  role              String        @default("ENGINEER_VENT") // Уровень доступа: "OWNER" | "ADMIN" | иначе сотрудник, и тогда здесь код его основной должности
+  positionCode      String? // Основная должность — код из Role; у старых записей пусто, тогда её даёт role (shared/positions.ts)
+  extraPositions    String? // Дополнительные должности: JSON-массив кодов Role, без основной и без дублей
   isActive          Boolean       @default(true) // Профиль включен администратором
   validUntil        DateTime? // Срок действия профиля; null = бессрочно
   permissions       String? // JSON персональных прав: {"project.create":{"enabled":true,"until":null}}
@@ -634,11 +636,13 @@ model Notification {
   @@index([userId, isRead])
 }
 
-// Роль сотрудника. Раньше роли были зашиты в коде четырьмя строками; теперь
-// их заводит администратор в настройках, и они видны везде, где показывается
-// сотрудник. level = 1 — главный администратор: только он управляет ролями
-// и выдаёт доступ. Встроенные роли (isSystem) нельзя удалить, чтобы
-// программа не осталась без администратора.
+// Должность сотрудника (имя таблицы историческое — «роль»). Раньше они были зашиты
+// в коде четырьмя строками; теперь их ведёт владелец или администратор с правом
+// «Должности: справочник» — в программе «Сотрудники». У человека одна основная
+// должность и сколько угодно дополнительных (User.positionCode / extraPositions).
+// Уровень доступа — не должность: строки OWNER и ADMIN остались от старой модели,
+// в справочнике должностей не показываются и не меняются. Встроенные (isSystem)
+// удалить нельзя.
 model Role {
   id          String   @id @default(uuid())
   code        String   @unique // ADMIN, MANAGER, ENGINEER_VENT… и пользовательские
@@ -646,7 +650,7 @@ model Role {
   description String   @default("")
   color       String   @default("slate") // цвет значка роли
   icon        String   @default("user") // имя значка lucide
-  level       Int      @default(50) // 1 = главный администратор
+  level       Int      @default(50) // порядок в справочнике; уровнем доступа не служит
   isSystem    Boolean  @default(false)
   permissions String   @default("{}") // права по умолчанию при назначении роли
   sortOrder   Int      @default(100)

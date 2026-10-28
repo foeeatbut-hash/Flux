@@ -18,8 +18,8 @@ interface AuthDeps {
   verifyPassword: (plain: string, stored: string | null | undefined) => boolean;
   /** Подписанный токен сессии: его клиент шлёт в Authorization */
   issueAuthToken: (userId: string) => string | Promise<string>;
-  /** Права роли отдаются вместе с профилем при входе */
-  rolePermissionsOf: (code: string) => Promise<Record<string, any>>;
+  /** Права должностей (основной и дополнительных) отдаются вместе с профилем при входе */
+  positionPermissionsOf: (user: any) => Promise<Record<string, any>>;
   /** Полная проверка времени при входе: якорь из базы + сетевое время */
   trustedNowFull: () => Promise<{ now: number; tampered: boolean; source: string }>;
   /** Быстрая оценка надёжного времени; заодно двигает якорь вперёд */
@@ -30,7 +30,7 @@ interface AuthDeps {
 
 export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
   const {
-    hashPassword, verifyPassword, issueAuthToken, rolePermissionsOf,
+    hashPassword, verifyPassword, issueAuthToken, positionPermissionsOf,
     trustedNowFull, trustedNowSync, isClockTampered,
   } = deps;
 
@@ -102,7 +102,7 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
           const { password: _pw, ...safeUser } = user as any;
           // Права роли отдаём вместе с профилем: интерфейс должен знать, что
           // человеку можно, не запрашивая это на каждом экране.
-          (safeUser as any).rolePermissions = JSON.stringify(await rolePermissionsOf(String(user.role || '')));
+          (safeUser as any).rolePermissions = JSON.stringify(await positionPermissionsOf(user));
           // Токен сессии: клиент шлёт его в Authorization на каждом запросе
           return res.json({ success: true, user: safeUser, token: await issueAuthToken(user.id) });
         } else {

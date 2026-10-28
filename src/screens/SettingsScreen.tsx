@@ -11,9 +11,9 @@ import { useLogStore } from '../store/logStore';
 import NotificationSettings from '../components/NotificationSettings';
 import TranslateEngineSection from '../components/settings/TranslateEngineSection';
 import {
-  Settings, Database, Terminal, Bell, Briefcase, Fan, Tag, Archive, FileSpreadsheet, ShieldCheck, PenLine, Languages, Globe,
+  Settings, Database, Terminal, Bell, Briefcase, Fan, Tag, Archive, ShieldCheck, PenLine, Languages, Globe,
 } from 'lucide-react';
-import { isTopAdmin } from '../lib/roles';
+import { isOwner } from '../lib/roles';
 import { canAdmin } from '../lib/permissions';
 import LicenseSection from '../components/settings/LicenseSection';
 import TagRules from '../components/settings/TagRules';
@@ -24,8 +24,6 @@ import BackupSection from '../components/settings/BackupSection';
 import EquipmentSection from '../components/settings/EquipmentSection';
 import TagsSection from '../components/settings/TagsSection';
 import DatabaseSection from '../components/settings/DatabaseSection';
-import DocflowSection from '../components/settings/DocflowSection';
-import RolesSection from '../components/settings/RolesSection';
 
 import { useShallow } from 'zustand/react/shallow';
 import { canSeeSettingsSection, settingsSectionFromQuery } from '../lib/settingsVisibility';
@@ -34,7 +32,7 @@ import { canSeeSettingsSection, settingsSectionFromQuery } from '../lib/settings
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'license' | 'general' | 'signature' | 'roles' | 'management' | 'docflow' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'tagrules';
+type SectionId = 'license' | 'general' | 'signature' | 'management' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'tagrules';
 
 // Настройки делятся ровно так же, как остальные данные программы (см.
 // src/lib/projectScope.ts): часть общая для всей программы, часть — своя у
@@ -51,20 +49,12 @@ const SECTIONS: Array<{
    * значит ничего, право выдаётся явно.
    */
   entitlement?: string;
-  /** Главному администратору виден и без права */
-  orTop?: boolean;
 }> = [
   { id: 'general', label: 'Общие', icon: Settings, desc: 'Тема и плотность', scope: 'global' },
   // Подпись — настройка человека, и место ей здесь. До этого она пряталась
   // значком в подвале Пуска: найти её мог только тот, кто знал, что она там
   { id: 'signature', label: 'Моя подпись', icon: PenLine, desc: 'Чем подписаны документы', scope: 'global' },
-  // Роли и доступ — дело одного главного администратора. Остальные не видят
-  // этот лист вовсе: серая кнопка рассказывает о существовании двери, в
-  // которую всё равно не войти, а отказ приходил уже от сервера — то есть
-  // человек нажимал и получал ошибку
-  { id: 'roles', label: 'Роли сотрудников', icon: ShieldCheck, desc: 'Кто кем работает', scope: 'global', adminFeature: 'admin.roles.manage' },
   { id: 'management', label: 'Менеджмент', icon: Briefcase, desc: 'Этапы закупки', scope: 'global' },
-  { id: 'docflow', label: 'Документооборот', icon: FileSpreadsheet, desc: 'Стандарты ВДР', scope: 'global' },
   { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории оборудования', scope: 'global' },
   // «Теги» здесь — про способ соединять теги на холсте, а не про сами теги:
   // настройка одна на программу. Сами теги живут в проекте.
@@ -81,7 +71,7 @@ const SECTIONS: Array<{
   // Встроенная игровая платформа. Лист видит только тот, кому выдано её
   // управление, — и видит даже при выключенной платформе: иначе выключатель
   // отнимал бы право, которым его двигают
-  // Главному администратору лист виден всегда: включить платформу больше некому
+  // Владельцу лист виден всегда: включить платформу больше некому
   // Своё в каждом проекте
   // Правила тегов: алфавит и приставки. Своё в каждом проекте — в одном
   // заказчик требует кириллицу, в другом её запрещает, и общее правило
@@ -109,14 +99,15 @@ export default function SettingsScreen() {
   };
 
   const isAdmin = user?.role === 'OWNER';
-  // Главный администратор — уровень 1 (lib/roles). Роли и доступ доступны
-  // только ему, и список настроек это учитывает, а не показывает всем
-  const topAdmin = isTopAdmin(user);
+  // Листы владельца (переводчик, браузер, база данных) остальным не показываются:
+  // серая кнопка рассказывает о двери, в которую не войти. Должности — не здесь,
+  // а в программе «Сотрудники» (вкладка «Должности»)
+  const owner = isOwner(user);
   // Листы встроенных программ: должность их не открывает, только выданное право
   const allows = React.useCallback(
-    (def: { id?: string; entitlement?: string; orTop?: boolean; ownerOnly?: boolean; adminFeature?: string }) =>
+    (def: { id?: string; entitlement?: string; ownerOnly?: boolean; adminFeature?: string }) =>
       (!def.ownerOnly || user?.role === 'OWNER') && (!def.adminFeature || canAdmin(user, def.adminFeature)) && (!def.id || canSeeSettingsSection(def.id, user)),
-    [topAdmin, user],
+    [owner, user],
   );
 
   // Секция может смениться и через URL (туры ассистента, кнопка «Этапы» в
@@ -185,10 +176,8 @@ export default function SettingsScreen() {
       <div className="flex-1 min-w-0 overflow-y-auto px-4 @[700px]:px-8 py-4">
         {displayedSection === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} addToast={addToast} user={user} />}
         {displayedSection === 'signature' && <SignatureSection />}
-        {displayedSection === 'roles' && <RolesSection user={user} addToast={addToast} />}
         {displayedSection === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
         {displayedSection === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}
-        {displayedSection === 'docflow' && <DocflowSection isAdmin={isAdmin} addToast={addToast} />}
         {displayedSection === 'tags' && <TagsSection addToast={addToast} />}
         {displayedSection === 'notifications' && (
           <SectionShell title="Уведомления" desc="Какие события показывать в панели уведомлений и как оповещать.">

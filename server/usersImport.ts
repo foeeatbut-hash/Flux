@@ -26,7 +26,16 @@ export interface UserImportRow {
   existingId?: string;
 }
 
-export function mapEmployeeRows(rows: unknown[][], mapping: UserImportMap, existing: Array<{ id: string; symbol: string; role?: string }>, defaultRole: string, mode: 'create' | 'update', actorRole = '') {
+/** Название для сопоставления: без регистра, без различия е и ё, лишние пробелы схлопнуты */
+export const positionKey = (value: string): string => String(value || '').trim().toLocaleLowerCase('ru').replace(/ё/g, 'е').replace(/\s+/g, ' ');
+
+/**
+ * `positions` — справочник должностей. Колонка «Должность» сопоставляется с их
+ * названием: совпало — это основная должность (код), нет — остаётся текстом
+ * подписи в `position`, как раньше.
+ */
+export function mapEmployeeRows(rows: unknown[][], mapping: UserImportMap, existing: Array<{ id: string; symbol: string; role?: string }>, defaultRole: string, mode: 'create' | 'update', actorRole = '', positions: Array<{ code: string; name: string }> = []) {
+  const byName = new Map(positions.map((p) => [positionKey(p.name), p.code]));
   const bySymbol = new Map(existing.map((u) => [String(u.symbol).trim().toLocaleLowerCase(), u]));
   const seen = new Set<string>();
   return rows.slice(1, 5001).map((raw, index): UserImportRow => {
@@ -45,8 +54,14 @@ export function mapEmployeeRows(rows: unknown[][], mapping: UserImportMap, exist
     if (mode === 'update' && match && match.role === 'OWNER') issues.push('Профиль владельца нельзя обновить импортом');
     if (mode === 'update' && match && match.role === 'ADMIN' && actorRole !== 'OWNER') issues.push('Профиль администратора меняет только владелец');
     if (mode === 'update' && values.password) issues.push('Пароль существующего сотрудника не меняется импортом');
+    // Колонка «Должность»: совпала с названием из справочника — это основная должность, а не текст
+    if (!values.role && values.position && byName.has(positionKey(values.position))) {
+      values.role = byName.get(positionKey(values.position))!;
+      values.position = '';
+    }
     if (!values.role && mode === 'create') values.role = defaultRole;
     if (values.role === 'OWNER') issues.push('Роль владельца нельзя назначить импортом');
+    if (values.role === 'ADMIN') issues.push('Администратором сотрудника делает владелец в его карточке, не импорт');
     return { row: index + 2, values, error: issues.join('; ') || undefined, action: match ? 'update' : 'create', existingId: match?.id };
   }).filter((r) => Object.values(r.values).some(Boolean));
 }

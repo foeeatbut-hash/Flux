@@ -18,7 +18,12 @@ export interface User {
   birthDate?: string | Date | null;
   symbol: string;
   login?: string;
+  /** Уровень доступа: 'OWNER' | 'ADMIN' | иначе сотрудник (тогда здесь код основной должности) */
   role: string;
+  /** Основная должность (код); у записей до разделения пусто — тогда её даёт role (shared/positions.ts) */
+  positionCode?: string | null;
+  /** Дополнительные должности: JSON-массив кодов */
+  extraPositions?: string | null;
   password?: string;
   isActive?: boolean;
   validUntil?: string | Date | null;
@@ -36,7 +41,7 @@ export interface Role {
   description: string;
   color: string;
   icon: string;
-  level: number;          // 1 = главный администратор
+  level: number;          // порядок в справочнике; уровнем доступа не служит
   isSystem: boolean;
   permissions?: string;
   sortOrder: number;
@@ -458,14 +463,14 @@ export const dataService = {
     return request<User[]>('/users');
   },
 
-  async createUser(userData: { symbol: string; name?: string; lastName?: string; firstName?: string; middleName?: string; gender?: string; birthDate?: string | null; role: string; password?: string; validUntil?: string | null; isActive?: boolean; permissions?: string | null; departmentId?: string | null }): Promise<User> {
+  async createUser(userData: { symbol: string; name?: string; lastName?: string; firstName?: string; middleName?: string; gender?: string; birthDate?: string | null; role?: string; positionCode: string; extraPositions?: string[]; accessLevel?: 'ADMIN' | 'EMPLOYEE'; password?: string; validUntil?: string | null; isActive?: boolean; permissions?: string | null; departmentId?: string | null }): Promise<User> {
     return request<User>('/users', {
       method: 'POST',
       body: JSON.stringify(userData),
     });
   },
 
-  async updateUser(id: string, data: { name?: string; lastName?: string; firstName?: string; middleName?: string; gender?: string; birthDate?: string | null; symbol?: string; role?: string; password?: string; isActive?: boolean; validUntil?: string | null; permissions?: string | null; departmentId?: string | null }): Promise<{ success: boolean; user?: User; message?: string }> {
+  async updateUser(id: string, data: { name?: string; lastName?: string; firstName?: string; middleName?: string; gender?: string; birthDate?: string | null; symbol?: string; role?: string; positionCode?: string; extraPositions?: string[]; accessLevel?: 'ADMIN' | 'EMPLOYEE'; password?: string; isActive?: boolean; validUntil?: string | null; permissions?: string | null; departmentId?: string | null }): Promise<{ success: boolean; user?: User; message?: string }> {
     return request(`/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
