@@ -81,7 +81,7 @@ Project ──< ProjectMilestone (вехи: дата, закреплена ли)
    │        │          │   ├──< DocRegisterItemTag >── Tag ── Equipment(type/category)
    │        │          │   ├──< DocFileLink >── файл Windows (ключ папки + имя + sha256)
    │        │          │   └─ docId → ConstructorDoc / selectionListId → SelectionList
-   │        │          └─ responsiblePositionId → Position ── (сотрудники проекта)
+   │        │          └─ responsiblePositionCode → Role (должность) ── (сотрудники проекта)
    │        └─ DocGenerationBatch (план/применение/откат)
    │
    ├──< ProjectFolderBinding (есть: ключ сетевой папки ↔ проект)
@@ -99,7 +99,7 @@ DocStandard ──< DocKitRule (тип оборудования → вид до�
 | строка ↔ правило комплекта | `DocRegisterItem.kitRuleId` + `originKey` = `ruleId:tagId` (или `ruleId:group`/`ruleId:project`) | идемпотентность: повторный запуск не создаёт дубль, правка правила находит «свои» строки |
 | строка ↔ файл | `DocFileLink`: `folderKey` (sha256 нормализованного сетевого пути папки, как в `ProjectFolderBinding.locationKey`) + `relName` + `sha256` + `size` | путь в базу не пишется; у каждого клиента свой диск, но ключ одинаков; хеш переживает переименование |
 | строка ↔ документ программы | `docId` (Конструктор), `selectionListId` (опросный лист) | уже существуют / добавляется одно поле |
-| строка ↔ ответственный | `responsiblePositionId` → `Position`; `assigneeId` остаётся как «назначен конкретно» | должность задаёт правило, человек выводится из состава проекта |
+| строка ↔ ответственный | `responsiblePositionCode` → `Role.code` (справочник должностей); `assigneeId` остаётся как «назначен конкретно» | должность задаёт правило, человек выводится из состава проекта |
 | реестр ↔ папка | `DocRegister.folderKey` (+ `folderRel`) — подпапка реестра внутри привязанной папки проекта | |
 
 ### 2.3 Эскиз Prisma
@@ -125,20 +125,9 @@ model ProjectMilestone {
   @@unique([projectId, code])
 }
 
-// Должность (справочник). Основная и дополнительные должности человека —
-// отдельная связь; User.position остаётся для показа.
-model Position {
-  id        String  @id @default(uuid())
-  name      String
-  departmentId String?
-  archivedAt DateTime?
-}
-model UserPosition {
-  userId     String
-  positionId String
-  primary    Boolean @default(false)
-  @@id([userId, positionId])
-}
+// Должности уже есть: справочник — таблица Role без OWNER/ADMIN, у сотрудника
+// User.positionCode (основная) и User.extraPositions (JSON кодов дополнительных),
+// общие правила — shared/positions.ts. Новых таблиц для должностей не нужно.
 
 // Правило комплекта: «для оборудования этого типа нужен такой документ».
 model DocKitRule {
@@ -153,7 +142,7 @@ model DocKitRule {
   scope           String  @default("PER_TAG") // PER_TAG | PER_GROUP | PER_PROJECT
   stage           String  @default("R") // P | R | PR (обе)
   required        Boolean @default(true)
-  positionId      String? // ответственная должность
+  responsiblePositionCode String? // код должности (Role.code)
   milestoneCode   String  @default("")  // от какой вехи
   offsetDays      Int     @default(0)   // отрицательное — «до вехи»
   offsetKind      String  @default("WORKDAYS") // WORKDAYS | CALENDAR
@@ -173,7 +162,7 @@ model DocKitRule {
 //   kitRuleId String?, originKey String @default(""), source String @default("MANUAL") // KIT|IMPORT|MANUAL
 //   plannedDate DateTime?, plannedMode String @default("MANUAL") // AUTO | MANUAL (закреплена)
 //   milestoneCode String @default(""), offsetDays Int @default(0), offsetKind String @default("WORKDAYS")
-//   responsiblePositionId String?, selectionListId String?
+//   responsiblePositionCode String?, selectionListId String?
 //   @@index([registerId, originKey])
 
 model DocRegisterItemTag {
@@ -537,12 +526,13 @@ model DocGenerationBatch {
 
 ### 6.3 Должности и ответственные
 
-Сейчас у сотрудника одна строка `User.position`; владелец вводит основную и
-дополнительные должности. Проект исходит из будущего справочника `Position`
-+ `UserPosition (primary)` (эскиз выше); пока справочника нет, правило
-хранит название должности строкой, а сопоставление идёт по `User.position`
-(регистр не учитывается). Это зависимость от соседней работы, а не её
-подмена: форма справочника — решение того, кто её делает.
+У сотрудника основная должность (`User.positionCode`) и дополнительные
+(`User.extraPositions`); справочник — вкладка «Должности» программы
+«Сотрудники» (таблица `Role`, без уровней OWNER/ADMIN), правила — в
+`shared/positions.ts`. Правило комплекта хранит код должности
+(`responsiblePositionCode`). Кандидатами в ответственные считаются люди и с
+основной, и с дополнительной должностью; при равных — сначала те, у кого она
+основная. `User.position` — только свободная подпись для документов.
 
 Ответственный по должности выводится так:
 
@@ -582,7 +572,7 @@ model DocGenerationBatch {
 | **0 (сделан)** | Лист «Документооборот» в Менеджменте, `?tab=docflow` | вкладка открывается, правка и сохранение стандарта работают, обе темы |
 | **A. Связь по id** | `DocRegisterItemTag`, перенос `equipmentTags`, обратный показ «Документы» у тега/оборудования, права `vdr.*` на всех маршрутах, исправление старых ссылок `/explorer?file=` | переименование тега не рвёт связь (проверка); существующие реестры мигрируют без потери (счётчик «не сопоставлено»); тест прав |
 | **B. Вехи и сроки** | `ProjectMilestone`, `plannedDate/plannedMode`, рабочий календарь, пересчёт с предпросмотром и откатом, уведомления и серверная задача, календарь | сдвиг вехи показывает план и не трогает закреплённые/выданные; повторный запуск не шлёт дубли; просрочка в сводке считается по новому правилу |
-| **C. Справочник комплектов** | `Position`-заглушка по строке, `DocKitRule`, экран «Комплекты документов» в настройках | правила создаются, правятся, отключаются; пример комплекта для четырёх категорий; проверка схемы на трёх базах |
+| **C. Справочник комплектов** | `DocKitRule` (должность — код из справочника), экран «Комплекты документов» во вкладке «Настройки документооборота» Менеджмента | правила создаются, правятся, отключаются; пример комплекта для четырёх категорий; проверка схемы на трёх базах |
 | **D. Генерация строк** | планировщик, предпросмотр, применение, откат, триггеры 1–3 | новый реестр заполняется комплектом за один диалог; повторный запуск не создаёт дублей; откат не трогает правленое; импортированные строки не дублируются |
 | **E. Проводник** | папка реестра, структура папок, `DocFileLink`, разбор по маске, «неразобранное» | на тестовой папке: файл по маске привязался сам, неузнанный попал в очередь, конфликт предложил выбор; ничего не переименовано; Windows-проверка вручную владельцем |
 | **F. Ревизии и статусы** | единая цепочка ревизий, перевод статусов файл ↔ строка, выпуск с файлом, замечания по ревизиям | выпуск ревизии из файла `…_B_…` привязывает его и закрывает предыдущую; `SelectionIssue` виден в «Учёте ревизий» |
