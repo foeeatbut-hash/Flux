@@ -253,7 +253,7 @@ export default function UsersManagement() {
       : <>
       <Toolbar>
         <Btn tone="ghost" size="sm" aria-pressed={paneOpen} onClick={togglePane} title={paneOpen ? 'Скрыть дерево подразделений' : 'Показать дерево подразделений'}><PanelLeft />Подразделения</Btn>
-        <label className="relative w-64 max-w-full">
+        <label className="relative w-72 max-w-full">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Фамилия, логин, должность, подразделение" aria-label="Поиск сотрудника" className="pl-7" />
         </label>

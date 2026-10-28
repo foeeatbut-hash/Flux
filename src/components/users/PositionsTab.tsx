@@ -96,12 +96,13 @@ export default function PositionsTab({ positions, users, onChanged, addToast }: 
       <Toolbar>
         <span className="text-[13px] text-slate-500 dark:text-slate-400">{countOf(positions.length, 'должность')}</span>
         <span className="ml-auto" />
-        <Btn tone="primary" onClick={startNew} disabled={busy}><Plus />Добавить должность</Btn>
+        {/* Не главная: главная кнопка раздела — «Добавить сотрудника» в шапке, на экране она одна */}
+        <Btn onClick={startNew} disabled={busy}><Plus />Добавить должность</Btn>
       </Toolbar>
       <div className="fx-page-body min-w-0 @container">
         {positions.length === 0 ? (
           <Empty title="Должностей пока нет" text="Заведите первую — её можно назначить сотруднику основной или дополнительной.">
-            <Btn tone="primary" onClick={startNew} className="mt-3">Добавить должность</Btn>
+            <Btn onClick={startNew} className="mt-3">Добавить должность</Btn>
           </Empty>
         ) : (
           <table className="fx-table">
