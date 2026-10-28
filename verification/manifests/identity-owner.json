@@ -36,7 +36,14 @@
         "src/lib/permissions.ts",
         "server/routes/users.ts",
         "server/usersImport.ts",
-        "server/accessPolicy.ts"
+        "server/accessPolicy.ts",
+        "src/components/users/PositionsTab.tsx",
+        "src/components/users/UserAccessDialog.tsx",
+        "src/components/users/UserRegisterDialog.tsx",
+        "src/components/users/PositionFields.tsx",
+        "shared/positions.ts",
+        "server/userPositions.ts",
+        "server/positionPermissions.ts"
       ]
     },
     {
@@ -48,7 +55,6 @@
       "sources": [
         "src/screens/SettingsScreen.tsx",
         "src/components/settings/DatabaseSection.tsx",
-        "src/components/settings/RolesSection.tsx",
         "src/components/settings/LicenseSection.tsx",
         "src/components/settings/BackupSection.tsx",
         "src/components/ConnectionPanel.tsx",
@@ -236,6 +242,18 @@
       ],
       "prerequisites": [],
       "timeoutMs": 900000
+    },
+    {
+      "id": "identity-positions-api-db",
+      "path": "scripts/test-positions.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "loopback-http",
+        "synthetic-sqlite"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 180000
     }
   ],
   "actions": [
@@ -1090,35 +1108,35 @@
       ]
     },
     {
-      "id": "identity.settings.roles",
-      "program": "settings",
-      "label": "Создать, изменить, выдать права роли или удалить пользовательскую роль",
+      "id": "identity.users.positions",
+      "program": "users",
+      "label": "Создать, изменить, выдать права должности или удалить пользовательскую должность",
       "sources": [
-        "src/components/settings/RolesSection.tsx",
-        "server/routes/users.ts"
+        "src/components/users/PositionsTab.tsx",
+        "server/routes/users.ts",
+        "shared/positions.ts"
       ],
       "triggers": [
-        "Добавить роль",
-        "Изменить роль",
+        "Добавить должность",
+        "Изменить должность",
         "поля названия/кода/описания",
         "выбор цвета",
         "выбор значка",
-        "переключатели возможностей роли",
+        "переключатели возможностей должности",
         "Сохранить",
         "закрыть форму",
-        "Удалить роль"
+        "Удалить должность"
       ],
       "risk": "critical",
       "expected": [
-        "Только OWNER меняет роли; встроенные роли нельзя удалить; роль даёт только явные разрешения, личный запрет сотрудника сильнее"
+        "Справочник меняют владелец и администратор с правом «Должности: справочник»; OWNER/ADMIN не должности; встроенную и назначенную (в том числе дополнительной) должность удалить нельзя; должность даёт только явные разрешения, admin.* в ней не хранятся, личный запрет сотрудника сильнее"
       ],
       "checks": [
         {
           "suite": "identity-owner-auth-component",
           "layer": "component",
           "claims": [
-            "ADMIN не назначает ADMIN и не выдаёт admin.* права",
-            "Маршрут изменения ролей требует OWNER"
+            "ADMIN не назначает ADMIN и не выдаёт admin.* права"
           ]
         },
         {
@@ -1127,14 +1145,23 @@
           "claims": [
             "Личный запрет сотрудника сильнее разрешения роли"
           ]
+        },
+        {
+          "suite": "identity-positions-api-db",
+          "layer": "api-db",
+          "claims": [
+            "Должность обязательна; уровни назначает только владелец",
+            "Права дополнительных должностей только расширяют",
+            "Назначенную должность удалить нельзя; admin.* вычищаются из должности"
+          ]
         }
       ],
       "manual": [
         {
           "layer": "api-db",
-          "scenario": "Создать тестовую роль, сохранить права, назначить сотруднику, проверить effective access, затем удалить роль",
+          "scenario": "Создать тестовую должность, сохранить права, назначить сотруднику основной или дополнительной, проверить effective access, затем удалить должность",
           "expected": [
-            "Права вступили в силу после повторного входа; встроенные роли не удаляются"
+            "Права вступили в силу после повторного входа; встроенные и назначенные должности не удаляются"
           ]
         }
       ]
