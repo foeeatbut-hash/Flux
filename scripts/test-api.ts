@@ -147,11 +147,14 @@ const call = async (method: string, url: string, body?: any) => {
   console.log('6. Сотрудники и роли');
   {
     const roles = await call('GET', '/api/roles');
-    ok('встроенные роли засеяны', (roles.json?.roles || []).length >= 4, (roles.json?.roles || []).length);
+    // Уровни доступа OWNER и ADMIN — не должности: справочник их не отдаёт
+    const codes = (roles.json?.roles || []).map((r: any) => r.code);
+    ok('встроенные должности засеяны', ['MANAGER', 'ENGINEER_VENT', 'ENGINEER_AUTO'].every((c) => codes.includes(c)), codes);
+    ok('уровней OWNER и ADMIN в справочнике должностей нет', !codes.includes('OWNER') && !codes.includes('ADMIN'), codes);
 
     const symbol = '__proverka_' + Date.now().toString(36);
     const made = await call('POST', '/api/users', {
-      symbol, lastName: 'Проверкин', firstName: 'Тест', role: 'ENGINEER_VENT', password: 'проверка',
+      symbol, lastName: 'Проверкин', firstName: 'Тест', positionCode: 'ENGINEER_VENT', password: 'проверка',
     });
     ok('сотрудник заведён', made.status === 200 || made.status === 201, { s: made.status, b: made.text.slice(0, 150) });
     const uid = made.json?.id || made.json?.user?.id;

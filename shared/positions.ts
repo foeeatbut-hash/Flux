@@ -80,6 +80,15 @@ export function allPositionCodes(user: PositionUser | null | undefined): string[
   return [...(primary ? [primary] : []), ...extraPositionCodes(user)];
 }
 
+/**
+ * Есть ли у человека должность с таким кодом — основная или дополнительная.
+ * Для проверок вида «руководитель может удалять реестр»: дополнительная
+ * должность даёт то же, что и основная, — она затем и назначается.
+ */
+export function hasPosition(user: PositionUser | null | undefined, code: string): boolean {
+  return allPositionCodes(user).includes(code);
+}
+
 export type PositionsCheck =
   | { ok: true; primary: string; extras: string[] }
   | { ok: false; error: string };

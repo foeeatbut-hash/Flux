@@ -22,7 +22,7 @@ import { registerUserRoutes } from '../server/routes/users.js';
 import { positionPermissionsString } from '../server/positionPermissions.js';
 import { credentialStamp } from '../server/authSessions.js';
 import { mapEmployeeRows, positionKey } from '../server/usersImport.js';
-import { accessLevelOf, checkPositions, extraPositionCodes, mergePositionPermissions, primaryPositionCode, stripAdminPermissions } from '../shared/positions.js';
+import { accessLevelOf, checkPositions, extraPositionCodes, hasPosition, mergePositionPermissions, primaryPositionCode, stripAdminPermissions } from '../shared/positions.js';
 import { can } from '../src/lib/permissions.js';
 
 const require = createRequire(import.meta.url);
@@ -69,6 +69,7 @@ async function main() {
     check('у администратора без записанной должности основной нет', primaryPositionCode({ role: 'ADMIN' }) === null && primaryPositionCode({ role: 'OWNER' }) === null);
     check('уровень доступа берётся из role', accessLevelOf({ role: 'OWNER' }) === 'OWNER' && accessLevelOf({ role: 'ADMIN' }) === 'ADMIN' && accessLevelOf({ role: 'MANAGER' }) === 'EMPLOYEE');
     check('дополнительные: без дублей, без основной, без уровней', extraPositionCodes({ role: 'A', positionCode: 'A', extraPositions: JSON.stringify(['B', 'B', 'A', 'ADMIN', 'C']) }).join() === 'B,C');
+    check('должность «менеджер» есть и у того, для кого она дополнительная', hasPosition({ role: 'ENGINEER_VENT', extraPositions: '["MANAGER"]' }, 'MANAGER') && hasPosition({ role: 'MANAGER' }, 'MANAGER') && !hasPosition({ role: 'ENGINEER_VENT' }, 'MANAGER'));
     check('мусор в колонке дополнительных — пустой список', extraPositionCodes({ role: 'A', extraPositions: '{не json' }).length === 0);
     const known = new Set(['A', 'B', 'C']);
     check('проверка: основная обязательна', checkPositions('', [], known).ok === false && checkPositions(undefined, [], known).ok === false);
