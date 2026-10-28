@@ -354,7 +354,7 @@ async function seed(stateDir) {
 
   const suffix = randomBytes(4).toString('hex');
   const makePassword = () => `Fixture-${randomBytes(24).toString('base64url')}`;
-  const admin = { symbol: `fixture.admin.${suffix}`, password: makePassword(), role: 'ADMIN', lastName: 'Тестовый', firstName: 'Администратор', permissions: { 'admin.users.create': { enabled: true, mode: 'ALLOW' }, 'admin.users.manage': { enabled: true, mode: 'ALLOW' } } };
+  const admin = { symbol: `fixture.admin.${suffix}`, password: makePassword(), role: 'ADMIN', positionCode: 'MANAGER', lastName: 'Тестовый', firstName: 'Администратор', permissions: { 'admin.users.create': { enabled: true, mode: 'ALLOW' }, 'admin.users.manage': { enabled: true, mode: 'ALLOW' } } };
   const employees = Array.from({ length: 6 }, (_, i) => ({
     symbol: `fixture.user${i + 1}.${suffix}`,
     password: makePassword(),
