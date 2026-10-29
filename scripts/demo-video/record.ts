@@ -73,6 +73,8 @@ async function stopServer() {
 function seedUser(dataDir: string) {
   const Database = require('better-sqlite3');
   const db = new Database(path.join(dataDir, 'database.sqlite'));
+  // Схема создаётся сервером уже после ответа health: ждём таблицу пользователей
+  for (let i = 0; i < 60 && !db.prepare("SELECT 1 FROM sqlite_master WHERE name='User'").get(); i++) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
   const salt = crypto.randomBytes(16);
   const hash = `scrypt$${salt.toString('hex')}$${crypto.scryptSync(PASSWORD, salt, 64).toString('hex')}`;
   db.prepare('INSERT INTO User (id, symbol, password, name, lastName, firstName, middleName, role, isActive, createdAt) VALUES (?,?,?,?,?,?,?,?,1,?)')
@@ -117,13 +119,14 @@ const consoleLog: string[] = [];
 const ev = (fn: string, ...args: unknown[]) => page.evaluate(`(a => window.__demo.${fn}(...a))(${JSON.stringify(args)})`);
 
 /** Черновой прогон: снимок экрана перед каждой сменой подписи, чтобы смотреть глазами */
+let snapN = 0;
 async function snap(tag = '') {
   if (!FAST) return;
   const d = path.join(OUT_DIR, 'dbg'); fs.mkdirSync(d, { recursive: true });
-  await page.screenshot({ path: path.join(d, `${String(marks.length).padStart(2, '0')}${tag}.png`) }).catch(() => {});
+  await page.screenshot({ path: path.join(d, `${String(++snapN).padStart(3, '0')}-s${marks.length}${tag}.png`) }).catch(() => {});
 }
 
-/** Пауза на чтение подписи: ~55 мс на символ, не меньше 3 с */
+/** Пауза на чтение подписи: ~42 мс на символ, не меньше 2,6 с */
 async function readPause() {
   const left = capNeed * F - (Date.now() - capStarted);
   if (left > 0) await sleep(left);
@@ -135,7 +138,7 @@ async function caption(n: string, title: string, text: string, pos: 'bot' | 'top
   await snap();
   await ev('caption', n, title, text, pos);
   capStarted = Date.now();
-  capNeed = Math.max(3000, 55 * (title.length + text.length));
+  capNeed = Math.max(2600, 42 * (title.length + text.length));
   marks.push({ n, title, t: (Date.now() - videoT0) / 1000 });
   log(`${n}. ${title}`);
 }
@@ -162,6 +165,7 @@ async function clickOn(loc: any, opts: { hl?: boolean; after?: number } = {}) {
   await ev('click', x, y);
   await page.mouse.click(x, y);
   await sleep(300 * F);
+  await snap('c');
   await ev('highlight', null);
   await sleep((opts.after ?? 500) * F);
 }
@@ -169,6 +173,7 @@ async function clickOn(loc: any, opts: { hl?: boolean; after?: number } = {}) {
 /** Показать на элемент, не нажимая: курсор подъезжает, рамка горит */
 async function showEl(loc: any, hold = 1800) {
   await pointAt(loc, true);
+  await snap('e');
   await sleep(hold * F);
   await ev('highlight', null);
 }
@@ -179,10 +184,26 @@ async function typeIn(loc: any, text: string, delay = 60) {
   await sleep(350 * F);
 }
 
+/** Нажатие, которое должно дать файл: ждём выгрузку и честно сообщаем, если её не было */
+async function clickDownload(loc: any, what: string, timeout = 30000) {
+  const got = page.waitForEvent('download', { timeout }).then(() => true, () => false);
+  await clickOn(loc, { after: 300 });
+  const ok = await got;
+  if (!ok) log('ВНИМАНИЕ: файл не выгружен:', what);
+  await sleep(2800 * F);
+  return ok;
+}
+
 const closeWindows = async () => {
   await page.evaluate(`(() => { for (const b of document.querySelectorAll('[data-win] button[aria-label="Закрыть"]')) b.click(); })()`);
   await sleep(700 * F);
 };
+
+/** Закрыть верхнее окно, если оно с таким заголовком (случайно открывшееся пустое окно) */
+async function closeTopIf(title: string) {
+  await page.evaluate(`((t) => { const w = [...document.querySelectorAll('[data-win]')].pop(); if (w && (w.innerText||'').slice(0,80).includes(t)) w.querySelector('button[aria-label="Закрыть"]')?.click(); })(${JSON.stringify(title)})`);
+  await sleep(700 * F);
+}
 
 const maximize = async () => {
   await sleep(500 * F);
@@ -214,14 +235,34 @@ const win = () => page.locator('[data-win]').last();
 const btn = (text: string | RegExp, root: any = page) =>
   root.locator('button').filter({ hasText: typeof text === 'string' ? new RegExp(`^\\s*${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`) : text });
 
+// Лёгкое ускорение всего ролика (набор текста и переезды курсора), чтобы уложиться в 6 минут
+const SPEEDUP = 1.1;
+
 function convert(webm: string, mp4: string, startSec: number) {
   execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-ss', startSec.toFixed(2), '-i', webm,
-    '-c:v', 'libx264', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', '30', '-movflags', '+faststart', '-an', mp4], { stdio: 'inherit' });
+    '-vf', `setpts=PTS/${SPEEDUP}`, '-c:v', 'libx264', '-crf', '18', '-pix_fmt', 'yuv420p', '-r', '30', '-movflags', '+faststart', '-an', mp4], { stdio: 'inherit' });
 }
 
 const slideHtml = (title: string, sub: string, bullets: string[] = []) =>
   `<div class="logo"><div class="mark">F</div></div><h1>${title}</h1><h2>${sub}</h2>` +
   (bullets.length ? `<ul>${bullets.map((b) => `<li><span>${b}</span></li>`).join('')}</ul>` : '');
+
+/** Титр-переход: закрывает экран, пока за ним открывается раздел, чтобы не мелькали пустые окна */
+let chapterAt = 0;
+async function chapter(n: string, title: string, sub: string) {
+  await readPause();
+  await ev('hideCaption');
+  await ev('highlight', null);
+  await ev('showSlide', `<div class="chn">Раздел ${n}</div><h1 style="font-size:92px">${title}</h1><div class="chb"></div><h2 style="margin-top:30px">${sub}</h2>`);
+  chapterAt = Date.now();
+  await sleep(700 * F);
+}
+async function endChapter(minMs = 2400) {
+  const left = minMs * F - (Date.now() - chapterAt);
+  if (left > 0) await sleep(left);
+  await ev('hideSlide');
+  await sleep(800 * F);
+}
 
 // ───────────────────────── сценарий ─────────────────────────
 
@@ -229,7 +270,7 @@ async function scenario(files: { valves: string }) {
   // 0. Заставка
   await ev('showSlide', slideHtml('Flux — единая база проекта', 'От исходных данных до готовых документов — в одном месте'));
   marks.push({ n: '0', title: 'Заставка', t: (Date.now() - videoT0) / 1000 });
-  await sleep(7000 * F);
+  await sleep(5500 * F);
   await ev('hideSlide');
   await sleep(900 * F);
 
@@ -249,11 +290,13 @@ async function scenario(files: { valves: string }) {
   }
 
   // 3. Проекты
-  await caption('3', 'Проект — общее пространство работы', 'Данные и документы привязаны к проекту, а доступ задаётся его участниками');
+  await chapter('3', 'Проект', 'Общее пространство работы команды');
+  await caption('3', 'Проект — общее пространство работы', 'Всё, что создаётся дальше, принадлежит проекту; участников проекта выбирают кнопкой «Участники»');
   await clickOn(tile('Проекты'), { after: 300 });
   await page.waitForSelector('[data-win]');
   await maximize();
   await windowReady();
+  await endChapter();
   await clickOn(btn('Создать проект').first());
   await typeIn(page.locator('input[placeholder="Название проекта"]').last(), 'ЖК «Северный». Корпус 2 — вентиляция');
   const dash = page.locator('input[placeholder="—"]');
@@ -267,16 +310,20 @@ async function scenario(files: { valves: string }) {
   await showEl(page.locator('text=Снять с работы').first(), 1500);
 
   // 4. Справочник
-  await caption('4', 'Справочник правил', 'Общие правила создания тегов и маркировки хранятся в справочнике; базу можно загрузить из Excel');
+  await chapter('4', 'Справочник', 'Правила, по которым создаются теги и маркировка');
+  await caption('4', 'Справочник правил', 'Правила создания тегов и маркировки хранятся один раз; справочник можно загрузить из Excel');
   await openSection('Справочник');
+  await endChapter();
   for (const tab of ['Маркировка', 'Пресеты подбора', 'Обозначения', 'Доп. параметры']) {
     await clickOn(win().locator('button').filter({ hasText: tab }).first(), { after: 900 });
   }
   await showEl(btn('Загрузить базу из Excel'), 2200);
 
   // 5. Каталог
-  await caption('5', 'Каталог оборудования', 'Один каталог для всех проектов: модели, характеристики, исполнения, документация');
+  await chapter('5', 'Каталог', 'Изделия производителей: модели, исполнения, документация');
+  await caption('5', 'Каталог оборудования', 'Один каталог для всех проектов: модели, характеристики и исполнения изделия');
   await openSection('Каталог');
+  await endChapter();
   await typeIn(page.locator('input[placeholder^="Код, модель"]'), 'КПУ');
   await clickOn(win().locator('text=КПУ-1Н').first(), { after: 1800 });
   for (const tab of ['Характеристики', 'Исполнения']) {
@@ -285,8 +332,10 @@ async function scenario(files: { valves: string }) {
   }
 
   // 6. Оборудование: документы -> предпросмотр -> запись
-  await caption('6', 'Исходные данные — из документов', 'Бланки, расчёты и таблицы загружаются в базу. Перед записью — предпросмотр: в базу попадает только проверенное');
+  await chapter('6', 'Оборудование', 'Исходные данные загружаются из документов, а не вводятся заново');
+  await caption('6', 'Исходные данные — из документов', 'Бланки, расчёты и таблицы загружаются в базу. Перед записью — предпросмотр');
   await openSection('Оборудование');
+  await endChapter();
   await clickOn(btn('Загрузить документы'), { after: 900 });
   await clickOn(page.locator('button[aria-haspopup="listbox"]').filter({ hasText: 'Центральные' }), { after: 500 });
   await clickOn(page.locator('[role="option"]').filter({ hasText: 'Клапаны' }), { after: 600 });
@@ -295,10 +344,10 @@ async function scenario(files: { valves: string }) {
   await page.locator('input[type="file"][accept*=".xlsx"]').last().setInputFiles(files.valves);
   await page.waitForSelector('text=Проверить и импортировать', { timeout: 30000 });
   await sleep(1500 * F);
-  await caption('6', 'Распознанный документ', 'Зелёное — уверенно, жёлтое — проверьте, серое — подпись не распознана; значения можно поправить вручную');
+  await caption('6', 'Распознанный документ', 'Из бланка распознаны наименование, размеры и параметры; жёлтым отмечено то, что стоит проверить');
   await showEl(page.locator('text=температура эксплуатации').first(), 2500);
   await clickOn(page.locator('button:has-text("Проверить и импортировать")'), { after: 1500 });
-  await caption('6', 'Предпросмотр импорта', 'База ещё не изменена: видно, что появится нового, что изменится, и какие теги будут заведены');
+  await caption('6', 'Предпросмотр импорта', 'База ещё не изменена: видно, что будет добавлено, и какие теги заведутся по бланку');
   await clickOn(page.locator('text=/КПУ-1Н-З-В-1000/').first(), { after: 1500 });
   await clickOn(btn(/Теги бланка/), { after: 2200 });
   await clickOn(btn(/к параметрам/), { after: 700 });
@@ -310,8 +359,10 @@ async function scenario(files: { valves: string }) {
   await clickOn(win().locator('text=/КПУ-1Н-З-В-1000/').first(), { after: 2500 }).catch(() => {});
 
   // 7. Теги
-  await caption('7', 'Теги проекта', 'Теги создаются по коду и марке, заводятся вручную, из документов или пачкой из таблицы');
+  await chapter('7', 'Теги', 'Единый перечень позиций проекта и связи между ними');
+  await caption('7', 'Теги проекта', 'Теги заводятся вручную, из документов или пачкой из таблицы: код, марка, наименование');
   await openSection('Теги');
+  await endChapter();
   const tagsToType: [string, string, string][] = [
     ['1000-A01-HU-001', 'ПРИТОК-500', 'Приточная установка П1'],
     ['1000-A01-HU-002', 'ПРИТОК-500', 'Приточная установка П2'],
@@ -340,18 +391,35 @@ async function scenario(files: { valves: string }) {
   await clickOn(btn(/^Импортировать \(/), { after: 2500 });
   await page.keyboard.press('Escape');
   await sleep(600 * F);
-  await clickOn(win().locator('button').filter({ hasText: 'Дерево связей' }), { after: 2500 });
+  await clickOn(win().locator('button').filter({ hasText: 'Дерево связей' }), { after: 1500 });
+  await caption('7', 'Связи между тегами', 'Установка — родитель, оборудование на ней — дочерние теги: «Связать», затем клик по дочерней строке');
+  const row = (code: string) => win().locator('.fx-li').filter({ hasText: code }).first();
+  for (const [parent, child] of [['1000-A01-HU-001', '1000-D01-DS-002'], ['1000-A01-HU-002', '1000-D01-DS-004']] as const) {
+    await showEl(row(parent), 500);
+    await clickOn(row(parent).locator('button[title^="Связать"]'), { hl: false, after: 400 });
+    await clickOn(row(child), { after: 1400 });
+  }
+  // Родители раскрываются: видно, какое оборудование стоит под какой установкой
+  for (const code of ['1000-A01-HU-001', '1000-A01-HU-002']) {
+    const ex = row(code).locator('button[aria-label="Развернуть"]');
+    if (await ex.count()) await clickOn(ex, { after: 700 });
+  }
+  await sleep(2200 * F);
   await caption('7', 'Подбор и выгрузка', 'Любую подборку тегов можно выгрузить в Excel: отбор по частям кода и марки, выбор колонок');
   await clickOn(win().locator('button').filter({ hasText: /^\s*Подбор/ }), { after: 1200 });
   await typeIn(page.locator('input[placeholder="Значение..."]').nth(1), 'B02');
-  const dl1 = page.waitForEvent('download', { timeout: 20000 });
-  await clickOn(btn('Экспортировать подборку в Excel'), { after: 300 });
-  await dl1.catch(() => {});
-  await sleep(2500 * F);
+  // Выгрузка кладёт файл в «Выгрузки» Проводника и открывает его в редакторе таблиц;
+  // в этой сборке редактора нет, поэтому окно-пустышку закрываем — файл виден в Проводнике
+  await clickOn(btn('Экспортировать подборку в Excel'), { after: 600 });
+  await ev('toast', 'Файл подборки сохранён в «Выгрузки» Проводника', 5000);
+  await sleep(2600 * F);
+  await closeTopIf('Таблица');
 
   // 8. Конструктор
-  await caption('8', 'Спецификация из данных базы', 'Позиции привязываются к тегам и изделиям каталога — без копирования файлов между таблицами');
+  await chapter('8', 'Конструктор', 'Спецификации и выпуск документов');
+  await caption('8', 'Спецификация из данных базы', 'Позиция привязана к тегу и изделию каталога; обозначение собирается из выбранных параметров');
   await openSection('Конструктор');
+  await endChapter();
   await clickOn(btn('Создать спецификацию').first(), { after: 700 });
   const nameInput = page.locator('[role="dialog"] input').first();
   await clickOn(nameInput, { after: 100 });
@@ -370,38 +438,37 @@ async function scenario(files: { valves: string }) {
   };
   await addPos('1000-D01-DS-002', 'КПУ-1Н', '1000', '800');
   await addPos('1000-D01-DS-004', 'КПУ-2Н', '600', '400');
-  await caption('8', 'Выпуск документов', 'Выпуск фиксирует ревизию, история выпусков хранится вместе со спецификацией');
+  await caption('8', 'Выпуск документов', 'Номер и наименование документа, затем Excel; ревизия фиксирует состав на дату выпуска');
   await clickOn(btn('Выпустить документы'), { after: 1500 });
   await typeIn(page.locator('label:has-text("Номер документа") + input, label:has-text("Номер документа") input').first(), 'ВК-СП-001');
   await typeIn(page.locator('label:has-text("Наименование документа") + input, label:has-text("Наименование документа") input').first(), 'Спецификация клапанов');
-  const dlx = page.waitForEvent('download', { timeout: 20000 });
-  await clickOn(btn('Excel'), { after: 300 });
-  await dlx.catch(() => {});
-  await sleep(2500 * F);
-  const dlp = page.waitForEvent('download', { timeout: 30000 });
-  await clickOn(btn('PDF'), { after: 300 });
-  await dlp.catch(() => {});
-  await sleep(2500 * F);
-  await clickOn(btn(/^Выпустить ревизию/), { after: 2500 });
+  await clickDownload(btn('Excel').last(), 'спецификация Excel');
+  await showEl(btn('PDF').last(), 1500); // в браузере PDF уходит на печать — показываем кнопку, не нажимая
+  await caption('8', 'Ревизия и история выпусков', 'Выпуск записывается в базу: ниже в списке «Выпуски» видно номер ревизии, дату и что изменилось');
+  await clickOn(btn(/Выпустить ревизию/), { after: 2500 });
   await showEl(page.locator('text=Выпуски').first(), 2500);
 
   // 9. Менеджмент
-  await caption('9', 'Закупки', 'Закупки работают с теми же позициями проекта — без пересылки таблиц между отделами');
+  await chapter('9', 'Менеджмент', 'Закупки по тем же тегам, что созданы выше');
+  await caption('9', 'Закупки', 'Список закупок строится из тех же тегов проекта: ничего не переносилось из других таблиц');
   await openSection('Менеджмент');
+  await endChapter();
   await clickOn(win().locator('button').filter({ hasText: /^\s*Закупки/ }).first(), { after: 1800 });
-  const dlm = page.waitForEvent('download', { timeout: 20000 });
-  await clickOn(btn('В Excel'), { after: 300 });
-  await dlm.catch(() => {});
-  await sleep(3000 * F);
+  await clickOn(btn('В Excel'), { after: 600 });
+  await ev('toast', 'Ведомость закупок сохранена в «Выгрузки»', 5000);
+  await sleep(2600 * F);
+  await closeTopIf('Таблица');
 
   // 10. Главная
   await closeWindows();
-  await caption('10', 'Главная: сводка по проекту', 'Проект, разделы и последние изменения — в одном окне; видно, кто, что и когда изменил');
+  await chapter('10', 'Главная', 'Сводка по проекту');
+  await caption('10', 'Главная: сводка по проекту', 'Что требует внимания, переходы по разделам и последние изменения проекта — всё берётся из той же базы');
   await clickOn(startBtn(), { after: 600 });
   await clickOn(startMenu().locator('button[title="Главная — сводка по проекту"]'), { after: 300 });
   await page.waitForSelector('[data-win]');
   await maximize();
   await windowReady();
+  await endChapter();
   await sleep(2000 * F);
   await showEl(page.locator('text=Последние изменения').first(), 2500);
 
@@ -416,7 +483,7 @@ async function scenario(files: { valves: string }) {
     'Кто, что и когда изменил — видно',
   ]));
   marks.push({ n: '11', title: 'Итог', t: (Date.now() - videoT0) / 1000 });
-  await sleep(8000 * F);
+  await sleep(7000 * F);
 }
 
 async function main() {
@@ -452,7 +519,6 @@ async function main() {
     const name = d.suggestedFilename();
     log('выгрузка', name);
     await d.saveAs(path.join(WORK, 'downloads', name)).catch(() => {});
-    await ev('toast', `Файл выгружен: ${name}`, 5000).catch(() => {});
   });
   fs.mkdirSync(path.join(WORK, 'downloads'), { recursive: true });
 
@@ -471,7 +537,7 @@ async function main() {
       const webm = await video.path();
       const mp4 = path.join(OUT_DIR, 'flux-demo.mp4');
       convert(webm, mp4, cutStart - 0.1);
-      const timeline = marks.map((m) => ({ ...m, t: Math.max(0, +(m.t - (cutStart - 0.1)).toFixed(1)) }));
+      const timeline = marks.map((m) => ({ ...m, t: Math.max(0, +((m.t - (cutStart - 0.1)) / SPEEDUP).toFixed(1)) }));
       fs.writeFileSync(path.join(OUT_DIR, 'flux-demo-timeline.json'), JSON.stringify(timeline, null, 2));
       log('готово:', mp4);
     }
