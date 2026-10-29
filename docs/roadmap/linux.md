@@ -3,50 +3,85 @@
 Статус: идея · обновлено 29 октября 2026
 
 Та же программа на Linux, без переписывания: общий код остаётся одним, а
-заменяется только тонкий слой, завязанный на Windows.
+заменяется только слой, завязанный на Windows.
 
-## Что уже есть в программе
+## Что работает без изменений
 
 - Интерфейс (React), встроенный API (Express), база (Prisma: SQLite,
-  MariaDB, PostgreSQL), импорт, теги, спецификации, ВДР не привязаны к ОС.
-  Они уже работают на Linux: проверки CI и запись демо-видео
-  (`scripts/demo-video/`) идут на Linux.
-- Сборка portable уже выполняется на Linux под Windows
-  (`scripts/prepare-win-native.cjs`, цель `win` → `portable` в
-  `package.json`).
-- Часть кода уже различает ОС: архиватор `7z.exe`/`7zz`
-  (`server/archive/engine.ts`), хранение секретов почты через `safeStorage`
-  Electron (`server/mail/secret.ts`: на Windows — DPAPI, на Linux — хранилище
-  ключей системы).
+  MariaDB, PostgreSQL), импорт, теги, спецификации, ВДР, Конструктор,
+  Каталог. Проверки CI и запись демо-видео (`scripts/demo-video/`) идут на
+  Linux.
+- Flux Office (GenOffice) — веб-редакторы, а не нативные: собираются
+  `tools/genoffice/build.mjs` в `public/genoffice/<app>/`, серверная часть —
+  `genoffice-server/<app>.cjs` в worker. Работают на Linux как есть.
+- Нативный модуль один — `better-sqlite3`; остальные зависимости — чистый
+  JS (адаптеры mariadb/pg, exceljs, imapflow).
+- Уже с ветками по ОС: `electron/displays.ts` (win32 и linux),
+  `electron/authStorage.ts` (`safeStorage`, на Linux с проверкой
+  хранилища), `electron/filesystem/replace.ts` (на не-Windows — `rename`),
+  `server/mail/secret.ts`, `electron/license.ts`.
+- Уже отключается на не-Windows: `electron/desktopShell.ts` («unsupported»),
+  `electron/windowsNotifications.ts`, `filesystem/nativePlaces.ts` (пусто),
+  `filesystem/network.ts` (false/null).
 
 ## Что завязано на Windows
 
-| Часть | Где | Что сделать на Linux |
+| Часть | Где | На Linux |
 |---|---|---|
-| Проводник как Windows 11: диски, `%USERPROFILE%`, сеть, корзина, места | `electron/filesystem/` | реализация тех же вызовов для Linux (домашняя папка, монтирования, корзина freedesktop) |
-| Интеграция с рабочим столом, окна и мониторы | `electron/desktopShell.ts`, `nativeShellHost.ts`, `nativeDesktopRunner.ts`, `displays.ts` | облегчённая версия или отключение |
-| Уведомления Windows | `electron/windowsNotifications.ts` | уведомления Electron/freedesktop |
-| Привязка лицензии к машине | `electron/license.ts` | не нужна, если лицензию уберут ([license-removal.md](license-removal.md)) |
-| Применение обновлений | `electron/applyUpdate.ts`, `server/routes/updateCampaigns.ts` | замена файла AppImage вместо exe |
-| Сборка | `package.json` → `build.win` | добавить цель `linux` (AppImage или deb) |
-| E3 | `e3/`, COM | **на Linux невозможна:** E3 — программа Windows. Остаётся работа через компьютер или виртуальную машину с Windows |
+| Оболочка Windows: миниатюры, Быстрый доступ, облака, «Открыть с помощью», контекстное меню, корзина | `electron/nativeShellHost.ts` + `nativeShellSource.ts` (C#, собирается `Add-Type` через `powershell.exe -STA`, долгоживущий процесс с JSON) | **переписать**: миниатюры — freedesktop thumbnails или свои, корзина — спецификация freedesktop Trash, «Открыть с помощью» — `xdg-mime`/`gio`, Быстрый доступ — свой список |
+| Рабочий стол Windows | `electron/nativeDesktopRunner.ts` + `nativeDesktopSource.ts` (C# через PowerShell) | не переносится; оставить отключённым |
+| Уведомления | `electron/windowsNotifications.ts` + `tools/windows-notification-bridge` (C# WPF, net8.0-windows) | `Notification` Electron (libnotify) |
+| Тома, сеть, корзина в Проводнике | `filesystem/nativePlaces.ts`, `network.ts` (PowerShell, WMI, `net.exe`, `explorer.exe`) | `/proc/mounts`/`lsblk`, смонтированные SMB/NFS, Trash |
+| Пути и запускаемые файлы | `filesystem/paths.ts`, `service.ts:109,147` (регистр путей), `runnable.ts` (.exe/.bat) | регистр важен на Linux; правила «что запускается» — по правам `x` |
+| Архиватор | `server/archive/engine.ts:16` ищет `7zz` в `resources/archive` | в сборку кладётся только `7z.exe`/`7z.dll` — **добавить `7zz` для Linux** в `extraResources` |
+| Нативный SQLite | `scripts/prepare-win-native.cjs` скачивает `better_sqlite3.node` под Electron win32-x64 | нужен prebuilt под Electron linux-x64 |
+| Обновления | `electron/updateFiles.ts:7` требует `*.exe`; `applyUpdate.ts` проверяет MZ-заголовок, заменяет exe; `updateCampaign.ts:34,37` кладёт платформу в подпись устройства | AppImage: проверка ELF вместо MZ, замена файла AppImage; **выпуски разделить по платформе** — сейчас `AppUpdate.version` уникальна, двух файлов на одну версию не положить |
+| Сборка | `package.json` `build.win` → `portable` x64; цели `linux` нет | добавить `linux` → AppImage (и/или deb) |
+| E3 | `e3/` — чистый TypeScript, COM-моста в приложении ещё нет (есть только `tools/e3-probe/*.ps1`) | **невозможно**: E3 и COM — Windows. Функции E3 скрыть с пояснением |
+| Проверки | `scripts/test-windows-*.ts`, `*-native*.ts` | остаются Windows-только; нужны Linux-аналоги для заменённых частей |
 
 ## Этапы
 
-1. Собрать AppImage как есть и составить список того, что не запускается.
-2. Убрать слой Windows за общий интерфейс там, где его ещё нет, с
-   реализациями для Windows и Linux. Общий код не меняется.
-3. Linux-реализации: Проводник, уведомления, обновления.
-4. На Linux недоступные функции (E3) скрываются с пояснением.
-5. CI на Linux для сборки AppImage рядом с Windows CI.
+1. **Пробная сборка.** Цель `linux` (AppImage), `better-sqlite3` под
+   Electron linux-x64, `7zz` в ресурсы. Запустить и составить список того,
+   что не работает. Готово: Flux запускается, вход, проект, теги.
+2. **Общий интерфейс для слоя ОС.** Там, где Windows-код вызывается
+   напрямую, — интерфейс с двумя реализациями (Windows — нынешняя, Linux —
+   новая). Общий код не меняется.
+3. **Проводник на Linux.** Тома, сеть, корзина, «Открыть с помощью»,
+   миниатюры. Самый большой этап: `nativeShellSource.ts` — 763 строки C#.
+4. **Уведомления и обновления.** Уведомления Electron; выпуски с полем
+   «платформа», проверка ELF, замена AppImage; кампании различают
+   платформу устройства.
+5. **Недоступное — скрыть.** E3, рабочий стол Windows: кнопки скрыты или
+   неактивны с пояснением, без ошибок.
+6. **CI.** Сборка AppImage и Linux-проверки рядом с Windows CI.
+
+## Что может пойти не так
+
+| Риск | Как избежать |
+|---|---|
+| Регистр путей: `Проект.xlsx` и `проект.xlsx` — разные файлы на Linux, один на Windows | сравнение путей через одну функцию с учётом ОС; проверки на совпадение имён |
+| Права на файлы: на Linux файл может быть недоступен на чтение | понятная ошибка вместо падения |
+| Выпуск обновления под Windows поставится на Linux (или наоборот) | поле «платформа» в выпуске и в подписи манифеста (этап 4) — до первого Linux-выпуска |
+| Нет хранилища секретов (`safeStorage` на Linux без keyring падает в `basic_text`) | проверка уже есть в `authStorage.ts`; для почты — предупреждение пользователю |
+| Шрифты: интерфейс и выгрузки PDF выглядят иначе | шрифты в сборке, проверка снимками |
+| Пути вида `C:\…` и `%USERPROFILE%` в базе (общие настройки, ссылки на файлы) | при сохранении — хранить относительно корня проекта; при открытии на другой ОС — понятное сообщение |
+
+## Порядок относительно других планов
+
+Последним: после [license-removal.md](license-removal.md) (меньше кода с
+ветками ОС) и после [offline-work.md](offline-work.md) (локальная копия —
+та же SQLite, проверять один раз). Поле «платформа» в выпусках нужно
+продумать заодно с выпусками модулей ([calc-modules.md](calc-modules.md)).
 
 ## Вопросы владельцу
 
-1. Linux у пользователей или только на сервере? Если нужна только общая
-   база на Linux, она уже работает (MariaDB/PostgreSQL).
-2. Какой дистрибутив: Astra Linux, РЕД ОС, Ubuntu? От этого зависят формат
-   пакета и проверка.
-3. Нужна ли на Linux работа с E3?
+1. Linux у пользователей или только на сервере? Если только общая база на
+   Linux — она уже работает (MariaDB/PostgreSQL).
+2. Какой дистрибутив: Astra Linux, РЕД ОС, Ubuntu? От этого — формат пакета
+   (AppImage, deb, rpm) и проверка.
+3. Нужна ли на Linux работа с E3 (только через компьютер с Windows)?
 
 ## Внедрено
 
