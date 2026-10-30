@@ -1,16 +1,16 @@
 import React from 'react';
-import SectionShell from './SectionShell';
 import { Trash2, X } from 'lucide-react';
 import { useModalStore } from '../../store/modalStore';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm, openPrompt } = useModalStore.getState();
 
-// ── Документооборот: глобальные стандарты ВДР ──
+// ── Менеджмент → «Настройки документооборота»: глобальные стандарты ВДР ──
+// Раньше лист жил в Настройках; перенесён к ВДР, которой и пользуется.
 // Хранятся в программе один раз, применяются к реестрам любых проектов
 // (выбор — в реквизитах реестра). Здесь правятся коды рассмотрения со сроками,
 // причины выпуска, спец-ревизии и каталог типов документов.
-export default function DocflowSection({ isAdmin, addToast }: any) {
+export default function DocflowSettings({ isAdmin, addToast }: any) {
   const [standards, setStandards] = React.useState<any[]>([]);
   const [selId, setSelId] = React.useState('');
   const [cfg, setCfg] = React.useState<any>(null);
@@ -76,11 +76,12 @@ export default function DocflowSection({ isAdmin, addToast }: any) {
 
   const inp = 'px-2 py-1 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-800 dark:text-white focus:outline-none focus:border-emerald-500';
 
-  if (!cfg) return <SectionShell title="Документооборот" desc="Стандарты ВДР."><div className="text-sm text-slate-400">Загрузка…</div></SectionShell>;
+  if (!cfg) return <div className="p-4 text-sm text-slate-400">Загрузка…</div>;
 
   return (
-    <SectionShell title="Документооборот" desc="Глобальные стандарты ВДР: применяются к реестрам любых проектов (выбор — в реквизитах реестра).">
-      <div className="space-y-4 max-w-3xl">
+    <div className="p-4 max-w-3xl">
+      <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Глобальные стандарты ВДР: применяются к реестрам любых проектов (выбор — в реквизитах реестра).</p>
+      <div className="space-y-4">
         <div className="flex items-center gap-2">
           <select value={selId} onChange={e => pick(e.target.value)} className={inp + ' cursor-pointer font-semibold'}>
             {standards.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -170,6 +171,6 @@ export default function DocflowSection({ isAdmin, addToast }: any) {
           {busy ? 'Сохраняю…' : 'Сохранить стандарт'}
         </button>
       </div>
-    </SectionShell>
+    </div>
   );
 }

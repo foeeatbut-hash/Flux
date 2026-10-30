@@ -31,6 +31,7 @@ import { projectOfFile, resolveKeys, searchProject, signersOf, setSigner } from 
 import { fillDocxMarkers, listDocxMarkers, listDocxFields, listXlsxAnchors, updateDocxFields, updateXlsxFields, writeXlsxBlock, type FieldValue } from '../officeFields.js';
 import { officeSourceCatalog, registerProjectOfficeRoutes, requireProjectRead } from './projectOffice.js';
 import { registerProjectOfficeLocalRoutes } from './projectOfficeLocal.js';
+import { hasPosition } from '../../shared/positions.js';
 
 export interface ProjectDataDeps {
   /** Можно ли этому человеку писать в файл: '' — да, иначе — почему нет */
@@ -155,7 +156,7 @@ async function aliasesPut(req: Request, res: Response): Promise<any> {
   try {
     const me = (req as any).authUser || null;
     // Править общие алиасы может админ/менеджер (влияют на всех)
-    if (me && !isPrivilegedUser(me) && me.role !== 'MANAGER') {
+    if (me && !isPrivilegedUser(me) && !hasPosition(me, 'MANAGER')) {
       return res.status(403).json({ error: 'Изменять алиасы может администратор или руководитель' });
     }
     const projectId = await resolveProjectId(String(req.body?.projectId || ''));

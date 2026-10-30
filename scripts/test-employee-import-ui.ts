@@ -44,7 +44,7 @@ const field = (page: import('playwright-core').Page, label: string) => page.loca
     await page.locator('input[type=file]').setInputFiles(file);
     await field(page, 'Электронная почта').waitFor();
     ok('Заголовок «Электронная почта» автоматически связан с полем почты', await field(page, 'Электронная почта').inputValue() === '3');
-    ok('ADMIN не предлагается пользователю с ролью ADMIN', await field(page, 'Роль по умолчанию для новых строк').locator('option').allTextContents().then((items) => items.every((item) => !item.includes('Администратор') && !item.includes('Владелец'))));
+    ok('ADMIN и OWNER не предлагаются как должность', await field(page, 'Основная должность по умолчанию для новых строк').locator('option').allTextContents().then((items) => items.every((item) => !item.includes('Администратор') && !item.includes('Владелец'))));
 
     await page.getByRole('button', { name: 'Показать предпросмотр' }).click();
     await page.getByRole('row', { name: /Иван Иванов/ }).waitFor();
@@ -111,7 +111,7 @@ const field = (page: import('playwright-core').Page, label: string) => page.loca
     }
 
     await page.locator('input[type=file]').setInputFiles(file);
-    await field(page, 'Роль по умолчанию для новых строк').waitFor();
+    await field(page, 'Основная должность по умолчанию для новых строк').waitFor();
     await page.getByRole('button', { name: 'Показать предпросмотр' }).click();
     await page.getByRole('row', { name: /Иван Иванов/ }).waitFor();
     await page.evaluate(() => {

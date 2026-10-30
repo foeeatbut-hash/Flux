@@ -41,11 +41,12 @@ eq('администратор без личного права не созда�
 eq('владелец выдает администраторам доступ', administratorPermission({ role: 'OWNER' }, 'admin.users.create'), true);
 eq('выданное личное право работает', administratorPermission({ role: 'ADMIN', permissions: JSON.stringify({ 'admin.users.create': { enabled: true } }) }, 'admin.users.create'), true);
 eq('просроченное право не работает', administratorPermission({ role: 'ADMIN', permissions: { 'admin.users.create': { enabled: true, until: '2000-01-01' } } }, 'admin.users.create'), false);
-for (const [route, method] of [['/api/db/config', 'GET'], ['/api/db/download', 'GET'], ['/api/backup/settings', 'POST'], ['/api/updates/upload', 'POST'], ['/api/updates/1.2.3', 'DELETE'], ['/API/ROLES/abc/', 'PUT']]) eq(`${method} ${route} требует владельца`, requiresOwner(route, method), true);
+for (const [route, method] of [['/api/db/config', 'GET'], ['/api/db/download', 'GET'], ['/api/backup/settings', 'POST'], ['/api/updates/upload', 'POST'], ['/api/updates/1.2.3', 'DELETE']]) eq(`${method} ${route} требует владельца`, requiresOwner(route, method), true);
 eq('сотрудник может скачивать выпуски', requiresOwner('/api/updates/download/1.2.3'), false);
+eq('справочник должностей ведёт и администратор с правом — не только владелец', requiresOwner('/API/ROLES/abc/', 'PUT'), false);
 
 const fakeTables: Record<string, { cols: string[]; indexes: { name: string; cols: string[]; unique?: boolean }[] }> = {
-  User: { cols: ['id', 'position', 'department', 'email', 'departmentId'], indexes: [{ name: 'User_departmentId_idx', cols: ['departmentId'] }] },
+  User: { cols: ['id', 'position', 'department', 'email', 'departmentId', 'positionCode', 'extraPositions'], indexes: [{ name: 'User_departmentId_idx', cols: ['departmentId'] }] },
   ...Object.fromEntries(departmentTableSpecs().map(spec => [spec.table, { cols: spec.cols.map(col => col.name), indexes: (spec.indexes || []).map(idx => ({ name: idx.name, cols: idx.cols, unique: idx.unique })) }])),
 };
 
@@ -80,7 +81,10 @@ async function runHttp() {
       delete: async ({ where }: any) => users.delete(where.id),
       count: async () => 2,
     },
-    role: { findUnique: async ({ where }: any) => ['OWNER', 'ADMIN', 'ENGINEER_VENT'].includes(where.code) ? { code: where.code } : null },
+    role: {
+      findUnique: async ({ where }: any) => ['OWNER', 'ADMIN', 'ENGINEER_VENT'].includes(where.code) ? { code: where.code } : null,
+      findMany: async () => ['OWNER', 'ADMIN', 'ENGINEER_VENT'].map(code => ({ code })),
+    },
     appSetting: {
       findFirst: async ({ where }: any) => [...settings.values()].find(s => s.key === where.key) || null,
       upsert: async ({ where, create }: any) => { const s = settings.get(where.id) || create; settings.set(where.id, s); return s; },
@@ -89,7 +93,7 @@ async function runHttp() {
   const app = express(); app.use(express.json());
   app.use((req: any, _res, next) => { req.authUser = users.get(String(req.headers['x-test-user'])); next(); });
   registerUserRoutes(app, { hashPassword: p => `hash-${p}`, invalidateRolePerms: () => {}, invalidateAuthUser: () => {} });
-  registerAuthRoutes(app, { hashPassword: p => `hash-${p}`, verifyPassword: () => true, issueAuthToken: id => id, rolePermissionsOf: async () => ({}), trustedNowFull: async () => ({ now: Date.now(), tampered: false, source: 'test' }), trustedNowSync: Date.now, isClockTampered: () => false });
+  registerAuthRoutes(app, { hashPassword: p => `hash-${p}`, verifyPassword: () => true, issueAuthToken: id => id, positionPermissionsOf: async () => ({}), trustedNowFull: async () => ({ now: Date.now(), tampered: false, source: 'test' }), trustedNowSync: Date.now, isClockTampered: () => false });
   process.env.FLUX_TEST_OWNER = '1';
   registerOwnerRoutes(app, { issueOwnerAuthToken: id => `token-${id}` });
   const server = await new Promise<import('http').Server>(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
@@ -101,8 +105,9 @@ async function runHttp() {
     eq('ADMIN не назначает ADMIN', (await call('/api/users', 'POST', 'manager', { name: 'Инженер', symbol: 'n', role: 'ADMIN' })).status, 403);
     eq('никто не создает второго OWNER через пользователей', (await call('/api/users', 'POST', 'owner', { name: 'Владелец 2', symbol: 'other-owner', role: 'OWNER' })).status, 403);
     eq('ADMIN не выдает admin.* сотруднику', (await call('/api/users', 'POST', 'manager', { name: 'Инженер', symbol: 'n', permissions: { 'admin.users.create': { enabled: true } } })).status, 403);
-    eq('администратор с правом создает инженера', (await call('/api/users', 'POST', 'manager', { name: 'Инженер', symbol: 'new', password: 'qwerty' })).status, 200);
-    eq('владелец создает администратора', (await call('/api/users', 'POST', 'owner', { name: 'Администратор', symbol: 'new-admin', role: 'ADMIN', password: 'qwerty' })).status, 200);
+    eq('администратор с правом создает инженера', (await call('/api/users', 'POST', 'manager', { name: 'Инженер', symbol: 'new', positionCode: 'ENGINEER_VENT', password: 'qwerty' })).status, 200);
+    eq('без основной должности сотрудника не заводят', (await call('/api/users', 'POST', 'manager', { name: 'Инженер', symbol: 'no-position', password: 'qwerty' })).status, 400);
+    eq('владелец создает администратора', (await call('/api/users', 'POST', 'owner', { name: 'Администратор', symbol: 'new-admin', role: 'ADMIN', positionCode: 'ENGINEER_VENT', password: 'qwerty' })).status, 200);
     eq('владелец не меняется обычным PUT', (await call('/api/users/owner', 'PUT', 'owner', { role: 'ENGINEER_VENT' })).status, 403);
     eq('владелец не удаляется обычным DELETE', (await call('/api/users/owner', 'DELETE', 'owner')).status, 403);
     eq('ADMIN не меняет права другого ADMIN', (await call('/api/users/admin', 'PUT', 'manager', { permissions: {} })).status, 403);

@@ -1,17 +1,19 @@
 /**
- * Роли сотрудников.
+ * Должности сотрудников.
  *
- * Раньше роли были зашиты в коде: четыре строки и switch со значками в
+ * Раньше они были зашиты в коде: четыре строки и switch со значками в
  * каждом экране, где показывался сотрудник. В разных компаниях состав
- * должностей свой, поэтому роли завёл администратор в настройках, а
- * программа берёт их из базы и рисует одинаково везде.
+ * должностей свой, поэтому их ведёт владелец (или администратор с правом
+ * «Должности: справочник») в программе «Сотрудники», а программа берёт их из
+ * базы и рисует одинаково везде.
  *
- * Уровень 1 — главный администратор: только он управляет ролями и выдаёт
- * доступ. Новые роли создаются с уровнем не выше второго — доступ нельзя
- * «дорастить» до главного, придумав себе роль.
+ * Должность — не уровень доступа. «Администратор» и «Владелец» — уровни, они в
+ * справочник не входят; администраторов назначает только владелец, а владельцу
+ * доступно всё. Тип `Role` и таблица называются по-старому — это и есть должность.
  */
 
 import { getAuthToken, ENV_CONFIG } from '../config/env';
+import { isNonPositionCode } from '../../shared/positions';
 
 export interface Role {
   id: string;
@@ -20,6 +22,7 @@ export interface Role {
   description: string;
   color: string;
   icon: string;
+  /** Порядок в справочнике; уровнем доступа не служит */
   level: number;
   isSystem: boolean;
   permissions?: string;
@@ -69,7 +72,7 @@ export async function loadRoles(force = false): Promise<Role[]> {
       return cache!;
     } catch (_) {
       // Сервер старой версии или нет связи — работаем на встроенном наборе,
-      // иначе экран сотрудников остался бы без единой роли.
+      // иначе экран сотрудников остался бы без единой должности.
       cache = FALLBACK_ROLES;
       return cache;
     } finally {
@@ -89,7 +92,6 @@ export function invalidateRoles() {
 }
 
 export const FALLBACK_ROLES: Role[] = [
-  { id: 'sys-admin', code: 'ADMIN', name: 'Администратор', description: 'Полный доступ', color: 'rose', icon: 'shield-check', level: 1, isSystem: true, sortOrder: 10 },
   { id: 'sys-manager', code: 'MANAGER', name: 'Менеджер проектов', description: '', color: 'amber', icon: 'briefcase', level: 20, isSystem: true, sortOrder: 20 },
   { id: 'sys-vent', code: 'ENGINEER_VENT', name: 'Инженер ОВиК', description: '', color: 'sky', icon: 'airplay', level: 50, isSystem: true, sortOrder: 30 },
   { id: 'sys-auto', code: 'ENGINEER_AUTO', name: 'Инженер КИПиА', description: '', color: 'emerald', icon: 'cpu', level: 50, isSystem: true, sortOrder: 40 },
@@ -102,9 +104,10 @@ export function roleByCode(code: string, roles?: Role[]): Role {
     || { id: code, code, name: code, description: '', color: 'slate', icon: 'user', level: 90, isSystem: false, sortOrder: 999 };
 }
 
-/** Главный администратор: уровень 1. Он один управляет ролями и доступом. */
-export function isTopAdmin(user: { role?: string } | null | undefined, roles?: Role[]): boolean {
-  if (!user?.role) return false;
-  if (user.role === 'ADMIN') return true;
-  return roleByCode(user.role, roles).level <= 1;
+/** Владелец Flux: ему доступно всё; уровни доступа и полномочия администраторов назначает только он. */
+export function isOwner(user: { role?: string } | null | undefined): boolean {
+  return user?.role === 'OWNER';
 }
+
+/** Должности справочника — без уровней доступа (OWNER, ADMIN): их выбирать как должность нельзя. */
+export const positionsOnly = (roles: Role[]): Role[] => roles.filter((r) => !isNonPositionCode(r.code));

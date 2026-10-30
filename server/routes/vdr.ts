@@ -3,6 +3,7 @@ import type { Express, Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import { getPrisma, resolveProjectId, sendError, notifyUser, broadcast } from '../context.js';
 import { createFileFromBytes, exportsHome } from '../officeStore.js';
+import { hasPosition } from '../../shared/positions.js';
 
 // ── ВДР (Vendor Document Register) — реестр документации поставщика ──
 // Дизайн: docs/vdr-docflow-design.md + разбор реальных файлов проекта ДГП-2
@@ -389,7 +390,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
   app.delete('/api/vdr/registers/:id', async (req: Request, res: Response) => {
     try {
       const me = authUserOf(req);
-      if (me && !isPrivilegedUser(me) && me.role !== 'MANAGER') {
+      if (me && !isPrivilegedUser(me) && !hasPosition(me, 'MANAGER')) {
         return res.status(403).json({ error: 'Удалять реестр может администратор или руководитель' });
       }
       const prisma = getPrisma();
@@ -497,7 +498,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
   app.delete('/api/vdr/items/:id', async (req: Request, res: Response) => {
     try {
       const me = authUserOf(req);
-      if (me && !isPrivilegedUser(me) && me.role !== 'MANAGER') {
+      if (me && !isPrivilegedUser(me) && !hasPosition(me, 'MANAGER')) {
         return res.status(403).json({ error: 'Удалять строки реестра может администратор или руководитель' });
       }
       const prisma = getPrisma();

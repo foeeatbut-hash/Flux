@@ -195,8 +195,8 @@ console.log('Раздельчик присутствия в Сотрудника
 console.log('Скрыться может только администратор');
 {
   const routes = readFileSync(new URL('../server/routes/users.ts', import.meta.url), 'utf8');
-  check('переключатель закрыт правом главного администратора',
-    /put\('\/api\/presence\/visibility'[\s\S]{0,600}?isTopAdmin\(req\)/.test(routes));
+  check('переключатель закрыт правом владельца',
+    /put\('\/api\/presence\/visibility'[\s\S]{0,600}?isOwnerRequest\(req\)/.test(routes));
   // Скрыть можно только себя: чужая видимость — это подделка ответа за другого
   check('меняется только своя видимость',
     /presence\/visibility'[\s\S]{0,900}?prisma\.user\.update\(\{ where: \{ id: me\.id \}/.test(routes));

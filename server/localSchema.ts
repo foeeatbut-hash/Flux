@@ -306,6 +306,12 @@ export function ensureSchemaColumns(dbPath: string, logInit: (message: string) =
           db.exec('ALTER TABLE "User" ADD COLUMN "departmentId" TEXT');
           logInit('[DB Migrate] Добавлена колонка User.departmentId');
         }
+        for (const col of ['positionCode', 'extraPositions']) {
+          if (!cols.find(c => c.name === col)) {
+            db.exec(`ALTER TABLE "User" ADD COLUMN "${col}" TEXT`);
+            logInit(`[DB Migrate] Добавлена колонка User.${col}`);
+          }
+        }
         db.exec('CREATE INDEX IF NOT EXISTS "User_departmentId_idx" ON "User"("departmentId")');
       }
       const msgCols = db.prepare('PRAGMA table_info("ChatMessage")').all() as Array<{ name: string }>;

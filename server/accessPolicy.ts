@@ -25,8 +25,9 @@ export function requiresOwner(route: string, method = 'GET'): boolean {
   const updateClientWrite = method.toUpperCase() === 'POST' && ['/api/updates/devices/heartbeat', '/api/updates/reminder', '/api/updates/delegation', '/api/updates/campaigns'].includes(path);
   return /^\/api\/db(?:\/|$)/.test(path)
     || /^\/api\/(seed|admin\/sync-schema|config\/logs|backup\/settings)$/.test(path)
-    || (path.startsWith('/api/updates') && !updateClientWrite && !['GET', 'HEAD'].includes(method.toUpperCase()))
-    || (path.startsWith('/api/roles') && !['GET', 'HEAD'].includes(method.toUpperCase()));
+    || (path.startsWith('/api/updates') && !updateClientWrite && !['GET', 'HEAD'].includes(method.toUpperCase()));
+  // Справочник должностей (/api/roles) здесь не перечислен: его ведёт и администратор
+  // с правом admin.roles.manage, проверка — в server/routes/users.ts
 }
 
 export function isPrivilegedUser(user: { role?: string } | null | undefined): boolean {

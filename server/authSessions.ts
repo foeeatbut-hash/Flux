@@ -4,6 +4,7 @@ import { getPrisma, onDatabaseSwapped } from './context.js';
 import { authTokenFromRequest, createCookieAuth } from './authCookies.js';
 import { isLegacyBootstrapAdmin, LEGACY_BOOTSTRAP_REFUSAL } from './legacyIdentity.js';
 import { recordServerError } from './diagnostics.js';
+import { positionPermissionsString } from './positionPermissions.js';
 
 export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 interface Claims { v: 2; uid: string; iat: number; exp: number; stamp: string; sid: string }
@@ -12,7 +13,11 @@ interface SessionDeps { secret: string; getUser?: (id: string) => Promise<any> }
 /** Имя, аватар и последний вход сессию не отзывают; изменения прав и пароля — отзывают. */
 export function credentialStamp(user: any, rolePermissions: string | null = null): string {
   const until = user?.validUntil ? new Date(user.validUntil).toISOString() : null;
-  return crypto.createHash('sha256').update(JSON.stringify([user?.id, user?.password, user?.role, user?.isActive !== false, until, user?.permissions || null, rolePermissions])).digest('base64url');
+  // Должности добавляются в штамп, только если записаны: у профилей до их
+  // появления штамп прежний, и обновление программы не закрывает сессии. Смена
+  // основной или дополнительной должности штамп меняет и сессию отзывает.
+  const positions = user?.positionCode || user?.extraPositions ? [user.positionCode ?? null, user.extraPositions ?? null] : [];
+  return crypto.createHash('sha256').update(JSON.stringify([user?.id, user?.password, user?.role, user?.isActive !== false, until, user?.permissions || null, rolePermissions, ...positions])).digest('base64url');
 }
 function signature(payload: string, secret: string): string { return crypto.createHmac('sha256', secret).update(payload).digest('base64url'); }
 function same(a: string, b: string): boolean { const left = Buffer.from(a); const right = Buffer.from(b); return left.length === right.length && crypto.timingSafeEqual(left, right); }
@@ -28,9 +33,10 @@ export function sessionClaims(token: string, secret: string, now = Date.now()): 
   } catch (_) { return null; }
 }
 async function rolePermissions(user: any): Promise<string | null> {
-  if (!user?.role || user.role === 'OWNER') return null;
-  const role = await getPrisma().role.findUnique({ where: { code: user.role }, select: { permissions: true } });
-  return role?.permissions || null;
+  return positionPermissionsString(user, async (code) => {
+    const role = await getPrisma().role.findUnique({ where: { code }, select: { permissions: true } });
+    return role?.permissions || null;
+  });
 }
 const revocationId = (c: Claims) => `auth.session.revoked.${crypto.createHash('sha256').update(c.sid).digest('hex')}`;
 

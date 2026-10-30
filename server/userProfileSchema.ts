@@ -10,6 +10,9 @@ const USER_PROFILE_TABLES: TableSpec[] = [{
     { name: 'department', kind: 'text' },
     { name: 'email', kind: 'text' },
     { name: 'departmentId', kind: 'text', indexed: true },
+    // Должности (shared/positions.ts): основная и JSON-массив дополнительных
+    { name: 'positionCode', kind: 'text' },
+    { name: 'extraPositions', kind: 'text' },
   ],
   indexes: [{ name: 'User_departmentId_idx', cols: ['departmentId'] }],
 }];

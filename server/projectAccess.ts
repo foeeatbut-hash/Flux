@@ -1,4 +1,5 @@
 import { can } from '../src/lib/permissions.js';
+import { positionPermissionsString } from './positionPermissions.js';
 
 // Правила доступа к проектам и настройкам — чистая логика без базы и сервера,
 // чтобы каждое решение можно было проверить подставными объектами
@@ -12,6 +13,9 @@ export interface Actor {
   isActive?: boolean;
   validUntil?: string | Date | null;
   permissions?: string | null;
+  /** Должности (shared/positions.ts): права даёт их набор, а не одна роль */
+  positionCode?: string | null;
+  extraPositions?: string | null;
 }
 
 export const isAdminActor = (a: Actor | null | undefined): boolean => a?.role === 'ADMIN' || a?.role === 'OWNER';
@@ -80,7 +84,8 @@ export async function actorMay(
   if (!actor) return false;
   if (isAdminActor(actor)) return true;
   let rolePermissions: string | null = null;
-  try { rolePermissions = await roleGrants(String(actor.role || '')); } catch (_) { return false; }
+  // Права даёт набор должностей: основная целиком, дополнительные — только расширяют
+  try { rolePermissions = await positionPermissionsString(actor, roleGrants); } catch (_) { return false; }
   return can({ ...actor, rolePermissions }, feature);
 }
 

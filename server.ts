@@ -83,6 +83,7 @@ import { registerDepartmentRoutes } from './server/routes/departments.js';
 import { registerEquipmentUndoRoutes } from './server/routes/equipmentUndo.js';
 import { registerTagPolicyRoutes } from './server/routes/tagPolicy.js';
 import { registerUserRoutes, seedRoles, backfillNameParts } from './server/routes/users.js';
+import { positionPermissions } from './server/positionPermissions.js';
 import { registerSystemRoutes } from './server/routes/system.js';
 import { registerAuthRoutes } from './server/routes/auth.js';
 import { initBackups } from './server/backup.js';
@@ -676,18 +677,21 @@ const PERM_ROUTES: PermRule[] = [
   { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/builder\/(?!lists\/[^/]+\/(?:issues|tag-plan)(?:\/|$))/, perm: 'builder.edit', title: 'Ведомости Конструктора' },
 ];
 
-const rolePermCache = new Map<string, { perms: any; at: number }>();
-async function rolePermissionsOf(code: string): Promise<Record<string, any>> {
+const rolePermCache = new Map<string, { raw: string | null; at: number }>();
+/** Права одной должности строкой, как лежат в справочнике; кэш на 30 секунд */
+async function rolePermissionsRaw(code: string): Promise<string | null> {
   const hit = rolePermCache.get(code);
-  if (hit && Date.now() - hit.at < 30000) return hit.perms;
-  let perms: Record<string, any> = {};
+  if (hit && Date.now() - hit.at < 30000) return hit.raw;
+  let raw: string | null = null;
   try {
     const role = await prisma.role.findUnique({ where: { code } });
-    if (role?.permissions) perms = JSON.parse(role.permissions) || {};
-  } catch (_) { perms = {}; }
-  rolePermCache.set(code, { perms, at: Date.now() });
-  return perms;
+    raw = role?.permissions || null;
+  } catch (_) { raw = null; }
+  rolePermCache.set(code, { raw, at: Date.now() });
+  return raw;
 }
+/** Права, которые сотруднику даёт набор его должностей: основная и дополнительные */
+const positionPermissionsOf = (user: any): Promise<Record<string, any>> => positionPermissions(user, rolePermissionsRaw);
 function invalidateRolePerms() {
   rolePermCache.clear();
   // У платформы свой кэш прав роли и своя версия политики: без этого снятое
@@ -698,8 +702,8 @@ function invalidateRolePerms() {
 async function effectivePermsOf(user: any): Promise<Record<string, any>> {
   let personal: Record<string, any> = {};
   try { personal = user.permissions ? JSON.parse(user.permissions) || {} : {}; } catch (_) {}
-  const fromRole = await rolePermissionsOf(String(user.role || ''));
-  return { ...fromRole, ...personal };   // личное сильнее роли
+  const fromRole = await positionPermissionsOf(user);
+  return { ...fromRole, ...personal };   // личное сильнее должностей
 }
 
 function permAllows(perms: Record<string, any>, feature: string): boolean {
@@ -933,7 +937,7 @@ async function trustedNowFull(): Promise<{ now: number; tampered: boolean; sourc
 
 // Вход, проверка сессии и заполнение базы вынесены в server/routes/auth.ts
 registerAuthRoutes(app, {
-  hashPassword, verifyPassword, issueAuthToken, rolePermissionsOf,
+  hashPassword, verifyPassword, issueAuthToken, positionPermissionsOf,
   trustedNowFull, trustedNowSync,
   isClockTampered: () => timeTampered,
 });

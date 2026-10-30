@@ -7,15 +7,20 @@ const check = (name: string, passed: boolean) => {
 
 const ordinary = { id: 'staff', role: 'ENGINEER_VENT' };
 const admin = { id: 'admin', role: 'ADMIN' };
+const owner = { id: 'owner', role: 'OWNER' };
 
 check('ordinary user sidebar visibility excludes browser and translator',
   !canSeeSettingsSection('browser', ordinary) && !canSeeSettingsSection('translate', ordinary));
-check('administrator sidebar visibility includes browser and translator',
-  canSeeSettingsSection('browser', admin) && canSeeSettingsSection('translate', admin));
+check('owner sidebar visibility includes browser and translator',
+  canSeeSettingsSection('browser', owner) && canSeeSettingsSection('translate', owner));
+check('administrator is not the owner: browser and translator stay hidden',
+  !canSeeSettingsSection('browser', admin) && !canSeeSettingsSection('translate', admin));
 check('ordinary user direct browser and translator queries resolve to general before rendering',
   settingsSectionFromQuery('browser', ordinary) === 'general' && settingsSectionFromQuery('translate', ordinary) === 'general');
-check('administrator direct browser and translator queries remain selected',
-  settingsSectionFromQuery('browser', admin) === 'browser' && settingsSectionFromQuery('translate', admin) === 'translate');
+check('owner direct browser and translator queries remain selected',
+  settingsSectionFromQuery('browser', owner) === 'browser' && settingsSectionFromQuery('translate', owner) === 'translate');
+check('administrator direct browser and translator queries resolve to general',
+  settingsSectionFromQuery('browser', admin) === 'general' && settingsSectionFromQuery('translate', admin) === 'general');
 check('unrestricted and missing section queries retain normal settings behavior',
   settingsSectionFromQuery('backup', ordinary) === 'backup' && settingsSectionFromQuery(null, ordinary) === 'general');
 

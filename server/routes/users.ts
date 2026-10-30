@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from 'express';
-import { administratorPermission, requireOwnerMiddleware } from '../accessPolicy.js';
+import { administratorPermission } from '../accessPolicy.js';
 import { defaultPermissions } from '../../src/lib/permissions';
 import { getPrisma, notifyUser } from '../context.js';
 import { explainDbError } from '../dbError.js';
@@ -10,6 +10,9 @@ import { DepartmentError, assertAssignable, ensureRootDepartment, listDepartment
 import { createImportDepartments, importHistory, resolveRowDepartments, undoImportDepartments } from '../usersImportDepartments.js';
 import { mapEmployeeRows, employeeImportName, USER_IMPORT_FIELDS, validateEmployeeImportMatrix, type UserImportMap } from '../usersImport.js';
 import { isLegacyBootstrapAdmin, legacyBootstrapMigrationError } from '../legacyIdentity.js';
+import { decidePositions, hasAdminKeys, permissionsWithoutAdmin } from '../userPositions.js';
+import { positionPermissionsString } from '../positionPermissions.js';
+import { extraPositionCodes, isNonPositionCode, stripAdminPermissions } from '../../shared/positions.js';
 
 // Сотрудники, роли и личные настройки уведомлений.
 //
@@ -112,11 +115,12 @@ function nameParts(src: any): {
 }
 
 
-// ── Роли сотрудников ────────────────────────────────────────────────────────
-// Роли заводит администратор, а не программист: в разных компаниях они
-// называются по-разному. level = 1 — главный администратор, единственный,
-// кто управляет ролями и выдаёт доступ. Встроенные роли не удаляются,
-// иначе можно остаться без администратора.
+// ── Должности сотрудников ───────────────────────────────────────────────────
+// Должности (таблица Role) ведёт владелец или администратор с правом
+// «Должности: справочник», а не программист: в разных компаниях они
+// называются по-разному. Уровень доступа — другое: владелец и администратор
+// в справочнике не показываются (строки OWNER и ADMIN остались от старой
+// модели). Встроенные должности не удаляются — их использует сама программа.
 const grant = (...ids: string[]) =>
   JSON.stringify(Object.fromEntries(ids.map(id => [id, { enabled: true, until: null }])));
 
@@ -179,8 +183,8 @@ export async function backfillNameParts() {
   } catch (_) {}
 }
 
-/** Управление ролями и администраторскими правами остается у владельца. */
-async function isTopAdmin(req: Request): Promise<boolean> {
+/** Уровни доступа, администраторские права и видимость «в сети» остаются у владельца. */
+async function isOwnerRequest(req: Request): Promise<boolean> {
   return (req as any).authUser?.role === 'OWNER';
 }
 
@@ -199,9 +203,11 @@ function importParent(raw: unknown, list: Array<{ id: string; archivedAt?: unkno
 
 export function registerUserRoutes(app: Express, d: UserDeps): void {
   deps = d;
+  // Справочник должностей меняет владелец или администратор с правом «Должности: справочник».
+  // Права admin.* в должности не хранятся, поэтому через неё доступ не выдать (см. cleanPositionPermissions)
   app.use('/api/roles', (req, res, next) => {
-    if (!['GET', 'HEAD'].includes(req.method)) return requireOwnerMiddleware(req, res, next);
-    next();
+    if (['GET', 'HEAD'].includes(req.method) || administratorPermission((req as any).authUser, 'admin.roles.manage')) return next();
+    return res.status(403).json({ message: 'Должности ведёт владелец или администратор с правом «Должности: справочник».' });
   });
   app.use('/api/users', async (_req, res, next) => {
     try { await ensureDepartmentSchema(getPrisma()); next(); }
@@ -221,19 +227,19 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
       if (typeof mapping?.symbol !== 'number' || (mode === 'create' && !(typeof mapping?.name === 'number' || (typeof mapping?.lastName === 'number' && typeof mapping?.firstName === 'number')))) return res.status(400).json({ message: mode === 'create' ? 'Назначьте колонки логина и ФИО' : 'Назначьте колонку логина' });
       const prisma = getPrisma();
       await ensureDepartmentSchema(prisma);
-      const [existing, roles] = await Promise.all([prisma.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, departmentId: true, email: true } }), prisma.role.findMany({ select: { code: true } })]);
-      const validRoles = new Set(roles.map((r: any) => r.code));
+      const [existing, roles] = await Promise.all([prisma.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, departmentId: true, email: true, positionCode: true, extraPositions: true } }), prisma.role.findMany({ select: { code: true, name: true } })]);
+      // Импорт назначает только должность: уровень «администратор» владелец выдаёт в карточке
+      const positionRows = (roles as any[]).filter((r) => !isNonPositionCode(r.code) && r.code !== 'SERVICE');
+      const validRoles = new Set(positionRows.map((r: any) => r.code));
       const defaultRole = String(req.body?.defaultRole || 'ENGINEER_VENT').toUpperCase();
-      if (!validRoles.has(defaultRole)) return res.status(400).json({ message: 'Выберите существующую роль по умолчанию' });
-      if (actor.role !== 'OWNER' && defaultRole === 'ADMIN') return res.status(403).json({ message: 'Администратора назначает только владелец' });
+      if (!validRoles.has(defaultRole)) return res.status(400).json({ message: 'Выберите существующую должность по умолчанию' });
       const root = await ensureRootDepartment(prisma);
       const deptList = await listDepartments(prisma);
-      const mapped = mapEmployeeRows(rows, mapping, existing, defaultRole, mode, actor.role);
+      const mapped = mapEmployeeRows(rows, mapping, existing, defaultRole, mode, actor.role, positionRows);
       // Подразделение сопоставляется со справочником; чего нет — предлагается создать галочкой
       const depts = resolveRowDepartments(mapped, deptList, importParent(req.body?.departmentParentId, deptList, root.id));
       const result = mapped.map((row) => {
-        if (!row.error && row.values.role && !validRoles.has(row.values.role)) row.error = `Неизвестная роль: ${row.values.role}`;
-        if (!row.error && actor.role !== 'OWNER' && row.values.role === 'ADMIN') row.error = 'Администратора назначает только владелец';
+        if (!row.error && row.values.role && !validRoles.has(row.values.role)) row.error = `Неизвестная должность: ${row.values.role}`;
         const { password, ...values } = row.values;
         return { ...row, values, passwordProvided: !!password, dept: depts.perRow.get(row.row) };
       });
@@ -250,14 +256,15 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
       const { rows, mapping, selected, defaultRole } = req.body || {};
       if (!Array.isArray(selected) || !selected.length || selected.length > 5000 || !validateEmployeeImportMatrix(rows)) return res.status(400).json({ message: 'Выберите корректный список строк (до 5000)' });
       await ensureDepartmentSchema(prisma);
-      const [existing, roles] = await Promise.all([prisma.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, departmentId: true, email: true } }), prisma.role.findMany({ select: { code: true } })]);
-      const validRoles = new Set(roles.map((r: any) => r.code));
-      const preview = mapEmployeeRows(rows, mapping || {}, existing, String(defaultRole || 'ENGINEER_VENT').toUpperCase(), mode, actor.role);
+      const [existing, roles] = await Promise.all([prisma.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, departmentId: true, email: true, positionCode: true, extraPositions: true } }), prisma.role.findMany({ select: { code: true, name: true } })]);
+      const positionRows = (roles as any[]).filter((r) => !isNonPositionCode(r.code) && r.code !== 'SERVICE');
+      const validRoles = new Set(positionRows.map((r: any) => r.code));
+      const preview = mapEmployeeRows(rows, mapping || {}, existing, String(defaultRole || 'ENGINEER_VENT').toUpperCase(), mode, actor.role, positionRows);
       const chosen = preview.filter((r) => selected.includes(r.row));
       resolveRowDepartments(chosen, await listDepartments(prisma)); // неоднозначное подразделение — ошибка строки, как в предпросмотре
       if (chosen.length !== selected.length || chosen.some((r) => r.error)) return res.status(409).json({ message: 'Список изменился или содержит ошибки. Повторите предпросмотр.' });
       for (const row of chosen) {
-        if ((row.values.role && !validRoles.has(row.values.role)) || row.values.role === 'OWNER' || (actor.role !== 'OWNER' && row.values.role === 'ADMIN')) return res.status(403).json({ message: 'Импорт содержит роль, которую нельзя назначить' });
+        if ((row.values.role && !validRoles.has(row.values.role)) || row.values.role === 'OWNER' || row.values.role === 'ADMIN') return res.status(403).json({ message: 'Импорт содержит должность, которую нельзя назначить' });
         if (row.values.symbol.trim().toLowerCase() === 'flux.owner') return res.status(403).json({ message: 'Логин владельца зарезервирован' });
       }
       const preparedPasswords = new Map<number, { plain: string; hash: string }>();
@@ -277,12 +284,12 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
       await prisma.$transaction(async (tx: any) => {
         // Reload inside the write transaction: the confirmation may have been
         // open while another administrator changed the employee list.
-        const currentUsers = await tx.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, departmentId: true, email: true } });
-        const currentRoles = await tx.role.findMany({ select: { code: true } });
+        const currentUsers = await tx.user.findMany({ select: { id: true, symbol: true, role: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, departmentId: true, email: true, positionCode: true, extraPositions: true } });
+        const currentRoles = (await tx.role.findMany({ select: { code: true, name: true } })).filter((r: any) => !isNonPositionCode(r.code) && r.code !== 'SERVICE');
         const currentRoleCodes = new Set(currentRoles.map((r: any) => r.code));
-        const currentRows = mapEmployeeRows(rows, mapping || {}, currentUsers, String(defaultRole || 'ENGINEER_VENT').toUpperCase(), mode, actor.role);
+        const currentRows = mapEmployeeRows(rows, mapping || {}, currentUsers, String(defaultRole || 'ENGINEER_VENT').toUpperCase(), mode, actor.role, currentRoles);
         const currentChosen = currentRows.filter((r) => selected.includes(r.row));
-        if (currentChosen.length !== selected.length || currentChosen.some((r) => r.error || (r.values.role && !currentRoleCodes.has(r.values.role)) || r.values.role === 'OWNER' || (actor.role !== 'OWNER' && r.values.role === 'ADMIN'))) throw Object.assign(new Error('Список сотрудников или ролей изменился после предпросмотра. Повторите предпросмотр.'), { status: 409 });
+        if (currentChosen.length !== selected.length || currentChosen.some((r) => r.error || (r.values.role && !currentRoleCodes.has(r.values.role)) || r.values.role === 'OWNER' || r.values.role === 'ADMIN')) throw Object.assign(new Error('Список сотрудников или должностей изменился после предпросмотра. Повторите предпросмотр.'), { status: 409 });
         // Подразделения из файла: совпавшие берутся, отмеченные галочкой создаются тут же, в этой транзакции
         const deptRoot = await ensureRootDepartment(tx);
         const deptList = await listDepartments(tx);
@@ -301,11 +308,11 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
             const password = preparedPasswords.get(row.row)!;
             const user = await tx.user.create({ data: {
               symbol: v.symbol, ...names, gender: '', birthDate: null,
-              role: v.role, password: password.hash, isActive: true,
+              role: v.role, positionCode: v.role, password: password.hash, isActive: true,
               permissions: JSON.stringify(defaultPermissions()),
               position: v.position || null, department: v.department || null, email: v.email || null,
               departmentId: deptPlan.target.get(row.row) ?? null,
-            }, select: { id: true, symbol: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, role: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, departmentId: true, email: true, signatureImage: true, signatureHeightMm: true, hideOnline: true, lastLoginAt: true, createdAt: true } });
+            }, select: { id: true, symbol: true, name: true, lastName: true, firstName: true, middleName: true, gender: true, birthDate: true, role: true, password: true, isActive: true, validUntil: true, permissions: true, position: true, department: true, departmentId: true, email: true, positionCode: true, extraPositions: true, signatureImage: true, signatureHeightMm: true, hideOnline: true, lastLoginAt: true, createdAt: true } });
             credentialRows.push({ symbol: user.symbol, password: password.plain });
             if (user.departmentId) historyUsers.push({ id: user.id, from: null, to: user.departmentId });
             const { id, ...after } = user;
@@ -315,7 +322,13 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
             // Empty cells carry no instruction: existing profile values and passwords remain intact.
             if (v.symbol) data.symbol = v.symbol;
             if (names.name) Object.assign(data, names);
-            if (v.role) data.role = v.role;
+            if (v.role) {
+              // Основная должность; администратору уровень не трогаем, он остаётся 'ADMIN'
+              data.positionCode = v.role;
+              if (existingUser.role !== 'ADMIN') data.role = v.role;
+              const extras = extraPositionCodes(existingUser);
+              if (extras.includes(v.role)) data.extraPositions = extras.length > 1 ? JSON.stringify(extras.filter((c) => c !== v.role)) : null;
+            }
             if (v.position) data.position = v.position;
             if (v.department) data.department = v.department;
             if (v.email) data.email = v.email;
@@ -400,7 +413,7 @@ export function registerUserRoutes(app: Express, d: UserDeps): void {
       // чужую подпись брали отсюда и ставили куда угодно
       const me = (req as any).authUser;
       const own = me && me.id === String(req.params.id);
-      if (!own && !(me?.role === 'ADMIN' || (await isTopAdmin(req)))) {
+      if (!own && !(me?.role === 'ADMIN' || (await isOwnerRequest(req)))) {
         return res.status(403).json({ error: 'Чужую подпись смотреть нельзя' });
       }
       const u = await prisma.user.findUnique({
@@ -474,6 +487,8 @@ app.get('/api/users', async (req: Request, res: Response) => {
     const roles = await prisma.role.findMany().catch(() => [] as any[]);
     const byCode: Record<string, string> = {};
     for (const r of roles as any[]) byCode[r.code] = r.permissions || '{}';
+    const positionGrants = new Map<string, string | null>();
+    for (const u of visible) positionGrants.set(u.id, await positionPermissionsString(u, async (code) => byCode[code] ?? null));
     // Не отдаём хеши паролей наружу; права роли прикладываем, чтобы в карточке
     // было видно, что человеку дано должностью, а что лично.
     //
@@ -492,7 +507,7 @@ app.get('/api/users', async (req: Request, res: Response) => {
       ...u,
       ...(ownerView && isLegacyBootstrapAdmin(u) ? { legacyBootstrap: true } : {}),
       lastLoginAt: hideOnline && u.id !== meId ? null : u.lastLoginAt,
-      rolePermissions: byCode[u.role] || '{}',
+      rolePermissions: positionGrants.get(u.id) || '{}',
       hasSignature: !!signatureImage,
     })));
   } catch (error: any) {
@@ -507,10 +522,12 @@ app.post('/api/users', async (req: Request, res: Response) => {
     if (!administratorPermission(actor, 'admin.users.create')) return res.status(403).json({ message: 'Нет права создавать сотрудников' });
     const { symbol, password } = req.body;
     if (String(symbol || '').trim().toLowerCase() === 'flux.owner') return res.status(403).json({ message: 'Логин владельца зарезервирован' });
-    const role = String(req.body.role || 'ENGINEER_VENT').trim().toUpperCase();
-    if (role === 'OWNER') return res.status(403).json({ message: 'Профиль владельца создается только при входе по ключу' });
-    if (actor.role !== 'OWNER' && (role === 'ADMIN' || administrativeGrants(req.body.permissions))) return res.status(403).json({ message: 'Администратора и его права назначает только владелец' });
-    if (!(await prisma.role.findUnique({ where: { code: role } }))) return res.status(400).json({ message: 'Выберите существующую роль' });
+    if (String(req.body.role || '').trim().toUpperCase() === 'OWNER') return res.status(403).json({ message: 'Профиль владельца создается только при входе по ключу' });
+    if (actor.role !== 'OWNER' && administrativeGrants(req.body.permissions)) return res.status(403).json({ message: 'Администратора и его права назначает только владелец' });
+    // Должность обязательна; уровень «администратор» назначает только владелец
+    const decision = await decidePositions(prisma, req.body, null, actor.role === 'OWNER');
+    if (decision.ok === false) return res.status(decision.status).json({ message: decision.message });
+    if ('unchanged' in decision) return res.status(400).json({ message: 'Укажите основную должность сотрудника.' });
     // ФИО приходит по частям; единая строка name остаётся производной —
     // её показывают старые экраны и печатают документы.
     const parts = nameParts(req.body);
@@ -542,7 +559,9 @@ app.post('/api/users', async (req: Request, res: Response) => {
         middleName: parts.middleName,
         gender: parts.gender,
         birthDate: parts.birthDate,
-        role: role || 'ENGINEER_VENT',
+        role: decision.role,
+        positionCode: decision.positionCode,
+        extraPositions: decision.extraPositions,
         password: hashPassword(String(password || randomBytes(18).toString('base64url'))),
         isActive: typeof isActive === 'boolean' ? isActive : true,
         validUntil: validUntil ? new Date(validUntil) : null,
@@ -550,8 +569,9 @@ app.post('/api/users', async (req: Request, res: Response) => {
         // (src/lib/permissions.ts): начинать с нуля значило, что новый человек
         // первый день не может ничего и ходит к администратору за каждой
         // галочкой
+        // Полномочия admin.* у сотрудника не хранятся — они есть только у администратора
         permissions: permissions
-          ? (typeof permissions === 'string' ? permissions : JSON.stringify(permissions))
+          ? (decision.level === 'ADMIN' ? (typeof permissions === 'string' ? permissions : JSON.stringify(permissions)) : permissionsWithoutAdmin(permissions))
           : JSON.stringify(defaultPermissions()),
       }
     });
@@ -588,12 +608,14 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
       if (loginTaken) return res.status(400).json({ message: 'Такой логин уже занят другим профилем' });
     }
     if (target.role === 'OWNER') return res.status(403).json({ message: 'Профиль владельца защищен; обычный маршрут его не изменяет' });
-    const chosenRole = role === undefined ? target.role : String(role).trim().toUpperCase();
-    if (chosenRole === 'OWNER') return res.status(403).json({ message: 'Роль владельца не назначается через сотрудников' });
-    if (actor?.role !== 'OWNER' && (target.role === 'ADMIN' || chosenRole === 'ADMIN' || administrativeGrants(permissions))) return res.status(403).json({ message: 'Администратора и его права меняет только владелец' });
+    if (String(role ?? '').trim().toUpperCase() === 'OWNER') return res.status(403).json({ message: 'Роль владельца не назначается через сотрудников' });
+    if (actor?.role !== 'OWNER' && (target.role === 'ADMIN' || String(role ?? '').trim().toUpperCase() === 'ADMIN' || req.body.accessLevel === 'ADMIN' || administrativeGrants(permissions))) return res.status(403).json({ message: 'Администратора и его права меняет только владелец' });
     if (actor?.id !== id && !administratorPermission(actor, 'admin.users.manage')) return res.status(403).json({ message: 'Нет права управлять сотрудниками' });
     if (actor?.role !== 'OWNER' && actor?.role !== 'ADMIN' && (role !== undefined || permissions !== undefined || isActive !== undefined || validUntil !== undefined || symbol !== undefined)) return res.status(403).json({ message: 'Сотрудник не меняет собственные права доступа' });
-    if (role !== undefined && !(await prisma.role.findUnique({ where: { code: chosenRole } }))) return res.status(400).json({ message: 'Выберите существующую роль' });
+    // Должности и уровень доступа: обязательная основная должность, дополнительные без дублей;
+    // «администратор» — уровень, его назначает и снимает только владелец
+    const decision = await decidePositions(prisma, req.body, target, actor?.role === 'OWNER');
+    if (decision.ok === false) return res.status(decision.status).json({ success: false, message: decision.message });
 
     if (typeof symbol === 'string' && symbol.trim().toLowerCase() === 'flux.owner') return res.status(403).json({ message: 'Логин владельца зарезервирован' });
 
@@ -648,13 +670,20 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
       data.birthDate = b;
     }
     if (typeof symbol === 'string' && symbol.trim()) data.symbol = symbol.trim();
-    if (typeof role === 'string' && role) data.role = chosenRole;
+    if (!('unchanged' in decision)) {
+      data.role = decision.role; data.positionCode = decision.positionCode; data.extraPositions = decision.extraPositions;
+    }
     if (typeof password === 'string' && password) data.password = hashPassword(password);
     if (typeof isActive === 'boolean') data.isActive = isActive;
     if (validUntil !== undefined) data.validUntil = parsedValidUntil;
     if (permissions !== undefined) {
       data.permissions = permissions === null ? null
         : (typeof permissions === 'string' ? permissions : JSON.stringify(permissions));
+    }
+    // Полномочия admin.* есть только у администратора: сотрудник, в том числе снятый с этого уровня, их не сохраняет
+    if (decision.level !== 'ADMIN') {
+      const current = data.permissions !== undefined ? data.permissions : target.permissions;
+      if (hasAdminKeys(current)) data.permissions = permissionsWithoutAdmin(current);
     }
 
     // Подразделение меняет только тот, кто управляет сотрудниками; перевод пишется в историю вместе с правкой
@@ -721,7 +750,7 @@ app.delete('/api/users/:id', async (req: Request, res: Response) => {
   app.get('/api/presence/visibility', async (req: Request, res: Response) => {
     const me = (req as any).authUser;
     if (!me) return res.status(401).json({ message: 'Нужен вход.' });
-    res.json({ hidden: !!me.hideOnline, allowed: await isTopAdmin(req) });
+    res.json({ hidden: !!me.hideOnline, allowed: await isOwnerRequest(req) });
   });
 
   app.put('/api/presence/visibility', async (req: Request, res: Response) => {
@@ -729,7 +758,7 @@ app.delete('/api/users/:id', async (req: Request, res: Response) => {
     try {
       const me = (req as any).authUser;
       if (!me) return res.status(401).json({ message: 'Нужен вход.' });
-      if (!(await isTopAdmin(req))) {
+      if (!(await isOwnerRequest(req))) {
         return res.status(403).json({ message: 'Скрывать своё присутствие может только главный администратор.' });
       }
       // Только своё: скрыть чужого — это подделать ответ на вопрос «кто в
@@ -745,11 +774,30 @@ app.delete('/api/users/:id', async (req: Request, res: Response) => {
     }
   });
 
+// Права должности: полномочия администратора (admin.*) в ней не хранятся — их
+// выдаёт лично владелец карточкой сотрудника. Иначе администратор с правом на
+// справочник выписал бы их себе через должность.
+function cleanPositionPermissions(raw: unknown): string {
+  if (typeof raw === 'string') return JSON.stringify(stripAdminPermissions(raw));
+  return JSON.stringify(stripAdminPermissions(raw || {}));
+}
+
+/** Сколько людей на должности: основной и дополнительной */
+async function positionUsage(prisma: any, code: string): Promise<{ primary: number; extra: number }> {
+  const [primary, extra] = await Promise.all([
+    prisma.user.count({ where: { OR: [{ positionCode: code }, { positionCode: null, role: code }] } }),
+    // Код — латиница, цифры и «_»: в JSON-массиве он всегда в кавычках, чужой код целиком не совпадёт
+    prisma.user.count({ where: { extraPositions: { contains: JSON.stringify(code) } } }),
+  ]);
+  return { primary, extra };
+}
+
+// Уровни доступа OWNER и ADMIN — не должности: в справочнике их нет, и менять их строки нельзя
 app.get('/api/roles', async (_req: Request, res: Response) => {
   const prisma = getPrisma();
   try {
     const roles = await prisma.role.findMany({ orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] });
-    res.json({ roles });
+    res.json({ roles: (roles as any[]).filter((r) => !isNonPositionCode(r.code) && r.code !== 'SERVICE') });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -758,81 +806,70 @@ app.get('/api/roles', async (_req: Request, res: Response) => {
 app.post('/api/roles', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   try {
-    if (!(await isTopAdmin(req))) {
-      return res.status(403).json({ message: 'Роли создаёт только главный администратор.' });
-    }
     const name = String(req.body.name || '').trim();
-    if (!name) return res.status(400).json({ message: 'Укажите название роли.' });
-    // Код роли — латиницей: он попадает в данные и не должен зависеть от раскладки
+    if (!name) return res.status(400).json({ message: 'Укажите название должности.' });
+    // Код должности — латиницей: он попадает в данные и не должен зависеть от раскладки
     let code = String(req.body.code || '').trim().toUpperCase().replace(/[^A-Z0-9_]/g, '');
-    if (['OWNER', 'ADMIN'].includes(code)) return res.status(403).json({ message: 'Системная роль зарезервирована' });
+    if (isNonPositionCode(code)) return res.status(403).json({ message: 'Системный код зарезервирован' });
     if (!code) code = 'ROLE_' + Date.now().toString(36).toUpperCase();
     const dup = await prisma.role.findUnique({ where: { code } });
-    if (dup) return res.status(400).json({ message: 'Роль с таким кодом уже есть.' });
+    if (dup) return res.status(400).json({ message: 'Должность с таким кодом уже есть.' });
     const role = await prisma.role.create({
       data: {
         code, name,
         description: String(req.body.description || ''),
         color: String(req.body.color || 'slate'),
         icon: String(req.body.icon || 'user'),
-        // Уровень 1 занят главным администратором: новую роль туда не пускаем,
-        // иначе управление доступом можно раздать себе же.
         level: Math.max(2, Number(req.body.level) || 50),
-        permissions: typeof req.body.permissions === 'string' ? req.body.permissions : JSON.stringify(req.body.permissions || {}),
+        permissions: cleanPositionPermissions(req.body.permissions),
         sortOrder: Number(req.body.sortOrder) || 100,
         isSystem: false,
       },
     });
-    invalidateRolePerms();   // права новой роли должны действовать сразу
+    invalidateRolePerms();   // права новой должности должны действовать сразу
     res.json({ success: true, role });
   } catch (error: any) {
-    console.error('[Роли] Создание роли не удалось:', error?.message || error);
-    res.status(500).json({ message: explainDbError(error, 'Роль') });
+    console.error('[Должности] Создание не удалось:', error?.message || error);
+    res.status(500).json({ message: explainDbError(error, 'Должность') });
   }
 });
 
 app.put('/api/roles/:id', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   try {
-    if (!(await isTopAdmin(req))) {
-      return res.status(403).json({ message: 'Роли меняет только главный администратор.' });
-    }
     const role = await prisma.role.findUnique({ where: { id: req.params.id } });
-    if (!role) return res.status(404).json({ message: 'Роль не найдена.' });
-    if (role.code === 'OWNER') return res.status(403).json({ message: 'Роль владельца защищена' });
+    if (!role) return res.status(404).json({ message: 'Должность не найдена.' });
+    if (isNonPositionCode(role.code)) return res.status(403).json({ message: 'Уровни доступа не меняются как должности' });
     const data: any = {};
     if (req.body.name !== undefined) data.name = String(req.body.name).trim() || role.name;
     if (req.body.description !== undefined) data.description = String(req.body.description);
     if (req.body.color !== undefined) data.color = String(req.body.color);
     if (req.body.icon !== undefined) data.icon = String(req.body.icon);
     if (req.body.sortOrder !== undefined) data.sortOrder = Number(req.body.sortOrder) || role.sortOrder;
-    if (req.body.permissions !== undefined) {
-      data.permissions = typeof req.body.permissions === 'string' ? req.body.permissions : JSON.stringify(req.body.permissions || {});
-    }
-    // Уровень встроенной роли не трогаем: он определяет, кто главный админ
+    if (req.body.permissions !== undefined) data.permissions = cleanPositionPermissions(req.body.permissions);
     if (req.body.level !== undefined && !role.isSystem) data.level = Math.max(2, Number(req.body.level) || 50);
     const updated = await prisma.role.update({ where: { id: role.id }, data });
     invalidateRolePerms();
-    invalidateAuthUser();     // роль касается сразу нескольких сотрудников
+    invalidateAuthUser();     // должность касается сразу нескольких сотрудников
     res.json({ success: true, role: updated });
   } catch (error: any) {
-    console.error('[Роли] Изменение роли не удалось:', error?.message || error);
-    res.status(500).json({ message: explainDbError(error, 'Роль') });
+    console.error('[Должности] Изменение не удалось:', error?.message || error);
+    res.status(500).json({ message: explainDbError(error, 'Должность') });
   }
 });
 
 app.delete('/api/roles/:id', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   try {
-    if (!(await isTopAdmin(req))) {
-      return res.status(403).json({ message: 'Роли удаляет только главный администратор.' });
-    }
     const role = await prisma.role.findUnique({ where: { id: req.params.id } });
-    if (!role) return res.status(404).json({ message: 'Роль не найдена.' });
-    if (role.isSystem) return res.status(400).json({ message: 'Встроенную роль удалить нельзя — её использует сама программа.' });
-    const inUse = await prisma.user.count({ where: { role: role.code } });
-    if (inUse > 0) {
-      return res.status(400).json({ message: `Роль назначена ${inUse} сотрудник(ам). Сначала переведите их на другую роль.` });
+    if (!role) return res.status(404).json({ message: 'Должность не найдена.' });
+    if (isNonPositionCode(role.code)) return res.status(403).json({ message: 'Уровни доступа не удаляются как должности' });
+    if (role.isSystem) return res.status(400).json({ message: 'Встроенную должность удалить нельзя — её использует сама программа.' });
+    // Хоть как дополнительная: иначе у человека осталась бы должность, которой нет в справочнике
+    const { primary, extra } = await positionUsage(prisma, role.code);
+    if (primary + extra > 0) {
+      const parts = [primary ? `основной у ${primary}` : '', extra ? `дополнительной у ${extra}` : ''].filter(Boolean).join(', ');
+      return res.status(400).json({ message: `Должность назначена: ${parts}. Сначала переведите этих сотрудников на другую.` });
     }
     await prisma.role.delete({ where: { id: role.id } });
     invalidateRolePerms();

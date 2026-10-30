@@ -122,7 +122,7 @@ export const ADMIN_FEATURES: FeatureDef[] = [
   { id: 'admin.license.activate', group: 'Администрирование', label: 'Активация лицензий', desc: 'Передавать запрос владельцу и применять подписанные ключи' },
   { id: 'admin.backup.run', group: 'Администрирование', label: 'Ручная резервная копия', desc: 'Запускать резервную копию общей базы данных', risky: true },
   { id: 'admin.projects.manage', group: 'Администрирование', label: 'Управление проектами компании', desc: 'Создавать и менять проекты компании', risky: true },
-  { id: 'admin.roles.manage', group: 'Администрирование', label: 'Управление рабочими ролями', desc: 'Менять рабочие роли; полномочия администратора назначает только владелец', risky: true },
+  { id: 'admin.roles.manage', group: 'Администрирование', label: 'Должности: справочник', desc: 'Заводить и менять должности и их права; полномочия администратора назначает только владелец', risky: true },
 ];
 
 export function canAdmin(user: PermUser | null | undefined, feature: string): boolean {

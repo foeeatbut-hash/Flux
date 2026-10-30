@@ -69,7 +69,7 @@ async function test(dialect: 'mysql' | 'postgresql', endpoint: string) {
     await Promise.all(Array.from({ length: 8 }, () => ensureUserProfileSchema(p)));
     const profile = await p.$queryRawUnsafe(`SELECT * FROM ${q('User')}`);
     assert.equal(profile[0].id, 'keep-profile');
-    for (const field of ['position', 'department', 'email']) assert.equal(profile[0][field], null);
+    for (const field of ['position', 'department', 'email', 'positionCode', 'extraPositions']) assert.equal(profile[0][field], null);
 
     await p.$executeRawUnsafe(createTableSql(dialect, specs[0].table, specs[0].cols.slice(0, 2)));
     await p.$executeRawUnsafe(`INSERT INTO ${q('SchemaFixture')} (${q('id')}, ${q('owner')}) VALUES ('keep', 'employee')`);
