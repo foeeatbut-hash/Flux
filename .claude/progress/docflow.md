@@ -24,7 +24,7 @@
 
 1. [x] Этап 0 (сделано, ветка claude/determined-bardeen-dfpbuf, не запушено): сверка версий в `issue-revision`, `revision-up`, `PUT` реестра —
    транзакция + ожидаемая версия от клиента, чужая — 409 (offline-work.md 0.1).
-2. [x] Этап A (теги; не запушено): `DocRegisterItemTag` по id, миграция `equipmentTags` с планом, права `vdr.*`, обратный показ у тега. Остались: «Документы» в строке оборудования, ссылки `/explorer?file=`.
+2. [x] Этап A (теги; не запушено): `DocRegisterItemTag` по id, миграция `equipmentTags` с планом, права `vdr.*`, обратный показ у тега. Хвосты закрыты (см. «Хвосты A»).
 3. [ ] Общие свойства Flux на сервере + этап E.
 
 ## Этап 0 — итог
@@ -70,3 +70,19 @@
   (`src/components/registry/TagVdrDocs.tsx`; рядом с блоком тегов позиции).
 - Наборы: `test-vdr-tag-link` (34), `test-vdr-permissions` (36),
   `test-vdr-concurrency` (39), `test-insight`, `test-project-delete-sqlite`.
+
+## Хвосты A (4.11.2026)
+
+- `TagVdrDocs` уже стоит в `TagCardModal` (карточка тега и оборудования —
+  один диалог, `Registry.tsx:2502`); вторая вставка не нужна. Живой снимок
+  в обеих темах: блок «Документы (ВДР) — 2» (PDH-002 E02, PDH-003 K32)
+  помещается в диалог (478 из 510 px).
+- Ссылки `/explorer?file=`: клиент уже ловит их в `Explorer.tsx`
+  (`LegacyLinkNotice` — сообщение и очистка адреса). Исправлено в
+  `server/routes/vdr.ts`: уведомление о замечаниях вело на `fileNodeId` в
+  `/explorer?file=` — теперь всегда на строку ВДР. Остались (ведут на
+  сообщение «файл из прежнего архива больше не открывается», не в пустоту):
+  `server/insight.ts` `fileRoute`, `Desktop.tsx` «Открыть место»,
+  `fileTypes.ts` приложение `windows`.
+- Проверки: tsc 0; `run-checks vdr equipment architecture` — 26 из 28; два
+  провала нужны живой сервер на :3000 и FLUX_USER/FLUX_PASS (среда).

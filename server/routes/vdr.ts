@@ -583,7 +583,8 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
           await notifyUser(updated.assigneeId, 'ДОКУМЕНТЫ',
             `Замечания${updated.reviewCode ? ` (код ${updated.reviewCode})` : ''}: ${docName}`,
             (updated.remarks || 'Заказчик вернул замечания') + due,
-            updated.fileNodeId ? `/explorer?file=${updated.fileNodeId}` : route);
+            // Прежний архив Flux ушёл, /explorer?file= вёл бы в пустоту: открываем строку ВДР
+            route);
         }
         if (updated.status === 'ACCEPTED' && updated.assigneeId) {
           await notifyUser(updated.assigneeId, 'ДОКУМЕНТЫ', `Принят заказчиком: ${docName}`, `Ревизия ${updated.revision}`, route);
