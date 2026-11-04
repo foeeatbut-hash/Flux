@@ -628,7 +628,7 @@ try {
     const repeatPreviewEnabled = await waitFor(async () => repeatPreviewButton.isEnabled().catch(() => false), 15000);
     check('Word repeat preview waits for selected rows and current document state', repeatPreviewEnabled, await panel.innerText().catch(() => ''));
     if (repeatPreviewEnabled) await repeatPreviewButton.click();
-    const repeatConfirm = panel.getByRole('button', { name: 'Подтвердить и заполнить' });
+    const repeatConfirm = panel.getByRole('button', { name: /Подтвердить и заполнить|Применить отмеченное/ }); // Источник изменили после первого заполнения: документ устарел, и кнопка предпросмотра «Обновить» (решение 4.11) называется «Применить отмеченное»
     const repeatPreviewSettled = repeatPreviewEnabled && await waitFor(async () => await repeatConfirm.isVisible().catch(() => false) || await panel.getByRole('alert').count() > 0, 30000);
     const repeatPreviewVisible = await repeatConfirm.isVisible().catch(() => false);
     const repeatPreviewAlerts = await panel.getByRole('alert').allTextContents().catch(() => []);
@@ -916,7 +916,7 @@ try {
       await sheetPanel.getByRole('checkbox', { name: 'Выбрать все строки' }).check();
       await page.getByRole('button', { name: /3\. Обновление/ }).click();
       await sheetPanel.getByRole('button', { name: 'Предпросмотр заполнения' }).click();
-      const sheetRepeatConfirm = sheetPanel.getByRole('button', { name: 'Подтвердить и заполнить' });
+      const sheetRepeatConfirm = sheetPanel.getByRole('button', { name: /Подтвердить и заполнить|Применить отмеченное/ });
       await sheetRepeatConfirm.waitFor({ state: 'visible', timeout: 10000 });
       console.log('SHEETS_BEFORE_REPEAT', JSON.stringify({ state: (await api('GET', `/api/project-data/files/${xlsxId}/office-state`)).json, values: await sheets.locator('body').evaluate(() => {
         const runtime = (window as any).__fluxSheets;
@@ -981,7 +981,7 @@ try {
   await formulaPanel.getByRole('row').filter({ hasText: 'FAN_HIGH' }).getByRole('checkbox').check();
   await page.getByRole('button', { name: /3\. Обновление/ }).click();
   await formulaPanel.getByRole('button', { name: 'Предпросмотр заполнения' }).click();
-  const confirmFormula = formulaPanel.getByRole('button', { name: 'Подтвердить и заполнить' });
+  const confirmFormula = formulaPanel.getByRole('button', { name: /Подтвердить и заполнить|Применить отмеченное/ });
   await confirmFormula.waitFor({ state: 'visible', timeout: 10000 });
   check('formula target remains a real formula with an empty displayed result', await hasEmptyFormulaTarget(formulaId));
   if (await confirmFormula.isEnabled().catch(() => false)) {
