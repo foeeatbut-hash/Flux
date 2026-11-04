@@ -44,6 +44,8 @@ interface Row {
   id: string; title: string; mono: string; tag: string; link: any | null;
   state: 'system' | 'new' | 'update' | 'same';
   changed: number; overrides: number; params: any[];
+  /** Тег установки решается в строке её корневой записи (__unit__), а не здесь */
+  delegated?: boolean;
 }
 
 function buildRows(plan: any): Row[] {
@@ -51,9 +53,16 @@ function buildRows(plan: any): Row[] {
   const used = new Set<any>();
   const linkOf = (key: string) => { const found = links.find(l => l.blockKey === key); if (found) used.add(found); return found || null; };
   const rows: Row[] = [];
+  // У настоящего плана есть корневая запись установки (__unit__) — блок с тем же ключом, что и у
+  // тега установки. Селектор тега тогда живёт в её строке, а строка системы только называет тег:
+  // иначе одно решение показывалось двумя селекторами и считалось в «Создать все новые» дважды
+  const blockKeys = new Set<string>((plan?.blocks || []).map((block: any) => block.key));
   for (const [index, system] of (plan?.systems || plan?.units || []).entries()) {
-    const link = linkOf(`${system.name}${SEP}${SEP}__unit__`);
-    rows.push({ id: `system:${system.name}:${index}`, title: system.title && system.title !== system.name ? system.title : 'Установка', mono: system.action === 'match' ? 'обновится' : 'будет создана', tag: link?.identifier || system.name || '', link, state: 'system', changed: 0, overrides: 0, params: [] });
+    const unitKey = `${system.name}${SEP}${SEP}__unit__`;
+    const delegated = blockKeys.has(unitKey);
+    const link = delegated ? null : linkOf(unitKey);
+    const named = delegated ? links.find(l => l.blockKey === unitKey) : link;
+    rows.push({ id: `system:${system.name}:${index}`, title: system.title && system.title !== system.name ? system.title : 'Установка', mono: system.action === 'match' ? 'обновится' : 'будет создана', tag: named?.identifier || system.name || '', link, delegated, state: 'system', changed: 0, overrides: 0, params: [] });
   }
   for (const [index, block] of (plan?.blocks || []).entries()) {
     const link = linkOf(block.key);
@@ -150,7 +159,7 @@ export default function ImportPlanTable({ plan, choices, onChoices, disabled }: 
                 ? <CustomSelect ariaLabel={`Действие с тегом ${row.tag}`} disabled={disabled} value={value} placeholder="Выберите…" menuAlign="right" menuClassName="min-w-64"
                     options={options.map(o => ({ ...o, label: o.value === value ? shortLabel(o.label) : o.label }))} onChange={next => onChoices({ [linkKeyOf(row.link)]: next })}
                     className={bad ? '[&>button]:border-[var(--flux-bad-text)]' : ''} />
-                : <span className="text-[var(--flux-text-faint)]">без тега</span>}</td>
+                : <span className="text-[var(--flux-text-faint)]" title={row.delegated ? 'Тег установки выбирается в строке её корневой записи ниже' : undefined}>{row.delegated ? '—' : 'без тега'}</span>}</td>
             </tr>
             {expanded && <tr><td className="hidden @xl:table-cell" />
               <td colSpan={4} className="!h-auto py-1.5">

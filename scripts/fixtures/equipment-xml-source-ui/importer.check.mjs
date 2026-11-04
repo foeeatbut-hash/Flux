@@ -121,6 +121,20 @@ try {
     if (applied.body.tagLinks.filter(link => link.action === 'link').length !== 5) throw new Error('Apply must carry 4 exact links plus the decided one');
     await planPage.close();
   }
+  // Настоящий план содержит корневую запись установки (__unit__) с тем же ключом, что у тега
+  // установки: селектор тега один (в её строке), а групповое «Создать все новые» считает тег один раз
+  {
+    const unitPage = await browser.newPage({ viewport: { width: 1100, height: 700 } });
+    unitPage.on('pageerror', error => { throw error; });
+    await unitPage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?initial=1&rows=31&unitRow=1`);
+    await unitPage.getByRole('heading', { name: /Предпросмотр/ }).waitFor();
+    const unitSelectors = await unitPage.getByRole('table').getByRole('button', { name: /Действие с тегом L23$/ }).count();
+    if (unitSelectors !== 1) throw new Error(`Unit tag must have exactly one action selector, got ${unitSelectors}`);
+    const bulk = await unitPage.getByRole('button', { name: /^Создать все новые/ }).innerText();
+    // 31 позиция: 4 точных совпадения и 1 спорная — остальные 26 создаются, плюс тег установки (28 — это дубль строки)
+    if (!/· 27$/.test(bulk.trim())) throw new Error(`Bulk create must count the unit tag once: ${bulk}`);
+    await unitPage.close();
+  }
   const documentPage = await browser.newPage({ viewport: { width: 900, height: 850 }, colorScheme: 'dark' });
   await documentPage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?document=1`);
   await documentPage.getByText('L23.xlsx', { exact: true }).waitFor();
