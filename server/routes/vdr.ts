@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import { getPrisma, resolveProjectId, sendError, notifyUser, broadcast } from '../context.js';
 import { createFileFromBytes, exportsHome } from '../officeStore.js';
 import { hasPosition } from '../../shared/positions.js';
+import { VdrConflict, expectedStamp, expectedRevisionOf, guardedUpdate, guardedIssue, whenText } from '../vdrWrite.js';
 
 // ── ВДР (Vendor Document Register) — реестр документации поставщика ──
 // Дизайн: docs/vdr-docflow-design.md + разбор реальных файлов проекта ДГП-2
@@ -347,8 +348,27 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
     } catch (err: any) { sendError(res, err); }
   });
 
+  const registerOut = (r: any) => ({ ...r, columnsConfig: parseJson(r.columnsConfig, []), revisions: parseJson(r.revisions, []) });
+  const itemOut = (i: any) => ({ ...i, extra: parseJson(i.extra, {}) });
+
+  // Отказ 409: текст для человека и текущее состояние, чтобы клиент показал
+  // его и перечитал запись, а не затёр чужое
+  const conflictReply = async (res: Response, err: VdrConflict, current: () => Promise<any>) =>
+    res.status(409).json({ error: err.message, conflict: true, current: await current().catch(() => null) });
+  const badStamp = (res: Response) => res.status(400).json({ error: 'Ожидаемая версия записи не читается' });
+
+  // Правка реквизитов. Поля сливаются: приходит только то, что человек менял.
+  // Ожидаемая версия — `expectedUpdatedAt` (то, что клиент видел); без неё
+  // (старый клиент) запись всё равно идёт под сверкой «сравни и поменяй»,
+  // см. server/vdrWrite.ts.
+  // Историю ревизий (`revisions`) этот маршрут не принимает: её пишет только
+  // revision-up, в одной транзакции с номером, а полный массив от клиента
+  // стирал выпуски коллеги, сделанные после того, как клиент прочёл реестр.
+  // Ревизию (`revision`) тоже меняет только revision-up: другое значение — отказ.
   app.put('/api/vdr/registers/:id', async (req: Request, res: Response) => {
     try {
+      const stamp = expectedStamp(req.body?.expectedUpdatedAt);
+      if (stamp === null) return badStamp(res);
       const data: any = {};
       for (const k of REGISTER_FIELDS) if (typeof req.body?.[k] === 'string') data[k] = req.body[k];
       // Пустая строка в поле подписанта означает «никого», и в базе это null,
@@ -357,34 +377,67 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       if ('managerId' in (req.body || {})) data.managerId = req.body.managerId || null;
       if ('standardId' in (req.body || {})) data.standardId = req.body.standardId || null;
       if (Array.isArray(req.body?.columnsConfig)) data.columnsConfig = JSON.stringify(req.body.columnsConfig);
-      if (Array.isArray(req.body?.revisions)) data.revisions = JSON.stringify(req.body.revisions);
-      const register = await getPrisma().docRegister.update({ where: { id: req.params.id }, data });
-      announceVdrChange(register.projectId, register.id);
-      res.json({ register: { ...register, columnsConfig: parseJson(register.columnsConfig, []), revisions: parseJson(register.revisions, []) } });
-    } catch (err: any) { sendError(res, err); }
+      const askedRevision: string | undefined = data.revision;
+      delete data.revision;
+      const prisma = getPrisma();
+      const done = await guardedUpdate(prisma, {
+        model: 'docRegister', id: req.params.id, expectedUpdatedAt: stamp,
+        staleMessage: (cur) => `Реквизиты реестра уже изменили (${whenText(cur.updatedAt)}). Показана текущая версия — ваши правки не записаны.`,
+        build: (cur) => {
+          if (askedRevision !== undefined && askedRevision !== cur.revision) {
+            throw new VdrConflict(`Ревизия реестра сейчас ${cur.revision}, а не ${askedRevision}. Ревизию меняет только кнопка «Новая ревизия ВДР».`);
+          }
+          return { data };
+        },
+      });
+      if (!done) return res.status(404).json({ error: 'Реестр не найден' });
+      announceVdrChange(done.after.projectId, done.after.id);
+      res.json({ register: registerOut(done.after) });
+    } catch (err: any) {
+      if (err instanceof VdrConflict) {
+        return conflictReply(res, err, async () => ({ register: registerOut(await getPrisma().docRegister.findUnique({ where: { id: req.params.id } })) }));
+      }
+      sendError(res, err);
+    }
   });
 
-  // Новая ревизия самого ВДР: запись в историю (лист Accounting for revisions)
+  // Новая ревизия самого ВДР: запись в историю (лист Accounting for revisions).
+  // Номер считается внутри транзакции из прочитанной в ней ревизии; клиент
+  // присылает `expectedRevision` — ту, что видел на экране.
   app.post('/api/vdr/registers/:id/revision-up', async (req: Request, res: Response) => {
     try {
-      const prisma = getPrisma();
-      const register = await prisma.docRegister.findUnique({ where: { id: req.params.id } });
-      if (!register) return res.status(404).json({ error: 'Реестр не найден' });
+      const me = authUserOf(req);
       const certify = !!req.body?.certify;
-      const revision = nextRevision(register.revision, certify);
-      const history = parseJson(register.revisions, []);
-      history.push({
-        rev: revision,
-        date: new Date().toISOString(),
-        description: String(req.body?.description || (certify || /^\d+$/.test(revision) ? 'Certified Final/ Окончательный' : 'Issued for Review/Выпущено для рассмотрения')),
+      const description = req.body?.description;
+      const staleMessage = (_db: any, cur: any) => {
+        const last = parseJson(cur.revisions, []).slice(-1)[0];
+        const who = last?.by ? ` ${last.by}` : '';
+        const when = whenText(last?.date);
+        return `Ревизию ${cur.revision} ВДР уже выпустил${who || ' другой пользователь'}${when ? ` (${when})` : ''}. Реестр обновлён — проверьте, нужна ли ещё одна.`;
+      };
+      const done = await guardedIssue(getPrisma(), {
+        model: 'docRegister', id: req.params.id, expectedRevision: expectedRevisionOf(req.body?.expectedRevision), staleMessage,
+        next: (cur) => {
+          const revision = nextRevision(cur.revision, certify);
+          const history = parseJson(cur.revisions, []);
+          history.push({
+            rev: revision,
+            date: new Date().toISOString(),
+            description: String(description || (certify || /^\d+$/.test(revision) ? 'Certified Final/ Окончательный' : 'Issued for Review/Выпущено для рассмотрения')),
+            ...(me?.name ? { by: me.name } : {}),
+          });
+          return { data: { revision, revisions: JSON.stringify(history) }, extra: undefined };
+        },
       });
-      const updated = await prisma.docRegister.update({
-        where: { id: register.id },
-        data: { revision, revisions: JSON.stringify(history) },
-      });
-      announceVdrChange(updated.projectId, updated.id);
-      res.json({ register: { ...updated, revisions: history, columnsConfig: parseJson(updated.columnsConfig, []) } });
-    } catch (err: any) { sendError(res, err); }
+      if (!done) return res.status(404).json({ error: 'Реестр не найден' });
+      announceVdrChange(done.after.projectId, done.after.id);
+      res.json({ register: registerOut(done.after) });
+    } catch (err: any) {
+      if (err instanceof VdrConflict) {
+        return conflictReply(res, err, async () => ({ register: registerOut(await getPrisma().docRegister.findUnique({ where: { id: req.params.id } })) }));
+      }
+      sendError(res, err);
+    }
   });
 
   app.delete('/api/vdr/registers/:id', async (req: Request, res: Response) => {
@@ -433,66 +486,89 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
 
   // Правка строки. Код рассмотрения — из стандарта реестра: сам ставит статус
   // (accept→ACCEPTED, revise→REMARKS) и срок следующей ревизии (deadlineDays).
+  // Чтение, слияние `extra` и запись — в одной транзакции под сверкой версии
+  // (server/vdrWrite.ts): клиент присылает `expectedUpdatedAt`, чужая правка —
+  // 409. Клиент без неё (старый) сливает поля с повтором, но ревизию, не
+  // совпавшую с текущей, не затирает: выпуск её меняет через историю.
   app.put('/api/vdr/items/:id', async (req: Request, res: Response) => {
     try {
       const me = authUserOf(req);
       const prisma = getPrisma();
-      const item = await prisma.docRegisterItem.findUnique({ where: { id: req.params.id } });
-      if (!item) return res.status(404).json({ error: 'Строка реестра не найдена' });
+      const stamp = expectedStamp(req.body?.expectedUpdatedAt);
+      if (stamp === null) return badStamp(res);
+      const first = await prisma.docRegisterItem.findUnique({ where: { id: req.params.id } });
+      if (!first) return res.status(404).json({ error: 'Строка реестра не найдена' });
+      // Реестр и стандарт читаются до транзакции: внутри неё SQLite не отвечает чужим запросам
+      const register = await prisma.docRegister.findUnique({ where: { id: first.registerId } });
+      const std = await standardOfRegister(register);
 
-      const data: any = {};
-      for (const k of ITEM_FIELDS) if (typeof req.body?.[k] === 'string') data[k] = req.body[k];
-      if ('assigneeId' in (req.body || {})) data.assigneeId = req.body.assigneeId || null;
-      if ('docId' in (req.body || {})) data.docId = req.body.docId || null;
-      if ('fileNodeId' in (req.body || {})) data.fileNodeId = req.body.fileNodeId || null;
-      if (typeof req.body?.equipmentTags === 'string') data.equipmentTags = req.body.equipmentTags;
-      if (req.body?.issueDate !== undefined) data.issueDate = req.body.issueDate ? new Date(req.body.issueDate) : null;
-      if (req.body?.dueDate !== undefined) data.dueDate = req.body.dueDate ? new Date(req.body.dueDate) : null;
-      if (req.body?.extra && typeof req.body.extra === 'object') {
-        data.extra = JSON.stringify({ ...parseJson(item.extra, {}), ...req.body.extra });
-      }
-
-      const register = await prisma.docRegister.findUnique({ where: { id: item.registerId } });
-
-      // Код рассмотрения: статус и дедлайн из стандарта (если явно не переданы)
-      if (typeof data.reviewCode === 'string' && data.reviewCode && data.reviewCode !== item.reviewCode) {
-        const std = await standardOfRegister(register);
-        const rc = (std.reviewCodes || []).find((x: any) => x.code === data.reviewCode);
-        if (rc) {
-          if (!req.body?.status) data.status = rc.action === 'accept' ? 'ACCEPTED' : 'REMARKS';
-          if (req.body?.dueDate === undefined && rc.deadlineDays) {
-            data.dueDate = new Date(Date.now() + Number(rc.deadlineDays) * 86400000);
+      const done = await guardedUpdate(prisma, {
+        model: 'docRegisterItem', id: first.id, expectedUpdatedAt: stamp,
+        staleMessage: (cur) => `Строку уже изменили (${whenText(cur.updatedAt)}). Показана текущая версия — ваши правки не записаны.`,
+        build: (item) => {
+          const data: any = {};
+          for (const k of ITEM_FIELDS) if (typeof req.body?.[k] === 'string') data[k] = req.body[k];
+          if (stamp === undefined && 'revision' in data && data.revision !== item.revision) {
+            throw new VdrConflict(`Ревизия строки сейчас ${item.revision}, а не ${data.revision}. Обновите страницу: ревизию выпускает кнопка «Выпустить ревизию».`);
           }
-        }
-      }
+          if ('assigneeId' in (req.body || {})) data.assigneeId = req.body.assigneeId || null;
+          if ('docId' in (req.body || {})) data.docId = req.body.docId || null;
+          if ('fileNodeId' in (req.body || {})) data.fileNodeId = req.body.fileNodeId || null;
+          if (typeof req.body?.equipmentTags === 'string') data.equipmentTags = req.body.equipmentTags;
+          if (req.body?.issueDate !== undefined) data.issueDate = req.body.issueDate ? new Date(req.body.issueDate) : null;
+          if (req.body?.dueDate !== undefined) data.dueDate = req.body.dueDate ? new Date(req.body.dueDate) : null;
+          if (req.body?.extra && typeof req.body.extra === 'object') {
+            data.extra = JSON.stringify({ ...parseJson(item.extra, {}), ...req.body.extra });
+          }
 
-      const newStatus = String(req.body?.status || '');
-      if (newStatus && STATUSES.includes(newStatus) && newStatus !== item.status) data.status = newStatus;
+          // Код рассмотрения: статус и дедлайн из стандарта (если явно не переданы)
+          if (typeof data.reviewCode === 'string' && data.reviewCode && data.reviewCode !== item.reviewCode) {
+            const rc = (std.reviewCodes || []).find((x: any) => x.code === data.reviewCode);
+            if (rc) {
+              if (!req.body?.status) data.status = rc.action === 'accept' ? 'ACCEPTED' : 'REMARKS';
+              if (req.body?.dueDate === undefined && rc.deadlineDays) {
+                data.dueDate = new Date(Date.now() + Number(rc.deadlineDays) * 86400000);
+              }
+            }
+          }
 
-      const updated = await prisma.docRegisterItem.update({ where: { id: item.id }, data });
+          const newStatus = String(req.body?.status || '');
+          if (newStatus && STATUSES.includes(newStatus) && newStatus !== item.status) data.status = newStatus;
+          return { data };
+        },
+      });
+      if (!done) return res.status(404).json({ error: 'Строка реестра не найдена' });
+      const item = done.before;
+      const updated = done.after;
       announceVdrChange(item.projectId, item.registerId);
 
-      // Уведомления документооборота
-      if (data.status && data.status !== item.status) {
+      // Уведомления документооборота: по статусу, который записала именно эта правка
+      const statusChanged = updated.status !== item.status;
+      if (statusChanged) {
         const docName = updated.contractorNo || updated.titleRu || updated.titleEn || 'документ';
         const route = `/management?vdr=${item.registerId}&item=${item.id}`;
-        if (data.status === 'READY' && register?.managerId) {
+        if (updated.status === 'READY' && register?.managerId) {
           await notifyUser(register.managerId, 'ДОКУМЕНТЫ', `Документ готов: ${docName}`,
             `${updated.titleRu || updated.titleEn || ''} · рев. ${updated.revision}${me?.name ? ` · ${me.name}` : ''}`, route);
         }
-        if (data.status === 'REMARKS' && updated.assigneeId) {
+        if (updated.status === 'REMARKS' && updated.assigneeId) {
           const due = updated.dueDate ? ` · срок ${new Date(updated.dueDate).toLocaleDateString('ru-RU')}` : '';
           await notifyUser(updated.assigneeId, 'ДОКУМЕНТЫ',
             `Замечания${updated.reviewCode ? ` (код ${updated.reviewCode})` : ''}: ${docName}`,
             (updated.remarks || 'Заказчик вернул замечания') + due,
             updated.fileNodeId ? `/explorer?file=${updated.fileNodeId}` : route);
         }
-        if (data.status === 'ACCEPTED' && updated.assigneeId) {
+        if (updated.status === 'ACCEPTED' && updated.assigneeId) {
           await notifyUser(updated.assigneeId, 'ДОКУМЕНТЫ', `Принят заказчиком: ${docName}`, `Ревизия ${updated.revision}`, route);
         }
       }
-      res.json({ item: { ...updated, extra: parseJson(updated.extra, {}) } });
-    } catch (err: any) { sendError(res, err); }
+      res.json({ item: itemOut(updated) });
+    } catch (err: any) {
+      if (err instanceof VdrConflict) {
+        return conflictReply(res, err, async () => ({ item: itemOut(await getPrisma().docRegisterItem.findUnique({ where: { id: req.params.id } })) }));
+      }
+      sendError(res, err);
+    }
   });
 
   app.delete('/api/vdr/items/:id', async (req: Request, res: Response) => {
@@ -626,52 +702,76 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
 
   // «Выпустить ревизию»: next | certify (→0) | void (→V) | superseded (→S).
   // Пишет историю (место/описание), сбрасывает статус, обновляет титул документа.
+  // Номер считается из ревизии, прочитанной в той же транзакции, что и запись
+  // истории; клиент присылает `expectedRevision` — ту, что видел. Проигравший
+  // гонку и тот, кто смотрел на устаревшую ревизию, получают 409 с именем
+  // того, кто выпустил (server/vdrWrite.ts).
   app.post('/api/vdr/items/:id/issue-revision', async (req: Request, res: Response) => {
     try {
       const me = authUserOf(req);
       const prisma = getPrisma();
-      const item = await prisma.docRegisterItem.findUnique({ where: { id: req.params.id } });
-      if (!item) return res.status(404).json({ error: 'Строка реестра не найдена' });
-      const register = await prisma.docRegister.findUnique({ where: { id: item.registerId } });
+      const first = await prisma.docRegisterItem.findUnique({ where: { id: req.params.id } });
+      if (!first) return res.status(404).json({ error: 'Строка реестра не найдена' });
+      // Реестр и стандарт читаются до транзакции (внутри неё SQLite не отвечает чужим запросам)
+      const register = await prisma.docRegister.findUnique({ where: { id: first.registerId } });
       const std = await standardOfRegister(register);
-
       const kind = String(req.body?.kind || 'next'); // next | certify | void | superseded
-      let revision: string;
-      let reason: string;
-      if (kind === 'void') { revision = std.specialRevisions?.void || 'V'; reason = 'VOID'; }
-      else if (kind === 'superseded') { revision = std.specialRevisions?.superseded || 'S'; reason = 'SUPERSEDED'; }
-      else {
-        revision = nextRevision(item.revision, kind === 'certify');
-        // Причина по типу ревизии из стандарта: цифровая → первая digit-причина (CEF), буквенная → letter (IFR)
-        const kindOf = /^\d+$/.test(revision) ? 'digit' : 'letter';
-        reason = String(req.body?.reason || (std.reasons || []).find((r: any) => r.revKind === kindOf)?.code || (kindOf === 'digit' ? 'CEF' : 'IFR'));
+
+      // Кто и когда выпустил текущую ревизию — для текста отказа
+      const staleMessage = async (db: any, cur: any) => {
+        const last = await db.docRegisterItemRevision.findFirst({ where: { itemId: cur.id, revision: cur.revision }, orderBy: { createdAt: 'desc' } }).catch(() => null);
+        const user = last?.authorId ? await db.user?.findUnique({ where: { id: last.authorId }, select: { name: true } }).catch(() => null) : null;
+        const when = whenText(last?.createdAt);
+        return `Ревизию ${cur.revision} уже выпустил${user?.name ? ` ${user.name}` : ' другой пользователь'}${when ? ` (${when})` : ''}. Строка обновлена — проверьте, нужна ли ещё одна ревизия.`;
+      };
+
+      const done = await guardedIssue(prisma, {
+        model: 'docRegisterItem', id: first.id, expectedRevision: expectedRevisionOf(req.body?.expectedRevision), staleMessage,
+        next: (item) => {
+          let revision: string;
+          let reason: string;
+          if (kind === 'void') { revision = std.specialRevisions?.void || 'V'; reason = 'VOID'; }
+          else if (kind === 'superseded') { revision = std.specialRevisions?.superseded || 'S'; reason = 'SUPERSEDED'; }
+          else {
+            revision = nextRevision(item.revision, kind === 'certify');
+            // Причина по типу ревизии из стандарта: цифровая → первая digit-причина (CEF), буквенная → letter (IFR)
+            const kindOf = /^\d+$/.test(revision) ? 'digit' : 'letter';
+            reason = String(req.body?.reason || (std.reasons || []).find((r: any) => r.revKind === kindOf)?.code || (kindOf === 'digit' ? 'CEF' : 'IFR'));
+          }
+          return {
+            data: {
+              revision,
+              issueDate: new Date(),
+              reasonForIssue: reason,
+              dueDate: null,
+              ...(kind === 'next' || kind === 'certify' ? { status: 'DRAFT', reviewCode: '' } : {}),
+            },
+            extra: { revision, reason },
+          };
+        },
+        after: async (db, item, { revision, reason }) => {
+          await db.docRegisterItemRevision.create({
+            data: {
+              itemId: item.id,
+              revision,
+              reason,
+              place: String(req.body?.place || ''),
+              description: String(req.body?.description || (kind === 'superseded' && req.body?.supersededBy ? `Заменён на ${req.body.supersededBy}` : '')),
+              authorId: me?.id || null,
+            },
+          });
+        },
+      });
+      if (!done) return res.status(404).json({ error: 'Строка реестра не найдена' });
+
+      announceVdrChange(first.projectId, first.registerId);
+      res.json({ item: itemOut(done.after) });
+    } catch (err: any) {
+      if (err instanceof VdrConflict) {
+        return conflictReply(res, err, async () => ({ item: itemOut(await getPrisma().docRegisterItem.findUnique({ where: { id: req.params.id } })) }));
       }
-
-      await prisma.docRegisterItemRevision.create({
-        data: {
-          itemId: item.id,
-          revision,
-          reason,
-          place: String(req.body?.place || ''),
-          description: String(req.body?.description || (kind === 'superseded' && req.body?.supersededBy ? `Заменён на ${req.body.supersededBy}` : '')),
-          authorId: me?.id || null,
-        },
-      });
-
-      const updated = await prisma.docRegisterItem.update({
-        where: { id: item.id },
-        data: {
-          revision,
-          issueDate: new Date(),
-          reasonForIssue: reason,
-          dueDate: null,
-          ...(kind === 'next' || kind === 'certify' ? { status: 'DRAFT', reviewCode: '' } : {}),
-        },
-      });
-
-      announceVdrChange(item.projectId, item.registerId);
-      res.json({ item: { ...updated, extra: parseJson(updated.extra, {}) } });
-    } catch (err: any) { sendError(res, err); }
+      sendError(res, err);
+    }
   });
 
   // Совместимость: старая кнопка повышения ревизии

@@ -18,6 +18,17 @@ import { useTranslateStore } from '../store/translateStore';
 import { hasAdminRole } from '../lib/permissions';
 import { hasPosition } from '../../shared/positions';
 
+/**
+ * Ответ сервера «запись уже изменили» (409): показать его текст и отдать
+ * текущую запись, чтобы экран перечитал её, а не затёр чужую правку своей.
+ * Любой другой ответ — `null`, его разбирает вызывающий.
+ */
+async function conflictOf(r: Response): Promise<{ message: string; current: any } | null> {
+  if (r.status !== 409) return null;
+  const d = await r.json().catch(() => ({}));
+  return { message: d.error || 'Запись уже изменили. Данные обновлены.', current: d.current || null };
+}
+
 // Диалоги программы вместо системных окон Windows
 const { openPrompt } = useModalStore.getState();
 
@@ -35,6 +46,8 @@ interface Register {
   revision: string; revisions: any[]; preparedBy: string; checkedBy: string; approvedBy: string;
   preparedById?: string | null; checkedById?: string | null; approvedById?: string | null;
   columnsConfig: ColumnDef[]; counts: Record<string, number>;
+  /** Версия записи: уходит обратно как ожидаемая, чужая правка даст 409 */
+  updatedAt?: string;
 }
 interface ColumnDef { key: string; title: string; titleRu?: string; field?: string; source?: string; type?: string }
 interface Item {
@@ -44,6 +57,7 @@ interface Item {
   equipmentTags: string; status: string; docId?: string | null; fileNodeId?: string | null;
   assigneeId?: string | null; remarks: string; reviewCode: string; dueDate?: string | null;
   extra: Record<string, string>;
+  updatedAt?: string;
 }
 interface UserLite { id: string; name: string; role?: string; hasSignature?: boolean }
 interface Standard { id: string; name: string; config: any }
@@ -191,9 +205,14 @@ export default function VdrPanel() {
   };
 
   const patchItem = async (id: string, body: any, okMsg?: string) => {
-    const r = await fetch(`/api/vdr/items/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (r.ok) { if (okMsg) addToast(okMsg, 'success'); await refresh(); }
-    else { const d = await r.json().catch(() => ({})); addToast(d.error || 'Ошибка', 'error'); }
+    // Версия — та, что строка показана на экране: чужая правка между ними даст 409
+    const expectedUpdatedAt = items.find(x => x.id === id)?.updatedAt;
+    const r = await fetch(`/api/vdr/items/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, expectedUpdatedAt }) });
+    if (r.ok) { if (okMsg) addToast(okMsg, 'success'); await refresh(); return; }
+    const conflict = await conflictOf(r);
+    if (conflict) { addToast(conflict.message, 'error'); await refresh(); return; }
+    const d = await r.json().catch(() => ({}));
+    addToast(d.error || 'Ошибка', 'error');
   };
 
   /**
@@ -264,9 +283,14 @@ export default function VdrPanel() {
     const description = await openPrompt('Новая ревизия ВДР', `Текущая ревизия — ${register.revision}. Опишите, что изменилось.`, 'Например: уточнены сроки поставки');
     if (description === null) return;
     const r = await fetch(`/api/vdr/registers/${register.id}/revision-up`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description, expectedRevision: register.revision }),
     });
-    if (r.ok) { const d = await r.json(); addToast(`ВДР → ревизия ${d.register.revision}`, 'success'); refresh(); }
+    if (r.ok) { const d = await r.json(); addToast(`ВДР → ревизия ${d.register.revision}`, 'success'); refresh(); return; }
+    // Ревизию уже выпустили: назвать кто, перечитать реестр и не выпускать вторую
+    const conflict = await conflictOf(r);
+    if (conflict) { addToast(conflict.message, 'error'); refresh(); return; }
+    const d = await r.json().catch(() => ({}));
+    addToast(d.error || 'Не удалось выпустить ревизию ВДР', 'error');
   };
 
   const createRegister = async () => {
@@ -470,6 +494,18 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
   const [revPlace, setRevPlace] = useState('');
   const [revDesc, setRevDesc] = useState('');
   const [busy, setBusy] = useState(false);
+  // Версия, которую карточка видела в последний раз: уходит как ожидаемая
+  // (правка — по updatedAt, выпуск — по ревизии); не поле формы, чтобы ручная
+  // правка ревизии не подменяла «что я видел»
+  const seen = useRef({ revision: item.revision, updatedAt: item.updatedAt });
+  const remember = (it: Item) => { seen.current = { revision: it.revision, updatedAt: it.updatedAt }; };
+  // Чужая правка опередила нас: показать причину и взять строку с сервера
+  const takeConflict = (c: { message: string; current: any }) => {
+    addToast(c.message, 'error');
+    if (c.current?.item) { setF(c.current.item); remember(c.current.item); }
+    if (item.id) fetch(`/api/vdr/items/${item.id}/revisions`).then(x => x.ok ? x.json() : { revisions: [] }).then(x => setRevisions(x.revisions || [])).catch(() => {});
+    onChanged();
+  };
 
   useEffect(() => {
     if (item.id) fetch(`/api/vdr/items/${item.id}/revisions`).then(r => r.ok ? r.json() : { revisions: [] }).then(d => setRevisions(d.revisions || [])).catch(() => {});
@@ -491,12 +527,19 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
         equipmentTags: f.equipmentTags, assigneeId: f.assigneeId || null,
         issueDate: f.issueDate || null, dueDate: f.dueDate || null,
         extra: f.extra,
+        ...(isNew ? {} : { expectedUpdatedAt: seen.current.updatedAt }),
       };
       const r = await fetch(isNew ? '/api/vdr/items' : `/api/vdr/items/${item.id}`, {
         method: isNew ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
-      if (!r.ok) { const d = await r.json().catch(() => ({})); addToast(d.error || 'Ошибка', 'error'); return; }
+      if (!r.ok) {
+        const conflict = await conflictOf(r);
+        if (conflict) { takeConflict(conflict); return; }
+        const d = await r.json().catch(() => ({})); addToast(d.error || 'Ошибка', 'error'); return;
+      }
       addToast('Сохранено', 'success');
+      // Следующее сохранение этой же карточки ждёт уже новую версию, а не свою прошлую запись
+      if (!isNew) { const d = await r.json().catch(() => ({})); if (d.item) remember(d.item); }
       onChanged(); if (isNew) onClose();
     } finally { setBusy(false); }
   };
@@ -516,8 +559,10 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
 
   const setReviewCode = async (code: string) => {
     if (isNew) { setF(s => ({ ...s, reviewCode: code })); return; }
-    const r = await fetch(`/api/vdr/items/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewCode: code }) });
-    if (r.ok) { const d = await r.json(); setF(d.item); onChanged(); addToast(`Код ${code}: статус и срок обновлены`, 'success'); }
+    const r = await fetch(`/api/vdr/items/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewCode: code, expectedUpdatedAt: seen.current.updatedAt }) });
+    if (r.ok) { const d = await r.json(); setF(d.item); remember(d.item); onChanged(); addToast(`Код ${code}: статус и срок обновлены`, 'success'); return; }
+    const conflict = await conflictOf(r);
+    if (conflict) takeConflict(conflict);
   };
 
   const issueRevision = async () => {
@@ -526,11 +571,15 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
     try {
       const r = await fetch(`/api/vdr/items/${item.id}/issue-revision`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: revDialog, place: revPlace, description: revDesc }),
+        body: JSON.stringify({ kind: revDialog, place: revPlace, description: revDesc, expectedRevision: seen.current.revision }),
       });
-      if (!r.ok) { addToast('Не удалось выпустить ревизию', 'error'); return; }
+      if (!r.ok) {
+        const conflict = await conflictOf(r);
+        if (conflict) { setRevDialog(null); takeConflict(conflict); return; }
+        addToast('Не удалось выпустить ревизию', 'error'); return;
+      }
       const d = await r.json();
-      setF(d.item);
+      setF(d.item); remember(d.item);
       setRevDialog(null); setRevPlace(''); setRevDesc('');
       addToast(`Ревизия ${d.item.revision}`, 'success');
       fetch(`/api/vdr/items/${item.id}/revisions`).then(x => x.json()).then(x => setRevisions(x.revisions || []));
@@ -736,13 +785,15 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
   const { addToast } = useToastStore();
   const [f, setF] = useState<any>({ ...register });
   const [cols, setCols] = useState<ColumnDef[]>(register.columnsConfig || []);
+  // Версия реестра на момент открытия формы: форма показывает именно её, даже если реестр на экране обновился
+  const openedAt = useRef(register.updatedAt);
   const [newCol, setNewCol] = useState('');
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
     setBusy(true);
     try {
-      const body: any = { columnsConfig: cols };
+      const body: any = { columnsConfig: cols, expectedUpdatedAt: openedAt.current };
       for (const k of ['name', 'vendor', 'contractor', 'owner', 'poNumber', 'ownerProjectNo', 'contractorProjectNo',
         'materialRequisition', 'equipmentTitle', 'contractorDocNo', 'ownerDocNo', 'vendorDocNo',
         'preparedBy', 'checkedBy', 'approvedBy']) body[k] = String(f[k] ?? '');
@@ -752,7 +803,13 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
       body.standardId = f.standardId || null;
       body.managerId = f.managerId || null;
       const r = await fetch(`/api/vdr/registers/${register.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (!r.ok) { addToast('Ошибка сохранения', 'error'); return; }
+      if (!r.ok) {
+        // Реквизиты уже поправил коллега: форма закрывается, экран перечитывает
+        // реестр, и человек правит поверх его версии, а не затирает её
+        const conflict = await conflictOf(r);
+        if (conflict) { addToast(conflict.message, 'error'); onChanged(); onClose(); return; }
+        addToast('Ошибка сохранения', 'error'); return;
+      }
       addToast('Реквизиты сохранены', 'success');
       onChanged(); onClose();
     } finally { setBusy(false); }

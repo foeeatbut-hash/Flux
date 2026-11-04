@@ -22,7 +22,27 @@
 
 ## Очередь
 
-1. [ ] Этап 0: сверка версий в `issue-revision`, `revision-up`, `PUT` реестра —
+1. [x] Этап 0 (сделано, ветка claude/determined-bardeen-dfpbuf, не запушено): сверка версий в `issue-revision`, `revision-up`, `PUT` реестра —
    транзакция + ожидаемая версия от клиента, чужая — 409 (offline-work.md 0.1).
 2. [ ] Этап A: `DocRegisterItemTag` по id, миграция `equipmentTags`, права `vdr.*`.
 3. [ ] Общие свойства Flux на сервере + этап E.
+
+## Этап 0 — итог
+
+- `server/vdrWrite.ts`: `guardedUpdate` (правка под `updatedAt`, повтор для
+  клиента без версии), `guardedIssue` (выпуск под ревизией, без повтора),
+  `VdrConflict`. Маршруты в `server/routes/vdr.ts`: `issue-revision`,
+  `registers/:id/revision-up`, `PUT registers/:id`, `PUT items/:id`.
+- Тело запроса: `expectedRevision` (выпуски), `expectedUpdatedAt` (правки).
+  409 → `{ error, conflict: true, current: { item | register } }`.
+- Решения: старый клиент без версии — правка полей сливается с повтором,
+  выпуск проигравшему гонку — 409; `PUT` реестра не принимает `revisions` и
+  отличную от текущей `revision` (409); `PUT` строки без версии с отличной
+  `revision` — 409. Запись истории реестра получила поле `by`.
+- Известное ограничение: версия записи — `updatedAt` (мс); две записи в одну
+  миллисекунду неразличимы. Целая версия (`version`) — пункт 0.4 roadmap.
+- Клиент: `VdrPanel.tsx` — `conflictOf`, `seen` в карточке, `openedAt` в
+  реквизитах реестра. `fillEnglishTitles` и `bulkAssign` версию не шлют
+  (одно поле, слияние).
+- Набор: `scripts/test-vdr-concurrency.ts` (39 проверок, SQLite).
+- Дальше: этап A.
