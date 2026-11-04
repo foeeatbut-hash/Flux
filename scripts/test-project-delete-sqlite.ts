@@ -85,6 +85,7 @@ async function seedProject(p: string, tag: string, userId: string) {
   const register = await prisma.docRegister.create({ data: { id: id('reg'), projectId: p } });
   const item = await prisma.docRegisterItem.create({ data: { id: id('regitem'), registerId: register.id, projectId: p, fileNodeId: file.id } });
   await prisma.docRegisterItemRevision.create({ data: { id: id('regrev'), itemId: item.id, revision: 'A' } });
+  await prisma.docRegisterItemTag.create({ data: { itemId: item.id, tagId: id('regtag'), tagIdentifier: 'AHU-1' } });
 
   const dict = await prisma.dictionary.create({ data: { id: id('dict'), projectId: p, name: 'Справочник' } });
   const di = await prisma.dictionaryItem.create({ data: { id: id('dictitem'), dictionaryId: dict.id, code: '1', nameRu: 'Один' } });

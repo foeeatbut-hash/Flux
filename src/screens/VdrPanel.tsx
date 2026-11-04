@@ -17,6 +17,7 @@ import { useModalStore } from '../store/modalStore';
 import { useTranslateStore } from '../store/translateStore';
 import { hasAdminRole } from '../lib/permissions';
 import { hasPosition } from '../../shared/positions';
+import TagLinkPlanDialog, { unlinkedCount, type TagLinkPlan } from '../components/vdr/TagLinkPlanDialog';
 
 /**
  * Ответ сервера «запись уже изменили» (409): показать его текст и отдать
@@ -58,6 +59,9 @@ interface Item {
   assigneeId?: string | null; remarks: string; reviewCode: string; dueDate?: string | null;
   extra: Record<string, string>;
   updatedAt?: string;
+  /** Связи с тегами по id и коды без связи (считает сервер) */
+  tagLinks?: { tagId: string; identifier: string }[];
+  unmatchedTags?: string[];
 }
 interface UserLite { id: string; name: string; role?: string; hasSignature?: boolean }
 interface Standard { id: string; name: string; config: any }
@@ -97,6 +101,9 @@ export default function VdrPanel() {
   const [onlyOverdue, setOnlyOverdue] = useState(false);
   const [cardItem, setCardItem] = useState<Item | null>(null); // карточка строки
   const [regSettingsOpen, setRegSettingsOpen] = useState(false);
+  // План переноса кодов тегов в связи по id: счётчик «не сопоставлено» и диалог
+  const [tagPlan, setTagPlan] = useState<TagLinkPlan | null>(null);
+  const [tagPlanOpen, setTagPlanOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const focusItemId = searchParams.get('item');
@@ -126,6 +133,12 @@ export default function VdrPanel() {
       if (r.ok) setItems((await r.json()).items || []);
     } catch (_) {}
   };
+  const loadTagPlan = async () => {
+    try {
+      const r = await fetch(`/api/vdr/tag-links?projectId=${encodeURIComponent(projectId)}`);
+      if (r.ok) setTagPlan((await r.json()).plan || null);
+    } catch (_) {}
+  };
   const loadProjectTags = async (targetProjectId = projectId) => {
     if (targetProjectId !== projectIdRef.current) return;
     const requestId = ++projectTagsRequestRef.current;
@@ -152,6 +165,7 @@ export default function VdrPanel() {
       fetch('/api/users').then(r => r.ok ? r.json() : { users: [] }).then(d => setUsers((d.users || []).filter((u: any) => u.isActive !== false))).catch(() => {});
       fetch('/api/vdr/standards').then(r => r.ok ? r.json() : { standards: [] }).then(d => setStandards(d.standards || [])).catch(() => {});
       void loadProjectTags(projectId);
+      void loadTagPlan();
     })();
   }, [projectId]);
 
@@ -169,14 +183,15 @@ export default function VdrPanel() {
         .then(d => setStandards(d.standards || []))
         .catch(() => {});
     };
-    const onTagsChanged = () => { void loadProjectTags(projectId); };
+    // Тег заведён, переименован или удалён — счётчик «не сопоставлено» меняется вместе с ним
+    const onTagsChanged = () => { void loadProjectTags(projectId); void loadTagPlan(); };
     const onEntityChanged = (event: Event) => {
       const detail = (event as CustomEvent<{ kind?: string; id?: string; ids?: string[]; projectId?: string }>).detail;
       if (detail?.kind !== 'tag') return;
       if (detail.projectId && detail.projectId !== projectId) return;
       // Для одиночной и пакетной записи приходит id либо ids; импорт проекта
       // использует id вида project:<id> и обязательно содержит projectId.
-      if (detail.id || detail.ids?.length) void loadProjectTags(projectId);
+      if (detail.id || detail.ids?.length) { void loadProjectTags(projectId); void loadTagPlan(); }
     };
     window.addEventListener('socket:vdr:changed', onVdrChanged);
     window.addEventListener('socket:tag:updated', onTagsChanged);
@@ -198,6 +213,7 @@ export default function VdrPanel() {
   const refresh = async () => {
     await loadRegisters();
     await loadItems(regId);
+    void loadTagPlan();
     if (cardItem) {
       const fresh = (await (await fetch(`/api/vdr/items?registerId=${regId}`)).json()).items?.find((x: Item) => x.id === cardItem.id);
       if (fresh) setCardItem(fresh);
@@ -353,6 +369,12 @@ export default function VdrPanel() {
           <>
             <Btn tone="ghost" onClick={registerRevisionUp} title="Новая ревизия самого ВДР (запись в Учёт ревизий)"><ArrowUpCircle />Рев. ВДР</Btn>
             <Btn tone="ghost" onClick={fillEnglishTitles} title="Заполнить пустые английские названия по памяти и словарю проекта"><Languages />Англ. названия</Btn>
+            {tagPlan && (tagPlan.toLink.length > 0 || unlinkedCount(tagPlan) > 0) && (
+              <Btn tone="ghost" onClick={() => setTagPlanOpen(true)}
+                title="Строки знают тег по коду; связь по номеру тега переживает его переименование. Откроется план — ничего не пишется, пока вы не подтвердите">
+                <TagIcon />{tagPlan.toLink.length > 0 ? `Связать теги: ${tagPlan.toLink.length}` : `Теги не сопоставлены: ${unlinkedCount(tagPlan)}`}
+              </Btn>
+            )}
             <IconBtn label="Реквизиты реестра, стандарт, свои колонки" onClick={() => setRegSettingsOpen(true)}><Settings2 /></IconBtn>
             <Btn tone="ghost" onClick={() => setCardItem({ id: '', registerId: register.id, contractorNo: '', ownerNo: '', vendorNo: '', titleEn: '', titleRu: '', vdrCode: '', revision: 'A', reasonForIssue: '', language: '', equipmentTags: '[]', status: 'DRAFT', remarks: '', reviewCode: '', extra: {} })}><Plus />Строка</Btn>
           </>
@@ -469,6 +491,9 @@ export default function VdrPanel() {
           onClose={() => setCardItem(null)}
           onChanged={refresh}
         />
+      )}
+      {tagPlanOpen && (
+        <TagLinkPlanDialog projectId={projectId} initial={tagPlan} onClose={() => setTagPlanOpen(false)} onChanged={refresh} />
       )}
       {regSettingsOpen && register && (
         <RegisterSettings register={register} standards={standards} users={users}
@@ -685,12 +710,17 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
 
           <Sect title="Главные теги (оборудование документа)" />
           <div className="flex flex-wrap gap-1.5">
-            {tags.map(t => (
-              <span key={t} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-xs font-medium">
+            {tags.map(t => {
+              // Код без тега в проекте — связи по id нет; «на все позиции» тегом не бывает
+              const linked = /^(all items|все позиции)$/i.test(t.trim()) || projectTags.some(p => p.identifier.trim().toLowerCase() === t.trim().toLowerCase());
+              return (
+              <span key={t} title={linked ? undefined : 'Тега с таким кодом в проекте нет — связь по номеру тега не создана'}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium ${linked ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400' : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400'}`}>
                 <TagIcon className="w-3 h-3" /> {t}
                 <button type="button" onClick={() => setF(s => ({ ...s, equipmentTags: JSON.stringify(tags.filter(x => x !== t)) }))} className="hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
-            ))}
+              );
+            })}
             {tags.length === 0 && <span className="text-xs text-slate-400">не присвоены</span>}
           </div>
           <div className="relative">

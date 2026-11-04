@@ -1,25 +1,31 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
-// ОТКЛЮЧЁН (решение владельца, 6 октября 2026): карточка тега его не подключает.
-// Связь ВДР с тегом держится на коде строкой (DocRegisterItem.equipmentTags), и
-// переименование тега её рвёт. Вернуть можно, когда связь пойдёт по id тега.
-// Файл не удалён намеренно — это готовый вид списка для возврата.
-//
 // ── Документы ВДР по тегу: тег — главный у строки реестра ──
-// Показывается в карточке тега; клик — переход к строке в Менеджмент → ВДР.
-export default function TagVdrDocs({ identifier, projectId }: { identifier: string; projectId: string }) {
+// Связь идёт по id тега (DocRegisterItemTag), поэтому переименование тега её не
+// рвёт: список находит строки по `tagId`, а не по коду. Показывается в карточке
+// тега и оборудования; клик — переход к строке в Менеджмент → ВДР. Свёрнут в
+// ничто, если документов нет.
+export default function TagVdrDocs({ tagId, identifier, projectId }: { tagId: string; identifier?: string; projectId: string }) {
   const [docs, setDocs] = React.useState<any[] | null>(null);
   const navigate = useNavigate();
 
+  // Тег переименовали или реестр изменился — список читается заново
+  const [stamp, setStamp] = React.useState(0);
+  React.useEffect(() => {
+    const bump = () => setStamp(n => n + 1);
+    window.addEventListener('socket:vdr:changed', bump);
+    return () => window.removeEventListener('socket:vdr:changed', bump);
+  }, []);
+
   React.useEffect(() => {
     let dead = false;
-    fetch(`/api/vdr/items/by-tag?projectId=${projectId}&tag=${encodeURIComponent(identifier)}`)
+    fetch(`/api/vdr/items/by-tag?projectId=${encodeURIComponent(projectId)}&tagId=${encodeURIComponent(tagId)}`)
       .then(r => r.ok ? r.json() : { items: [] })
       .then(d => { if (!dead) setDocs((d.items || []).filter((x: any) => !x.titleEn?.includes('Vendor Document Register'))); })
       .catch(() => { if (!dead) setDocs([]); });
     return () => { dead = true; };
-  }, [identifier, projectId]);
+  }, [tagId, identifier, projectId, stamp]);
 
   if (!docs || docs.length === 0) return null;
   const stCls: Record<string, string> = {

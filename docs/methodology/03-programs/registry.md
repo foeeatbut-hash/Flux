@@ -81,7 +81,9 @@
 - `components/registry/tagMeta.ts` — разбор метаданных тега, актуальность
   и её вид (с тоном для точки).
 - `components/registry/TagSearchPanel.tsx` — поиск по разделу.
-- `components/registry/TagVdrDocs.tsx` — документы ВДР в карточке.
+- `components/registry/TagVdrDocs.tsx` — документы ВДР в карточке тега («Настройка»):
+  список по `tagId`, поэтому переименование тега его не рвёт; тот же компонент
+  годится для карточки оборудования (`tagId`, `projectId`).
 
 - `components/registry/SegmentColumn.tsx` — колонка сегментов Подбора. Их
   было две копии по 280 строк, различались именами состояний и цветом

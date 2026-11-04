@@ -24,7 +24,7 @@
 
 1. [x] Этап 0 (сделано, ветка claude/determined-bardeen-dfpbuf, не запушено): сверка версий в `issue-revision`, `revision-up`, `PUT` реестра —
    транзакция + ожидаемая версия от клиента, чужая — 409 (offline-work.md 0.1).
-2. [ ] Этап A: `DocRegisterItemTag` по id, миграция `equipmentTags`, права `vdr.*`.
+2. [x] Этап A (теги; не запушено): `DocRegisterItemTag` по id, миграция `equipmentTags` с планом, права `vdr.*`, обратный показ у тега. Остались: «Документы» в строке оборудования, ссылки `/explorer?file=`.
 3. [ ] Общие свойства Flux на сервере + этап E.
 
 ## Этап 0 — итог
@@ -46,3 +46,27 @@
   (одно поле, слияние).
 - Набор: `scripts/test-vdr-concurrency.ts` (39 проверок, SQLite).
 - Дальше: этап A.
+
+## Этап A — итог (4.11.2026)
+
+- Живой прогон этапа 0 сделан: два окна, выпуск A → B в первом, во втором 409 и
+  перечитанная карточка (рев. B); снимки в scratchpad `vdr-live-2/3-*.png`.
+- Схема: `DocRegisterItemTag` (3 prisma-схемы, `server/localSchema.ts`, PG
+  `ensureTables`, очистка в `projectDelete.ts`), `@@unique` вместо `@@id`.
+  Клиенты Prisma пересозданы в `prisma-clients/*` (в git не входят).
+- `server/vdrTags.ts`: код → тег строго (`tagCodeKey`), неоднозначное и
+  «All items» не связывается, `syncItemTags` (на каждую запись `equipmentTags`),
+  `renameTagInVdr` (хук в `tagWrite.ts`), план/применение/отмена.
+- Маршруты: `GET /api/vdr/tag-links`, `POST …/apply` (по отпечатку плана),
+  `POST …/undo`; `GET items` отдаёт `tagLinks`, `unmatchedTags`;
+  `by-tag?tagId=` (код — для старых клиентов).
+- Права: `server/vdrPermissions.ts` (таблица для `server.ts` и проверки),
+  `projectEntityAccess.ts` — реестр и строка в адресе/теле находят проект;
+  удаление стандарта — по `vdr.standards`, а не «только админ».
+- Клиент: `src/components/vdr/TagLinkPlanDialog.tsx` + кнопка в `VdrPanel.tsx`;
+  `TagVdrDocs` (по `tagId`) подключён в `TagCardModal`.
+- ВСТАВИТЬ ПОСЛЕ ПРИЁМКИ ИМПОРТА XML: в карточку оборудования —
+  `<TagVdrDocs tagId={tag.id} identifier={tag.identifier} projectId={projectId} />`
+  (`src/components/registry/TagVdrDocs.tsx`; рядом с блоком тегов позиции).
+- Наборы: `test-vdr-tag-link` (34), `test-vdr-permissions` (36),
+  `test-vdr-concurrency` (39), `test-insight`, `test-project-delete-sqlite`.
