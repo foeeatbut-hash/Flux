@@ -102,7 +102,7 @@ async function main() {
     const otherCategory = { ...a, category: 'FAN' };
     const otherPreview = await post('preview', otherCategory);
     const otherPreviewText = JSON.stringify(await otherPreview.json());
-    check('план в другую категорию отказывает и называет причину', otherPreview.status === 409 && /в другой категории/.test(otherPreviewText) && !/повреждена/.test(otherPreviewText), otherPreviewText);
+    check('план в другую категорию отказывает и называет причину', otherPreview.status === 409 && /в другой категории/.test(otherPreviewText) && !/повреждена/.test(otherPreviewText));
     check('отказ по категории ничего не пишет', JSON.stringify(beforeOtherCategory) === JSON.stringify({ systems: await count(prisma.equipmentSystem), tags: await count(prisma.tag), sources: await count(prisma.equipmentXmlSource), history: await count(prisma.equipmentHistory) }));
 
     const aSystem = await prisma.equipmentSystem.findUnique({ where: { id: aBody.source.systemId } });
