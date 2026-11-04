@@ -32,7 +32,10 @@ page.route('**/api/equipment/component/catalog-fixture/catalog-source', async ro
   ], discrepancies: [], warnings: [] } });
 });
 const catalogFamily = { id: 'vf20', classId: 'valves', manufacturerId: 'maker', code: 'VF-20', title: { ru: 'Клапан VF-20' }, status: 'full',
-  params: [{ key: 'drive', label: { ru: 'Привод' }, kind: 'choice', default: 'manual', values: [{ code: 'manual', label: { ru: 'Ручной' } }, { code: 'electric', label: { ru: 'Электрический' } }] }],
+  params: [{ key: 'drive', label: { ru: 'Привод' }, kind: 'choice', default: 'manual', values: [{ code: 'manual', label: { ru: 'Ручной' } }, { code: 'electric', label: { ru: 'Электрический' } }] },
+    // Размер без умолчания: пока не выбран, список обязан показывать «Выберите…», а не первый вариант
+    { key: 'size', label: { ru: 'Размер' }, kind: 'number' }],
+  tables: [{ id: 'sizes', rows: [{ verified: true, values: { size: 100 } }, { verified: true, values: { size: 200 } }] }],
   specs: [{ label: { ru: 'Расход воздуха' }, value: { ru: '120' }, unit: 'м³/ч' }, { label: { ru: 'Привод' }, value: { ru: 'электрический' } }], positions: [] };
 page.route('**/api/catalog', route => route.fulfill({ json: {
   classes: [{ id: 'valves', code: 'valve', title: { ru: 'Клапаны' } }], manufacturers: [{ id: 'maker', name: 'Завод' }], components: [],
@@ -54,6 +57,9 @@ try {
   await page.getByRole('button', { name: /VF-20/ }).first().click();
   if (saved) throw new Error('selecting a catalog family wrote data before explicit apply');
   await page.getByRole('button', { name: 'Характеристики' }).click();
+  const sizeSelect = page.getByRole('combobox', { name: 'Размер' });
+  if (await sizeSelect.inputValue() !== '') throw new Error('unset family parameter pretends to have a value');
+  if ((await sizeSelect.locator('option:checked').textContent()) !== 'Выберите…') throw new Error('unset family parameter shows a variant instead of the placeholder');
   await page.getByRole('combobox', { name: 'Привод' }).selectOption('electric');
   await page.getByText('Изменения относительно карточки').waitFor();
   const previewDeadline = Date.now() + 5000;
