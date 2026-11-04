@@ -61,6 +61,7 @@ async function main() {
   electron = await _electron.launch({ args: [...(process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu', ...(process.env.DISPLAY ? [] : ['--ozone-platform=headless'])] : []), path.join(temp, 'main.cjs')],
     env: { ...process.env, FLUX_MODULE_FIXTURE_DIR: temp, FLUX_MODULE_FIXTURE_URL: url }, timeout: 45000 });
   const page = await electron.firstWindow();
+  await page.bringToFront();
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', event => { if (event.type() === 'error') errors.push(event.text()); });
@@ -68,6 +69,10 @@ async function main() {
   const frame = () => page.frames().find(item => item.url().startsWith('flux-module://'))!;
   await page.locator('iframe').waitFor();
   await frame().getByText('1200', { exact: true }).waitFor();
+  // tsx сохраняет имена вложенных функций через __name; этот служебный
+  // помощник нужен только сериализованным Playwright-проверкам, не приложению.
+  await page.evaluate('globalThis.__name = (fn) => fn');
+  await frame().evaluate('globalThis.__name = (fn) => fn');
   check('промышленный протокол показывает позицию и её параметры', await frame().getByText('Вентилятор', { exact: true }).count() === 1);
   check('событие открывает позицию с тегом', await frame().getByText('P1-FAN', { exact: true }).count() === 1);
   check('iframe другого источника имеет только allow-scripts', await page.locator('iframe').getAttribute('sandbox') === 'allow-scripts' && new URL(frame().url()).protocol === 'flux-module:');
@@ -81,13 +86,17 @@ async function main() {
       rows: Array.from(document.querySelectorAll('tbody tr')).map(row => row.getBoundingClientRect().height),
       texts: Array.from(document.querySelectorAll('td,th,span,h2')).map(node => { const style = getComputedStyle(node); return { size: parseFloat(style.fontSize), weight: Number(style.fontWeight) }; }),
       surface: getComputedStyle(document.documentElement).getPropertyValue('--flux-surface').trim(),
+      canvas: getComputedStyle(document.documentElement).backgroundColor,
+      body: getComputedStyle(document.body).backgroundColor,
     }));
     check(`${width}/${theme}: геометрия без прокрутки, мелкого шрифта и жирного`, geometry.scroll <= geometry.width && geometry.rows.every(h => h >= 28 && h <= 36)
       && geometry.texts.every(item => item.size >= 12 && [400, 500, 600].includes(item.weight)));
+    check(`${width}/${theme}: пустая часть окна сохраняет фон темы`, geometry.canvas === geometry.body);
     fs.writeFileSync(path.join(shots, `${width}-${theme}.json`), JSON.stringify(geometry, null, 2));
+    await frame().evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await page.screenshot({ path: path.join(shots, `${width}-${theme}.png`) });
   }
-  check('без ошибок исполнения и консоли до атак', errors.length === 0);
+  check(`без ошибок исполнения и консоли до атак: ${JSON.stringify(errors)}`, errors.length === 0);
   const isolation = await frame().evaluate(() => {
     const attempt = (fn: () => unknown) => { try { return fn(); } catch (_) { return 'denied'; } };
     return { parentCookie: attempt(() => parent.document.cookie), parentStorage: attempt(() => parent.localStorage.getItem('flux_parent_storage')),
@@ -121,7 +130,12 @@ async function main() {
   const timeout = await page.evaluate(async () => {
     const result = (window as any).runModuleWorker('while(true){}', 'recalc', { timeoutMs: 50, read: async () => null });
     const started = performance.now();
-    try { await result.result; return false; } catch (error) { return (error as Error).message === 'TIMEOUT' && performance.now() - started < 3000; }
+    let deadline: ReturnType<typeof setTimeout>;
+    try {
+      await Promise.race([result.result, new Promise((_resolve, reject) => { deadline = setTimeout(() => reject(new Error('PROBE_LIMIT')), 1500); })]);
+      return false;
+    } catch (error) { return (error as Error).message === 'TIMEOUT' && performance.now() - started < 3000; }
+    finally { clearTimeout(deadline!); result.cancel(); }
   });
   check('зависший Worker принудительно остановлен по времени', timeout);
   const before = await prisma.componentElement.findUnique({ where: { id: 'e' } });

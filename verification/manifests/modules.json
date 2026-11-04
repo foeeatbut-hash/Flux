@@ -14,6 +14,7 @@
   }],
   "suites": [
     { "id": "modules-contract", "path": "scripts/test-modules-contract.ts", "layer": "unit", "platform": "any", "resources": [], "prerequisites": [], "timeoutMs": 900000 },
+    { "id": "modules-data", "path": "scripts/test-modules-data.ts", "layer": "unit", "platform": "any", "resources": [], "prerequisites": [], "timeoutMs": 900000 },
     { "id": "modules-native", "path": "scripts/test-modules-native.ts", "layer": "windows-native", "platform": "win32", "resources": [], "prerequisites": [], "timeoutMs": 900000 }
   ],
   "actions": [
@@ -34,6 +35,7 @@
       "triggers": ["background"],
       "expected": ["Модуль читает только разрешённые данные и не может записывать их или обращаться к закрытым ресурсам"],
       "checks": [
+        { "suite": "modules-data", "layer": "unit", "claims": ["Проекции сохраняют ручные параметры, состав и единицы; служебные данные не выдаются", "Закрытый проект и 403 не подменяются локальными данными"] },
         { "suite": "modules-contract", "layer": "unit", "claims": ["Схемы ресурсов отклоняют неизвестные поля и неверную форму", "Мост отвергает чужие сообщения и запись, проверяет разрешения и исходящие данные", "Протокол отвергает неподходящие пути"] },
         { "suite": "modules-native", "layer": "windows-native", "claims": ["В Electron закрыты cookie, localStorage, IPC, Node и сеть; запись отклоняется без изменения временной базы", "Сообщение вне схемы отбрасывается"] }
       ],

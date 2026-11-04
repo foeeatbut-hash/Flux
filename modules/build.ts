@@ -28,8 +28,15 @@ export async function buildModuleAssets(css: string, fonts: Record<string, strin
     });
     const prefix = `modules/${manifest.id}/`;
     assets[`${prefix}runtime.js`] = frame.outputFiles[0].text;
-    assets[`${prefix}flux.css`] = css;
-    assets[`${prefix}index.html`] = '<!doctype html><html lang="ru"><head><meta charset="utf-8"><link rel="stylesheet" href="./flux.css"></head><body style="margin:0;background:var(--flux-surface);color:var(--flux-text)"><main id="module-root" style="font-size:13px;padding:12px">Загрузка…</main><script src="./runtime.js"></script></body></html>';
+    let inlineFont = 0;
+    // Vite встраивает маленькие подмножества Inter в CSS. Выносим их в свои
+    // файлы, чтобы CSP не пришлось открывать data: для ресурсов модуля.
+    assets[`${prefix}flux.css`] = css.replace(/data:font\/woff2;base64,([A-Za-z0-9+/=]+)/g, (_url, encoded: string) => {
+      const file = `inline-font-${++inlineFont}.woff2`;
+      assets[`${prefix}${file}`] = new Uint8Array(Buffer.from(encoded, 'base64'));
+      return `./${file}`;
+    });
+    assets[`${prefix}index.html`] = '<!doctype html><html lang="ru" style="background:var(--flux-surface)"><head><meta charset="utf-8"><link rel="stylesheet" href="./flux.css"></head><body style="margin:0;min-height:100vh;background:var(--flux-surface);color:var(--flux-text)"><main id="module-root" style="font-size:13px;padding:12px">Загрузка…</main><script src="./runtime.js"></script></body></html>';
     for (const [file, source] of Object.entries(fonts)) assets[`${prefix}${path.basename(file)}`] = source;
   }
   return assets;

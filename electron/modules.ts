@@ -6,7 +6,7 @@ import { MODULE_SCHEME, moduleAssetPath, moduleHeaders } from '../modules/protoc
 
 export function registerModuleScheme() {
   // Не выдаём bypassCSP, fetch, service workers и доступ к файловой системе.
-  protocol.registerSchemesAsPrivileged([{ scheme: MODULE_SCHEME, privileges: { standard: true, secure: true } }]);
+  protocol.registerSchemesAsPrivileged([{ scheme: MODULE_SCHEME, privileges: { standard: true, secure: true, corsEnabled: true } }]);
   app.on('web-contents-created', (_event, contents) => guardModuleNavigation(contents));
 }
 export function guardModuleNavigation(contents: WebContents) {
