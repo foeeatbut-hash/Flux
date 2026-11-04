@@ -9,6 +9,7 @@
  * id. Заведи оно здесь свою копию, обработчики Registry разошлись бы с полями.
  * Окно монтируется, только пока карточка открыта, — как и раньше.
  */
+import ModuleLaunchActions from '../modules/ModuleLaunchActions';
 import React from 'react';
 import { Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -101,6 +102,7 @@ export default function TagCardModal({
           {/* Плотнее, чем было: карточку открывают ради одной правки, а
               она требовала прокрутки из-за крупных блоков с отступами */}
           <div className="space-y-3 text-left">
+            <ModuleLaunchActions entry="tag" entityId={tag.id} projectId={projectId} />
 
             {/* Наименование и актуальность — то, ради чего карточку открыли */}
             <div className="space-y-1 text-left">

@@ -31,6 +31,7 @@
     "@prisma/client-sqlite": "file:./prisma-clients/client-sqlite",
     "@tanstack/react-virtual": "^3.13.25",
     "7zip-bin-full": "26.3.1",
+    "ajv": "^8.20.0",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",

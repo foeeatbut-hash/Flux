@@ -1,0 +1,10 @@
+{
+  "id": "equipment-inspector",
+  "name": "Параметры позиции",
+  "version": "1.0.0",
+  "author": "Flux",
+  "contractVersion": 1,
+  "entries": ["start", "equipment", "tag"],
+  "reads": ["project", "equipment", "tag", "specification", "catalog"],
+  "logic": "logic/main.ts"
+}

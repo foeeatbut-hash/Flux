@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "group": "modules",
+  "programs": [{
+    "id": "modules",
+    "label": "Модули Flux",
+    "routes": ["/module/equipment-inspector"],
+    "sources": [
+      "src/screens/ModuleHost.tsx", "src/components/modules/ModuleFrame.tsx",
+      "src/components/modules/ModuleLaunchActions.tsx", "src/services/moduleDataService.ts",
+      "modules/bridge.ts", "modules/contract.ts", "modules/schemas.ts", "modules/protocol.ts",
+      "modules/runtime/frame.ts", "modules/runtime/runner.ts", "modules/runtime/form.ts"
+    ]
+  }],
+  "suites": [
+    { "id": "modules-contract", "path": "scripts/test-modules-contract.ts", "layer": "unit", "platform": "any", "resources": [], "prerequisites": [], "timeoutMs": 900000 },
+    { "id": "modules-native", "path": "scripts/test-modules-native.ts", "layer": "windows-native", "platform": "win32", "resources": [], "prerequisites": [], "timeoutMs": 900000 }
+  ],
+  "actions": [
+    {
+      "id": "modules.open", "program": "modules", "label": "Открыть модуль", "risk": "normal",
+      "sources": ["src/screens/ModuleHost.tsx", "src/components/modules/ModuleFrame.tsx", "src/components/modules/ModuleLaunchActions.tsx"],
+      "triggers": ["menu", "button"],
+      "expected": ["Модуль открывается в окне с контекстом выбранной позиции или тега"],
+      "checks": [
+        { "suite": "modules-contract", "layer": "unit", "claims": ["Готовый модуль получает контекст открытия"] },
+        { "suite": "modules-native", "layer": "windows-native", "claims": ["В Electron модуль отображает позицию и тег; вход из тега разрешает связанную позицию", "Геометрия проверяется в двух темах и двух размерах окна"] }
+      ],
+      "manual": [{ "layer": "portable", "scenario": "Открыть модуль из меню и карточек в portable на рабочем месте компании", "expected": ["Окно показывает выбранные данные в обеих темах"] }]
+    },
+    {
+      "id": "modules.read", "program": "modules", "label": "Читать данные Flux", "risk": "critical",
+      "sources": ["modules/bridge.ts", "modules/schemas.ts", "modules/protocol.ts", "src/services/moduleDataService.ts"],
+      "triggers": ["background"],
+      "expected": ["Модуль читает только разрешённые данные и не может записывать их или обращаться к закрытым ресурсам"],
+      "checks": [
+        { "suite": "modules-contract", "layer": "unit", "claims": ["Схемы ресурсов отклоняют неизвестные поля и неверную форму", "Мост отвергает чужие сообщения и запись, проверяет разрешения и исходящие данные", "Протокол отвергает неподходящие пути"] },
+        { "suite": "modules-native", "layer": "windows-native", "claims": ["В Electron закрыты cookie, localStorage, IPC, Node и сеть; запись отклоняется без изменения временной базы", "Сообщение вне схемы отбрасывается"] }
+      ],
+      "manual": [{ "layer": "portable", "scenario": "Открыть позицию в portable на рабочем месте компании", "expected": ["Модуль показывает доступные позиции параметры"] }]
+    },
+    {
+      "id": "modules.refresh", "program": "modules", "label": "Обновить данные модуля", "risk": "normal",
+      "sources": ["src/components/modules/ModuleFrame.tsx", "modules/bridge.ts", "modules/runtime/frame.ts", "src/services/moduleDataService.ts"],
+      "triggers": ["background"],
+      "expected": ["Открытый модуль получает изменения позиции и не показывает данные прежнего проекта"],
+      "checks": [
+        { "suite": "modules-contract", "layer": "unit", "claims": ["Событие изменения доставляется, а ответ прежнего проекта и ответы после закрытия отбрасываются"] },
+        { "suite": "modules-native", "layer": "windows-native", "claims": ["Изменение позиции через маршрут и entity:changed доходит до модуля; смена проекта удаляет прежние данные"] }
+      ],
+      "manual": [{ "layer": "portable", "scenario": "Изменить позицию при открытом модуле в portable на рабочем месте компании", "expected": ["Изменение появляется в модуле"] }]
+    },
+    {
+      "id": "modules.calculate", "program": "modules", "label": "Выполнить расчёт модуля", "risk": "normal",
+      "sources": ["modules/runtime/runner.ts", "modules/runtime/frame.ts", "modules/runtime/form.ts"],
+      "triggers": ["background"],
+      "expected": ["Расчёт выполняется в Worker и зависший расчёт останавливается"],
+      "checks": [{ "suite": "modules-native", "layer": "windows-native", "claims": ["Зависший Worker останавливается по тайм-ауту; сеть Worker закрыта"] }],
+      "manual": [{ "layer": "portable", "scenario": "Выполнить расчёт примера в portable на рабочем месте компании", "expected": ["Результат показан в окне модуля"] }]
+    }
+  ],
+  "connections": [
+    {
+      "id": "equipment.to-modules", "from": "equipment", "to": "modules", "status": "implemented",
+      "sources": ["src/components/modules/ModuleLaunchActions.tsx", "src/services/moduleDataService.ts"],
+      "expected": ["Модуль получает контекст позиции и обновления её данных"],
+      "checks": [{ "suite": "modules-native", "layer": "windows-native", "claims": ["Позиция отображается в модуле, правка через маршрут доходит до открытого окна"] }], "manual": []
+    },
+    {
+      "id": "registry.to-modules", "from": "registry", "to": "modules", "status": "implemented",
+      "sources": ["src/components/modules/ModuleLaunchActions.tsx", "src/services/moduleDataService.ts"],
+      "expected": ["Модуль получает контекст тега"],
+      "checks": [{ "suite": "modules-native", "layer": "windows-native", "claims": ["Вход из тега разрешает связанную позицию"] }], "manual": []
+    }
+  ]
+}

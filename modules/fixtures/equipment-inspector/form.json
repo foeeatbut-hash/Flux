@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "onDataChanged": "recalc",
+  "groups": [
+    {
+      "title": "Позиция оборудования",
+      "fields": [
+        { "label": "Проект", "bind": "flux.project.name" },
+        { "label": "Наименование", "bind": "flux.equipment.name" },
+        { "label": "Код позиции", "bind": "flux.equipment.itemCode" },
+        { "label": "Тег", "bind": "flux.tag.identifier" }
+      ]
+    }
+  ],
+  "tables": [
+    {
+      "title": "Параметры",
+      "bind": "flux.equipment.params",
+      "columns": [
+        { "label": "Группа", "key": "group" },
+        { "label": "Параметр", "key": "key" },
+        { "label": "Значение", "key": "value" },
+        { "label": "Единица", "key": "unit" }
+      ]
+    }
+  ]
+}
