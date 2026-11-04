@@ -36,4 +36,8 @@ assert.deepEqual(fields.map(({ sourceId, entityType, fieldKey }) => [sourceId, e
   ['tags', 'tag', 'meta:procurement.stage'],
 ]);
 assert.equal(fields[2].unit, 'кВт');
+
+// Служебные ключи карточки тега: положение на холсте в документ не предлагается, «mainName» — по-русски
+const metaFields = fieldsFromCatalog({ metaKeys: [{ key: 'x' }, { key: 'y' }, { key: '_noPos' }, { key: 'mainName' }, { key: 'procurement.stage' }] });
+assert.deepEqual(metaFields.map((field) => [field.fieldKey, field.displayName]), [['meta:mainName', 'Главное наименование'], ['meta:procurement.stage', 'procurement.stage']]);
 console.log('Office UI query and catalog contracts: PASS');
