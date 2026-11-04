@@ -118,19 +118,26 @@ export function useOfficeFluxBridge(editor: OfficeEditorLink, file: OfficeFileLi
     return true;
   }, []);
 
-  const applyWrites = useCallback(async (plan: OfficeFillPlan, schema: OfficeHeaderSchema, rows: OfficeAnchorRow[]) => {
+  const applyWrites = useCallback(async (plan: OfficeFillPlan, schema: OfficeHeaderSchema, rows: OfficeAnchorRow[], marks?: { mark?: string[]; unmark?: string[] }) => {
     const { editor: ed, file: fl } = live.current;
     const blocked = fl.writeBlocked?.('plan');
     if (blocked) throw new Error(blocked);
-    const response = await ed.applyPlan({ writes: plan.writes, schema, rows, sourceRevision: plan.sourceRevision });
+    // Только пометка снятых позиций: ячеек писать нечего, редактор не трогаем (пустой план он не принимает)
+    const response = plan.writes.length ? await ed.applyPlan({ writes: plan.writes, schema, rows, sourceRevision: plan.sourceRevision }) : { ok: true, rows, appliedCount: 0, manualRows: [] as string[] };
     if (!response?.ok) throw new Error(response?.error || 'Редактор не применил план.');
     if (!Array.isArray(response.rows)) throw new Error(fl.messages.rowsMissing);
+    // Пометка «позиции больше нет» живёт в строке части Flux; снятие — отмена обновления
+    const at = new Date().toISOString();
+    const marked = new Set(marks?.mark || []), unmarked = new Set(marks?.unmark || []);
+    const nextRows = marked.size || unmarked.size
+      ? response.rows.map((row) => marked.has(row.entityId) ? { ...row, removed: at } : unmarked.has(row.entityId) ? (({ removed: _removed, ...rest }) => rest)(row) : row)
+      : response.rows;
     const { current, savedHash } = await fl.committed('plan');
-    const stored = await fl.updateState({ baseHash: savedHash, sourceRevision: plan.sourceRevision, schema, rows: response.rows });
+    const stored = await fl.updateState({ baseHash: savedHash, sourceRevision: plan.sourceRevision, schema, rows: nextRows });
     // Записана только часть Flux: окно остаётся открытым (иначе пропадает
     // история «назад»), а следующее сохранение сверяется уже с новым хешем
     fl.remember(stored.baseHash);
-    return { appliedCount: Number(response.appliedCount ?? plan.writes.length), manualRows: Array.isArray(response.manualRows) ? response.manualRows.map(String) : [], state: { ...current, baseHash: stored.baseHash, sourceRevision: plan.sourceRevision, schema, rows: response.rows } };
+    return { appliedCount: Number(response.appliedCount ?? plan.writes.length), manualRows: Array.isArray(response.manualRows) ? response.manualRows.map(String) : [], state: { ...current, baseHash: stored.baseHash, sourceRevision: plan.sourceRevision, schema, rows: nextRows } };
   }, []);
 
   const updateSchema = useCallback(async (schema: OfficeHeaderSchema, options: HeaderSchemaSyncOptions = {}) => {

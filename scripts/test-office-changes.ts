@@ -10,6 +10,7 @@ import { officeChangesOfContent } from '../server/officeChanges';
 import { insertRowAbove, setCellText } from './officeExternalEdit';
 import type { OfficeEntityRow } from '../src/lib/officeModel';
 import { isRewritten } from '../src/components/office/FluxChangesList';
+import { changeKey, groupChanges, pendingCount, refreshOperations, undoWithoutManual } from '../src/components/office/officeRefreshPreview';
 
 const ANCHOR = '0b1b8a50-9999-4a4a-8a8a-aaaaaaaaaaa1';
 const E1 = 'office:equipment:element:EQ-1', E2 = 'office:equipment:element:EQ-2', E3 = 'office:equipment:element:EQ-3';
@@ -72,7 +73,7 @@ async function main() {
   // 5. Значение пропало из источника, позиция исчезла, у позиции появилось значение
   r = await officeChangesOfContent(base, 'P', source({ [E1]: null, [E2]: '4' }));
   assert.deepEqual(r.changes.map((c) => [c.kind, c.address, c.was, c.now]), [['cleared', 'B2', '3', null], ['row-removed', 'B4', null, null]]);
-  assert.equal(r.count, 2);
+  assert.equal(r.count, 2, "до пометки пропавшее значение и снятая позиция устарели (полоса висит); после применения — см. ниже, решение 4.11.2026");
   // «Изменится значений» и «из них изменилось» в панели считают только то, что «Обновить» перепишет:
   // пропавшее и исчезнувшее документ не стирает, ручную правку не заменяет
   assert.equal(r.changes.filter(isRewritten).length, 0, 'пропавшее значение и исчезнувшая позиция в «изменится» не идут');
@@ -90,6 +91,38 @@ async function main() {
   });
   r = await officeChangesOfContent(named, 'P', source({ [E1]: '3', [E2]: '4' }));
   assert.equal(r.changes.find((c) => c.kind === 'row-removed')?.entityLabel, 'Итого', 'исчезнувшая позиция названа по ячейке её строки');
+
+  // Решение владельца 4.11.2026 (меняет решение 25.10): «Обновить» не оставляет полосу висеть. До пометки
+  // пропавшее значение и снятая позиция считаются устаревшими (count == 2, как раньше) ...
+  const gone = source({ [E1]: null, [E2]: '4' });
+  // ... после очистки ячейки (в схеме «было» стало пустым) и пометки строки полоса уходит
+  const afterApply = await writeOfficeBindings(base, { ...schema, rows: schema.rows.map((x) => x.entityId === E1 ? { ...x, values: { [ANCHOR]: '' } } : x.entityId === E3 ? { ...x, removed: '2026-11-04T10:00:00.000Z' } : x) });
+  r = await officeChangesOfContent(afterApply, 'P', gone);
+  assert.equal(r.count, 0, 'очищенное значение и помеченная строка в счёт устаревшего не идут');
+  assert.equal(r.stale, false, 'полоса уходит после применения');
+  assert.deepEqual(r.changes.map((c) => [c.kind, c.marked ?? false]), [['row-removed', true]], 'помеченная строка остаётся в списке как справка');
+  // Позиция вернулась в источник: пометка не мешает, значения сверяются как обычно
+  r = await officeChangesOfContent(afterApply, 'P', source({ [E1]: '3', [E2]: '4', [E3]: '8' }));
+  assert.deepEqual(r.changes.map((c) => [c.kind, c.address, c.was, c.now]), [['changed', 'B4', '7', '8']], 'вернувшаяся позиция сверяется как обычно (B2 в фикстуре осталась со старым значением — оно совпало с источником)');
+
+  // Предпросмотр: группы, галочки, что уйдёт редактору и что вернёт отмена
+  const planWrites = [{ entityId: E2, anchorId: ANCHOR, value: '5' }];
+  r = await officeChangesOfContent(base, 'P', source({ [E1]: null, [E2]: '5' }));
+  const groups = groupChanges(r.changes);
+  assert.deepEqual([groups.values.length, groups.cleared.length, groups.removed.length], [1, 1, 1], 'три группы: значения, пропавшие, снятые');
+  let ops = refreshOperations(planWrites, groups, new Set());
+  assert.deepEqual(ops.writes, [...planWrites, { entityId: E1, anchorId: ANCHOR, value: '' }], 'по умолчанию: значение пишется, пропавшее очищается');
+  assert.deepEqual(ops.mark, [E3], 'снятая позиция помечается, а не удаляется');
+  assert.deepEqual(ops.undo.writes, [{ entityId: E2, anchorId: ANCHOR, value: '4' }, { entityId: E1, anchorId: ANCHOR, value: '3' }], 'отмена возвращает прежние значения');
+  assert.deepEqual(ops.undo.unmark, [E3]);
+  assert.equal(pendingCount(groups, new Set()), 3);
+  const off = new Set(groups.values.concat(groups.removed).map(changeKey));
+  ops = refreshOperations(planWrites, groups, off);
+  assert.deepEqual(ops.writes, [{ entityId: E1, anchorId: ANCHOR, value: '' }], 'снятая галочка убирает запись из плана');
+  assert.deepEqual(ops.mark, [], 'снятая галочка не метит строку');
+  assert.equal(pendingCount(groups, off), 1);
+  assert.deepEqual(undoWithoutManual(refreshOperations(planWrites, groups, new Set()).undo, [E1]).writes.map((w) => w.entityId), [E2], 'позицию с ручной правкой отмена не трогает');
+  assert.equal(groupChanges((await officeChangesOfContent(manual, 'P', source({ [E1]: '3', [E2]: '4', [E3]: '7' }))).changes).manual.length, 1, 'ручные правки — справка, не действие');
 
   // 6. Данные не тронуты: проверка ничего не пишет
   assert.deepEqual(await officeChangesOfContent(base, 'P', source({ [E1]: '3', [E2]: '4', [E3]: '7' })).then((x) => x.stale), false);

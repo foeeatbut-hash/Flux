@@ -108,6 +108,8 @@ export interface OfficeAnchorRow {
   anchorIds: string[];
   cells?: Record<string, string>;
   values?: Record<string, string | number | null>;
+  /** Позиции больше нет в источнике, строка помечена (ISO-время пометки) */
+  removed?: string;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

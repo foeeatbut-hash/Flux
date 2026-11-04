@@ -17,7 +17,7 @@ export const isRewritten = (change: OfficeChange): boolean => !change.manual && 
 
 /** Что произошло со значением: слова для строки списка и для скринридера */
 export function changeSummary(change: OfficeChange): string {
-  if (change.kind === 'row-removed') return 'позиции больше нет в источнике; строка в документе остаётся';
+  if (change.kind === 'row-removed') return change.marked ? 'позиции больше нет в источнике; строка помечена и остаётся в документе' : 'позиции больше нет в источнике; строка в документе остаётся до «Обновить»';
   if (change.kind === 'cleared') return `в источнике значения больше нет (в документе остаётся ${money(change.was)})`;
   return `${money(change.was)} → ${money(change.now, change.unit)}`;
 }

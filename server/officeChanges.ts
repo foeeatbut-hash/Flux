@@ -124,11 +124,12 @@ export async function officeChangesOfContent(bytes: Buffer, projectId: string, r
   for (const row of bindings.rows) {
     if (fresh.has(row.entityId) || !ENTITY[row.sourceId]) continue;
     const anchor = anchorById.get(row.anchorIds[0] || '');
-    changes.push({ kind: 'row-removed', entityId: row.entityId, entityLabel: labelOf(row.entityId), anchorId: anchor?.id || '', column: anchor ? headerText(anchor) : '', ...(anchor ? place(row, anchor) : {}), was: null, now: null });
+    changes.push({ kind: 'row-removed', ...(row.removed ? { marked: true } : {}), entityId: row.entityId, entityLabel: labelOf(row.entityId), anchorId: anchor?.id || '', column: anchor ? headerText(anchor) : '', ...(anchor ? place(row, anchor) : {}), was: null, now: null });
   }
   const order = (c: OfficeChange) => { const m = /^([A-Z]+)(\d+)$/.exec(c.address || ''); return m ? Number(m[2]) * 1000 + columnNumber(m[1]!) : 1e12; };
   changes.sort((a, b) => order(a) - order(b) || a.entityLabel.localeCompare(b.entityLabel, 'ru'));
   // Ручные правки в счёт устаревшего не идут: «Обновить» их не заменит, и документ всё время считался бы устаревшим
-  const count = changes.filter((change) => !change.manual).length;
+  // Помеченная строка снятой позиции — тоже: человек уже решил, как с ней быть, полоса не должна висеть вечно
+  const count = changes.filter((change) => !change.manual && !change.marked).length;
   return { stale: count > 0, count, rows: bindings.rows.length, changes, checkedAt };
 }

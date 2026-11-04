@@ -31,6 +31,8 @@ export interface OfficeChange {
   unit?: string;
   /** Значение в ячейке правили руками: «Обновить» эту строку не заменит */
   manual?: boolean;
+  /** Строка снятой позиции уже помечена (решение 4.11.2026): в счёт устаревшего не идёт, в списке остаётся */
+  marked?: boolean;
 }
 
 export interface OfficeChangesResult {
