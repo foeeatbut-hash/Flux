@@ -4,7 +4,9 @@ import * as XLSX from 'xlsx';
 import { getPrisma, resolveProjectId, sendError, notifyUser, broadcast } from '../context.js';
 import { createFileFromBytes, exportsHome } from '../officeStore.js';
 import { hasPosition } from '../../shared/positions.js';
-import { VdrConflict, expectedStamp, expectedRevisionOf, guardedUpdate, guardedIssue, whenText } from '../vdrWrite.js';
+import { syncItemTags, linksOfItems, unmatchedCodesOf, planTagLinks, applyTagLinks, undoTagLinks, codesOfItem, isGenericTagCode } from '../vdrTags.js';
+import { tagCodeKey } from '../tagWrite.js';
+import { VdrConflict, expectedStamp, expectedRevisionOf, guardedUpdate, guardedIssue, whenText, inTransaction } from '../vdrWrite.js';
 
 // ── ВДР (Vendor Document Register) — реестр документации поставщика ──
 // Дизайн: docs/vdr-docflow-design.md + разбор реальных файлов проекта ДГП-2
@@ -72,6 +74,11 @@ async function ensureTables(): Promise<void> {
         "place" TEXT NOT NULL DEFAULT '', "description" TEXT NOT NULL DEFAULT '', "authorId" TEXT,
         "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`);
+      await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "DocRegisterItemTag" (
+        "itemId" TEXT NOT NULL, "tagId" TEXT NOT NULL, "tagIdentifier" TEXT NOT NULL DEFAULT '',
+        UNIQUE ("itemId", "tagId")
+      )`);
+      await prisma.$executeRawUnsafe('CREATE INDEX IF NOT EXISTS "DocRegisterItemTag_tagId_idx" ON "DocRegisterItemTag"("tagId")');
       pgEnsured = true;
     } catch (e) { /* нет прав на DDL */ }
   }
@@ -302,8 +309,9 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
 
   app.delete('/api/vdr/standards/:id', async (req: Request, res: Response) => {
     try {
-      const me = authUserOf(req);
-      if (me && !isPrivilegedUser(me)) return res.status(403).json({ error: 'Удалять стандарты может администратор' });
+      // Право `vdr.standards` проверяет общая таблица прав (server/vdrPermissions.ts)
+      // так же, как для создания и правки: отдельная проверка «только администратор»
+      // здесь делала удаление недоступным тем, кому право выдали осознанно
       await getPrisma().docStandard.delete({ where: { id: req.params.id } });
       announceVdrChange();
       res.json({ success: true });
@@ -448,7 +456,12 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       }
       const prisma = getPrisma();
       const register = await prisma.docRegister.findUnique({ where: { id: req.params.id } });
-      await prisma.docRegister.delete({ where: { id: req.params.id } });
+      await inTransaction(prisma, async (db) => {
+        // Связи тегов строк реестра: в PostgreSQL строки уходят каскадом, а связи без внешнего ключа остались бы
+        const ids = (await db.docRegisterItem.findMany({ where: { registerId: req.params.id }, select: { id: true } })).map((r: any) => r.id);
+        if (ids.length) await db.docRegisterItemTag.deleteMany({ where: { itemId: { in: ids } } });
+        await db.docRegister.delete({ where: { id: req.params.id } });
+      });
       if (register) announceVdrChange(register.projectId, register.id);
       res.json({ success: true });
     } catch (err: any) { sendError(res, err); }
@@ -462,7 +475,12 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       const items = await getPrisma().docRegisterItem.findMany({
         where: { registerId }, orderBy: [{ vdrCode: 'asc' }, { contractorNo: 'asc' }],
       });
-      res.json({ items: items.map((i: any) => ({ ...i, extra: parseJson(i.extra, {}) })) });
+      // Связи по id и коды без связи: карточка помечает такие коды, счётчик «не сопоставлено» берётся из плана
+      const links = await linksOfItems(getPrisma(), items.map((i: any) => i.id)).catch(() => new Map());
+      res.json({ items: items.map((i: any) => {
+        const mine = links.get(i.id) || [];
+        return { ...i, extra: parseJson(i.extra, {}), tagLinks: mine, unmatchedTags: unmatchedCodesOf(i.equipmentTags, mine) };
+      }) });
     } catch (err: any) { sendError(res, err); }
   });
 
@@ -478,7 +496,12 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       for (const k of ITEM_FIELDS) if (typeof req.body?.[k] === 'string') data[k] = req.body[k];
       if (req.body?.assigneeId) data.assigneeId = String(req.body.assigneeId);
       if (typeof req.body?.equipmentTags === 'string') data.equipmentTags = req.body.equipmentTags;
-      const item = await prisma.docRegisterItem.create({ data });
+      // Строка и её связи с тегами — одна запись: не бывает строки с кодами и без связей
+      const item = await inTransaction(prisma, async (db) => {
+        const made = await db.docRegisterItem.create({ data });
+        if (data.equipmentTags) await syncItemTags(db, made, data.equipmentTags);
+        return made;
+      });
       announceVdrChange(register.projectId, register.id);
       res.json({ item: { ...item, extra: {} } });
     } catch (err: any) { sendError(res, err); }
@@ -536,6 +559,10 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
           if (newStatus && STATUSES.includes(newStatus) && newStatus !== item.status) data.status = newStatus;
           return { data };
         },
+        // Коды тегов изменились — связи по id приводятся к ним в той же транзакции
+        after: async (db, _before, written) => {
+          if (typeof req.body?.equipmentTags === 'string') await syncItemTags(db, written, written.equipmentTags);
+        },
       });
       if (!done) return res.status(404).json({ error: 'Строка реестра не найдена' });
       const item = done.before;
@@ -579,7 +606,10 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       }
       const prisma = getPrisma();
       const item = await prisma.docRegisterItem.findUnique({ where: { id: req.params.id } });
-      await prisma.docRegisterItem.delete({ where: { id: req.params.id } });
+      await inTransaction(prisma, async (db) => {
+        await db.docRegisterItemTag.deleteMany({ where: { itemId: req.params.id } });
+        await db.docRegisterItem.delete({ where: { id: req.params.id } });
+      });
       if (item) announceVdrChange(item.projectId, item.registerId);
       res.json({ success: true });
     } catch (err: any) { sendError(res, err); }
@@ -670,23 +700,78 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
   });
 
   // ── Документы по тегу: карточка тега показывает свои документы ВДР ──
+  // По id тега (`tagId`): связь переживает переименование. Параметр `tag` (код)
+  // оставлен для прежних клиентов: код сводится к тегу проекта, а если такого
+  // тега нет — ищется по тексту, как раньше. Строки «на все позиции» относятся
+  // к любому тегу.
   app.get('/api/vdr/items/by-tag', async (req: Request, res: Response) => {
     try {
+      const prisma = getPrisma();
       const projectId = await resolveProjectId(String(req.query.projectId || ''));
-      const tag = String(req.query.tag || '').trim().toLowerCase();
-      if (!tag) return res.json({ items: [] });
-      const items = await getPrisma().docRegisterItem.findMany({
-        where: { projectId }, orderBy: [{ vdrCode: 'asc' }],
-      });
+      let tagId = String(req.query.tagId || '');
+      const code = String(req.query.tag || '').trim();
+      if (!tagId && !code) return res.json({ items: [] });
+      if (!tagId) {
+        const same = (await prisma.tag.findMany({ where: { projectId }, select: { id: true, identifier: true } }))
+          .filter((t: any) => tagCodeKey(t.identifier) === tagCodeKey(code));
+        if (same.length === 1) tagId = same[0].id;
+      }
+      const linked = tagId ? (await prisma.docRegisterItemTag.findMany({ where: { tagId }, select: { itemId: true } })).map((l: any) => l.itemId) : [];
+      const items = await prisma.docRegisterItem.findMany({ where: { projectId }, orderBy: [{ vdrCode: 'asc' }] });
       const out = items.filter((i: any) => {
-        const tags = parseJson(i.equipmentTags, []);
-        return tags.some((t: any) => String(t).toLowerCase() === tag || String(t).toLowerCase() === 'all items');
+        if (linked.includes(i.id)) return true;
+        const codes = codesOfItem(i.equipmentTags);
+        if (codes.some(isGenericTagCode)) return true;
+        // Без тега в базе (или код не нашёлся) связи по id нет — остаётся поиск по тексту
+        return !tagId && code ? codes.some(c => tagCodeKey(c) === tagCodeKey(code)) : false;
       }).map((i: any) => ({
         id: i.id, registerId: i.registerId, contractorNo: i.contractorNo,
         titleRu: i.titleRu, titleEn: i.titleEn, vdrCode: i.vdrCode,
         revision: i.revision, status: i.status, docId: i.docId, dueDate: i.dueDate,
       }));
       res.json({ items: out });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  // ── Перенос кодов тегов в связи по id: план → применение → отмена ──
+  // План ничего не пишет и даёт счётчик «не сопоставлено». Применение берёт
+  // отпечаток плана, который человек видел: изменилось что-то между ними —
+  // 409 и новый план. Отмена снимает ровно созданные связи.
+  app.get('/api/vdr/tag-links', async (req: Request, res: Response) => {
+    try {
+      const projectId = await resolveProjectId(String(req.query.projectId || ''));
+      res.json({ plan: await planTagLinks(getPrisma(), projectId) });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  app.post('/api/vdr/tag-links/apply', async (req: Request, res: Response) => {
+    try {
+      const projectId = await resolveProjectId(String(req.body?.projectId || ''));
+      const digest = String(req.body?.digest || '');
+      if (!digest) return res.status(400).json({ error: 'Не указан отпечаток плана: сначала откройте план переноса' });
+      const result = await inTransaction(getPrisma(), async (db) => {
+        const plan = await planTagLinks(db, projectId);
+        if (plan.digest !== digest) return { stale: plan };
+        return { created: await applyTagLinks(db, plan), plan };
+      });
+      if ('stale' in result) return res.status(409).json({ error: 'Данные изменились с тех пор, как вы смотрели план. Показан новый план — проверьте его.', conflict: true, plan: result.stale });
+      announceVdrChange(projectId);
+      res.json({ created: result.created, plan: await planTagLinks(getPrisma(), projectId) });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  app.post('/api/vdr/tag-links/undo', async (req: Request, res: Response) => {
+    try {
+      const projectId = await resolveProjectId(String(req.body?.projectId || ''));
+      const asked: any[] = Array.isArray(req.body?.created) ? req.body.created.slice(0, 20000) : [];
+      const prisma = getPrisma();
+      // Только связи строк этого проекта: чужой проект отмена не трогает
+      const mine = new Set((await prisma.docRegisterItem.findMany({
+        where: { projectId, id: { in: [...new Set(asked.map(c => String(c?.itemId || '')))] } }, select: { id: true },
+      })).map((r: any) => r.id));
+      const removed = await inTransaction(prisma, (db) => undoTagLinks(db, asked.filter(c => mine.has(String(c?.itemId)))));
+      announceVdrChange(projectId);
+      res.json({ removed, plan: await planTagLinks(prisma, projectId) });
     } catch (err: any) { sendError(res, err); }
   });
 
@@ -865,8 +950,15 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
           extra: JSON.stringify(extra),
         };
         const prev = itemData.contractorNo ? byNo.get(itemData.contractorNo) : null;
-        if (prev) { await prisma.docRegisterItem.update({ where: { id: prev.id }, data: itemData }); updated++; }
-        else { await prisma.docRegisterItem.create({ data: { ...itemData, registerId: register.id, projectId } }); created++; }
+        if (prev) {
+          const saved = await prisma.docRegisterItem.update({ where: { id: prev.id }, data: itemData });
+          if (itemData.equipmentTags) await syncItemTags(prisma, saved, saved.equipmentTags);
+          updated++;
+        } else {
+          const saved = await prisma.docRegisterItem.create({ data: { ...itemData, registerId: register.id, projectId } });
+          if (itemData.equipmentTags) await syncItemTags(prisma, saved, saved.equipmentTags);
+          created++;
+        }
       }
 
       // Титульник → реквизиты; Accounting → история ревизий ВДР (если находим)

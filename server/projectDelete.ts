@@ -131,6 +131,7 @@ export async function deleteProjectData(
   const itemIds = await e.ids('docRegisterItem', { projectId });
   itemIds.push(...(await e.idsWithin('docRegisterItem', 'registerId', registerIds)));
   await e.within('docRegisterItemRevision', 'itemId', [...new Set(itemIds)]);
+  await e.within('docRegisterItemTag', 'itemId', [...new Set(itemIds)]);
   await e.where('docRegisterItem', { projectId });
   await e.within('docRegisterItem', 'registerId', registerIds);
   await e.where('docRegister', { projectId });

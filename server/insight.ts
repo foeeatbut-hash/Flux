@@ -70,6 +70,8 @@ export interface FileLite {
 export interface VdrLite {
   id: string; registerId: string; registerName: string; contractorNo: string; titleRu: string;
   vdrCode: string; revision: string; status: string; tagCodes: string[];
+  /** Теги по id (DocRegisterItemTag): переименование тега их не рвёт */
+  tagIds: string[];
   docId: string | null; issueDate: string | null; dueDate: string | null;
 }
 export interface NoteLite { id: string; title: string; text: string; updatedAt?: string | null }
@@ -267,6 +269,12 @@ export async function projectSnapshot(prisma: any, projectId: string, opts: Snap
     }
   }
 
+  // Связи строк ВДР с тегами по id; нет таблицы (старая база) — только коды строкой
+  const allItemIds = (registers || []).flatMap((r: any) => (r.items || []).map((i: any) => i.id));
+  const linkRows: any[] = allItemIds.length && prisma.docRegisterItemTag?.findMany
+    ? await prisma.docRegisterItemTag.findMany({ where: { itemId: { in: allItemIds } } }).catch(() => []) : [];
+  const tagIdsOfItem = new Map<string, string[]>();
+  for (const l of linkRows) tagIdsOfItem.set(l.itemId, [...(tagIdsOfItem.get(l.itemId) || []), l.tagId]);
   const vdr: VdrLite[] = [];
   for (const reg of (registers || [])) {
     for (const it of (reg.items || [])) {
@@ -276,6 +284,7 @@ export async function projectSnapshot(prisma: any, projectId: string, opts: Snap
         vdrCode: String(it.vdrCode || ''), revision: String(it.revision || ''),
         status: String(it.status || 'DRAFT'),
         tagCodes: (safeJson(it.equipmentTags, []) || []).map((x: any) => String(x)),
+        tagIds: tagIdsOfItem.get(it.id) || [],
         docId: it.docId || null,
         issueDate: it.issueDate ? new Date(it.issueDate).toISOString() : null,
         dueDate: it.dueDate ? new Date(it.dueDate).toISOString() : null,
@@ -405,11 +414,16 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
           route: fileRoute(f),
         })),
       },
-      // Группы «Реестр ВДР» у тега нет: связь ВДР с тегом держится на коде строкой
-      // (DocRegisterItem.equipmentTags), и переименование тега её рвёт. Владелец
-      // 6 октября 2026: «пока отключим связь с ВДР». Вернуть — когда связь пойдёт
-      // по id тега. Данные equipmentTags не тронуты. У файла ВДР-группа остаётся:
-      // там связь идёт по названию файла, а не по коду тега.
+      // Реестр ВДР: связь идёт по id тега (DocRegisterItemTag), поэтому переименование
+      // её не рвёт. Раньше группа была отключена, пока связь держалась на коде строкой.
+      {
+        id: 'vdr', title: 'Реестр ВДР', hint: 'Документы, выпускаемые на это оборудование',
+        links: snap.vdr.filter(v => v.tagIds.includes(tag.id)).map(v => ({
+          kind: 'vdr' as const, id: v.id, title: `${v.contractorNo || v.vdrCode || '—'} · ${v.titleRu}`,
+          subtitle: `${v.registerName} · рев. ${v.revision}`,
+          route: `/management?vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
+        })),
+      },
       {
         id: 'mail', title: 'Почта', hint: 'Письма, где встречается обозначение',
         links: snap.mail.filter(m => mentions(m.text, code)).slice(0, 25).map(m => ({
@@ -526,13 +540,23 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
   const groups: UsageGroup[] = [
     {
       id: 'tags', title: 'Оборудование строки', hint: 'На что выпускается документ',
-      links: item.tagCodes.map(code => {
-        const t = snap.tags.find(x => x.identifier === code);
-        return {
-          kind: 'tag' as const, id: t?.id || code, title: code, subtitle: t?.mainName || 'тег',
-          route: t ? `/registry?focus=${encodeURIComponent(t.id)}` : '',
-        };
-      }),
+      // По id тега, если связь есть; коды без связи — как раньше, по написанию
+      links: [
+        ...item.tagIds.map(tid => {
+          const t = snap.tags.find(x => x.id === tid);
+          return {
+            kind: 'tag' as const, id: tid, title: t?.identifier || '—', subtitle: t?.mainName || 'тег',
+            route: t ? `/registry?focus=${encodeURIComponent(t.id)}` : '',
+          };
+        }),
+        ...item.tagCodes.filter(code => !item.tagIds.some(tid => snap.tags.find(x => x.id === tid)?.identifier === code)).map(code => {
+          const t = snap.tags.find(x => x.identifier === code);
+          return {
+            kind: 'tag' as const, id: t?.id || code, title: code, subtitle: t?.mainName || 'тег',
+            route: t ? `/registry?focus=${encodeURIComponent(t.id)}` : '',
+          };
+        }),
+      ],
     },
   ];
   const out = nonEmpty(groups);

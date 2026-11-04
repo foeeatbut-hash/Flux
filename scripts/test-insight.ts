@@ -88,7 +88,11 @@ const rich = snap({
   files: [{ id: 'f1', name: 'План.dwg', folderId: 'fold1', folderName: 'Чертежи', revision: '2', statusCode: 'D', tagIds: ['t1'], refId: null, updatedAt: null }],
   vdr: [{
     id: 'v1', registerId: 'r1', registerName: 'ВДР Азот', contractorNo: 'C-01', titleRu: 'Опросный лист',
-    vdrCode: 'C01', revision: 'A', status: 'DRAFT', tagCodes: ['AHU-2'], docId: 'd1', issueDate: null, dueDate: null,
+    vdrCode: 'C01', revision: 'A', status: 'DRAFT', tagCodes: ['AHU-2'], tagIds: [], docId: 'd1', issueDate: null, dueDate: null,
+  }, {
+    // Связана с тегом по id: код в строке может быть уже старым (тег переименовали)
+    id: 'v9', registerId: 'r1', registerName: 'ВДР Азот', contractorNo: 'C-09', titleRu: 'Схема',
+    vdrCode: 'C02', revision: 'B', status: 'READY', tagCodes: ['AHU-OLD'], tagIds: ['t1'], docId: null, issueDate: null, dueDate: null,
   }],
   notes: [{ id: 'n1', title: 'Созвон', text: 'Уточнить расход у AHU-2' }],
   chat: [{ id: 'm1', text: 'AHU-2 приедет в мае', author: 'Раупов', at: null, elementId: null }],
@@ -112,8 +116,10 @@ ok('файл по метке', gid('files')?.links[0].title === 'План.dwg');
 // Проводник не держит все файлы разом — без папки ссылка никуда не приведёт
 ok('ссылка на файл несёт папку', gid('files')?.links[0].route === '/explorer?file=f1&folder=fold1',
   gid('files')?.links[0].route);
-// Связь ВДР с тегом отключена (держалась на коде строкой, переименование её рвало); строка в данных остаётся
-ok('у тега нет группы ВДР, даже если строка ссылается на его код', !gid('vdr') && rich.vdr.some(v => v.tagCodes.includes('AHU-2')));
+// Связь ВДР с тегом идёт по id (DocRegisterItemTag): строка с кодом без связи тегу не приписывается,
+// а связанная — показывается, даже если код в ней уже старый
+ok('у тега группа ВДР — только строки со связью по id', gid('vdr')?.links.length === 1 && gid('vdr')?.links[0].id === 'v9',
+  gid('vdr')?.links.map(l => l.id));
 ok('записей старого Конструктора в связях нет', !u.groups.some(g => g.id === 'docs'));
 ok('заметка найдена', gid('notes')?.links[0].title === 'Созвон');
 ok('сообщение найдено', gid('chat')?.links.length === 1);
@@ -179,8 +185,8 @@ ok('зависшая позиция замечена', ids(stuck).includes('stuc
 ok('свежая позиция не считается зависшей', !ids(projectCheck(snap())).includes('stuck-stage'));
 const vdrBad = projectCheck(snap({
   vdr: [
-    { id: 'v1', registerId: 'r1', registerName: 'ВДР', contractorNo: 'C-01', titleRu: 'Лист', vdrCode: 'C01', revision: 'A', status: 'REMARKS', tagCodes: [], docId: null, issueDate: null, dueDate: null },
-    { id: 'v2', registerId: 'r1', registerName: 'ВДР', contractorNo: 'C-02', titleRu: 'Схема', vdrCode: 'C02', revision: '1', status: 'READY', tagCodes: [], docId: null, issueDate: null, dueDate: new Date(Date.now() - 5 * 864e5).toISOString() },
+    { id: 'v1', registerId: 'r1', registerName: 'ВДР', contractorNo: 'C-01', titleRu: 'Лист', vdrCode: 'C01', revision: 'A', status: 'REMARKS', tagCodes: [], tagIds: [], docId: null, issueDate: null, dueDate: null },
+    { id: 'v2', registerId: 'r1', registerName: 'ВДР', contractorNo: 'C-02', titleRu: 'Схема', vdrCode: 'C02', revision: '1', status: 'READY', tagCodes: [], tagIds: [], docId: null, issueDate: null, dueDate: new Date(Date.now() - 5 * 864e5).toISOString() },
   ],
 }));
 ok('замечания заказчика замечены', ids(vdrBad).includes('vdr-remarks'));

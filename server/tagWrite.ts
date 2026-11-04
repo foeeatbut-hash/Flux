@@ -25,6 +25,7 @@
  */
 
 import { bumpElementsOfTags } from './equipmentVersion.js';
+import { renameTagInVdr } from './vdrTags.js';
 import { parseMetadata } from './tagHistory.js';
 
 export type MetadataPatch = Record<string, unknown>;
@@ -185,7 +186,11 @@ async function attemptWrite(tx: any, id: string, input: TagWriteInput): Promise<
   try {
     const tag = await tx.tag.update({ where: { id, updatedAt: cur.updatedAt ?? null }, data });
     // Код тега — часть позиции: изменился — версия позиции выросла
-    if ('identifier' in data) await bumpElementsOfTags(tx, [id]);
+    if ('identifier' in data) {
+      await bumpElementsOfTags(tx, [id]);
+      // Связи строк ВДР идут по id тега и переименование переживают; обновляется копия кода для показа
+      await renameTagInVdr(tx, id, String(cur.identifier ?? ''), String(data.identifier));
+    }
     return { before: cur, tag, unchanged: false };
   } catch (e: any) {
     if (e?.code === 'P2025') return 'retry';

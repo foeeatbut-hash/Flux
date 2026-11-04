@@ -186,6 +186,21 @@ model DocRegisterItem {
   @@index([projectId, status])
 }
 
+/// Связь строки ВДР с тегом по id (docs/docflow-integration.md, 2.3). Код тега в
+/// `DocRegisterItem.equipmentTags` остаётся отображаемой копией; ключ связи —
+/// `tagId`, поэтому переименование тега её не рвёт. `tagIdentifier` — копия для
+/// показа и для случая, когда тег удалён: связь остаётся с пометкой, строка не
+/// удаляется.
+model DocRegisterItemTag {
+  itemId        String
+  tagId         String
+  tagIdentifier String @default("")
+
+  // @@unique, а не @@id: автомиграция общей базы строит составной ключ только из @@unique
+  @@unique([itemId, tagId])
+  @@index([tagId])
+}
+
 // ── Стандарт документооборота — ГЛОБАЛЬНЫЙ шаблон программы ──
 // Профиль заказчика/проекта: коды рассмотрения с дедлайнами, причины выпуска,
 // правила ревизий (буквенные/цифровые, V/S), маски нумерации документов и

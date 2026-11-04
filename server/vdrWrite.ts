@@ -79,6 +79,8 @@ interface GuardedUpdate<R> {
   build: (current: any, db: any) => Promise<{ data: any; extra?: R }> | { data: any; extra?: R };
   /** Текст отказа, когда запись изменили после того, как клиент её увидел. */
   staleMessage: (current: any) => string;
+  /** Что сделать в той же транзакции после записи (например, привести связи к записанному). */
+  after?: (db: any, before: any, after: any) => Promise<void>;
 }
 
 /**
@@ -99,6 +101,7 @@ export async function guardedUpdate<R = undefined>(prisma: any, opts: GuardedUpd
         const swapped = await db[opts.model].updateMany({ where: { id: current.id, updatedAt: current.updatedAt }, data });
         if (swapped.count !== 1) throw new RaceLost();
         const after = await db[opts.model].findUnique({ where: { id: current.id } });
+        if (opts.after) await opts.after(db, current, after);
         return { before: current, after, extra };
       });
     } catch (e) {

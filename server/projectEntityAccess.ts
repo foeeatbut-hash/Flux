@@ -4,7 +4,7 @@ import { canSeeProject } from './routes/members.js';
 import { isAdminActor, projectIdsOfRequest } from './projectAccess.js';
 
 /** Проект определяется серверной записью, а не присланным рядом projectId. */
-export type ProjectEntity = 'tag' | 'component' | 'system' | 'monoblock' | 'folder' | 'file' | 'constructor' | 'importBatch' | 'historyBatch' | 'chatGroup';
+export type ProjectEntity = 'tag' | 'component' | 'system' | 'monoblock' | 'folder' | 'file' | 'constructor' | 'importBatch' | 'historyBatch' | 'chatGroup' | 'vdrRegister' | 'vdrItem';
 export interface EntityRef { kind: ProjectEntity; id: string }
 const SAFE_ID = (id: unknown): id is string => typeof id === 'string' && !!id.trim() && id.length <= 200;
 
@@ -24,8 +24,11 @@ export function entityRefsOfRequest(path: string, body: any = {}, query: any = {
     [/^\/api\/import-jobs\/([^/]+)\/cancel$/i, 'importBatch'],
     [/^\/api\/equipment\/import-undo\/([^/]+)$/i, 'historyBatch'],
     [/^\/api\/chat\/groups\/([^/]+)(?:\/|$)/i, 'chatGroup'],
+    // ВДР: реестр и строка принадлежат проекту, а адрес несёт только их id
+    [/^\/api\/vdr\/registers\/([^/]+)(?:\/|$)/i, 'vdrRegister'],
+    [/^\/api\/vdr\/items\/([^/]+)(?:\/|$)/i, 'vdrItem'],
   ];
-  const reserved = new Set(['new', 'copy', 'chunk-size', 'bulk-metadata', 'generate']);
+  const reserved = new Set(['new', 'copy', 'chunk-size', 'bulk-metadata', 'generate', 'by-tag']);
   for (const [pattern, kind] of paths) {
     const m = pattern.exec(route);
     if (m && !reserved.has(m[1].toLowerCase())) add(kind, decodeURIComponent(m[1]));
@@ -49,6 +52,8 @@ export function entityRefsOfRequest(path: string, body: any = {}, query: any = {
     }
   }
   if (/^\/api\/equipment\/import-undo$/i.test(route)) add('historyBatch', body.batchId);
+  // Реестр и строка ВДР названы в запросе: чтение строк реестра, создание строки
+  for (const source of [body, query]) { add('vdrRegister', source?.registerId); add('vdrItem', source?.itemId); }
   for (const key of ['mainTagIds', 'additionalTagIds', 'tagIds']) if (Array.isArray(body[key])) for (const id of body[key]) add('tag', id);
   if (refs.length > 10000) throw new Error('Слишком много связанных записей');
   return [...new Map(refs.map(r => [`${r.kind}:${r.id}`, r])).values()];
@@ -63,6 +68,8 @@ export async function projectsOfEntity(prisma: any, ref: EntityRef): Promise<str
       const row = await prisma[table].findUnique({ where, select: { projectId: true } });
       rows = row ? [row.projectId] : []; break;
     }
+    case 'vdrRegister': { const row = await prisma.docRegister.findUnique({ where, select: { projectId: true } }); rows = row ? [row.projectId] : []; break; }
+    case 'vdrItem': { const row = await prisma.docRegisterItem.findUnique({ where, select: { projectId: true } }); rows = row ? [row.projectId] : []; break; }
     case 'system': { const row = await prisma.equipmentSystem.findUnique({ where, select: { projectId: true } }); rows = row ? [row.projectId] : []; break; }
     case 'component': { const row = await prisma.componentElement.findUnique({ where, select: { monoblock: { select: { system: { select: { projectId: true } } } } } }); rows = row ? [row.monoblock.system.projectId] : []; break; }
     case 'monoblock': { const row = await prisma.monoblock.findUnique({ where, select: { system: { select: { projectId: true } } } }); rows = row ? [row.system.projectId] : []; break; }
