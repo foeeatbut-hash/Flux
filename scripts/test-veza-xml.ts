@@ -16,7 +16,7 @@
  */
 
 import { VEZA_SAMPLE_XML, PLAIN_EQUIPMENT_XML } from './fixtures/veza';
-import { looksLikeVezaXml, parseVezaXml } from '../server/vezaXml';
+import { looksLikeVezaXml, noUnitsReason, parseVezaXml } from '../server/vezaXml';
 import { parseEquipmentXML, detectEquipType } from '../server/equipmentParser';
 import { vezaGroup, vezaProp, vezaUnit } from '../server/vezaDict';
 import type { ParsedBlock, ParsedUnit, SpecGroup } from '../server/equipmentParser';
@@ -388,6 +388,18 @@ console.log('\n17. Секунды остаются секундами, а не �
   ok('и не °C', flow?.unit !== '°C', flow);
   // Градусы по-прежнему градусы, незнакомая единица по-прежнему нормализуется
   ok('unCelsiusDegree — °C', vezaUnit('unCelsiusDegree') === '°C');
+}
+
+console.log('\n18. Обрезанный файл называется обрезанным');
+{
+  // Structure лежит в конце файла: при обрыве остаётся словарь, но не состав заказа
+  const cut = VEZA_SAMPLE_XML.slice(0, VEZA_SAMPLE_XML.indexOf('<Structure'));
+  ok('образец обрезан до Structure', cut.length > 0 && cut.length < VEZA_SAMPLE_XML.length);
+  ok('обрезанная выгрузка разбирается без установок', parseVezaXml(cut, detectEquipType).units.length === 0);
+  ok('причина — обрыв файла, а не «другой формат»', /не полностью/.test(noUnitsReason(cut)) && !/бланк/.test(noUnitsReason(cut)), noUnitsReason(cut));
+  ok('чужой XML по-прежнему отправляется к бланкам', /бланк/.test(noUnitsReason('<Root><Nothing/></Root>')));
+  const noUnits = VEZA_SAMPLE_XML.replace(/cadUnitFolder/g, 'cadOtherFolder');
+  ok('выгрузка без установок — отдельная причина', /ни одной установки/.test(noUnitsReason(noUnits)), noUnitsReason(noUnits));
 }
 
 console.log(failed ? `\nПРОВАЛОВ: ${failed}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');
