@@ -69,6 +69,18 @@ export async function officeChangesOfContent(bytes: Buffer, projectId: string, r
       const value = textOf(row?.values[key]?.value);
       if (value) return value;
     }
+    // Позиции в источнике уже нет (удалена): имя — то, что осталось в её строке документа, в колонке тега или
+    // наименования. Без этого строка списка называлась внутренним номером «PRJ-000001-EQ-000004»
+    if (!row && stored && isBook) {
+      const keys = LABEL_FIELDS[stored.sourceId] || [];
+      for (const anchorId of stored.anchorIds) {
+        const anchor = anchorById.get(anchorId);
+        const only = anchor?.parts.length === 1 && anchor.parts[0]!.kind === 'field' ? anchor.parts[0]!.binding.fieldKey : '';
+        const address = stored.cells?.[anchorId];
+        const text = only && keys.includes(only) && anchor?.sheetName && address ? actual.get(`${anchor.sheetName}\u0000${address.toUpperCase()}`) : '';
+        if (text) return text;
+      }
+    }
     return decodeURIComponent(entityId.split(':').at(-1) || entityId);
   };
   const headerText = (anchor: OfficeHeaderAnchor): string => {

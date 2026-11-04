@@ -81,6 +81,16 @@ async function main() {
   r = await officeChangesOfContent(manual, 'P', source({ [E1]: '3', [E2]: '4', [E3]: '7' }));
   assert.equal(r.changes.filter(isRewritten).length, 0, 'ручную правку «Обновить» не заменит');
 
+  // Исчезнувшую позицию узнают по тому, что осталось в её строке документа (колонка тега), а не по внутреннему номеру
+  const LABEL_ANCHOR = '0b1b8a50-9999-4a4a-8a8a-aaaaaaaaaaa2';
+  const named = await writeOfficeBindings(base, {
+    ...schema,
+    anchors: [...schema.anchors, { id: LABEL_ANCHOR, kind: 'excel-range', sheet: 'Перечень', address: 'A1', parts: [{ kind: 'field', binding: { ...binding, fieldKey: 'tag', unit: undefined, anchorId: LABEL_ANCHOR } }] }],
+    rows: schema.rows.map((row, at) => ({ ...row, anchorIds: [ANCHOR, LABEL_ANCHOR], cells: { ...row.cells, [LABEL_ANCHOR]: `A${at + 2}` }, values: { ...row.values, [LABEL_ANCHOR]: ['Насос', 'Клапан', 'Итого'][at]! } })),
+  });
+  r = await officeChangesOfContent(named, 'P', source({ [E1]: '3', [E2]: '4' }));
+  assert.equal(r.changes.find((c) => c.kind === 'row-removed')?.entityLabel, 'Итого', 'исчезнувшая позиция названа по ячейке её строки');
+
   // 6. Данные не тронуты: проверка ничего не пишет
   assert.deepEqual(await officeChangesOfContent(base, 'P', source({ [E1]: '3', [E2]: '4', [E3]: '7' })).then((x) => x.stale), false);
   // 7. Документ (Word): места нет адреса ячейки — строку держит закладка, переход идёт по ней
