@@ -9,6 +9,7 @@ import { writeOfficeBindings, officeRowMarker, type OfficePackageBindings } from
 import { officeChangesOfContent } from '../server/officeChanges';
 import { insertRowAbove, setCellText } from './officeExternalEdit';
 import type { OfficeEntityRow } from '../src/lib/officeModel';
+import { isRewritten } from '../src/components/office/FluxChangesList';
 
 const ANCHOR = '0b1b8a50-9999-4a4a-8a8a-aaaaaaaaaaa1';
 const E1 = 'office:equipment:element:EQ-1', E2 = 'office:equipment:element:EQ-2', E3 = 'office:equipment:element:EQ-3';
@@ -72,6 +73,13 @@ async function main() {
   r = await officeChangesOfContent(base, 'P', source({ [E1]: null, [E2]: '4' }));
   assert.deepEqual(r.changes.map((c) => [c.kind, c.address, c.was, c.now]), [['cleared', 'B2', '3', null], ['row-removed', 'B4', null, null]]);
   assert.equal(r.count, 2);
+  // «Изменится значений» и «из них изменилось» в панели считают только то, что «Обновить» перепишет:
+  // пропавшее и исчезнувшее документ не стирает, ручную правку не заменяет
+  assert.equal(r.changes.filter(isRewritten).length, 0, 'пропавшее значение и исчезнувшая позиция в «изменится» не идут');
+  r = await officeChangesOfContent(base, 'P', source({ [E1]: '5', [E2]: '4' }));
+  assert.deepEqual(r.changes.map((c) => [c.kind, c.address, isRewritten(c)]), [['changed', 'B2', true], ['row-removed', 'B4', false]], 'из двух устаревших переписывается одно');
+  r = await officeChangesOfContent(manual, 'P', source({ [E1]: '3', [E2]: '4', [E3]: '7' }));
+  assert.equal(r.changes.filter(isRewritten).length, 0, 'ручную правку «Обновить» не заменит');
 
   // 6. Данные не тронуты: проверка ничего не пишет
   assert.deepEqual(await officeChangesOfContent(base, 'P', source({ [E1]: '3', [E2]: '4', [E3]: '7' })).then((x) => x.stale), false);

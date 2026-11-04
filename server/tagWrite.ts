@@ -54,6 +54,27 @@ export class TagConflict extends Error {
   constructor(public readonly tag: any) { super('Тег изменился с тех пор, как вы его читали'); }
 }
 export class TagBadRequest extends Error {}
+/** Код тега уже занят в проекте: два тега с одним кодом смешивают позиции в спецификации и документах */
+export class TagDuplicate extends Error {
+  constructor(public readonly identifier: string) { super(`Тег «${identifier}» уже заведён в этом проекте. Укажите другой код.`); }
+}
+
+/** Сравнение кодов, как на экране «Тегов» (checkTagExists): без пробелов по краям и без учёта регистра */
+export const tagCodeKey = (identifier: unknown): string => String(identifier ?? '').trim().toLowerCase();
+
+/**
+ * Код тега, пригодный к записи: не пустой и не занятый другим тегом проекта.
+ * Прежний `PUT`/`POST` принимали и пустой код, и повтор — оба дефекта
+ * находились двойным нажатием «Создать» и переименованием в код соседа.
+ */
+export async function assertFreeTagCode(db: any, projectId: string, identifier: unknown, exceptId?: string): Promise<string> {
+  const code = String(identifier ?? '').trim();
+  if (!code) throw new TagBadRequest('Код тега не может быть пустым');
+  const key = tagCodeKey(code);
+  const same = await db.tag.findMany({ where: { projectId }, select: { id: true, identifier: true } });
+  if (same.some((t: any) => t.id !== exceptId && tagCodeKey(t.identifier) === key)) throw new TagDuplicate(code);
+  return code;
+}
 
 /** Положение карточки: его правка версию не сверяет и тег «изменённым» не делает. */
 const LAYOUT_KEYS = new Set(['x', 'y', '_noPos']);
@@ -126,8 +147,14 @@ async function attemptWrite(tx: any, id: string, input: TagWriteInput): Promise<
   for (const f of FIELD_NAMES) {
     const v = input.fields?.[f];
     if (v === undefined) continue;
-    // Пустое значение необязательного поля — это null, как и прежде; код тега пустым не обнуляется
-    const next = f === 'identifier' ? v : (v || null);
+    // Пустое значение необязательного поля — это null, как и прежде; код тега пустым не обнуляется:
+    // пустой код — ошибка запроса, а занятый — отказ, и менять тот же код с пробелами нечего
+    let next: unknown;
+    if (f === 'identifier') {
+      const code = String(v ?? '').trim();
+      if (code === String(cur.identifier ?? '').trim()) continue;
+      next = await assertFreeTagCode(tx, cur.projectId, code, id);
+    } else next = v || null;
     if (next !== (cur[f] ?? null)) { data[f] = next; fieldsChanged = true; }
   }
 
@@ -203,6 +230,8 @@ export async function writeTags(prisma: any, items: Array<{ id: string; input: T
 export function tagWriteFailure(err: unknown): { status: number; body: Record<string, unknown> } | null {
   if (err instanceof TagNotFound) return { status: 404, body: { error: err.message } };
   if (err instanceof TagBadRequest) return { status: 400, body: { error: err.message } };
+  // Занятый код — не конфликт версий: экрану нечего перечитывать, человек должен выбрать другой код
+  if (err instanceof TagDuplicate) return { status: 409, body: { error: err.message, duplicate: true } };
   // В ответе — текущий тег: экран заменяет им свою копию и просит повторить правку
   if (err instanceof TagConflict) return { status: 409, body: { error: err.message, conflict: true, tag: err.tag } };
   return null;

@@ -90,7 +90,10 @@ async function send(tag: any, url: string, method: 'PUT' | 'PATCH', payload: Rec
         body: JSON.stringify({ ...payload, ...(version !== undefined ? { version } : {}) }),
       });
       if (res.status === 409) {
-        const fresh = (await res.json().catch(() => null))?.tag;
+        const body = await res.json().catch(() => null);
+        // Код занят другим тегом: перечитывать нечего, человек должен выбрать другой
+        if (body?.duplicate) { deps.addToast(String(body.error || 'Такой код тега уже есть'), 'error'); return false; }
+        const fresh = body?.tag;
         if (fresh) {
           known.set(id, fresh.updatedAt ?? null);
           // Свежая копия вместо устаревшей; связи с оборудованием (equipment, componentElements) в ответе нет — они остаются прежние

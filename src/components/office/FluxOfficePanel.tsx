@@ -13,7 +13,7 @@ import ProjectDataPanel from './ProjectDataPanel';
 import FileEnglishVersion from '../translate/FileEnglishVersion';
 import { useOfficeTemplates } from './useOfficeTemplates';
 import { insertMessage, insertTable, tableColumns, tableRows, type TableCell } from './fluxTable';
-import FluxChangesList, { changesHeadline } from './FluxChangesList';
+import FluxChangesList, { changesHeadline, isRewritten } from './FluxChangesList';
 import { OFFICE_APPLIED_EVENT, useOfficeChanges } from './useOfficeChanges';
 import type { OfficeChange } from '../../../office/changes';
 import type { RibbonCommand } from './useFluxRibbon';
@@ -332,7 +332,7 @@ export default function FluxOfficePanel(props: Props) {
       if (!applied) throw new Error('Редактор не применил заполнение.');
       setAppliedSummary(applied);
       // Список «было → стало», каким он был до заполнения, остаётся на экране после него
-      setAppliedChanges((changesRef.current?.changes || []).filter((change) => !change.manual));
+      setAppliedChanges((changesRef.current?.changes || []).filter(isRewritten));
       window.dispatchEvent(new Event(OFFICE_APPLIED_EVENT));
       setPlan(null); setPlanSchema(null); setPlanQuery(null);
       if (applied.state) setOfficeState(applied.state);
@@ -625,7 +625,7 @@ function UpdatePanel({ changes, changesLoading, appliedChanges, onGoto, state, r
       <FluxChangesList changes={appliedChanges} onGoto={onGoto} />
     </section>}
     {applied && <section role="status" className="mt-4 border-l-2 border-emerald-600 pl-3 text-xs text-slate-700 dark:text-slate-300"><p>Записано значений: {applied.appliedCount.toLocaleString('ru-RU')}{appliedChanges.length ? `, из них изменилось: ${appliedChanges.length.toLocaleString('ru-RU')}` : ''}</p>{applied.manualRows.length > 0 && <p className="mt-1">Без замены оставлены строки с ручными правками: {applied.manualRows.length}</p>}</section>}
-    {plan && <section className="mt-5 space-y-3 border-t border-slate-200 pt-4 dark:border-dark-border"><h3 className="font-semibold">План заполнения</h3><PlanCount label="Будет добавлено" count={plan.adds.length} /><PlanCount label="Будет обновлено" count={plan.replaces.length} /><PlanCount label="Изменится значений" count={changes?.count ?? 0} /><PlanCount label="Ручные строки сохранены" count={plan.manualRows.length} /><PlanCount label="Пропущено" count={plan.skips.length} /><PlanCount label="Ошибки" count={plan.errors.length} /><PlanCount label="Конфликты" count={plan.conflicts.length} />
+    {plan && <section className="mt-5 space-y-3 border-t border-slate-200 pt-4 dark:border-dark-border"><h3 className="font-semibold">План заполнения</h3><PlanCount label="Будет добавлено" count={plan.adds.length} /><PlanCount label="Будет обновлено" count={plan.replaces.length} /><PlanCount label="Изменится значений" count={changes?.changes.filter(isRewritten).length ?? 0} /><PlanCount label="Ручные строки сохранены" count={plan.manualRows.length} /><PlanCount label="Пропущено" count={plan.skips.length} /><PlanCount label="Ошибки" count={plan.errors.length} /><PlanCount label="Конфликты" count={plan.conflicts.length} />
       {plan.errors.map((item, index) => <p key={`error-${index}`} className="text-xs text-rose-700 dark:text-rose-300">{item.message}</p>)}
       {plan.conflicts.map((item, index) => <p key={`conflict-${index}`} className="text-xs text-amber-700 dark:text-amber-300">Конфликт в {item.anchorId}: {item.candidates.join(', ')}</p>)}
       <p className="text-xs text-slate-500 dark:text-slate-400">План не сохраняет файл. После подтверждения изменения попадут в текущий редактор, затем используются обычные сохранение и история GenOffice.</p>
