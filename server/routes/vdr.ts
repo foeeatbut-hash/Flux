@@ -1,9 +1,7 @@
-import { isPrivilegedUser } from '../accessPolicy.js';
 import type { Express, Request, Response } from 'express';
 import * as XLSX from 'xlsx';
 import { getPrisma, resolveProjectId, sendError, notifyUser, broadcast } from '../context.js';
 import { createFileFromBytes, exportsHome } from '../officeStore.js';
-import { hasPosition } from '../../shared/positions.js';
 import { syncItemTags, linksOfItems, unmatchedCodesOf, planTagLinks, applyTagLinks, undoTagLinks, codesOfItem, isGenericTagCode } from '../vdrTags.js';
 import { tagCodeKey } from '../tagWrite.js';
 import { VdrConflict, expectedStamp, expectedRevisionOf, guardedUpdate, guardedIssue, whenText, inTransaction } from '../vdrWrite.js';
@@ -450,10 +448,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
 
   app.delete('/api/vdr/registers/:id', async (req: Request, res: Response) => {
     try {
-      const me = authUserOf(req);
-      if (me && !isPrivilegedUser(me) && !hasPosition(me, 'MANAGER')) {
-        return res.status(403).json({ error: 'Удалять реестр может администратор или руководитель' });
-      }
+      // Право `vdr.delete` проверяет общая таблица прав (server/vdrPermissions.ts)
       const prisma = getPrisma();
       const register = await prisma.docRegister.findUnique({ where: { id: req.params.id } });
       await inTransaction(prisma, async (db) => {
@@ -601,10 +596,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
 
   app.delete('/api/vdr/items/:id', async (req: Request, res: Response) => {
     try {
-      const me = authUserOf(req);
-      if (me && !isPrivilegedUser(me) && !hasPosition(me, 'MANAGER')) {
-        return res.status(403).json({ error: 'Удалять строки реестра может администратор или руководитель' });
-      }
+      // Право `vdr.delete` проверяет общая таблица прав (server/vdrPermissions.ts)
       const prisma = getPrisma();
       const item = await prisma.docRegisterItem.findUnique({ where: { id: req.params.id } });
       await inTransaction(prisma, async (db) => {

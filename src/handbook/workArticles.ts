@@ -224,7 +224,7 @@ export const WORK_ARTICLES: HandbookArticle[] = [
     links: [
       ['DocRegisterItem', 'DocRegister', 'registerId'],
     ],
-    perms: ['procurement.manage', 'procurement.setup', 'vdr.manage', 'vdr.standards'],
+    perms: ['procurement.manage', 'procurement.setup', 'vdr.manage', 'vdr.delete', 'vdr.standards'],
     pitfalls: [
       'Этапы — общие для компании. Переименовали у себя — поменялось у всех.',
     ],

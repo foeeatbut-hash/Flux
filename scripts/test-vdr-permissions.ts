@@ -36,7 +36,8 @@ const concrete = (p: string) => p.replace(/:[A-Za-z]+/g, 'x1');
 check('маршруты ВДР собраны', routes.length >= 20, routes.length);
 for (const r of routes.filter(x => x.method !== 'GET')) {
   const rule = vdrPermissionFor(r.method, concrete(r.path));
-  const want = r.path.startsWith('/api/vdr/standards') ? 'vdr.standards' : 'vdr.manage';
+  const want = r.path.startsWith('/api/vdr/standards') ? 'vdr.standards'
+    : (r.method === 'DELETE' && /^\/api\/vdr\/(registers|items)\//.test(r.path)) ? 'vdr.delete' : 'vdr.manage';
   check(`${r.method} ${r.path} требует ${want}`, rule?.perm === want, rule);
 }
 check('чтение не требует права записи (его замок — проект)', routes.filter(x => x.method === 'GET').every(r => vdrPermissionFor('GET', concrete(r.path)) === null));
@@ -61,6 +62,15 @@ async function main() {
   app.use(express.json());
   // Вошедший — по заголовку: проверяется замок проекта, а не вход
   app.use((req: any, _res, next) => { const id = String(req.headers['x-user'] || ''); req.authUser = id ? { id, role: id === 'admin' ? 'ADMIN' : 'USER' } : null; next(); });
+  // Права по функциям — как в server.ts: администратор проходит, остальным нужны все права правила.
+  // Набор прав человека берётся из его имени: `del` — удаление и ведение, `mgr` — только ведение (должность MANAGER без права).
+  const granted: Record<string, string[]> = { del: ['vdr.manage', 'vdr.delete'], mgr: ['vdr.manage'], member: ['vdr.manage'] };
+  app.use((req: any, res, next) => {
+    const user = req.authUser;
+    const rule = user && user.role !== 'ADMIN' ? vdrPermissionFor(req.method, req.path) : null;
+    if (rule && [rule, ...(rule.also || [])].some(x => !(granted[user.id] || []).includes(x.perm))) return res.status(403).json({ error: 'Недостаточно прав' });
+    next();
+  });
   registerProjectEntityGuard(app as any);
   registerVdrRoutes(app as any, { chunkBytes: async () => 1024 });
   const server = createServer(app);
@@ -93,6 +103,20 @@ async function main() {
       ['GET', '/api/vdr/tag-links?projectId=closed'],
       ['POST', '/api/vdr/tag-links/apply', { projectId: 'closed', digest: 'x' }],
     ];
+    // Удаление: администратор — всегда; остальные — только с vdr.delete. Должность MANAGER сама по себе не даёт
+    await prisma.project.create({ data: { id: 'open', name: 'Открытый' } });
+    await prisma.projectMember.createMany({ data: ['del', 'mgr', 'admin'].map(userId => ({ projectId: 'open', userId })) });
+    const mkReg = async (n: string) => { await prisma.docRegister.create({ data: { id: `r-${n}`, projectId: 'open', name: n } }); await prisma.docRegisterItem.create({ data: { id: `i-${n}`, registerId: `r-${n}`, projectId: 'open', contractorNo: n } }); };
+    for (const n of ['a', 'b', 'c', 'd', 'e', 'f']) await mkReg(n);
+    check('без права vdr.delete: удаление строки — 403', await call('mgr', 'DELETE', '/api/vdr/items/i-a') === 403);
+    check('без права vdr.delete: удаление реестра — 403', await call('mgr', 'DELETE', '/api/vdr/registers/r-a') === 403);
+    check('строка и реестр целы после отказов', !!(await prisma.docRegisterItem.findUnique({ where: { id: 'i-a' } })) && !!(await prisma.docRegister.findUnique({ where: { id: 'r-a' } })));
+    check('с правом vdr.delete: удаление строки — 200', await call('del', 'DELETE', '/api/vdr/items/i-b') === 200);
+    check('с правом vdr.delete: удаление реестра — 200', await call('del', 'DELETE', '/api/vdr/registers/r-c') === 200);
+    check('администратор удаляет строку — 200', await call('admin', 'DELETE', '/api/vdr/items/i-d') === 200);
+    check('администратор удаляет реестр — 200', await call('admin', 'DELETE', '/api/vdr/registers/r-e') === 200);
+    check('удалённое действительно удалено', !(await prisma.docRegisterItem.findUnique({ where: { id: 'i-b' } })) && !(await prisma.docRegister.findUnique({ where: { id: 'r-c' } })));
+
     for (const [method, url, body] of cases) {
       check(`не участник проекта: ${method} ${url} — 403`, await call('stranger', method, url, body) === 403);
     }
