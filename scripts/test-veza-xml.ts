@@ -373,5 +373,22 @@ console.log('\n16. Вид узла, отнесённый к роли челов�
   ok('«не позиция» просто пропускается', !(skipped.unknownKinds || []).includes('cadSteamHumidifier'), skipped.unknownKinds);
 }
 
+console.log('\n17. Секунды остаются секундами, а не градусами');
+{
+  // Общий нормализатор единиц сводит «с» к °C (в бланках так пишут градусы).
+  // Словарь САПР отдаёт уже готовое «с» — у «Времени прогрева» клапана из живой
+  // выгрузки (unSecond) вышло «300 °C». Берём образец и меняем единицу у расхода воздуха установки.
+  const withSeconds = VEZA_SAMPLE_XML.replace(
+    'proReportPropType="ptAirFlow" proReportPropValue="5000" proMeasureUnit="unCubicMeterPerHour"',
+    'proReportPropType="ptAirFlow" proReportPropValue="5000" proMeasureUnit="unSecond"');
+  ok('образец изменён', withSeconds !== VEZA_SAMPLE_XML);
+  const unit0 = parseVezaXml(withSeconds, detectEquipType).units[0] as ParsedUnit;
+  const flow = unit0.groups.flatMap(g => g.params).find(p => p.sourceKey === 'ptAirFlow');
+  ok('единица unSecond — «с»', flow?.unit === 'с', flow);
+  ok('и не °C', flow?.unit !== '°C', flow);
+  // Градусы по-прежнему градусы, незнакомая единица по-прежнему нормализуется
+  ok('unCelsiusDegree — °C', vezaUnit('unCelsiusDegree') === '°C');
+}
+
 console.log(failed ? `\nПРОВАЛОВ: ${failed}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');
 process.exit(failed ? 1 : 0);

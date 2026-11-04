@@ -2,7 +2,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { canonicalUnit } from './normalize.js';
 import {
   vezaGroup, vezaGroupRoles, vezaKindSense, vezaLevel, vezaParamRole, vezaProp, vezaRole, vezaUnit,
-  VEZA_SAME_ROLE, type KindMap,
+  VEZA_SAME_ROLE, VEZA_UNITS, type KindMap,
 } from './vezaDict.js';
 import { distribute, type TagAssignment, type TagSlot } from '../equipment/notes.js';
 import { PERMISSIVE_TAG_POLICY, autoFixTag, type TagPolicy } from '../equipment/tagPolicy.js';
@@ -131,7 +131,12 @@ function groupsOfCollection(node: any, dict: Record<string, El>): SpecGroup[] {
 
     const title = vezaGroup(groupCode);
     const { title: key } = vezaProp(groupCode, typeCode);
-    const unit = canonicalUnit(vezaUnit(attr(item.el, 'proMeasureUnit')));
+    // Словарь САПР уже отдаёт готовые обозначения («с», «°C», «кВ·А»), и прогонять
+    // их через общий нормализатор нельзя: тот сводит «с» к °C (так в бланках
+    // пишут градусы), и «Время прогрева 300 с» превращалось в «300 °C».
+    // Нормализуются только коды, которых словарь не знает.
+    const unitCode = attr(item.el, 'proMeasureUnit');
+    const unit = Object.hasOwn(VEZA_UNITS, unitCode) ? vezaUnit(unitCode) : canonicalUnit(vezaUnit(unitCode));
 
     if (!byGroup.has(title)) { byGroup.set(title, []); order.push(title); }
     const params = byGroup.get(title)!;
