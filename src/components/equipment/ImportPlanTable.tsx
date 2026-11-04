@@ -16,7 +16,11 @@ import { Btn, FilterSeg, Status, type Tone } from '../ui';
 
 type Filter = 'all' | 'new' | 'update' | 'same' | 'attention';
 const SEP = '‖'; // тот же разделитель, что у blockKey на сервере: система‖моноблок‖код
-const needsChoice = (link: any) => ['ambiguous', 'invalid'].includes(link?.action);
+/**
+ * Тег, уже стоящий на другой установке или позиции, молча «Связать» не получает: «один тег — одно изделие»,
+ * связь останется прежней, и импорт с таким выбором выглядел бы успешным, ничего не сделав. Человек выбирает сам.
+ */
+export const needsChoice = (link: any) => ['ambiguous', 'invalid'].includes(link?.action) || !!link?.takenBy;
 export const linkKeyOf = (link: any) => `${link.blockKey}\u0000${link.identifier}`;
 
 /** Что выбрано в селекторе сейчас: решение инженера или предложение плана. */
@@ -98,6 +102,7 @@ export default function ImportPlanTable({ plan, choices, onChoices, disabled }: 
   const unresolved = (row: Row) => !!row.link && needsChoice(row.link) && !choices[linkKeyOf(row.link)];
   const count = (test: (row: Row) => boolean) => rows.filter(test).length;
   const attention = count(unresolved);
+  const taken = rows.filter(row => row.link?.takenBy);
   // Когда всё спорное решено, пункт «Требуют выбора» исчезает — вместе с пустой выдачей под ним
   const shown: Filter = filter === 'attention' && !attention ? 'all' : filter;
   const visible = rows.filter(row => shown === 'all' ? true : shown === 'attention' ? unresolved(row) : row.state === shown);
@@ -107,7 +112,7 @@ export default function ImportPlanTable({ plan, choices, onChoices, disabled }: 
   // Групповое действие идёт над отмеченными строками, а без отметок — над видимыми
   const scope = (picked.length ? rows.filter(row => picked.includes(row.id)) : visible).filter(row => row.link);
   const forCreate = scope.filter(row => row.link.action === 'create');
-  const forLink = scope.filter(row => row.link.existingTagId);
+  const forLink = scope.filter(row => row.link.existingTagId && !row.link.takenBy);
   const bulk = (targets: Row[], value: (row: Row) => string) => onChoices(Object.fromEntries(targets.map(row => [linkKeyOf(row.link), value(row)])));
   const toggle = (list: string[], id: string) => list.includes(id) ? list.filter(item => item !== id) : [...list, id];
 
@@ -128,6 +133,11 @@ export default function ImportPlanTable({ plan, choices, onChoices, disabled }: 
         {picked.length > 0 && <Btn size="sm" tone="ghost" disabled={disabled} onClick={() => bulk(scope, () => 'skip')}>Пропустить выбранные</Btn>}
       </div>
     </div>
+    {taken.length > 0 && <div role="alert" className="mb-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+      <div className="font-medium">Теги из файла уже привязаны к другому оборудованию: {taken.length}</div>
+      <ul className="mt-1 space-y-0.5">{taken.map(row => <li key={row.id} className="break-words"><span className="font-mono">{row.link.identifier}</span> — {row.link.takenByWhere || 'другая позиция проекта'}</li>)}</ul>
+      <p className="mt-1">Для этих строк выберите действие сами: связь с прежним оборудованием останется, один тег принадлежит одному изделию.</p>
+    </div>}
     <table className="fx-table w-full table-fixed">
       <thead><tr>
         <th className="hidden w-8 @xl:table-cell"><input type="checkbox" aria-label="Выбрать все показанные" checked={allPicked} disabled={!visible.length} onChange={() => setPicked(allPicked ? [] : visible.map(row => row.id))} /></th>
@@ -153,7 +163,7 @@ export default function ImportPlanTable({ plan, choices, onChoices, disabled }: 
                   <span className="truncate" title={`${row.title}${row.mono ? ` · ${row.mono}` : ''}`}>{row.title}{row.mono && <span className="ml-1.5 text-[var(--flux-text-muted)]">{row.mono}</span>}</span>
                 </div>
               </td>
-              <td className="min-w-0"><span className="block truncate font-mono text-xs" title={row.link?.problem ? `${row.tag}: ${row.link.problem}` : row.tag}>{row.tag || <span className="text-[var(--flux-text-faint)]">—</span>}</span></td>
+              <td className="min-w-0"><span className="block truncate font-mono text-xs" title={row.link?.problem ? `${row.tag}: ${row.link.problem}` : row.link?.takenBy ? `${row.tag}: уже привязан — ${row.link.takenByWhere || 'другая позиция проекта'}` : row.tag}>{row.tag || <span className="text-[var(--flux-text-faint)]">—</span>}</span>{row.link?.takenBy && <span className="block truncate text-2xs text-amber-700 dark:text-amber-300" data-testid="tag-taken">занят: {row.link.takenByWhere || 'другая позиция'}</span>}</td>
               <td className="hidden @2xl:table-cell"><Status tone={bad ? 'rose' : STATE[row.state].tone} title={row.overrides ? `Ручных значений под заменой: ${row.overrides}` : undefined}>{STATE[row.state].label}{row.state === 'update' && row.changed ? ` · ${row.changed}` : ''}</Status></td>
               <td>{row.link
                 ? <CustomSelect ariaLabel={`Действие с тегом ${row.tag}`} disabled={disabled} value={value} placeholder="Выберите…" menuAlign="right" menuClassName="min-w-64"

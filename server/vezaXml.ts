@@ -323,6 +323,36 @@ function groupsForRole(groups: SpecGroup[], role: RoleId): SpecGroup[] {
 }
 
 /**
+ * Счётчики роли в разделе параметров — это итог по блоку, а не «на штуку».
+ *
+ * `ptgFAN.ptEQUIPCOUNT=2` описывает два вентилятора блока. Подпозиция же
+ * получает копию раздела и после разворота количества стоит в реестре одна:
+ * «Количество 2» на каждом из двух вентиляторов — вдвое больше, чем есть.
+ * Поэтому, если счётчик равен числу позиций роли в блоке, у каждой он
+ * становится единицей. «Количество рабочих» делится так же, а если рабочих
+ * меньше, чем штук, какой из экземпляров рабочий, файл не говорит — параметр
+ * у экземпляров убирается, а не выдумывается. Счётчик, не совпавший с числом
+ * позиций, остаётся как в файле: гадать, к чему он относится, не нужно.
+ */
+function countsPerInstance(subs: ParsedBlock[]): void {
+  const total = new Map<string, number>();
+  for (const p of subs) total.set(p.role || '', (total.get(p.role || '') || 0) + 1);
+  for (const p of subs) {
+    const n = total.get(p.role || '') || 0;
+    p.groups = p.groups.map(g => ({
+      ...g,
+      params: g.params.flatMap(prm => {
+        if (prm.sourceKey !== 'ptEQUIPCOUNT' && prm.sourceKey !== 'ptEQUIPWORKCOUNT') return [prm];
+        const v = Number(prm.value);
+        if (v === n) return [{ ...prm, value: '1' }];
+        if (prm.sourceKey === 'ptEQUIPWORKCOUNT' && v > 0 && v < n) return [];
+        return [prm];
+      }),
+    }));
+  }
+}
+
+/**
  * Развернуть дерево кандидатов в позиции реестра.
  *
  * Здесь количество превращается в отдельные строки: `cfnAmount=2` у
@@ -431,6 +461,7 @@ function parseBlock(
   const counter = { at: 1 };
   const subs: ParsedBlock[] = [];
   expand(positionsIn(entry.node, dict, 1, 'БЛОК', unknown, ctx.kinds), position, groups, detectType, counter, subs);
+  countsPerInstance(subs);
 
   return assignTagsFromNote([block, ...subs], note, ctx, groups, counter);
 }

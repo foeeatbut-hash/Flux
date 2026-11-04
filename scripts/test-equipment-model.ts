@@ -221,6 +221,9 @@ console.log('\nУдаление позиции: что теряется, а чт
     deleteWarning({ itemCode: 'x', tags: [{ identifier: 'A' }, { identifier: 'B' }] }).includes('Теги A, B останутся'));
   ok('без тегов лишнего не обещаем',
     !deleteWarning({ itemCode: 'x' }).includes('тег') && deleteWarning({ itemCode: 'x' }).includes('необратимо'));
+  ok('позиция в схеме E3: диалог называет число связей и «Сняты во Flux»',
+    /стоит в схеме E3 \(2 связи\)/.test(deleteWarning(valve, 2)) && deleteWarning(valve, 2).includes('Сняты во Flux'), deleteWarning(valve, 2));
+  ok('без связей E3 текст прежний', !deleteWarning(valve, 0).includes('E3') && deleteWarning(valve, 0) === deleteWarning(valve));
   ok('пустые теги не считаются',
     tagsOf({ itemCode: 'x', tags: [{ identifier: '  ' }, { identifier: 'A' }] }).join() === 'A');
   ok('после удаления сказано, сколько тегов освободилось',

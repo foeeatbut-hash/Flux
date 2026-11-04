@@ -38,12 +38,25 @@ export const tagsOf = (c: DeletableComponent): string[] =>
  * позицией, и человек, ожидавший обратного, должен это увидеть здесь, а не
  * обнаружить свободный тег через неделю.
  */
-export function deleteWarning(c: DeletableComponent): string {
+export function deleteWarning(c: DeletableComponent, e3Links = 0): string {
   const tags = tagsOf(c);
-  if (!tags.length) return 'Позиция уйдёт из реестра. Действие необратимо.';
-  const word = tags.length === 1 ? 'Тег' : 'Теги';
-  const stays = tags.length === 1 ? 'останется в проекте и освободится' : 'останутся в проекте и освободятся';
-  return `Позиция уйдёт из реестра. ${word} ${tags.join(', ')} ${stays}.`;
+  const base = !tags.length ? 'Позиция уйдёт из реестра. Действие необратимо.' : (() => {
+    const word = tags.length === 1 ? 'Тег' : 'Теги';
+    const stays = tags.length === 1 ? 'останется в проекте и освободится' : 'останутся в проекте и освободятся';
+    return `Позиция уйдёт из реестра. ${word} ${tags.join(', ')} ${stays}.`;
+  })();
+  return e3Links > 0 ? `${base}\n\n${e3Notice(e3Links)}` : base;
+}
+
+/**
+ * Позиция, уже стоящая в схеме E3, — чужая работа (КИП): удаление здесь не
+ * убирает блок из схемы. Связь с E3 остаётся без позиции, и E3Flux покажет её
+ * в «Сняты во Flux»; про это нужно знать до нажатия, а не после.
+ */
+export function e3Notice(links: number): string {
+  const m = links % 100; const l = links % 10;
+  const word = m >= 11 && m <= 14 ? 'связей' : l === 1 ? 'связь' : l >= 2 && l <= 4 ? 'связи' : 'связей';
+  return `Позиция стоит в схеме E3 (${links} ${word}). Блок в схеме не исчезнет: в E3Flux он появится в списке «Сняты во Flux», и судьбу блока решают там.`;
 }
 
 /** Что сказать после удаления. */

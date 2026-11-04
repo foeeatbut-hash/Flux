@@ -23,6 +23,11 @@ try {
     await page.getByText('Импортирован: system-1 · L23 · baselineApplied=false').waitFor();
     const bindingStore = await page.evaluate(() => JSON.parse(localStorage.getItem('flux.equipmentSources.local.v1') || '{}'));
     if (!Object.values(bindingStore).some((binding) => binding.sourceId === 'source-1')) throw new Error('Successful import did not save the local source capability');
+    // Партия XML-импорта запоминается для строки «можно отменить импорт» (как у старого пути)
+    const remembered = await page.evaluate(() => JSON.parse(localStorage.getItem('flux_last_import_project-fixture') || 'null'));
+    if (remembered?.batchId !== 'batch-xml-1') throw new Error(`XML import batch was not remembered for undo: ${JSON.stringify(remembered)}`);
+    // План построен до записи: после успеха «Подтвердить» на нём дал бы 409
+    if (await page.getByRole('button', { name: /Подтвердить импорт/ }).count()) throw new Error('Confirm button stayed active on a stale plan after a successful import');
     const entries = await logs();
     const apply = entries.find(entry => entry.url.endsWith('/apply'));
     if (!apply || apply.body.tagIdentifier !== 'L23' || apply.body.selection !== undefined || apply.body.previewToken !== 'fixture-preview-token' || apply.body.tagLinks[0]?.action !== 'create') throw new Error(`Apply contract mismatch: ${JSON.stringify(apply)}`);
@@ -39,6 +44,23 @@ try {
     const reads = await initialPage.evaluate(() => (window).__importLog.filter(row => row.url.endsWith('/source-import/preview')).length);
     if (reads !== 1) throw new Error(`Queued file must build exactly one plan, got ${reads}`);
     await initialPage.close();
+  }
+  {
+    // Тег файла уже привязан к другому оборудованию: предупреждение сводкой и у строки, «Связать» молча нет
+    const takenPage = await browser.newPage({ viewport: { width: 1100, height: 850 } });
+    takenPage.on('pageerror', error => { throw error; });
+    await takenPage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?taken=1`);
+    await takenPage.getByRole('button', { name: 'Выбрать XML-файл' }).click();
+    await pickXmlFile(takenPage);
+    await takenPage.getByRole('button', { name: 'Показать план' }).click();
+    await takenPage.getByRole('heading', { name: /Предпросмотр/ }).waitFor();
+    await takenPage.getByRole('alert').filter({ hasText: 'уже привязаны к другому оборудованию' }).filter({ hasText: 'Чужой бак · установка L99' }).waitFor();
+    await takenPage.getByTestId('tag-taken').first().waitFor();
+    if (!(await takenPage.getByRole('button', { name: 'Подтвердить импорт' }).isDisabled())) throw new Error('Confirm must wait for an explicit choice on a taken tag');
+    await takenPage.getByRole('button', { name: /Действие с тегом L23$/ }).click();
+    await takenPage.getByRole('option', { name: /^Пропустить/ }).click();
+    if (await takenPage.getByRole('button', { name: 'Подтвердить импорт' }).isDisabled()) throw new Error('Explicit choice must unlock the import');
+    await takenPage.close();
   }
   const initialRace = await browser.newPage({ viewport: { width: 900, height: 850 } });
   await initialRace.goto((process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192') + '/importer.html?initial=1&race=1');

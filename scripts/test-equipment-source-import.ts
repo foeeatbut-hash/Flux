@@ -326,6 +326,21 @@ async function main() {
     const staleEquipment = await prisma.componentElement.findMany({ where: { id: { in: staleDocResult.associations.equipmentIds } } });
     check('устаревшая форма успешно импортируется без привязки и предупреждает о конфликте журнала', staleDocResult.bindingWarning && !staleDocResult.associations.bindingId && !staleDocLedger.bindings.some((row: any) => row.fileName === 'stale-form.docx') && staleDocLedger.revision === beforeStaleDoc.revision);
     check('импорт stale-формы сохраняет возвращённые ID и историю, не удаляя прежние записи', staleSystems.length === staleDocResult.associations.systemIds.length && staleEquipment.length === staleDocResult.associations.equipmentIds.length && afterStaleDoc.systems >= beforeStaleDoc.systems && afterStaleDoc.equipment >= beforeStaleDoc.equipment && afterStaleDoc.history > beforeStaleDoc.history);
+    // Тег файла уже стоит на другой позиции проекта: план называет, на какой, и считает такие теги.
+    // Раньше строка молча шла как «Связать», а тег так и оставался за прежней позицией.
+    const takenTag = '5500-T01-TK-123';
+    const takenSystem = await prisma.equipmentSystem.create({ data: { projectId: 'source-import-project', name: 'Чужая установка' } });
+    const takenMono = await prisma.monoblock.create({ data: { systemId: takenSystem.id, name: 'M9' } });
+    const takenHolder = await prisma.componentElement.create({ data: { monoblockId: takenMono.id, itemCode: 'T9', name: 'Чужой бак', equipType: 'ПРОЧЕЕ', specs: JSON.stringify({ groups: [] }), manual: true } });
+    await prisma.tag.create({ data: { projectId: 'source-import-project', identifier: takenTag, componentElements: { connect: [{ id: takenHolder.id }] } } });
+    const takenPreview = await post('preview', makeBody(takenTag, `${takenTag}-taken.xml`));
+    assert.equal(takenPreview.status, 200, (await takenPreview.clone().text()).slice(0, 300));
+    const takenPlan = await takenPreview.json();
+    const takenLink = (takenPlan.plan.tagLinks || []).find((link: any) => link.identifier === takenTag);
+    check('тег файла, занятый другой позицией, помечен в плане', takenLink?.takenBy === takenHolder.id);
+    check('план называет, к чему тег уже привязан', /Чужой бак/.test(takenLink?.takenByWhere || '') && /Чужая установка/.test(takenLink?.takenByWhere || ''));
+    check('сводка плана считает занятые теги', takenPlan.plan.totals?.tagsTaken === 1);
+
     console.log(`Equipment source import HTTP checks: ${checks} passed.`);
   } finally {
     if (server) await new Promise<void>(resolve => server.close(() => resolve()));

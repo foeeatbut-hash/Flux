@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { rememberImport } from '../../lib/lastImport';
 import { WindowDialogOrEmbedded } from '../ui/WindowDialog';
 import { Btn, IconBtn } from '../ui';
 import CustomSelect from '../CustomSelect';
-import ImportPlanTable from './ImportPlanTable';
+import ImportPlanTable, { needsChoice } from './ImportPlanTable';
 import ImportPlanDecisions from './ImportPlanDecisions';
 import { AlertTriangle, Check, FolderOpen, Loader2, Upload, X } from 'lucide-react';
 import { expandEquipmentUnitGroup, inferEquipmentSourceFilenameRule } from '../../../equipment/sourceXml';
@@ -144,7 +145,7 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
   }, [plan]);
   const unresolvedMatches = (plan?.plan?.matches || []).filter((row: any) => !choices[row.key]);
   const unresolvedSystems = (plan?.plan?.systemRows || []).filter((row: any) => !choices[row.key]);
-  const ambiguousLinks = (plan?.plan?.tagLinks || []).filter((link: any) => ['ambiguous', 'invalid'].includes(link.action));
+  const ambiguousLinks = (plan?.plan?.tagLinks || []).filter(needsChoice);
   const unresolvedTagLinks = ambiguousLinks.filter((link: any) => !tagLinkChoices[`${link.blockKey}\u0000${link.identifier}`]);
   const unknownKinds: string[] = plan?.plan?.unknownKinds || [];
   const safeToApply = !unresolvedMatches.length && !unresolvedSystems.length && !unresolvedTagLinks.length && !unknownKinds.length;
@@ -285,11 +286,20 @@ export default function EquipmentSourceImportDialog(props: { projectId: string; 
       } catch (reason) {
         setNotice(`Оборудование импортировано. Локальную папку XML нужно перепривязать в карточке установки${reason instanceof Error ? `: ${reason.message}` : '.'}`);
       }
+      // Партию запоминаем так же, как в старом пути импорта: серверная отмена умеет её откатить,
+      // а без записи строка «можно отменить импорт» на экране Оборудования не появится.
+      if (payload.batchId) rememberImport(projectId, String(payload.batchId), 1);
+      // План построен на состоянии до записи: после успеха он устарел, и «Подтвердить» на нём дало бы 409.
+      setPlan(null);
       await onImported({ source, tagIdentifier, category, baselineApplied: payload.baselineApplied !== false, bindingId: payload.associations?.bindingId || payload.bindingId || source.sourceId });
       const done = [...doneTags, tagIdentifier];
       setDoneTags(done);
       const next = selectedTags.find(tag => !done.includes(tag));
-      if (!next) { chainRef.current = false; onAllImported?.(); return; }
+      if (!next) {
+        chainRef.current = false;
+        try { setLedgerRevision((await loadEquipmentDocumentBindings(projectId)).revision); } catch (_) { /* Следующий план упрётся в 409 и перестроится. */ }
+        onAllImported?.(); return;
+      }
       // Каждая запись меняет журнал привязок: следующую установку планируем от свежей ревизии.
       try { setLedgerRevision((await loadEquipmentDocumentBindings(projectId)).revision); } catch (_) { /* Сервер вернёт 409, и план перестроится. */ }
       if (operation !== operationRef.current) return;
