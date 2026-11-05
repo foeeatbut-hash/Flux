@@ -87,7 +87,7 @@ export default function DocflowSettings({ isAdmin, addToast }: any) {
             {standards.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           <input value={name} onChange={e => setName(e.target.value)} className={inp + ' flex-1'} placeholder="Название стандарта" />
-          <button type="button" onClick={createStd} className="fx-btn">+ Новый</button>
+          <button type="button" onClick={createStd} disabled={!isAdmin} className="fx-btn">+ Новый</button>
           {isAdmin && <button type="button" title="Удалить стандарт" onClick={removeStd} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>}
         </div>
 
@@ -167,7 +167,7 @@ export default function DocflowSettings({ isAdmin, addToast }: any) {
           <button type="button" onClick={() => addRow('vdrTypes', { code: '', titleEn: '', titleRu: '' })} className="fx-btn fx-btn-quiet mt-1.5">+ тип</button>
         </div>
 
-        <button type="button" onClick={save} disabled={busy} className="fx-btn fx-btn-primary">
+        <button type="button" onClick={save} disabled={busy || !isAdmin} className="fx-btn fx-btn-primary">
           {busy ? 'Сохраняю…' : 'Сохранить стандарт'}
         </button>
       </div>

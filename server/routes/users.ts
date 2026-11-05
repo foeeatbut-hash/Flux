@@ -1,3 +1,4 @@
+import { migrateDocflowPermissions } from '../docflowPermissionMigration.js';
 import type { Express, Request, Response } from 'express';
 import { administratorPermission } from '../accessPolicy.js';
 import { defaultPermissions } from '../../src/lib/permissions';
@@ -130,12 +131,12 @@ const grant = (...ids: string[]) =>
 // в набор по умолчанию не входит — это выдаёт администратор осознанно.
 const ENGINEER_GRANTS = grant(
   'tags.manage', 'dictionaries.manage', 'equipment.import', 'equipment.manage',
-  'files.upload', 'procurement.manage', 'vdr.manage',
+  'files.upload', 'procurement.manage', 'docflow.view', 'docflow.edit', 'docflow.issue',
 );
 const MANAGER_GRANTS = grant(
   'project.manage', 'tags.manage', 'dictionaries.manage', 'equipment.import',
   'equipment.manage', 'files.upload', 'files.delete', 'procurement.manage',
-  'procurement.setup', 'vdr.manage', 'vdr.delete', 'vdr.standards',
+  'procurement.setup', 'docflow.view', 'docflow.edit', 'docflow.issue', 'docflow.delete', 'docflow.settings',
 );
 
 const BUILTIN_ROLES = [
@@ -180,6 +181,7 @@ export async function seedRoles() {
         await prisma.appSetting.create({ data: { key: marker, value: '1' } });
       }
     }
+    await migrateDocflowPermissions(prisma);
     invalidateRolePerms();
   } catch (_) { /* старая база без таблицы ролей — подхватится после синхронизации схемы */ }
 }

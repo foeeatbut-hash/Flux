@@ -1,23 +1,22 @@
-import { Toolbar, Btn, IconBtn, FilterSeg, Status, type Tone } from '../components/ui';
-import { WindowDialog } from '../components/ui/WindowDialog';
+import { Toolbar, Btn, IconBtn, FilterSeg, Status, type Tone } from '../ui';
+import { WindowDialog } from '../ui/WindowDialog';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useStore } from '../store/store';
-import { useToastStore } from '../store/toastStore';
+import { useStore } from '../../store/store';
+import { useToastStore } from '../../store/toastStore';
 import {
   FileSpreadsheet, Plus, Download, RefreshCw, Trash2, FileText, ArrowUpCircle,
   CheckCircle2, AlertTriangle, Send, Loader2, X, Search, Settings2, Tag as TagIcon, History, Languages,
 } from 'lucide-react';
-import { countOf } from '../lib/plural';
-import ImportFileChooser from '../components/ImportFileChooser';
-import { editorHref } from '../lib/officeFiles';
-import { appsFor, openHref } from '../lib/fileTypes';
-import { openInWindowsSaid } from '../lib/saveToWindows';
-import { useModalStore } from '../store/modalStore';
-import { useTranslateStore } from '../store/translateStore';
-import { hasAdminRole } from '../lib/permissions';
-import { hasPosition } from '../../shared/positions';
-import TagLinkPlanDialog, { unlinkedCount, type TagLinkPlan } from '../components/vdr/TagLinkPlanDialog';
+import { countOf } from '../../lib/plural';
+import ImportFileChooser from '../ImportFileChooser';
+import { editorHref } from '../../lib/officeFiles';
+import { appsFor, openHref } from '../../lib/fileTypes';
+import { openInWindowsSaid } from '../../lib/saveToWindows';
+import { useModalStore } from '../../store/modalStore';
+import { useTranslateStore } from '../../store/translateStore';
+import { can } from '../../lib/permissions';
+import TagLinkPlanDialog, { unlinkedCount, type TagLinkPlan } from './TagLinkPlanDialog';
 
 /**
  * Ответ сервера «запись уже изменили» (409): показать его текст и отдать
@@ -85,7 +84,8 @@ export default function VdrPanel() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const projectId = activeProject?.id || 'default';
-  const canManage = hasAdminRole(user as any) || hasPosition(user as any, 'MANAGER');
+  const canManage = can(user, 'docflow.edit');
+  const canIssue = can(user, 'docflow.issue');
 
   const [registers, setRegisters] = useState<Register[]>([]);
   const [regId, setRegId] = useState<string>(searchParams.get('vdr') || '');
@@ -364,11 +364,11 @@ export default function VdrPanel() {
           <span className="text-slate-400">Реестров нет — создайте или импортируйте Excel-ВДР</span>
         )}
         <span className="ml-auto" />
-        <ImportFileChooser accept=".xlsx,.xls,.xlsm" disabled={importing} className={`fx-btn fx-btn-quiet ${importing ? 'opacity-60' : ''}`} label={importing ? 'Импорт…' : 'Импорт'} onFiles={files => { if (files[0]) void importXlsx(files[0]); }} />
+        <ImportFileChooser accept=".xlsx,.xls,.xlsm" disabled={importing || !canManage} className={`fx-btn fx-btn-quiet ${importing ? 'opacity-60' : ''}`} label={importing ? 'Импорт…' : 'Импорт'} onFiles={files => { if (files[0]) void importXlsx(files[0]); }} />
         {register && (
           <>
-            <Btn tone="ghost" onClick={registerRevisionUp} title="Новая ревизия самого ВДР (запись в Учёт ревизий)"><ArrowUpCircle />Рев. ВДР</Btn>
-            <Btn tone="ghost" onClick={fillEnglishTitles} title="Заполнить пустые английские названия по памяти и словарю проекта"><Languages />Англ. названия</Btn>
+            <Btn tone="ghost" onClick={registerRevisionUp} disabled={!canIssue} title="Новая ревизия самого ВДР (запись в Учёт ревизий)"><ArrowUpCircle />Рев. ВДР</Btn>
+            <Btn tone="ghost" onClick={fillEnglishTitles} disabled={!canManage} title="Заполнить пустые английские названия по памяти и словарю проекта"><Languages />Англ. названия</Btn>
             {tagPlan && (tagPlan.toLink.length > 0 || unlinkedCount(tagPlan) > 0) && (
               <Btn tone="ghost" onClick={() => setTagPlanOpen(true)}
                 title="Строки знают тег по коду; связь по номеру тега переживает его переименование. Откроется план — ничего не пишется, пока вы не подтвердите">
@@ -376,10 +376,10 @@ export default function VdrPanel() {
               </Btn>
             )}
             <IconBtn label="Реквизиты реестра, стандарт, свои колонки" onClick={() => setRegSettingsOpen(true)}><Settings2 /></IconBtn>
-            <Btn tone="ghost" onClick={() => setCardItem({ id: '', registerId: register.id, contractorNo: '', ownerNo: '', vendorNo: '', titleEn: '', titleRu: '', vdrCode: '', revision: 'A', reasonForIssue: '', language: '', equipmentTags: '[]', status: 'DRAFT', remarks: '', reviewCode: '', extra: {} })}><Plus />Строка</Btn>
+            <Btn tone="ghost" disabled={!canManage} onClick={() => setCardItem({ id: '', registerId: register.id, contractorNo: '', ownerNo: '', vendorNo: '', titleEn: '', titleRu: '', vdrCode: '', revision: 'A', reasonForIssue: '', language: '', equipmentTags: '[]', status: 'DRAFT', remarks: '', reviewCode: '', extra: {} })}><Plus />Строка</Btn>
           </>
         )}
-        <Btn tone="ghost" onClick={createRegister}><Plus />Реестр</Btn>
+        <Btn tone="ghost" onClick={createRegister} disabled={!canManage}><Plus />Реестр</Btn>
         <IconBtn label="Обновить список" onClick={refresh}><RefreshCw /></IconBtn>
         {register && <Btn tone="primary" onClick={exportXlsx} title="Выгрузить ВДР в Excel (формат заказчика: титул + ревизии + реестр)"><Download />Выгрузить</Btn>}
       </Toolbar>
@@ -509,6 +509,9 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
   projectTags: { id: string; identifier: string }[];
   onClose: () => void; onChanged: () => void;
 }) {
+  const user = useStore(s => s.user);
+  const canEdit = can(user, 'docflow.edit');
+  const canIssue = can(user, 'docflow.issue');
   const { addToast } = useToastStore();
   const navigate = useNavigate();
   const isNew = !item.id;
@@ -636,7 +639,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           {/* Ревизия */}
           {!isNew && (
             <div className="flex items-center gap-2">
-              <button type="button" onClick={() => setRevDialog('next')} className="fx-btn fx-btn-primary" title="Выпустить новую ревизию">
+              <button type="button" disabled={!canIssue} onClick={() => setRevDialog('next')} className="fx-btn fx-btn-primary" title="Выпустить новую ревизию">
                 <ArrowUpCircle className="w-3.5 h-3.5" /> Рев. {f.revision} ↑
               </button>
             </div>
@@ -769,8 +772,8 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
                 </div>
               )}
               <div className="flex gap-2">
-                <button type="button" onClick={() => setRevDialog('void')} className="fx-btn fx-btn-danger fx-btn-sm">Аннулировать (V)</button>
-                <button type="button" onClick={() => setRevDialog('superseded')} className="fx-btn fx-btn-sm">Заменён (S)</button>
+                <button type="button" disabled={!canIssue} onClick={() => setRevDialog('void')} className="fx-btn fx-btn-danger fx-btn-sm">Аннулировать (V)</button>
+                <button type="button" disabled={!canIssue} onClick={() => setRevDialog('superseded')} className="fx-btn fx-btn-sm">Заменён (S)</button>
               </div>
             </>
           )}
@@ -778,7 +781,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
           <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Закрыть</button>
-          <button type="button" onClick={save} disabled={busy} className="fx-btn fx-btn-primary">
+          <button type="button" onClick={save} disabled={busy || !canEdit} className="fx-btn fx-btn-primary">
             {busy ? 'Сохраняю…' : 'Сохранить'}
           </button>
         </div>
@@ -798,7 +801,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
                   <button type="button" onClick={() => { setRevDialog('certify'); setTimeout(issueRevision, 0); }} disabled={busy}
                     className="fx-btn fx-btn-sm">Утвердить (→0)</button>
                 )}
-                <button type="button" onClick={issueRevision} disabled={busy} className="fx-btn fx-btn-primary fx-btn-sm">Выпустить</button>
+                <button type="button" onClick={issueRevision} disabled={busy || !canIssue} className="fx-btn fx-btn-primary fx-btn-sm">Выпустить</button>
               </div>
             </div>
           </div>

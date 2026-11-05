@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "group": "docflow",
+  "programs": [
+    {
+      "id": "docflow",
+      "label": "Документооборот",
+      "routes": [
+        "/docflow"
+      ],
+      "sources": [
+        "src/screens/DocflowScreen.tsx",
+        "src/components/vdr/VdrPanel.tsx",
+        "src/components/docflow/DocflowSettings.tsx"
+      ]
+    }
+  ],
+  "suites": [
+    {
+      "id": "docflow-navigation",
+      "path": "scripts/test-docflow-navigation.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-permissions",
+      "path": "scripts/test-docflow-permissions.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 60000
+    },
+    {
+      "id": "docflow-vdr-permissions",
+      "path": "scripts/test-vdr-permissions.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 60000
+    }
+  ],
+  "actions": [
+    {
+      "id": "docflow.open-legacy",
+      "program": "docflow",
+      "label": "Открыть ДО по старой ссылке ВДР",
+      "sources": [
+        "src/lib/docflowNavigation.ts",
+        "src/screens/ProcurementManagement.tsx"
+      ],
+      "triggers": [
+        "/management?tab=vdr",
+        "/management?tab=docflow",
+        "/management?vdr=…&item=…"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Сохраняются реестр, строка и остальные параметры"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-navigation",
+          "layer": "unit",
+          "claims": [
+            "Старые параметры переводятся без потерь, обычные закупки не перенаправляются"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть ссылку уведомления в оконной оболочке",
+          "expected": [
+            "Открыто ДО и выбрана нужная строка"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docflow.permissions-migrate",
+      "program": "docflow",
+      "label": "Перенести права ВДР в ДО",
+      "sources": [
+        "shared/docflowPermissions.ts",
+        "server/docflowPermissionMigration.ts",
+        "server/vdrPermissions.ts"
+      ],
+      "triggers": [
+        "Запуск после обновления",
+        "Обращение к API ВДР"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Запреты и сроки сохранены",
+        "docflow.files не выдаётся автоматически"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-permissions",
+          "layer": "api-db",
+          "claims": [
+            "Перенос в SQLite атомарен и повторяем без возврата снятых прав",
+            "Перевод сохраняет запреты и сроки, новое право файлов закрыто"
+          ]
+        },
+        {
+          "suite": "docflow-vdr-permissions",
+          "layer": "api-db",
+          "claims": [
+            "Маршруты защищены правами и доступом к проекту"
+          ]
+        }
+      ],
+      "manual": []
+    }
+  ],
+  "connections": []
+}

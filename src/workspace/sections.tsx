@@ -16,7 +16,7 @@ import { resolveSectionPath } from '../lib/sectionAliases';
 import { DocAppIcon, SheetAppIcon, PdfAppIcon, NotesAppIcon } from '../components/ui/FileBadge';
 import {
   HomeAppIcon, ProjectsAppIcon, RegistryAppIcon, EquipmentAppIcon, DirectoryAppIcon,
-  ManagementAppIcon, BuilderAppIcon, CatalogAppIcon, E3FluxAppIcon, ArchivesAppIcon,
+  ManagementAppIcon, DocflowAppIcon, BuilderAppIcon, CatalogAppIcon, E3FluxAppIcon, ArchivesAppIcon,
   ExplorerAppIcon, GuideAppIcon, TranslateAppIcon, BrowserAppIcon, CalendarAppIcon,
   ChatAppIcon, MailAppIcon, FeedbackAppIcon, SettingsAppIcon, LogsAppIcon, UsersAppIcon,
 } from '../components/icons/AppIcons';
@@ -41,6 +41,7 @@ const ChatManagement = lazy(() => import('../screens/ChatManagement'));
 const MailScreen = lazy(() => import('../screens/Mail'));
 const LogsManagement = lazy(() => import('../screens/LogsManagement'));
 const ProcurementManagement = lazy(() => import('../screens/ProcurementManagement'));
+const DocflowScreen = lazy(() => import('../screens/DocflowScreen'));
 const SettingsScreen = lazy(() => import('../screens/SettingsScreen'));
 const FeedbackScreen = lazy(() => import('../screens/FeedbackScreen'));
 const OfficeHost = lazy(() => import('../screens/OfficeHost'));
@@ -150,6 +151,7 @@ export const SECTIONS: SectionDef[] = [
   { path: '/windows-file', title: 'Файл Windows', icon: DocAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true, fileOnly: true, Component: WindowsFileHost },
   { path: '/directory', title: 'Справочник', icon: DirectoryAppIcon, scope: 'project', scroll: 'fixed', pad: false, Component: DictionaryEditor },
   { path: '/management', title: 'Менеджмент', icon: ManagementAppIcon, scope: 'project', scroll: 'fixed', pad: false, Component: ProcurementManagement },
+  { path: '/docflow', title: 'Документооборот', icon: DocflowAppIcon, scope: 'project', scroll: 'fixed', pad: false, feature: 'docflow.view', Component: DocflowScreen },
   // Конструктор — подбор оборудования по Каталогу и бланки заказа. Путь не
   // «/constructor»: так назывался прежний редактор книг, и старые окна людей
   // по этому адресу уводятся в «Таблицу» (lib/sectionAliases)

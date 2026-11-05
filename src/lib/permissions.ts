@@ -1,3 +1,4 @@
+import { DOCFLOW_PERMISSION_ALIASES } from '../../shared/docflowPermissions';
 // Единый модуль прав доступа «по функциям» с таймером.
 // Используется и на фронте (показать/скрыть/заблокировать кнопки),
 // и на сервере (таблица маршрутов в server.ts), чтобы правило было одно.
@@ -87,11 +88,17 @@ export const FEATURES: FeatureDef[] = [
     desc: 'Отмечать этапы, менять поставщика, количество, примечания' },
   { id: 'procurement.setup', group: 'Менеджмент', label: 'Настройка этапов', risky: true,
     desc: 'Менять состав этапов закупки и шаблоны для всей компании' },
-  { id: 'vdr.manage', group: 'Менеджмент', label: 'Реестр ВДР',
+  { id: 'docflow.view', group: 'Документооборот', label: 'Просмотр документов',
+    desc: 'Открывать реестры и документы доступных проектов' },
+  { id: 'docflow.edit', group: 'Документооборот', label: 'Реестр ВДР',
     desc: 'Вести строки реестра, ревизии, замечания и сроки' },
-  { id: 'vdr.delete', group: 'Менеджмент', label: 'Удаление в ВДР', risky: true,
+  { id: 'docflow.files', group: 'Документооборот', label: 'Назначение файлов и возвратов', risky: true,
+    desc: 'Связывать файлы и возвраты со строками ВДР; выдаёт администратор' },
+  { id: 'docflow.issue', group: 'Документооборот', label: 'Выпуск документов',
+    desc: 'Выдавать ревизии документов и реестров' },
+  { id: 'docflow.delete', group: 'Документооборот', label: 'Удаление в ВДР', risky: true,
     desc: 'Удалять реестры ВДР и их строки целиком; администратору право не нужно' },
-  { id: 'vdr.standards', group: 'Менеджмент', label: 'Стандарты документооборота', risky: true,
+  { id: 'docflow.settings', group: 'Документооборот', label: 'Настройки документооборота', risky: true,
     desc: 'Менять коды рассмотрения, маски номеров и правила ревизий' },
 
   { id: 'mail.shared.manage', group: 'Почта', label: 'Настройка общей почты', risky: true,
@@ -153,6 +160,7 @@ export function canAdmin(user: PermUser | null | undefined, feature: string): bo
  * с нуля — и новый человек первый день не мог ничего.
  */
 export const DEFAULT_DENIED = [
+  'docflow.files',
   'project.manage', 'log.view', 'mail.shared.manage',
   // Разбор чужих обращений, чужие технические вложения и настройки хранения —
   // это работа одного-двух человек, а не всех. Писать обращения при этом может
@@ -179,12 +187,15 @@ export const DEFAULT_DENIED = [
  * снятая галочка, которая просто удаляла запись, у такого права ничего не
  * запрещала (см. isExplicitDeny и cleanUserPermissions).
  */
-export const OPEN_BY_DEFAULT = ['builder.edit', 'builder.issue'];
+export const OPEN_BY_DEFAULT = ['builder.edit', 'builder.issue', 'docflow.view'];
 
 /** Запись права с учётом «открытых по умолчанию» — одна для окна и сервера */
 export function entryOf(map: PermMap, feature: string): PermEntry | undefined {
   const e = map[feature];
   if (e) return e;
+  // Совместимость на время переноса базы; явный новый запрет выше сильнее.
+  const legacy = DOCFLOW_PERMISSION_ALIASES[feature];
+  if (legacy && map[legacy]) return map[legacy];
   if (OPEN_BY_DEFAULT.includes(feature) && !DEFAULT_DENIED.includes(feature)) return { enabled: true, until: null };
   return undefined;
 }

@@ -1,26 +1,22 @@
-/**
- * Права на маршруты ВДР: одна таблица, которой пользуется server.ts и проверка.
- *
- * Меняет данные реестра — право `vdr.manage`; стандарты документооборота —
- * отдельное `vdr.standards` (для всей компании, рискованное). Читать реестр
- * может участник проекта: это проверяет общий страж проектов
- * (`projectEntityAccess.ts`) по реестру или строке из адреса, а не право.
- * Удаление реестров и строк — `vdr.delete` (вместе с `vdr.manage`); админ проходит всегда.
- * Порядок важен: частное правило раньше общего.
- */
-
-export interface VdrPermRule { method: RegExp; path: RegExp; perm: string; title: string; also?: { perm: string; title: string }[] }
-
+/** Общие права ДО на старых адресах ВДР: совместимость URL не обходит защиту. */
+export interface VdrPermRule {
+  method: RegExp; path: RegExp; perm: string; title: string;
+  also?: { perm: string; title: string }[];
+}
+const view = { perm: 'docflow.view', title: 'Просмотр документооборота' };
 export const VDR_PERM_RULES: VdrPermRule[] = [
-  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/vdr\/standards/, perm: 'vdr.standards', title: 'Стандарты документооборота' },
-  // Удаление реестров и строк — отдельное право (решение владельца 4.11.2026):
-  // администратору оно не нужно, остальным выдаётся явно; вести реестр при этом тоже надо уметь
-  { method: /^DELETE$/, path: /^\/api\/vdr\/(registers|items)\//, perm: 'vdr.delete', title: 'Удаление реестров и строк ВДР',
-    also: [{ perm: 'vdr.manage', title: 'Реестр ВДР' }] },
-  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/vdr\//, perm: 'vdr.manage', title: 'Реестр ВДР' },
+  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/vdr\/standards/,
+    perm: 'docflow.settings', title: 'Настройки документооборота', also: [view] },
+  { method: /^DELETE$/, path: /^\/api\/vdr\/(registers|items)\//,
+    perm: 'docflow.delete', title: 'Удаление реестров и строк ВДР',
+    also: [view, { perm: 'docflow.edit', title: 'Правка реестра ВДР' }] },
+  // Выдача ревизии — отдельная ответственность, правка полей её не разрешает.
+  { method: /^POST$/, path: /^\/api\/vdr\/(?:items\/[^/]+\/(?:issue-revision|revision-up)|registers\/[^/]+\/revision-up)\/?$/,
+    perm: 'docflow.issue', title: 'Выпуск документов', also: [view] },
+  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/vdr\//,
+    perm: 'docflow.edit', title: 'Реестр ВДР', also: [view] },
+  { method: /^GET$/, path: /^\/api\/vdr\//, ...view },
 ];
-
-/** Какое право нужно этому запросу; `null` — только вход и доступ к проекту. */
 export function vdrPermissionFor(method: string, route: string): VdrPermRule | null {
-  return VDR_PERM_RULES.find(r => r.method.test(method) && r.path.test(route)) || null;
+  return VDR_PERM_RULES.find(rule => rule.method.test(method) && rule.path.test(route)) || null;
 }

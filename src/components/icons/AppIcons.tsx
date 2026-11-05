@@ -121,6 +121,18 @@ export function ManagementAppIcon(props: FluxAppIconProps) {
   );
 }
 
+/** Документооборот (`/docflow`) */
+export function DocflowAppIcon(props: FluxAppIconProps) {
+  return (
+    <SvgBox {...props}>
+      <path d="M4 8a2 2 0 0 1 2-2h6l2.2 2.4H26a2 2 0 0 1 2 2v14.2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" fill="#f5d06f" stroke="#a6761b" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M8 10.5h10l3 3v10.2H8z" fill="#f8fafc" stroke="#475569" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M18 10.5v3h3M10.5 16h7M10.5 19h5" stroke="#64748b" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M18.5 22.8l2.1-2.1a2.4 2.4 0 0 1 3.4 3.4l-2.1 2.1M23.5 20.2l-2.1 2.1a2.4 2.4 0 0 1-3.4-3.4l2.1-2.1" stroke="#0f9f8d" strokeWidth="1.7" strokeLinecap="round" />
+    </SvgBox>
+  );
+}
+
 /** 7. Конструктор (`/builder`) */
 export function BuilderAppIcon(props: FluxAppIconProps) {
   return (
@@ -355,6 +367,7 @@ export const APP_ICON_BY_PATH: Record<string, React.ComponentType<FluxAppIconPro
   '/windows-file': DocAppIcon,
   '/directory': DirectoryAppIcon,
   '/management': ManagementAppIcon,
+  '/docflow': DocflowAppIcon,
   '/builder': BuilderAppIcon,
   '/catalog': CatalogAppIcon,
   '/e3flux': E3FluxAppIcon,
