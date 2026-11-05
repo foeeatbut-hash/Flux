@@ -9,6 +9,8 @@
  *  - pad: нужен ли внешний отступ p-6 (у таблиц/чатов свой лэйаут)
  */
 import React, { lazy } from 'react';
+import { bundledModules } from '../../modules/bundled';
+import { moduleHref } from '../../modules/launch';
 import { useSearchParams } from 'react-router-dom';
 import { resolveSectionPath } from '../lib/sectionAliases';
 import { DocAppIcon, SheetAppIcon, PdfAppIcon, NotesAppIcon } from '../components/ui/FileBadge';
@@ -19,6 +21,7 @@ import {
   ChatAppIcon, MailAppIcon, FeedbackAppIcon, SettingsAppIcon, LogsAppIcon, UsersAppIcon,
 } from '../components/icons/AppIcons';
 
+const ModuleHost = lazy(() => import('../screens/ModuleHost'));
 const Dashboard = lazy(() => import('../screens/Dashboard'));
 const Explorer = lazy(() => import('../screens/Explorer'));
 const Registry = lazy(() => import('../screens/Registry'));
@@ -194,6 +197,7 @@ export const SECTIONS: SectionDef[] = [
   { path: '/settings', title: 'Настройки', icon: SettingsAppIcon, scope: 'mixed', scroll: 'fixed', pad: false, Component: SettingsScreen },
   { path: '/logs', title: 'Журнал', icon: LogsAppIcon, scope: 'global', scroll: 'fixed', pad: false, feature: 'log.view', Component: LogsManagement },
   { path: '/users', title: 'Сотрудники', icon: UsersAppIcon, scope: 'global', scroll: 'fixed', pad: false, adminOnly: true, Component: UsersManagement },
+  ...bundledModules.map((manifest) => ({ path: moduleHref(manifest.id), title: manifest.name, icon: BuilderAppIcon, scope: 'global' as const, scroll: 'fixed' as const, pad: false, multi: true, fileOnly: !manifest.entries.includes('start'), Component: ModuleHost })),
 ];
 
 const BY_PATH = new Map(SECTIONS.map((s) => [s.path, s]));

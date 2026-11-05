@@ -1,0 +1,67 @@
+name: Проверка модулей Flux
+
+on:
+  push:
+    branches: ['studio/**']
+  pull_request:
+    paths:
+      - modules/**
+      - electron/modules.ts
+      - electron/main.ts
+      - src/components/modules/**
+      - src/screens/ModuleHost.tsx
+      - src/services/moduleDataService.ts
+      - scripts/test-modules-*.ts
+      - scripts/fixtures/modules-*.ts*
+      - vite.config.ts
+      - package*.json
+      - .github/workflows/verify-modules.yml
+
+permissions:
+  contents: read
+
+jobs:
+  modules-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      NODE_OPTIONS: --max-old-space-size=8192
+      FLUX_MODULE_SHOTS: artifacts/modules-shots
+      DISABLE_HMR: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Зависимости
+        run: npm ci
+      - name: Сборка интерфейса и встроенного пакета
+        run: npm run build
+      - name: Типы и договор чтения
+        shell: pwsh
+        run: |
+          node_modules/.bin/tsc --noEmit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($suite in @('modules-contract', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'architecture')) {
+            node --import tsx "scripts/test-$suite.ts"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Сборка оболочки Electron
+        run: npm run build:electron
+      - name: Изоляция и живое обновление в Electron на Windows
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          node --import tsx scripts/test-modules-native.ts 2>&1 | Tee-Object artifacts/modules-native.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Пуск и карточки в полном Flux, обе темы
+        shell: pwsh
+        run: |
+          node --import tsx scripts/test-modules-flux-ui-live.ts 2>&1 | Tee-Object artifacts/modules-flux-ui.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: modules-windows-evidence
+          path: artifacts/

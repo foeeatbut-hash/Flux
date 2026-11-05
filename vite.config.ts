@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import { readFileSync } from 'fs';
 import {defineConfig} from 'vite';
+import { buildModuleAssets } from './modules/build';
 
 const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'));
 
@@ -15,7 +16,17 @@ export default defineConfig(() => {
       // Подставной мост к E3 (dev): выгрузка в «Схеме» идёт в «проект E3» в памяти, чтобы её можно было увидеть без E3.series
       __FLUX_E3_FAKE__: JSON.stringify(process.env.FLUX_E3_FAKE === '1'),
     },
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), {
+      name: 'flux-bundled-modules',
+      async generateBundle(_options, bundle) {
+        const css = Object.values(bundle).filter(item => item.type === 'asset' && item.fileName.endsWith('.css'))
+          .map(item => String((item as { source: string }).source)).join('\n');
+        const fonts = Object.fromEntries(Object.values(bundle).filter(item => item.type === 'asset' && item.fileName.endsWith('.woff2'))
+          .map(item => [item.fileName, (item as { source: string | Uint8Array }).source]));
+        const assets = await buildModuleAssets(css, fonts);
+        for (const [fileName, source] of Object.entries(assets)) this.emitFile({ type: 'asset', fileName, source });
+      },
+    }],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

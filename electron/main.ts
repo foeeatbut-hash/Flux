@@ -29,6 +29,9 @@ import { cleanStaleUpdateFolders, removeUpdateFolder } from './updateTemp';
 import { registerUpdateCampaignIpc, assertCampaignRestart } from './updateCampaign';
 import { saveDatabaseConfig, saveLocalDatabasePathConfig } from './connectionConfig';
 import { companyDatabaseUri, databaseSummary, probeCompanyDatabase } from './databaseConnection';
+import { registerModuleScheme, setupModuleProtocol } from './modules';
+
+registerModuleScheme();
 
 /**
  * Запуск с доводом подмены — это не запуск программы, а её установка.
@@ -77,6 +80,9 @@ function createWindow() {
     show: false,
     webPreferences: {
       nodeIntegration: false,
+      nodeIntegrationInSubFrames: false,
+      nodeIntegrationInWorker: false,
+      sandbox: true,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     }
@@ -119,6 +125,7 @@ app.whenReady().then(async () => {
   if (COMPANY_SERVER) { startCompanyServer(); return; }
 
   if (app.isPackaged) process.env.FLUX_RESOURCES_PATH = process.resourcesPath;
+  setupModuleProtocol(path.join(__dirname, '../dist'));
 
   // Убираем стандартное меню File/Edit/View/Window
   Menu.setApplicationMenu(null);
