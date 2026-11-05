@@ -38,6 +38,14 @@ process.on('exit', () => { if (!completed) process.exitCode = 1; });
     await panel.getByText('Черновик новый').waitFor();
     await left.getByText('1', { exact: true }).waitFor();
     assert.equal(await panel.getByText('Черновик 1', { exact: true }).count(), 0, 'изменение источника обновляет список');
+    // Обычное окно (один монитор): панель задач стоит под столом, и низ
+    // панели — в 4 px над ней, а не ещё на высоту панели задач выше.
+    await page.evaluate(() => { const f = (window as any).__drafts; f.store.getState().close(); f.windows.setState({ displays: [], area: { w: 1280, h: 752 }, activeDisplayId: null }); });
+    await page.waitForTimeout(250);
+    await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', code: 'KeyD', ctrlKey: true, altKey: true, bubbles: true })));
+    await panel.waitFor();
+    const single = await panel.boundingBox();
+    assert.ok(single && Math.abs(single.y + single.height - 748) <= 1, `в обычном окне панель стоит в 4 px над панелью задач (низ ${single && single.y + single.height})`);
     assert.deepEqual(errors, [], 'нет ошибок страницы');
     completed = true;
     console.log('Проверки панели черновиков пройдены');

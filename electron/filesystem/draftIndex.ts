@@ -4,7 +4,15 @@ import type { WindowsFilesService } from './service';
 // Реестр один для поиска и панели: переименование и корзина не могут
 // оставить устаревшую копию списка в другом хранилище.
 export function unpublishedDrafts(service: Pick<WindowsFilesService, 'state'>) {
-  return Object.values(service.state.data.drafts).filter(draft => !draft.trashed && !draft.publishedRef);
+  const drafts = service.state.data.drafts;
+  // Корзина помечает только саму папку-черновик, её содержимое остаётся в
+  // реестре без пометки. Без проверки предков удалённое всплывало бы в
+  // «Только черновики» и в панели как живое.
+  const inTrashedFolder = (draft: (typeof drafts)[string]) => {
+    for (let id = draft.parent.draftId, hops = 0; id && hops < 64; id = drafts[id]?.parent.draftId, hops++) if (drafts[id]?.trashed) return true;
+    return false;
+  };
+  return Object.values(drafts).filter(draft => !draft.trashed && !draft.publishedRef && !inTrashedFolder(draft));
 }
 export async function listDrafts(service: WindowsFilesService, offset = 0, limit = 500): Promise<WindowsDraftListing> {
   offset = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0;

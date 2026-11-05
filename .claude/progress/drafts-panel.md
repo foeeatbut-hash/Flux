@@ -1,17 +1,32 @@
 # Панель «Черновики»
 
-Ветка drafts/panel от свежего main 9835a2e (PR135 слит). Отдельный PR, Studio не менять.
-Задание: docs/roadmap/drafts-panel.md. Один draft PR, коммит на каждый из 6 шагов.
+Задание: docs/roadmap/drafts-panel.md (шаги 1–6, «Готово, когда»). Ветка
+drafts/panel (внешний исполнитель сделал шаги 1–2, fffc253 и 63ab68b; main
+слит в d9b120f). Один draft PR в main, коммит на шаг. Не трогать
+src/components/vdr/, DocflowScreen, src/components/docflow/, modules/,
+src/components/modules/.
 
-- [x] 1. Убрано только отображение Flux drafts на Desktop. Baseline desktop и windows-files239 PASS. Unit3 PASS, отрицательная мутация exit1 в отдельной копии. build/types/architecture PASS на восстановленной копии.
-- [ ] 2. Реализация готова: общий readonly registry + кнопка/панель/системная клавиша. Локально source7/store8, отрицательные мутации exit1, windows-files239/bridge165, build/Electron/types/architecture/verification PASS. UI fixture собран; Chromium отсутствует, поэтому UI и Windows ещё ожидают CI нового SHA. После зелёного CI отметить шаг и начинать шаг3.
+Проверки «до» (d9b120f, Vite 5521, chromium-1243): tsc 0, architecture PASS;
+run-checks drafts desktop taskbar explorer windows-files glass — 32 набора,
+6 провалов. Не наши (были и на main): desktop-creation-ui (ждёт заголовок
+«Проводник»), office-explorer-live (нужны редакторы), remaining-files-explorer-api
+(маркер стенда), windows-files-electron (Electron не запускается в контейнере).
+Сломаны веткой: taskbar-ui (DraftsLayer падал без ipcRenderer.on и гасил стол),
+windows-explorer-ui (проверял рамку по черновику на столе).
+
+Vite в этой копии не следит за файлами (.claude/** в ignored) — после правок
+перезапускать.
+
+- [x] 1–2. Проверены и исправлены: содержимое папки-черновика в корзине
+  всплывало в источнике (и в «Только черновики»); в обычном окне панель висела
+  на 48 px выше панели задач; падение слоя без моста; стенд стола переведён на
+  проверку «черновик не выводится» и рамку на столе без моста оболочки.
 - [ ] 3. Полоса с поиском/типами/сортировкой/датами/колесом.
 - [ ] 4. Компактный вид, список, фильтры, низ.
 - [ ] 5. Действия/публикация/DnD/сведения/старые/настройки.
-- [ ] 6. Меры/снимки/документация/Windows CI/draft PR. Удалить файл хода.
+- [ ] 6. Меры/снимки/документация shell.md/draft PR. Удалить файл хода.
 
-Контейнер возобновился со старым снимком, прежняя локальная Flux-drafts исчезла. Работа восстановлена от свежего main; прежние результаты не подменяют новые. Сохранять контрольные точки в удалённой ветке.
-
-Flux Store не забыт: после принятого Studio #134 этап2 отдельным PR, порядок выпуски/подписи → права/роль/каналы → Store → ошибки/предложения. Оформление по обновлённому плану; не включать в drafts/panel.
-
-Находки для шага5: publishDraft/Tree пока только в исходную папку, target+keepCopy требуют расширения существующей операции. VDR.fileNodeId серверный файл замечаний, нельзя подставлять draftId. Native Office sessions owner=webContents, не userId; состояние открыт не равно dirty. Внешнее DnD неопубликованных запрещено существующим мостом.
+Находки для шага 5 (внешнего исполнителя): publishDraft/Tree только в
+исходную папку, target+keepCopy требуют расширения операции. VDR.fileNodeId —
+серверный файл, draftId подставлять нельзя. Native Office sessions
+owner=webContents; «открыт» не равно «изменён».

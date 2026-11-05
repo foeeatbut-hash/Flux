@@ -77,6 +77,14 @@ async function main() {
     assert.deepEqual(changed.metadata.history, []);
     console.log('✓ История не передаётся в списке');
 
+    const folder = await service.createDraftFolder(parent, 'Папка');
+    const nested = await service.createDraft(folder.ref, 'Вложенный.txt', content);
+    assert.ok(unpublishedDrafts(service).some(item => item.id === nested.ref.draftId));
+    await service.trash(folder.ref);
+    assert.ok(!unpublishedDrafts(service).some(item => item.id === nested.ref.draftId || item.id === folder.ref.draftId), 'содержимое папки в корзине не считается живым черновиком');
+    assert.ok(!(await listDrafts(service)).entries.some(item => item.draftId === nested.ref.draftId));
+    console.log('✓ Содержимое папки-черновика в корзине не попадает в источник');
+
     const originalEntry = service.entry.bind(service);
     (service as any).entry = async (ref: any, allowLink?: boolean) => {
       if (ref.draftId === second.ref.draftId) throw Object.assign(new Error('denied'), { code: 'EPERM' });

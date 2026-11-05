@@ -1,5 +1,5 @@
 import React from 'react';
-import { BAR_H } from '../../lib/metrics';
+import { draftsPanelFrame } from '../../lib/draftsPanelFrame';
 import { Z } from '../../lib/layers';
 import { useStore } from '../../store/store';
 import { acquireDraftsSource, useDraftsPanelStore } from '../../store/draftsPanelStore';
@@ -38,17 +38,18 @@ export default function DraftsLayer() {
     };
     window.addEventListener('keydown', key, true);
     window.addEventListener('pointerdown', outside, true);
-    const off = (window as any).electron?.ipcRenderer?.on('drafts:toggle', toggle);
+    // Мост есть не везде (браузер, стенды), а слой стоит в общем столе:
+    // его ошибка гасила бы весь стол, поэтому подписка только при наличии.
+    let off: unknown;
+    const ipc = (window as any).electron?.ipcRenderer;
+    try { if (typeof ipc?.on === 'function') off = ipc.on('drafts:toggle', toggle); } catch { off = undefined; }
     return () => { window.removeEventListener('keydown', key, true); window.removeEventListener('pointerdown', outside, true); if (typeof off === 'function') off(); };
   }, []);
   if (displayId === null) return null;
-  const work = displays.find((display) => display.id === displayId)?.workArea ?? { x: 0, y: 0, ...area };
-  const width = Math.min(400, Math.max(0, work.w - 8));
-  const height = Math.min(540, Math.max(0, work.h - BAR_H - 8));
+  const monitor = displays.find((display) => display.id === displayId)?.workArea;
   const desk = document.querySelector('[data-desk]')?.getBoundingClientRect();
-  const wantedLeft = anchor && desk ? anchor.left - desk.left : work.x + 4;
-  const left = Math.max(work.x + 4, Math.min(wantedLeft, work.x + work.w - width - 4));
-  const top = work.y + work.h - BAR_H - 4 - height;
+  const { left, top, width, height } = draftsPanelFrame({ work: monitor ?? { x: 0, y: 0, ...area }, barInside: !!monitor,
+    anchorLeft: anchor && desk ? anchor.left - desk.left : null, width: 400, height: 540 });
   return <section ref={panelRef} aria-label="Черновики" data-drafts-panel className="absolute fx-glass flex flex-col overflow-hidden rounded-lg text-slate-800 dark:text-slate-100" style={{ left, top, width, height, zIndex: Z.tray }}>
     <header className="border-b border-slate-200 px-3 py-2 text-sm font-medium dark:border-dark-border">Черновики</header>
     <div className="min-h-0 flex-1 overflow-auto p-2 text-sm">
