@@ -25,6 +25,7 @@ import { useAppContext } from '../store/policyStore';
 import SectionFrame, { asHref } from './SectionFrame';
 import Desktop from './Desktop';
 import Taskbar from './Taskbar';
+import DraftsLayer from './drafts/DraftsLayer';
 import { useDisplayStore, workspaceAreas } from '../store/displayStore';
 import { displayAt, displayForRect, displaySnap, type DisplayRect } from '../../workspace/displays';
 import { shareRect } from '../lib/layouts';
@@ -492,6 +493,7 @@ export default function WindowsLayer() {
         className="absolute" style={{ left: d.workArea.x, top: d.workArea.y + d.workArea.h - BAR_H, width: d.workArea.w, height: BAR_H, zIndex: Z.taskbar }}>
         <Taskbar displayId={d.id} />
       </div>)}
+      <DraftsLayer />
 
       {/* Показываем окна этого стола, но держим смонтированными все: раздел на
           соседнем столе продолжает жить — с открытым документом, набранным и

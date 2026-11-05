@@ -184,6 +184,44 @@
       ],
       "prerequisites": [],
       "timeoutMs": 180000
+    },
+    {
+      "id": "shell-drafts-desktop",
+      "path": "scripts/test-drafts-desktop.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-drafts-store",
+      "path": "scripts/test-drafts-store.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "shell-drafts-panel-ui",
+      "path": "scripts/test-drafts-panel-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "drafts-fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_UI_URL"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_CHROME"
+        }
+      ],
+      "timeoutMs": 90000
     }
   ],
   "actions": [

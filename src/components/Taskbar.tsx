@@ -28,6 +28,7 @@ import { isQuiet, untilLabel } from '../lib/notifCenter';
 import { useMailStore } from '../store/mailStore';
 import { useWindowStore, openPaths, activeWindowPath, windowsOf } from '../store/windowStore';
 import TaskbarRunMark from './TaskbarRunMark';
+import DraftsButton from './drafts/DraftsButton';
 import { useDesktopStore } from '../store/desktopStore';
 import { buildTaskbar, clockLabel, deadlineLabel, badgeLabel, trayFit, runState, PEEK_DELAY, PEEK_GRACE } from '../lib/taskbar';
 import { snapshotWindows, useThumbKeeper } from './useWindowThumbs';
@@ -335,6 +336,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
         <LayoutGrid size={BAR_ICON} className="shrink-0" />
       </button>
 
+      <DraftsButton displayId={displayId} />
       <div className="w-1 shrink-0" />
 
       {/* Полоса кнопок не прокручивается. Прокрутка здесь давала скроллбар во

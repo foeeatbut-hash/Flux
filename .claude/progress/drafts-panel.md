@@ -4,7 +4,7 @@
 Задание: docs/roadmap/drafts-panel.md. Один draft PR, коммит на каждый из 6 шагов.
 
 - [x] 1. Убрано только отображение Flux drafts на Desktop. Baseline desktop и windows-files239 PASS. Unit3 PASS, отрицательная мутация exit1 в отдельной копии. build/types/architecture PASS на восстановленной копии.
-- [ ] 2. Общий источник, кнопка на мониторах, CtrlAltD, открытие/закрытие.
+- [ ] 2. Реализация готова: общий readonly registry + кнопка/панель/системная клавиша. Локально source7/store8, отрицательные мутации exit1, windows-files239/bridge165, build/Electron/types/architecture/verification PASS. UI fixture собран; Chromium отсутствует, поэтому UI и Windows ещё ожидают CI нового SHA. После зелёного CI отметить шаг и начинать шаг3.
 - [ ] 3. Полоса с поиском/типами/сортировкой/датами/колесом.
 - [ ] 4. Компактный вид, список, фильтры, низ.
 - [ ] 5. Действия/публикация/DnD/сведения/старые/настройки.

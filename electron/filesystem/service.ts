@@ -545,7 +545,7 @@ export class WindowsFilesService {
     return this.locked(`draft-parent:${parent.rootId}:${parent.relativePath}:${parent.draftId || ''}`, async () => {
       await this.ensureFreeName(parent, name);
       const id = randomUUID();
-      this.state.data.drafts[id] = { id, kind: 'directory', parent: { rootId: parent.rootId, relativePath: parent.relativePath, ...(parent.draftId ? { draftId: parent.draftId } : {}) }, ...(!parent.draftId ? { parentFileId: await this.identity(await this.filename(parent)) } : {}), name };
+      this.state.data.drafts[id] = { id, kind: 'directory', createdAt: new Date().toISOString(), parent: { rootId: parent.rootId, relativePath: parent.relativePath, ...(parent.draftId ? { draftId: parent.draftId } : {}) }, ...(!parent.draftId ? { parentFileId: await this.identity(await this.filename(parent)) } : {}), name };
       const ref = { rootId: parent.rootId, relativePath: joinRelative(parent.relativePath, name), draftId: id };
       await this.state.save(); this.changed(ref);
       if (!opts.silent) await this.record(`Создание папки «${name}»`, { kind: 'create', at: ref, fingerprint: await fingerprint(this, ref) }, opts);

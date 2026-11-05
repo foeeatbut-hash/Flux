@@ -5,6 +5,7 @@ import { isRunnableFile, RUNNABLE_REFUSAL } from './runnable';
 import { updateRefusal, sha256File } from './updateSignature';
 import { downloadVerifiedUpdate, assertUpdatePublished, type VerifiedDownload } from './updateDownload';
 import { setupCapture } from './capture';
+import { setupDraftsShortcut } from './draftsShortcut';
 import { setupFeedbackCapture } from './feedbackCapture';
 import { setupWindowThumb } from './windowThumb';
 import { setupBrowser, disposeBrowserFor } from './browser';
@@ -182,6 +183,7 @@ app.whenReady().then(async () => {
 
   // Захват с экрана: трей, горячая клавиша, пульт (см. electron/capture.ts)
   setupCapture(() => mainWindow);
+  setupDraftsShortcut(() => mainWindow);
 
   // Снимок своего окна для обращения — отдельно от захвата данных: у того своя
   // корзина и распознавание, и «приложить снимок» не должно их запускать
