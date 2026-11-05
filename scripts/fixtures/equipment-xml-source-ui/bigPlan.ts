@@ -8,8 +8,11 @@ const KINDS: Array<[string, string, string]> = [
   ['Заслонка', 'КЛАПАН', 'DM'], ['Охладитель', 'ОХЛАДИТЕЛЬ', 'CL'], ['Датчик температуры', 'ДАТЧИК', 'TE'],
 ];
 
-export function buildBigPlan(unit: string, rows: number) {
-  const blocks: any[] = [];
+export function buildBigPlan(unit: string, rows: number, withUnitBlock = false) {
+  // Как в настоящем плане: корневая запись установки (__unit__) — блок с тем же ключом, что у тега установки
+  const blocks: any[] = withUnitBlock
+    ? [{ key: `${unit}‖‖__unit__`, systemName: unit, monoblockName: '', itemCode: '__unit__', title: unit, equipType: 'УСТАНОВКА', action: 'create', params: [], changedCount: 0, newCount: 0, overrideImpact: 0 }]
+    : [];
   const tagLinks: any[] = [{ blockKey: `${unit}‖‖__unit__`, identifier: unit, action: 'create' }];
   for (let i = 0; i < rows; i++) {
     const [title, equipType, code] = KINDS[i % KINDS.length];

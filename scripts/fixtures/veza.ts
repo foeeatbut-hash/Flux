@@ -62,6 +62,9 @@ export const VEZA_SAMPLE_XML = `<?xml version="1.0" encoding="UTF-8" standalone=
     <N45 cfnName="Коллекция элементов отчета блок" cfnAmount="1" cfnLevel="caePropCollection" cfnElement="cadReportCollection" proItemCount="4" proReportLevel="BlockItem"/>
     <N46 cfnName="Элемент отчета ptgBLOCK.ptName" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgBLOCK" proReportPropType="ptName" proReportPropValue="Вентилятор ВСК" proMeasureUnit="unNone"/>
     <N47 cfnName="Элемент отчета ptgFAN.ptFanKFactor" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgFAN" proReportPropType="ptFanKFactor" proReportPropValue="470" proMeasureUnit="unPiece2"/>
+    <N901 cfnName="Элемент отчета ptgFAN.ptEQUIPCOUNT" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgFAN" proReportPropType="ptEQUIPCOUNT" proReportPropValue="2" proMeasureUnit="unPiece"/>
+    <N902 cfnName="Элемент отчета ptgFAN.ptEQUIPWORKCOUNT" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgFAN" proReportPropType="ptEQUIPWORKCOUNT" proReportPropValue="1" proMeasureUnit="unPiece"/>
+    <N903 cfnName="Элемент отчета ptgMOTOR.ptEQUIPCOUNT" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgMOTOR" proReportPropType="ptEQUIPCOUNT" proReportPropValue="2" proMeasureUnit="unPiece"/>
     <N48 cfnName="Элемент отчета ptgMOTOR.ptNY" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgMOTOR" proReportPropType="ptNY" proReportPropValue="15" proMeasureUnit="unKilowatt"/>
     <N49 cfnName="Элемент отчета ptgMEMOES.ptMemoItems" cfnAmount="1" cfnLevel="caePropCollectionItem" cfnElement="cadReportCollectionItem" proReportPropGroup="ptgMEMOES" proReportPropType="ptMemoItems" proReportPropValue="&quot;Таг-номер вентилятор PR-01-BL-001A, PR-01-BL-002A&quot;" proMeasureUnit="unNone"/>
 
@@ -138,6 +141,9 @@ export const VEZA_SAMPLE_XML = `<?xml version="1.0" encoding="UTF-8" standalone=
                       <N46 cfnAmount="1"/>
                       <N47 cfnAmount="1"/>
                       <N48 cfnAmount="1"/>
+                      <N901 cfnAmount="1"/>
+                      <N902 cfnAmount="1"/>
+                      <N903 cfnAmount="1"/>
                       <N49 cfnAmount="1"/>
                     </N45>
                     <N72 cfnAmount="2">

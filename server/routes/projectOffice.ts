@@ -217,6 +217,7 @@ export async function rebindOfficeContent(before: Buffer, body: any) {
     entityId: String(row?.entityId || '').slice(0, 300), entityType: String(row?.entityType || '').slice(0, 80),
     sourceId: String(row?.sourceId || '').slice(0, 120), sourceRevision: String(row?.sourceRevision || body?.sourceRevision || '').slice(0, 120),
     anchorIds: Array.isArray(row?.anchorIds) ? [...new Set<string>(row.anchorIds.map(String))].filter((id) => anchors.has(id)).slice(0, 1000) : [],
+    ...(typeof row?.removed === 'string' && row.removed ? { removed: row.removed.slice(0, 40) } : {}),
     ...(row?.cells && typeof row.cells === 'object' ? { cells: Object.fromEntries(Object.entries(row.cells).filter(([id, value]) => anchors.has(id) && typeof value === 'string').slice(0, 1000).map(([id, value]) => [id, String(value).slice(0, 100)])) } : {}),
     ...(row?.values && typeof row.values === 'object' ? { values: Object.fromEntries(Object.entries(row.values).filter(([id, value]) => anchors.has(id) && (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)))).slice(0, 1000).map(([id, value]) => [id, typeof value === 'string' ? value.slice(0, 32767) : value])) } : {}),
   })) : prior?.rows || [];

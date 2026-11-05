@@ -16,6 +16,7 @@ import CustomSelect from '../CustomSelect';
 import { Btn, Status, Dialog } from '../ui';
 import { useToastStore } from '../../store/toastStore';
 import TagComments from './TagComments';
+import TagVdrDocs from './TagVdrDocs';
 import { useTagNavigationStore } from '../../store/tagNavigationStore';
 import { openInProject } from '../../lib/projectScope';
 import {
@@ -257,8 +258,8 @@ export default function TagCardModal({
               onRemove={(id) => onRemoveDescription(tag.id, id)}
             />
 
-            {/* Список документов ВДР убран: связь ВДР с тегом отключена, пока она держится на коде строкой
-                (переименование её рвёт). Вернуть — по id тега; TagVdrDocs.tsx оставлен для этого */}
+            {/* Документы ВДР: связь по id тега, переименование её не рвёт */}
+            <TagVdrDocs tagId={tag.id} identifier={tag.identifier} projectId={tag.projectId} />
 
           </div>
 

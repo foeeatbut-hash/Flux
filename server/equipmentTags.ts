@@ -40,6 +40,8 @@ export interface TagLink {
   existingTagId?: string;
   /** Тег занят другим изделием — «один тег — одно изделие» */
   takenBy?: string;
+  /** Чем занят: «Чужой бак · установка У1» — для предупреждения в плане */
+  takenByWhere?: string;
   /** Похожие теги проекта: другой регистр, латиница/кириллица, дефисы */
   candidates?: TagCandidate[];
   /**

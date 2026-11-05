@@ -31,16 +31,16 @@ window.fetch = async (input, init) => {
     if (new URLSearchParams(location.search).get('race') === '1') await new Promise(resolve => setTimeout(resolve, 500));
     // ?rows=N — длинный план для снимков и проверки прокрутки
     const bigRows = Number(new URLSearchParams(location.search).get('rows') || 0);
-    if (bigRows) return new Response(JSON.stringify({ success: true, fileName: 'L23.xml', sha256: 'a'.repeat(64), revision: 'A', previewToken: 'fixture-preview-token', unitTag: { identifier: 'L23', action: 'create' }, plan: buildBigPlan('L23', bigRows) }), { status: 200 });
+    if (bigRows) return new Response(JSON.stringify({ success: true, fileName: 'L23.xml', sha256: 'a'.repeat(64), revision: 'A', previewToken: 'fixture-preview-token', unitTag: { identifier: 'L23', action: 'create' }, plan: buildBigPlan('L23', bigRows, new URLSearchParams(location.search).get('unitRow') === '1') }), { status: 200 });
     return new Response(JSON.stringify({ success: true, fileName: 'L23.xml', sha256: 'a'.repeat(64), revision: 'A', previewToken: 'fixture-preview-token', unitTag: { identifier: 'L23', action: 'create' }, plan: {
     systems: [{ name: 'L23', title: 'L23', action: 'create' }],
     blocks: [{ key: 'L23‖B1', systemName: 'L23', title: 'Вентилятор', equipType: 'ВЕНТИЛЯТОР', action: 'create', params: [{ group: 'Воздух', key: 'Расход воздуха', value: '8060', unit: 'м³/ч', status: 'new' }], changedCount: 1, overrideImpact: 1 }],
-    tagLinks: [{ blockKey: 'L23‖‖__unit__', identifier: 'L23', action: 'create' }], matches: [], systemRows: [], missing: [], totals: { systems: 1, newBlocks: 1, updatedBlocks: 0, unchangedBlocks: 0, overrides: 1 },
+    tagLinks: [new URLSearchParams(location.search).get('taken') === '1' ? { blockKey: 'L23‖‖__unit__', identifier: 'L23', action: 'link', existingTagId: 'tag-old', takenBy: 'el-old', takenByWhere: 'Чужой бак · установка L99' } : { blockKey: 'L23‖‖__unit__', identifier: 'L23', action: 'create' }], matches: [], systemRows: [], missing: [], totals: { systems: 1, newBlocks: 1, updatedBlocks: 0, unchangedBlocks: 0, overrides: 1 },
     } }), { status: 200 });
   }
   if (url.endsWith('/equipment/source-import/apply')) {
     if (new URLSearchParams(location.search).get('race') === '1') await new Promise(resolve => setTimeout(resolve, 500));
-    return new Response(JSON.stringify({ success: true, baselineApplied: false, source: { sourceId: 'source-1', tagId: 'tag-1', targetType: 'system', systemId: 'system-1', elementId: 'element-1', revision: 'A', sha256: 'a'.repeat(64), fileName: 'L23.xml' } }), { status: 200 });
+    return new Response(JSON.stringify({ success: true, baselineApplied: false, batchId: 'batch-xml-1', source: { sourceId: 'source-1', tagId: 'tag-1', targetType: 'system', systemId: 'system-1', elementId: 'element-1', revision: 'A', sha256: 'a'.repeat(64), fileName: 'L23.xml' } }), { status: 200 });
   }
   if (url.endsWith('/equipment/import-draft-plan')) return new Response(JSON.stringify({ plan: {
     systems: [{ name: 'L23', title: 'L23', action: 'match' }],

@@ -668,7 +668,13 @@ export default function Equipment() {
 
   /** Убрать лишнюю позицию. Что предупредить и что сказать — в lib/equipmentDelete */
   const deleteComponent = async (c: Component) => {
-    if (!await openConfirm(`Удалить «${blockLabel(c)}»?`, deleteWarning(c as any), { confirmLabel: 'Удалить', tone: 'danger' })) return;
+    // Свежий список связей, а не кэш строки «В схеме E3»: за полминуты его могли выгрузить
+    let e3Links = 0;
+    try {
+      const rows = await (await fetch(api(`/projects/${encodeURIComponent(activeProject?.id || '')}/e3/summary`))).json();
+      if (Array.isArray(rows)) e3Links = rows.filter((r: any) => r.elementId === c.id && r.state === 'PLACED').length;
+    } catch (_) { /* без E3 удаление идёт как раньше */ }
+    if (!await openConfirm(`Удалить «${blockLabel(c)}»?`, deleteWarning(c as any, e3Links), { confirmLabel: 'Удалить', tone: 'danger' })) return;
     try {
       const res = await fetch(api(`/equipment/component/${c.id}`), { method: 'DELETE' });
       if (!res.ok) throw new Error('отказ сервера');
@@ -777,7 +783,7 @@ export default function Equipment() {
           canManage={canManageEquipment}
           initialDocument={documentToReview}
           onClose={() => { setShowDocImport(false); setDocumentToReview(null); }}
-          onImported={() => { loadSystems(); loadTags(); void checkProjectXmlSources(); }}
+          onImported={() => { setUndoable(readLastImport(activeProject?.id || '')); loadSystems(); loadTags(); void checkProjectXmlSources(); }}
         />
       )}
       {showXmlUpdates && <EquipmentXmlUpdatesDialog projectId={pid} canManage={canManageEquipment} localStatuses={xmlSourceStatuses} sourceLabels={xmlSourceLabels} documentBindings={documentBindingsForUpdates} documentStatuses={documentSourceStatuses} onReviewDocument={binding => {

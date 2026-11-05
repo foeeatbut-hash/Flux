@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { getPrisma, upsertSetting } from '../context.js';
 import { importEquipmentToDB } from '../equipmentImport.js';
 import { parseEquipmentXML } from '../equipmentParser.js';
+import { noUnitsReason } from '../vezaXml.js';
 import { KIND_MAP_KEY, kindMap, parseOptionsFor } from '../equipmentFile.js';
 import { SKIP_KIND } from '../vezaDict.js';
 import { ROLES } from '../../equipment/roles.js';
@@ -279,9 +280,7 @@ export function registerEquipmentDraftRoutes(app: Express): void {
       const projectId = String(req.body?.projectId || '');
       const result = parseEquipmentXML(text, await parseOptionsFor(projectId || undefined));
       if (!result.units.length) {
-        return res.status(400).json({
-          error: 'В файле не нашлось установок. Похоже, это не выгрузка расчёта — попробуйте импорт бланка.',
-        });
+        return res.status(400).json({ error: noUnitsReason(text) });
       }
       res.json({ units: result.units, fileName: clean(req.body?.fileName, 200) || 'Расчёт' });
     } catch (error: any) {

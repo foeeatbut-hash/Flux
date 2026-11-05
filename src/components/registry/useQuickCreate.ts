@@ -9,7 +9,7 @@
  * после загрузки тегов и доски, поэтому их собственный `loadTags` и поиск
  * свободного места тоже приходят параметрами, а не создаются здесь заново.
  */
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useToastStore } from '../../store/toastStore';
 import { useModalStore } from '../../store/modalStore';
 import { type Point } from '../../lib/tagLayout';
@@ -103,8 +103,12 @@ export function useQuickCreate({
   }, [newTagIdentifier, tags]);
 
   // Manual fast tag create with verification
+  // Запрос уже ушёл: поля очищаются только по ответу сервера, и двойной щелчок или двойной Enter
+  // успевал отправить тот же тег второй раз (на экране он ещё не числился созданным)
+  const creatingRef = useRef(false);
   const handleCreateTag = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (creatingRef.current) return;
     if (!newTagIdentifier || !newTagBrand.trim() || !activeProject) {
       addToast("Ошибка: Заполните обязательные поля Tag и Mark!", "error");
       return;
@@ -115,6 +119,7 @@ export function useQuickCreate({
       return;
     }
 
+    creatingRef.current = true;
     try {
       // Новая карточка появляется на свободном месте — не перекрывая существующие.
       // Если тег заводят через меню правой кнопки, «свободное место» ищется от
@@ -190,9 +195,16 @@ export function useQuickCreate({
         // reset to default status 'info' (В работе)
         setNewTagActuality('info');
         loadTags();
+      } else {
+        // Раньше отказ сервера (занятый код, пустое поле) уходил молча: поля оставались заполненными без объяснения
+        const reason = (await res.json().catch(() => null))?.error;
+        addToast(typeof reason === 'string' && reason ? reason : 'Не удалось создать тег', 'error');
       }
     } catch (err) {
       console.error('Failed to create tag manually:', err);
+      addToast('Не удалось создать тег', 'error');
+    } finally {
+      creatingRef.current = false;
     }
   };
 

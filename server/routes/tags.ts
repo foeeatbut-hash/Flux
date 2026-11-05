@@ -13,7 +13,7 @@ import { fileBytes } from './fileChunks.js';
 import { canReadFile } from '../fileAccess.js';
 import { canSeeProject, hiddenProjectsOf } from './members.js';
 import { withBump, bumpElementsOfTags } from '../equipmentVersion.js';
-import { writeTag, writeTags, metadataPatchOf, tagWriteFailure } from '../tagWrite.js';
+import { writeTag, writeTags, metadataPatchOf, tagWriteFailure, assertFreeTagCode } from '../tagWrite.js';
 import {
   TAG_SOURCE, tagChangeContext, recordChangeSets, recordTagCreated, recordTagUpdate, recordTagDeleted,
   updateSet, createdSet, deletedSet, type TagChangeSet,
@@ -92,11 +92,13 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         projectId = firstProject.id;
       }
       if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
+      // Пустой код и код, уже занятый в проекте, не записываются: иначе двойное нажатие «Создать» заводило два тега
+      const code = await assertFreeTagCode(prisma, projectId, identifier);
       const tag = await prisma.tag.create({
         data: {
           id: await nextProjectEntityId(prisma, projectId, 'TAG'),
           projectId,
-          identifier,
+          identifier: code,
           department: department || null,
           wbs: wbs || null,
           fluid: fluid || null,
@@ -110,6 +112,8 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       emitEntityChanged('tag', tag.id, req);
       res.json({ tag });
     } catch (err: any) {
+      const known = tagWriteFailure(err);
+      if (known) return res.status(known.status).json(known.body);
       res.status(500).json({ error: err.message });
     }
   });

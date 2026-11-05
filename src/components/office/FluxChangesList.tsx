@@ -8,9 +8,16 @@ export function changePlace(change: OfficeChange): string {
 
 const money = (value: string | null, unit?: string) => (value === null || value === '' ? '—' : unit ? `${value} ${unit}` : value);
 
+/**
+ * Значение, которое «Обновить» действительно перепишет. «Пропало из источника» и «позиции больше
+ * нет» документ не стирает, а ручную правку не заменяет: в счёт «изменится» и «изменилось» они
+ * не идут, иначе после обновления сводка говорила бы «изменилось 4» при одном записанном значении.
+ */
+export const isRewritten = (change: OfficeChange): boolean => !change.manual && (change.kind === 'changed' || change.kind === 'added');
+
 /** Что произошло со значением: слова для строки списка и для скринридера */
 export function changeSummary(change: OfficeChange): string {
-  if (change.kind === 'row-removed') return 'позиции больше нет в источнике; строка в документе остаётся';
+  if (change.kind === 'row-removed') return change.marked ? 'позиции больше нет в источнике; строка помечена и остаётся в документе' : 'позиции больше нет в источнике; строка в документе остаётся до «Обновить»';
   if (change.kind === 'cleared') return `в источнике значения больше нет (в документе остаётся ${money(change.was)})`;
   return `${money(change.was)} → ${money(change.now, change.unit)}`;
 }

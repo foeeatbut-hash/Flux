@@ -97,6 +97,7 @@ import { configureLicenseService, licenseForUser, personLicenseMiddleware } from
 import { registerProjectEntityGuard } from './server/projectEntityAccess.js';
 import { protectSessionSockets } from './server/sessionSockets.js';
 import { authTokenFromRequest, createCookieAuth } from './server/authCookies.js';
+import { VDR_PERM_RULES } from './server/vdrPermissions.js';
 import { corsMiddleware, socketAllowRequest, blockPrivateBuildFiles, earlyBodyGate, staticUploadOptions, chatFileGate, setLinkSecret, hashLegacyPasswords, listenHost, dropRevokedSockets } from './server/security.js';
 
 // ── Пароли: хеширование (scrypt) с обратной совместимостью ────────────────────
@@ -663,10 +664,7 @@ const PERM_ROUTES: PermRule[] = [
   { method: /^DELETE$/, path: /^\/api\/(files|folders)/, perm: 'files.delete', title: 'Удаление файлов и папок' },
   { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/settings\/(procurement_stages|procurement_templates|stage_templates)/,
     perm: 'procurement.setup', title: 'Настройка этапов закупки' },
-  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/vdr\/standards/,
-    perm: 'vdr.standards', title: 'Стандарты документооборота' },
-  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/vdr\//,
-    perm: 'vdr.manage', title: 'Реестр ВДР' },
+  ...VDR_PERM_RULES, // ВДР: таблица в server/vdrPermissions.ts — её же читает проверка прав
   // Каталог правят немногие, а учится он у всех: запомненный выбор подбора —
   // побочный продукт работы в Конструкторе, а не правка справочника
   { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/blank-templates/, perm: 'blanks.manage', title: 'Шаблоны бланков' },

@@ -85,6 +85,7 @@ async function seedProject(p: string, tag: string, userId: string) {
   const register = await prisma.docRegister.create({ data: { id: id('reg'), projectId: p } });
   const item = await prisma.docRegisterItem.create({ data: { id: id('regitem'), registerId: register.id, projectId: p, fileNodeId: file.id } });
   await prisma.docRegisterItemRevision.create({ data: { id: id('regrev'), itemId: item.id, revision: 'A' } });
+  await prisma.docRegisterItemTag.create({ data: { itemId: item.id, tagId: id('regtag'), tagIdentifier: 'AHU-1' } });
 
   const dict = await prisma.dictionary.create({ data: { id: id('dict'), projectId: p, name: 'Справочник' } });
   const di = await prisma.dictionaryItem.create({ data: { id: id('dictitem'), dictionaryId: dict.id, code: '1', nameRu: 'Один' } });
@@ -166,7 +167,7 @@ async function main() {
     const afterSeed = census();
     const touched = Object.keys(diff(baseline, afterSeed));
     // Страховка набора: если схема получила новую проектную таблицу, а заполнение её не знает, список ниже придётся обновить осознанно
-    const expectedTables = ['Tag', 'TagChange', 'EquipmentSystem', 'Monoblock', 'ComponentElement', 'EquipmentHistory', 'EquipmentXmlSource', 'EquipmentXmlCandidate', 'EquipmentXmlApplication', 'Folder', 'FileNode', 'FileChunk', 'FileVersion', 'PdfMarkup', 'PdfMarkupTransfer', 'OfficeBlock', 'OfficeDocumentRevision', 'OfficeSession', 'OfficeEvent', 'OfficePeer', 'OfficeHolder', 'ConstructorDoc', 'ConstructorDocVersion', 'DocRegister', 'DocRegisterItem', 'DocRegisterItemRevision', 'Dictionary', 'DictionaryItem', 'TagTemplate', 'ProjectTagPolicy', 'DocFormula', 'TermEntry', 'TmUnit', 'TransLink', 'CalEvent', 'CalGuest', 'AssistantChat', 'ProjectMember', 'ChatGroup', 'ChatMessage', 'ChatAttachment', 'GuideReply', 'ImportBatch', 'ImportJob', 'SelectionList', 'SelectionItem', 'SelectionIssue', 'SelectionBatch', 'E3Project', 'E3Export', 'E3Binding', 'Project', 'AppSetting', '_ComponentElementToTag', '_FileMainTags', '_FileAdditionalTags', '_GroupMembers'];
+    const expectedTables = ['Tag', 'TagChange', 'EquipmentSystem', 'Monoblock', 'ComponentElement', 'EquipmentHistory', 'EquipmentXmlSource', 'EquipmentXmlCandidate', 'EquipmentXmlApplication', 'Folder', 'FileNode', 'FileChunk', 'FileVersion', 'PdfMarkup', 'PdfMarkupTransfer', 'OfficeBlock', 'OfficeDocumentRevision', 'OfficeSession', 'OfficeEvent', 'OfficePeer', 'OfficeHolder', 'ConstructorDoc', 'ConstructorDocVersion', 'DocRegister', 'DocRegisterItem', 'DocRegisterItemRevision', 'DocRegisterItemTag', 'Dictionary', 'DictionaryItem', 'TagTemplate', 'ProjectTagPolicy', 'DocFormula', 'TermEntry', 'TmUnit', 'TransLink', 'CalEvent', 'CalGuest', 'AssistantChat', 'ProjectMember', 'ChatGroup', 'ChatMessage', 'ChatAttachment', 'GuideReply', 'ImportBatch', 'ImportJob', 'SelectionList', 'SelectionItem', 'SelectionIssue', 'SelectionBatch', 'E3Project', 'E3Export', 'E3Binding', 'Project', 'AppSetting', '_ComponentElementToTag', '_FileMainTags', '_FileAdditionalTags', '_GroupMembers'];
     check('проект A заполнен во всех проектных таблицах и скрытых таблицах связей', expectedTables.every(t => touched.includes(t)), expectedTables.filter(t => !touched.includes(t)));
     check('сам проект и его данные стоят в базе до удаления', afterSeed.Project === 2 && afterSeed.Tag === 4);
 

@@ -153,6 +153,24 @@ async function sourceImportPreviewToken(prisma: any, input: Awaited<ReturnType<t
   return createHash('sha256').update(stable).digest('hex');
 }
 
+/**
+ * Корневой тег уже стоит на установке другой категории.
+ *
+ * Тот же файл, предложенный в другую категорию, план показывал как «всё новое»,
+ * а запись отклонялась общими защитами с текстом «привязка повреждена» или
+ * «корневой тег не связан с одной записью» — человек не понимал, что не так.
+ * Причина простая и называется заранее, на плане: подтвердить такой план
+ * нельзя (запись отклоняется токеном плана), так что проверка стоит только здесь.
+ */
+async function assertNoUnitInOtherCategory(prisma: any, projectId: string, category: string, tagId: string | null | undefined, identifier: string): Promise<void> {
+  if (!tagId) return;
+  const root = await prisma.componentElement.findFirst({
+    where: { itemCode: '__unit__', tags: { some: { id: tagId } }, monoblock: { system: { projectId, category: { not: category } } } },
+    select: { monoblock: { select: { system: { select: { name: true } } } } },
+  });
+  if (root) throw error(`Тег «${identifier}» уже стоит на установке «${root.monoblock.system.name}» в другой категории оборудования. Выберите ту же категорию в шапке мастера или сначала удалите прежнюю установку.`, 409);
+}
+
 export function registerEquipmentSourceImportRoutes(app: Express): void {
   app.post('/api/equipment/source-import/preview', async (req: Request, res: Response) => {
     try {
@@ -166,6 +184,7 @@ export function registerEquipmentSourceImportRoutes(app: Express): void {
       const rootKey = blockKey(input.unitName, '', '__unit__');
       const rootLink = preview.tagLinks.find(link => link.blockKey === rootKey && tagKey(link.identifier) === tagKey(input.identifier));
       if (!rootLink || ['invalid', 'ambiguous'].includes(rootLink.action)) throw error(rootLink?.problem || `Тег «${input.identifier}» нельзя связать с установкой по правилам проекта.`);
+      await assertNoUnitInOtherCategory(getPrisma(), input.projectId, input.category, rootLink.existingTagId, input.identifier);
       // Старая привязка того же тега без установки: импорт её переиспользует.
       // Человек должен знать об этом заранее, а не узнать по следам в списке.
       const priorSources = rootLink.existingTagId ? await getPrisma().equipmentXmlSource.findMany({ where: {

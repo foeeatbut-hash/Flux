@@ -135,7 +135,7 @@ const ENGINEER_GRANTS = grant(
 const MANAGER_GRANTS = grant(
   'project.manage', 'tags.manage', 'dictionaries.manage', 'equipment.import',
   'equipment.manage', 'files.upload', 'files.delete', 'procurement.manage',
-  'procurement.setup', 'vdr.manage', 'vdr.standards',
+  'procurement.setup', 'vdr.manage', 'vdr.delete', 'vdr.standards',
 );
 
 const BUILTIN_ROLES = [
@@ -161,6 +161,23 @@ export async function seedRoles() {
       const empty = !existing.permissions || existing.permissions === '{}' || existing.permissions === 'null';
       if (empty && r.permissions !== '{}') {
         await prisma.role.update({ where: { id: existing.id }, data: { permissions: r.permissions } }).catch(() => {});
+      }
+    }
+    // Удаление в ВДР раньше давала сама должность MANAGER, теперь — право vdr.delete.
+    // Роль менеджера в базе уже настроена и набор по умолчанию её не касается, поэтому
+    // один раз выдаём ей это право, чтобы менеджеры не потеряли удаление молча.
+    // Отметка нужна, чтобы снятое администратором право не возвращалось при каждом запуске.
+    const marker = 'migration:vdr.delete-for-manager';
+    if (!(await prisma.appSetting.findFirst({ where: { key: marker } }).catch(() => ({ id: 'x' })))) {
+      const mgr = await prisma.role.findUnique({ where: { code: 'MANAGER' } }).catch(() => null);
+      if (mgr) {
+        let map: Record<string, any> = {};
+        try { map = JSON.parse(mgr.permissions || '{}') || {}; } catch (_) { map = {}; }
+        if (!map['vdr.delete']) {
+          map['vdr.delete'] = { enabled: true, until: null };
+          await prisma.role.update({ where: { id: mgr.id }, data: { permissions: JSON.stringify(map) } });
+        }
+        await prisma.appSetting.create({ data: { key: marker, value: '1' } });
       }
     }
     invalidateRolePerms();

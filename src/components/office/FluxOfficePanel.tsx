@@ -13,7 +13,9 @@ import ProjectDataPanel from './ProjectDataPanel';
 import FileEnglishVersion from '../translate/FileEnglishVersion';
 import { useOfficeTemplates } from './useOfficeTemplates';
 import { insertMessage, insertTable, tableColumns, tableRows, type TableCell } from './fluxTable';
-import FluxChangesList, { changesHeadline } from './FluxChangesList';
+import FluxChangesList, { changesHeadline, isRewritten } from './FluxChangesList';
+import FluxRefreshPreview from './FluxRefreshPreview';
+import { changeKey, groupChanges, pendingCount, refreshOperations, undoWithoutManual, type RefreshGroups, type RefreshOperations } from './officeRefreshPreview';
 import { OFFICE_APPLIED_EVENT, useOfficeChanges } from './useOfficeChanges';
 import type { OfficeChange } from '../../../office/changes';
 import type { RibbonCommand } from './useFluxRibbon';
@@ -27,7 +29,9 @@ import { OfficeRequestGeneration, previewWithRevisionRecovery, queryWithRevision
 type Tab = 'selection' | 'fields' | 'update';
 type View = 'data' | 'translator' | 'project-fields';
 type Dialog = 'templates' | 'pinned' | 'save-template' | 'export' | null;
-interface OfficeApplySummary { appliedCount: number; manualRows: string[]; state?: OfficeState }
+interface OfficeApplySummary { appliedCount: number; manualRows: string[]; state?: OfficeState; /** Очищено ячеек и помечено строк снятых позиций («Обновить», решение 4.11.2026) */ cleared?: number; marked?: number }
+/** Всё, что нужно, чтобы одним действием вернуть документ к состоянию до «Обновить» */
+interface RefreshUndo { plan: OfficeFillPlan; schema: OfficeState['schema']; undo: RefreshOperations['undo'] }
 export interface FluxOfficeAnchorSelection {
   anchorId: string;
   kind: 'word-row' | 'excel-range';
@@ -49,7 +53,7 @@ interface Props {
   activeAnchor: FluxOfficeAnchorSelection | null;
   requestState: () => Promise<OfficeState | null>;
   insertBinding: (anchor: FluxOfficeAnchorSelection, binding: OfficeBinding, displayText: string) => Promise<boolean>;
-  applyWrites: (plan: OfficeFillPlan, schema: OfficeState['schema'], rows: OfficeAnchorRow[]) => Promise<OfficeApplySummary | false>;
+  applyWrites: (plan: OfficeFillPlan, schema: OfficeState['schema'], rows: OfficeAnchorRow[], marks?: { mark?: string[]; unmark?: string[] }) => Promise<OfficeApplySummary | false>;
   updateSchema: (schema: OfficeState['schema'], options?: HeaderSchemaSyncOptions) => Promise<OfficeState | null>;
   isInlineEditing?: () => boolean;
   onIssued?: (fileId: string, revisionId: string) => void;
@@ -108,6 +112,15 @@ export default function FluxOfficePanel(props: Props) {
   const changesRef = useRef(changes.result);
   changesRef.current = changes.result;
   const [appliedChanges, setAppliedChanges] = useState<OfficeChange[]>([]);
+  /** Предпросмотр «Обновить»: снимок списка изменений на момент плана и снятые галочки */
+  const [previewChanges, setPreviewChanges] = useState<OfficeChange[]>([]);
+  const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set());
+  const [refreshUndo, setRefreshUndo] = useState<RefreshUndo | null>(null);
+  const previewGroups = useMemo(() => groupChanges(previewChanges), [previewChanges]);
+  /** Новый предпросмотр: галочки по умолчанию стоят везде, отмена прежнего обновления уже неактуальна */
+  const startPreview = (all: OfficeChange[], entityIds: ReadonlySet<string>) => {
+    setPreviewChanges(all.filter((change) => entityIds.has(change.entityId))); setSkipped(new Set()); setRefreshUndo(null);
+  };
   const planRef = useRef(plan);
   planRef.current = plan;
   const [busy, setBusy] = useState(false);
@@ -313,6 +326,7 @@ export default function FluxOfficePanel(props: Props) {
       }
       if (!recovered.plan) throw new Error('Данные обновлены. Выберите строки и постройте предпросмотр заново.');
       const next = recovered.plan;
+      startPreview(changesRef.current?.changes || [], new Set(selectedIds));
       setPlan(next); setPlanSchema(previewSchema); setPlanQuery(queryBody); setTab('update');
     } catch (reason: any) { if (requestEpoch.current.isCurrent(epoch)) setError(String(reason?.message || reason)); }
     finally { if (requestEpoch.current.isCurrent(epoch)) setBusy(false); }
@@ -323,16 +337,23 @@ export default function FluxOfficePanel(props: Props) {
     const epoch = requestEpoch.current.next();
     setBusy(true); setError(''); setActionMessage('');
     try {
-      const confirmed = await officeDataApi.confirm(fileSource, {
+      // Позиций для записи нет (все сняты в источнике): подтверждать на сервере нечего, остаются пометки строк
+      const confirmed = plan.selectedEntityIds.length ? await officeDataApi.confirm(fileSource, {
         projectId: props.projectId, planId: plan.planId, baseHash: plan.baseHash,
         sourceRevision: plan.sourceRevision, selectedEntityIds: plan.selectedEntityIds, query: planQuery, schema: planSchema,
-      });
+      }) : { writes: [] as OfficeFillPlan['writes'] };
       if (!requestEpoch.current.isCurrent(epoch)) return;
-      const applied = await props.applyWrites({ ...plan, writes: confirmed.writes }, planSchema, officeState?.rows || []);
+      // Только отмеченное галочками: снятые значения не пишутся, пропавшие очищаются, снятые позиции помечаются
+      const ops = refreshOperations(confirmed.writes, previewGroups, skipped);
+      if (!ops.writes.length && !ops.mark.length) throw new Error('Ничего не отмечено: нечего применять.');
+      const written = { ...plan, writes: ops.writes };
+      const applied = await props.applyWrites(written, planSchema, officeState?.rows || [], { mark: ops.mark });
       if (!applied) throw new Error('Редактор не применил заполнение.');
-      setAppliedSummary(applied);
+      const doneCleared = previewGroups.cleared.filter((change) => !skipped.has(changeKey(change)) && !applied.manualRows.includes(change.entityId)).length;
+      setAppliedSummary({ ...applied, cleared: doneCleared, marked: ops.mark.length });
+      setRefreshUndo({ plan: written, schema: planSchema, undo: undoWithoutManual(ops.undo, applied.manualRows) });
       // Список «было → стало», каким он был до заполнения, остаётся на экране после него
-      setAppliedChanges((changesRef.current?.changes || []).filter((change) => !change.manual));
+      setAppliedChanges(previewGroups.values.filter((change) => !skipped.has(changeKey(change)) && isRewritten(change)));
       window.dispatchEvent(new Event(OFFICE_APPLIED_EVENT));
       setPlan(null); setPlanSchema(null); setPlanQuery(null);
       if (applied.state) setOfficeState(applied.state);
@@ -344,6 +365,22 @@ export default function FluxOfficePanel(props: Props) {
     }
     finally { setBusy(false); }
   }, [plan, planSchema, planQuery, officeState?.rows, props.readOnly, props.projectId, fileSource, props.applyWrites, refreshState]);
+
+  /** Отмена «Обновить» своим снимком: прежние значения возвращаются в ячейки, пометка строк снимается */
+  const undoRefresh = useCallback(async () => {
+    if (!refreshUndo || props.readOnly) return;
+    setBusy(true); setError(''); setActionMessage('');
+    try {
+      const { plan: done, schema: doneSchema, undo } = refreshUndo;
+      const restored = await props.applyWrites({ ...done, writes: undo.writes }, doneSchema, officeState?.rows || [], { unmark: undo.unmark });
+      if (!restored) throw new Error('Редактор не применил отмену.');
+      if (restored.state) setOfficeState(restored.state);
+      setAppliedSummary(null); setAppliedChanges([]); setRefreshUndo(null);
+      setActionMessage('Обновление отменено: прежние значения возвращены, пометки сняты.');
+      window.dispatchEvent(new Event(OFFICE_APPLIED_EVENT));
+    } catch (reason: any) { setError(String(reason?.message || reason)); }
+    finally { setBusy(false); }
+  }, [refreshUndo, props.readOnly, props.applyWrites, officeState?.rows]);
 
   const currentTemplateQuery = () => toProjectQuery({ ...query, columns: query.columns?.length ? query.columns : sourceFields.map((field) => field.fieldKey) });
   /** Шаблон файла: тот, что применён к нему (снимок в файле), либо только что открытый. */
@@ -465,8 +502,17 @@ export default function FluxOfficePanel(props: Props) {
       const known = new Set(data.rows.map((row) => row.entityId));
       const ids = placed.filter((id) => known.has(id));
       setResult(data); setSelectedIds(ids); setQuery({ ...fresh, limit: query.limit, sourceRevision: data.revision });
-      if (!ids.length) { setActionMessage('Строки документа не найдены в источнике: возможно, они удалены.'); return; }
+      // Свежая сверка с источником: предпросмотр показывает то, что есть сейчас, а не то, что было минуту назад
+      const checked = (await changes.check()) ?? changesRef.current;
+      startPreview(checked?.changes || [], new Set(placed));
       const queryBody = toProjectQuery(fresh);
+      if (!ids.length) {
+        // Всех позиций документа в источнике уже нет: записывать нечего, но пометить строки и показать это нужно
+        if (!(checked?.changes || []).some((change) => change.kind === 'row-removed')) { setActionMessage('Строки документа не найдены в источнике: возможно, они удалены.'); return; }
+        setPlan({ planId: '', baseHash: current.baseHash, sourceRevision: data.revision, selectedEntityIds: [], writes: [], adds: [], replaces: [], manualRows: [], skips: [], errors: [], conflicts: [] });
+        setPlanSchema(current.schema); setPlanQuery(queryBody); setAppliedSummary(null);
+        return;
+      }
       const next = await officeDataApi.preview(fileSource, {
         projectId: props.projectId, baseHash: current.baseHash, sourceRevision: data.revision,
         selectedEntityIds: ids, query: queryBody, schema: current.schema,
@@ -573,7 +619,7 @@ export default function FluxOfficePanel(props: Props) {
       {props.readOnly && tab === 'selection' && <p className="shrink-0 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">Документ открыт только для просмотра.</p>}
       {tab === 'selection' && <FluxSelectionPanel query={query} fields={fields} result={result} loading={loading} error="" selectedIds={selectedIds} onQueryChange={(next) => { requestEpoch.current.invalidate(); setLoading(false); setBusy(false); setQuery({ ...next, sourceRevision: undefined }); setResult(null); setSelectedIds([]); setPlan(null); setPlanSchema(null); setPlanQuery(null); }} onRun={() => void runQuery()} onSelectionChange={(ids) => { requestEpoch.current.invalidate(); setBusy(false); setSelectedIds(ids); setPlan(null); setPlanSchema(null); setPlanQuery(null); }} />}
       {tab === 'fields' && <FluxFieldsPanel fields={fields} state={officeState ? { ...officeState, schema: schema || officeState.schema } : null} forceSave={!!templateSchema} saveBlocked={!!templatePending.length} selectedField={selectedField} activeAnchorId={activeAnchor?.anchorId || ''} readOnly={props.readOnly} canEditSchema={props.schemaWriteAvailable} onSelectField={setSelectedField} onSaveSchema={saveSchema} />}
-      {tab === 'update' && <UpdatePanel changes={changes.result} changesLoading={changes.loading} appliedChanges={appliedChanges} onGoto={props.onGoto ? (change) => void props.onGoto?.(change) : undefined} state={officeState} result={result} plan={plan} applied={appliedSummary} selectedCount={selectedIds.length} busy={busy} readOnly={props.readOnly} fileId={props.localSource ? '' : props.fileId} fileName={props.fileName} onIssued={props.onIssued} onDraftCreated={props.onDraftCreated} beforeRevisionIssue={async () => {
+      {tab === 'update' && <UpdatePanel changes={changes.result} changesLoading={changes.loading} appliedChanges={appliedChanges} onGoto={props.onGoto ? (change) => void props.onGoto?.(change) : undefined} groups={previewGroups} skipped={skipped} onToggle={(change) => setSkipped((current) => { const next = new Set(current); const key = changeKey(change); if (!next.delete(key)) next.add(key); return next; })} canUndo={!!refreshUndo} onUndo={() => void undoRefresh()} state={officeState} result={result} plan={plan} applied={appliedSummary} selectedCount={selectedIds.length} busy={busy} readOnly={props.readOnly} fileId={props.localSource ? '' : props.fileId} fileName={props.fileName} onIssued={props.onIssued} onDraftCreated={props.onDraftCreated} beforeRevisionIssue={async () => {
         const current = await props.requestState();
         if (!current?.baseHash) return false;
         setOfficeState(current);
@@ -586,7 +632,7 @@ export default function FluxOfficePanel(props: Props) {
       </div>}
       {tab === 'update' && <div className="flex shrink-0 items-center justify-between border-t border-slate-200 px-3 py-2 dark:border-dark-border">
         <span className="text-xs text-slate-500 dark:text-slate-400">Выбрано строк: {selectedIds.length}</span>
-        {plan ? <Btn tone="primary" disabled={busy || props.readOnly || plan.errors.length > 0 || plan.conflicts.length > 0} onClick={() => void applyPlan()}>{busy ? 'Проверка…' : 'Подтвердить и заполнить'}</Btn>
+        {plan ? <Btn tone="primary" disabled={busy || props.readOnly || plan.errors.length > 0 || plan.conflicts.length > 0 || (!plan.writes.length && !pendingCount(previewGroups, skipped))} onClick={() => void applyPlan()}>{busy ? 'Проверка…' : previewChanges.length ? 'Применить отмеченное' : 'Подтвердить и заполнить'}</Btn>
           : <Btn tone="primary" disabled={busy || props.readOnly || !selectedIds.length || !officeState} onClick={() => void buildPlan()}>{busy ? 'Строим план…' : 'Предпросмотр заполнения'}</Btn>}
       </div>}
       {tab === 'selection' && <div className="flex shrink-0 items-center justify-between gap-2 border-t border-slate-200 px-3 py-2 dark:border-dark-border">
@@ -605,8 +651,9 @@ export default function FluxOfficePanel(props: Props) {
   );
 }
 
-function UpdatePanel({ changes, changesLoading, appliedChanges, onGoto, state, result, plan, applied, selectedCount, busy, readOnly, fileId, fileName, beforeRevisionIssue, onIssued, onDraftCreated, onRefresh }: {
+function UpdatePanel({ changes, changesLoading, appliedChanges, onGoto, groups, skipped, onToggle, canUndo, onUndo, state, result, plan, applied, selectedCount, busy, readOnly, fileId, fileName, beforeRevisionIssue, onIssued, onDraftCreated, onRefresh }: {
   changes: import('../../../office/changes').OfficeChangesResult | null; changesLoading: boolean; appliedChanges: OfficeChange[]; onGoto?: (change: OfficeChange) => void;
+  groups: RefreshGroups; skipped: ReadonlySet<string>; onToggle: (change: OfficeChange) => void; canUndo: boolean; onUndo: () => void;
   state: OfficeState | null; result: OfficeQueryResult | null; plan: OfficeFillPlan | null; applied: OfficeApplySummary | null; selectedCount: number;
   busy: boolean; readOnly: boolean; fileId: string; fileName: string; beforeRevisionIssue: () => Promise<boolean>;
   onIssued?: (fileId: string, revisionId: string) => void; onDraftCreated?: (fileId: string) => void; onRefresh: () => void;
@@ -624,8 +671,9 @@ function UpdatePanel({ changes, changesLoading, appliedChanges, onGoto, state, r
       <h3 className="mb-1 font-semibold">Изменено при обновлении</h3>
       <FluxChangesList changes={appliedChanges} onGoto={onGoto} />
     </section>}
-    {applied && <section role="status" className="mt-4 border-l-2 border-emerald-600 pl-3 text-xs text-slate-700 dark:text-slate-300"><p>Записано значений: {applied.appliedCount.toLocaleString('ru-RU')}{appliedChanges.length ? `, из них изменилось: ${appliedChanges.length.toLocaleString('ru-RU')}` : ''}</p>{applied.manualRows.length > 0 && <p className="mt-1">Без замены оставлены строки с ручными правками: {applied.manualRows.length}</p>}</section>}
-    {plan && <section className="mt-5 space-y-3 border-t border-slate-200 pt-4 dark:border-dark-border"><h3 className="font-semibold">План заполнения</h3><PlanCount label="Будет добавлено" count={plan.adds.length} /><PlanCount label="Будет обновлено" count={plan.replaces.length} /><PlanCount label="Изменится значений" count={changes?.count ?? 0} /><PlanCount label="Ручные строки сохранены" count={plan.manualRows.length} /><PlanCount label="Пропущено" count={plan.skips.length} /><PlanCount label="Ошибки" count={plan.errors.length} /><PlanCount label="Конфликты" count={plan.conflicts.length} />
+    {applied && <section role="status" className="mt-4 border-l-2 border-emerald-600 pl-3 text-xs text-slate-700 dark:text-slate-300"><p>Записано значений: {applied.appliedCount.toLocaleString('ru-RU')}{appliedChanges.length ? `, из них изменилось: ${appliedChanges.length.toLocaleString('ru-RU')}` : ''}</p>{!!applied.cleared && <p className="mt-1">Очищено ячеек: {applied.cleared.toLocaleString('ru-RU')}</p>}{!!applied.marked && <p className="mt-1">Помечено строк снятых позиций: {applied.marked.toLocaleString('ru-RU')}</p>}{canUndo && <button type="button" className="fx-btn fx-btn-quiet fx-btn-sm mt-2" onClick={onUndo} disabled={busy || readOnly}>Отменить обновление</button>}{applied.manualRows.length > 0 && <p className="mt-1">Без замены оставлены строки с ручными правками: {applied.manualRows.length}</p>}</section>}
+    {plan && <section className="mt-5 space-y-3 border-t border-slate-200 pt-4 dark:border-dark-border"><h3 className="font-semibold">План заполнения</h3><PlanCount label="Будет добавлено" count={plan.adds.length} /><PlanCount label="Будет обновлено" count={plan.replaces.length} /><PlanCount label="Изменится значений" count={groups.values.filter((change) => !skipped.has(changeKey(change))).length} /><PlanCount label="Ручные строки сохранены" count={plan.manualRows.length} /><PlanCount label="Пропущено" count={plan.skips.length} /><PlanCount label="Ошибки" count={plan.errors.length} /><PlanCount label="Конфликты" count={plan.conflicts.length} />
+      <FluxRefreshPreview groups={groups} skipped={skipped} onToggle={onToggle} onGoto={onGoto} />
       {plan.errors.map((item, index) => <p key={`error-${index}`} className="text-xs text-rose-700 dark:text-rose-300">{item.message}</p>)}
       {plan.conflicts.map((item, index) => <p key={`conflict-${index}`} className="text-xs text-amber-700 dark:text-amber-300">Конфликт в {item.anchorId}: {item.candidates.join(', ')}</p>)}
       <p className="text-xs text-slate-500 dark:text-slate-400">План не сохраняет файл. После подтверждения изменения попадут в текущий редактор, затем используются обычные сохранение и история GenOffice.</p>

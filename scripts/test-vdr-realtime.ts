@@ -17,12 +17,15 @@ setPrisma({
   docRegister: {
     findUnique: async () => register,
     update: async ({ data }: any) => ({ ...register, ...data }),
+    updateMany: async () => ({ count: 1 }),
   },
   docRegisterItem: {
     findUnique: async () => item,
-    update: async ({ data }: any) => {
+    // Запись идёт «сравни и поменяй» (updateMany), затем перечитывается строка
+    updateMany: async ({ data }: any) => {
       if (failItemUpdate) throw new Error('write failed');
-      return { ...item, ...data };
+      Object.assign(item, data);
+      return { count: 1 };
     },
   },
 } as any);

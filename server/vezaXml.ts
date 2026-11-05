@@ -2,7 +2,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { canonicalUnit } from './normalize.js';
 import {
   vezaGroup, vezaGroupRoles, vezaKindSense, vezaLevel, vezaParamRole, vezaProp, vezaRole, vezaUnit,
-  VEZA_SAME_ROLE, type KindMap,
+  VEZA_SAME_ROLE, VEZA_UNITS, type KindMap,
 } from './vezaDict.js';
 import { distribute, type TagAssignment, type TagSlot } from '../equipment/notes.js';
 import { PERMISSIVE_TAG_POLICY, autoFixTag, type TagPolicy } from '../equipment/tagPolicy.js';
@@ -68,6 +68,20 @@ export function looksLikeVezaXml(text: string): boolean {
  * теги ищутся по маркеру «Таг-номер», а исправляется только написание,
  * смешивающее алфавиты: для остального нужен код проекта.
  */
+/**
+ * Почему в файле не нашлось установок — словами, по которым можно действовать.
+ *
+ * Дерево заказа (`<Structure>`) лежит в самом конце выгрузки, а словарь узлов
+ * (`<Elements>`) — в начале. Обрезанный при копировании файл поэтому «похож на
+ * выгрузку», но установок в нём нет, и совет «попробуйте импорт бланка» только
+ * сбивал: человек искал не тот формат вместо того, чтобы выгрузить файл заново.
+ */
+export function noUnitsReason(xmlText: string): string {
+  if (!looksLikeVezaXml(xmlText)) return 'В файле не нашлось установок. Похоже, это не выгрузка расчёта — попробуйте импорт бланка.';
+  if (!/<Structure[\s>/]/.test(xmlText)) return 'Выгрузка САПР прочитана не полностью: в файле нет раздела <Structure> с составом заказа. Похоже, файл обрезан при копировании или загрузке — выгрузите его заново.';
+  return 'В выгрузке САПР не найдено ни одной установки (узлов cadUnitFolder). Проверьте, что выгружен заказ с установками.';
+}
+
 export interface VezaOptions {
   /** Правило тегов проекта; код проекта лежит в приставках */
   policy?: TagPolicy;
@@ -131,7 +145,12 @@ function groupsOfCollection(node: any, dict: Record<string, El>): SpecGroup[] {
 
     const title = vezaGroup(groupCode);
     const { title: key } = vezaProp(groupCode, typeCode);
-    const unit = canonicalUnit(vezaUnit(attr(item.el, 'proMeasureUnit')));
+    // Словарь САПР уже отдаёт готовые обозначения («с», «°C», «кВ·А»), и прогонять
+    // их через общий нормализатор нельзя: тот сводит «с» к °C (так в бланках
+    // пишут градусы), и «Время прогрева 300 с» превращалось в «300 °C».
+    // Нормализуются только коды, которых словарь не знает.
+    const unitCode = attr(item.el, 'proMeasureUnit');
+    const unit = Object.hasOwn(VEZA_UNITS, unitCode) ? vezaUnit(unitCode) : canonicalUnit(vezaUnit(unitCode));
 
     if (!byGroup.has(title)) { byGroup.set(title, []); order.push(title); }
     const params = byGroup.get(title)!;
@@ -304,6 +323,36 @@ function groupsForRole(groups: SpecGroup[], role: RoleId): SpecGroup[] {
 }
 
 /**
+ * Счётчики роли в разделе параметров — это итог по блоку, а не «на штуку».
+ *
+ * `ptgFAN.ptEQUIPCOUNT=2` описывает два вентилятора блока. Подпозиция же
+ * получает копию раздела и после разворота количества стоит в реестре одна:
+ * «Количество 2» на каждом из двух вентиляторов — вдвое больше, чем есть.
+ * Поэтому, если счётчик равен числу позиций роли в блоке, у каждой он
+ * становится единицей. «Количество рабочих» делится так же, а если рабочих
+ * меньше, чем штук, какой из экземпляров рабочий, файл не говорит — параметр
+ * у экземпляров убирается, а не выдумывается. Счётчик, не совпавший с числом
+ * позиций, остаётся как в файле: гадать, к чему он относится, не нужно.
+ */
+function countsPerInstance(subs: ParsedBlock[]): void {
+  const total = new Map<string, number>();
+  for (const p of subs) total.set(p.role || '', (total.get(p.role || '') || 0) + 1);
+  for (const p of subs) {
+    const n = total.get(p.role || '') || 0;
+    p.groups = p.groups.map(g => ({
+      ...g,
+      params: g.params.flatMap(prm => {
+        if (prm.sourceKey !== 'ptEQUIPCOUNT' && prm.sourceKey !== 'ptEQUIPWORKCOUNT') return [prm];
+        const v = Number(prm.value);
+        if (v === n) return [{ ...prm, value: '1' }];
+        if (prm.sourceKey === 'ptEQUIPWORKCOUNT' && v > 0 && v < n) return [];
+        return [prm];
+      }),
+    }));
+  }
+}
+
+/**
  * Развернуть дерево кандидатов в позиции реестра.
  *
  * Здесь количество превращается в отдельные строки: `cfnAmount=2` у
@@ -412,6 +461,7 @@ function parseBlock(
   const counter = { at: 1 };
   const subs: ParsedBlock[] = [];
   expand(positionsIn(entry.node, dict, 1, 'БЛОК', unknown, ctx.kinds), position, groups, detectType, counter, subs);
+  countsPerInstance(subs);
 
   return assignTagsFromNote([block, ...subs], note, ctx, groups, counter);
 }

@@ -23,6 +23,11 @@ try {
     await page.getByText('Импортирован: system-1 · L23 · baselineApplied=false').waitFor();
     const bindingStore = await page.evaluate(() => JSON.parse(localStorage.getItem('flux.equipmentSources.local.v1') || '{}'));
     if (!Object.values(bindingStore).some((binding) => binding.sourceId === 'source-1')) throw new Error('Successful import did not save the local source capability');
+    // Партия XML-импорта запоминается для строки «можно отменить импорт» (как у старого пути)
+    const remembered = await page.evaluate(() => JSON.parse(localStorage.getItem('flux_last_import_project-fixture') || 'null'));
+    if (remembered?.batchId !== 'batch-xml-1') throw new Error(`XML import batch was not remembered for undo: ${JSON.stringify(remembered)}`);
+    // План построен до записи: после успеха «Подтвердить» на нём дал бы 409
+    if (await page.getByRole('button', { name: /Подтвердить импорт/ }).count()) throw new Error('Confirm button stayed active on a stale plan after a successful import');
     const entries = await logs();
     const apply = entries.find(entry => entry.url.endsWith('/apply'));
     if (!apply || apply.body.tagIdentifier !== 'L23' || apply.body.selection !== undefined || apply.body.previewToken !== 'fixture-preview-token' || apply.body.tagLinks[0]?.action !== 'create') throw new Error(`Apply contract mismatch: ${JSON.stringify(apply)}`);
@@ -39,6 +44,23 @@ try {
     const reads = await initialPage.evaluate(() => (window).__importLog.filter(row => row.url.endsWith('/source-import/preview')).length);
     if (reads !== 1) throw new Error(`Queued file must build exactly one plan, got ${reads}`);
     await initialPage.close();
+  }
+  {
+    // Тег файла уже привязан к другому оборудованию: предупреждение сводкой и у строки, «Связать» молча нет
+    const takenPage = await browser.newPage({ viewport: { width: 1100, height: 850 } });
+    takenPage.on('pageerror', error => { throw error; });
+    await takenPage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?taken=1`);
+    await takenPage.getByRole('button', { name: 'Выбрать XML-файл' }).click();
+    await pickXmlFile(takenPage);
+    await takenPage.getByRole('button', { name: 'Показать план' }).click();
+    await takenPage.getByRole('heading', { name: /Предпросмотр/ }).waitFor();
+    await takenPage.getByRole('alert').filter({ hasText: 'уже привязаны к другому оборудованию' }).filter({ hasText: 'Чужой бак · установка L99' }).waitFor();
+    await takenPage.getByTestId('tag-taken').first().waitFor();
+    if (!(await takenPage.getByRole('button', { name: 'Подтвердить импорт' }).isDisabled())) throw new Error('Confirm must wait for an explicit choice on a taken tag');
+    await takenPage.getByRole('button', { name: /Действие с тегом L23$/ }).click();
+    await takenPage.getByRole('option', { name: /^Пропустить/ }).click();
+    if (await takenPage.getByRole('button', { name: 'Подтвердить импорт' }).isDisabled()) throw new Error('Explicit choice must unlock the import');
+    await takenPage.close();
   }
   const initialRace = await browser.newPage({ viewport: { width: 900, height: 850 } });
   await initialRace.goto((process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192') + '/importer.html?initial=1&race=1');
@@ -120,6 +142,20 @@ try {
     if (decided?.action !== 'link' || decided.existingTagId !== 'tag-x1') throw new Error(`Apply must carry the chosen tag link: ${JSON.stringify(decided)}`);
     if (applied.body.tagLinks.filter(link => link.action === 'link').length !== 5) throw new Error('Apply must carry 4 exact links plus the decided one');
     await planPage.close();
+  }
+  // Настоящий план содержит корневую запись установки (__unit__) с тем же ключом, что у тега
+  // установки: селектор тега один (в её строке), а групповое «Создать все новые» считает тег один раз
+  {
+    const unitPage = await browser.newPage({ viewport: { width: 1100, height: 700 } });
+    unitPage.on('pageerror', error => { throw error; });
+    await unitPage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?initial=1&rows=31&unitRow=1`);
+    await unitPage.getByRole('heading', { name: /Предпросмотр/ }).waitFor();
+    const unitSelectors = await unitPage.getByRole('table').getByRole('button', { name: /Действие с тегом L23$/ }).count();
+    if (unitSelectors !== 1) throw new Error(`Unit tag must have exactly one action selector, got ${unitSelectors}`);
+    const bulk = await unitPage.getByRole('button', { name: /^Создать все новые/ }).innerText();
+    // 31 позиция: 4 точных совпадения и 1 спорная — остальные 26 создаются, плюс тег установки (28 — это дубль строки)
+    if (!/· 27$/.test(bulk.trim())) throw new Error(`Bulk create must count the unit tag once: ${bulk}`);
+    await unitPage.close();
   }
   const documentPage = await browser.newPage({ viewport: { width: 900, height: 850 }, colorScheme: 'dark' });
   await documentPage.goto(`${process.env.FLUX_FIXTURE_URL || 'http://127.0.0.1:4192'}/importer.html?document=1`);

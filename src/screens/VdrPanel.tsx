@@ -17,6 +17,18 @@ import { useModalStore } from '../store/modalStore';
 import { useTranslateStore } from '../store/translateStore';
 import { hasAdminRole } from '../lib/permissions';
 import { hasPosition } from '../../shared/positions';
+import TagLinkPlanDialog, { unlinkedCount, type TagLinkPlan } from '../components/vdr/TagLinkPlanDialog';
+
+/**
+ * Ответ сервера «запись уже изменили» (409): показать его текст и отдать
+ * текущую запись, чтобы экран перечитал её, а не затёр чужую правку своей.
+ * Любой другой ответ — `null`, его разбирает вызывающий.
+ */
+async function conflictOf(r: Response): Promise<{ message: string; current: any } | null> {
+  if (r.status !== 409) return null;
+  const d = await r.json().catch(() => ({}));
+  return { message: d.error || 'Запись уже изменили. Данные обновлены.', current: d.current || null };
+}
 
 // Диалоги программы вместо системных окон Windows
 const { openPrompt } = useModalStore.getState();
@@ -35,6 +47,8 @@ interface Register {
   revision: string; revisions: any[]; preparedBy: string; checkedBy: string; approvedBy: string;
   preparedById?: string | null; checkedById?: string | null; approvedById?: string | null;
   columnsConfig: ColumnDef[]; counts: Record<string, number>;
+  /** Версия записи: уходит обратно как ожидаемая, чужая правка даст 409 */
+  updatedAt?: string;
 }
 interface ColumnDef { key: string; title: string; titleRu?: string; field?: string; source?: string; type?: string }
 interface Item {
@@ -44,6 +58,10 @@ interface Item {
   equipmentTags: string; status: string; docId?: string | null; fileNodeId?: string | null;
   assigneeId?: string | null; remarks: string; reviewCode: string; dueDate?: string | null;
   extra: Record<string, string>;
+  updatedAt?: string;
+  /** Связи с тегами по id и коды без связи (считает сервер) */
+  tagLinks?: { tagId: string; identifier: string }[];
+  unmatchedTags?: string[];
 }
 interface UserLite { id: string; name: string; role?: string; hasSignature?: boolean }
 interface Standard { id: string; name: string; config: any }
@@ -83,6 +101,9 @@ export default function VdrPanel() {
   const [onlyOverdue, setOnlyOverdue] = useState(false);
   const [cardItem, setCardItem] = useState<Item | null>(null); // карточка строки
   const [regSettingsOpen, setRegSettingsOpen] = useState(false);
+  // План переноса кодов тегов в связи по id: счётчик «не сопоставлено» и диалог
+  const [tagPlan, setTagPlan] = useState<TagLinkPlan | null>(null);
+  const [tagPlanOpen, setTagPlanOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const focusItemId = searchParams.get('item');
@@ -112,6 +133,12 @@ export default function VdrPanel() {
       if (r.ok) setItems((await r.json()).items || []);
     } catch (_) {}
   };
+  const loadTagPlan = async () => {
+    try {
+      const r = await fetch(`/api/vdr/tag-links?projectId=${encodeURIComponent(projectId)}`);
+      if (r.ok) setTagPlan((await r.json()).plan || null);
+    } catch (_) {}
+  };
   const loadProjectTags = async (targetProjectId = projectId) => {
     if (targetProjectId !== projectIdRef.current) return;
     const requestId = ++projectTagsRequestRef.current;
@@ -138,6 +165,7 @@ export default function VdrPanel() {
       fetch('/api/users').then(r => r.ok ? r.json() : { users: [] }).then(d => setUsers((d.users || []).filter((u: any) => u.isActive !== false))).catch(() => {});
       fetch('/api/vdr/standards').then(r => r.ok ? r.json() : { standards: [] }).then(d => setStandards(d.standards || [])).catch(() => {});
       void loadProjectTags(projectId);
+      void loadTagPlan();
     })();
   }, [projectId]);
 
@@ -155,14 +183,15 @@ export default function VdrPanel() {
         .then(d => setStandards(d.standards || []))
         .catch(() => {});
     };
-    const onTagsChanged = () => { void loadProjectTags(projectId); };
+    // Тег заведён, переименован или удалён — счётчик «не сопоставлено» меняется вместе с ним
+    const onTagsChanged = () => { void loadProjectTags(projectId); void loadTagPlan(); };
     const onEntityChanged = (event: Event) => {
       const detail = (event as CustomEvent<{ kind?: string; id?: string; ids?: string[]; projectId?: string }>).detail;
       if (detail?.kind !== 'tag') return;
       if (detail.projectId && detail.projectId !== projectId) return;
       // Для одиночной и пакетной записи приходит id либо ids; импорт проекта
       // использует id вида project:<id> и обязательно содержит projectId.
-      if (detail.id || detail.ids?.length) void loadProjectTags(projectId);
+      if (detail.id || detail.ids?.length) { void loadProjectTags(projectId); void loadTagPlan(); }
     };
     window.addEventListener('socket:vdr:changed', onVdrChanged);
     window.addEventListener('socket:tag:updated', onTagsChanged);
@@ -184,6 +213,7 @@ export default function VdrPanel() {
   const refresh = async () => {
     await loadRegisters();
     await loadItems(regId);
+    void loadTagPlan();
     if (cardItem) {
       const fresh = (await (await fetch(`/api/vdr/items?registerId=${regId}`)).json()).items?.find((x: Item) => x.id === cardItem.id);
       if (fresh) setCardItem(fresh);
@@ -191,9 +221,14 @@ export default function VdrPanel() {
   };
 
   const patchItem = async (id: string, body: any, okMsg?: string) => {
-    const r = await fetch(`/api/vdr/items/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (r.ok) { if (okMsg) addToast(okMsg, 'success'); await refresh(); }
-    else { const d = await r.json().catch(() => ({})); addToast(d.error || 'Ошибка', 'error'); }
+    // Версия — та, что строка показана на экране: чужая правка между ними даст 409
+    const expectedUpdatedAt = items.find(x => x.id === id)?.updatedAt;
+    const r = await fetch(`/api/vdr/items/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, expectedUpdatedAt }) });
+    if (r.ok) { if (okMsg) addToast(okMsg, 'success'); await refresh(); return; }
+    const conflict = await conflictOf(r);
+    if (conflict) { addToast(conflict.message, 'error'); await refresh(); return; }
+    const d = await r.json().catch(() => ({}));
+    addToast(d.error || 'Ошибка', 'error');
   };
 
   /**
@@ -264,9 +299,14 @@ export default function VdrPanel() {
     const description = await openPrompt('Новая ревизия ВДР', `Текущая ревизия — ${register.revision}. Опишите, что изменилось.`, 'Например: уточнены сроки поставки');
     if (description === null) return;
     const r = await fetch(`/api/vdr/registers/${register.id}/revision-up`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description, expectedRevision: register.revision }),
     });
-    if (r.ok) { const d = await r.json(); addToast(`ВДР → ревизия ${d.register.revision}`, 'success'); refresh(); }
+    if (r.ok) { const d = await r.json(); addToast(`ВДР → ревизия ${d.register.revision}`, 'success'); refresh(); return; }
+    // Ревизию уже выпустили: назвать кто, перечитать реестр и не выпускать вторую
+    const conflict = await conflictOf(r);
+    if (conflict) { addToast(conflict.message, 'error'); refresh(); return; }
+    const d = await r.json().catch(() => ({}));
+    addToast(d.error || 'Не удалось выпустить ревизию ВДР', 'error');
   };
 
   const createRegister = async () => {
@@ -329,6 +369,12 @@ export default function VdrPanel() {
           <>
             <Btn tone="ghost" onClick={registerRevisionUp} title="Новая ревизия самого ВДР (запись в Учёт ревизий)"><ArrowUpCircle />Рев. ВДР</Btn>
             <Btn tone="ghost" onClick={fillEnglishTitles} title="Заполнить пустые английские названия по памяти и словарю проекта"><Languages />Англ. названия</Btn>
+            {tagPlan && (tagPlan.toLink.length > 0 || unlinkedCount(tagPlan) > 0) && (
+              <Btn tone="ghost" onClick={() => setTagPlanOpen(true)}
+                title="Строки знают тег по коду; связь по номеру тега переживает его переименование. Откроется план — ничего не пишется, пока вы не подтвердите">
+                <TagIcon />{tagPlan.toLink.length > 0 ? `Связать теги: ${tagPlan.toLink.length}` : `Теги не сопоставлены: ${unlinkedCount(tagPlan)}`}
+              </Btn>
+            )}
             <IconBtn label="Реквизиты реестра, стандарт, свои колонки" onClick={() => setRegSettingsOpen(true)}><Settings2 /></IconBtn>
             <Btn tone="ghost" onClick={() => setCardItem({ id: '', registerId: register.id, contractorNo: '', ownerNo: '', vendorNo: '', titleEn: '', titleRu: '', vdrCode: '', revision: 'A', reasonForIssue: '', language: '', equipmentTags: '[]', status: 'DRAFT', remarks: '', reviewCode: '', extra: {} })}><Plus />Строка</Btn>
           </>
@@ -446,6 +492,9 @@ export default function VdrPanel() {
           onChanged={refresh}
         />
       )}
+      {tagPlanOpen && (
+        <TagLinkPlanDialog projectId={projectId} initial={tagPlan} onClose={() => setTagPlanOpen(false)} onChanged={refresh} />
+      )}
       {regSettingsOpen && register && (
         <RegisterSettings register={register} standards={standards} users={users}
           onClose={() => setRegSettingsOpen(false)} onChanged={refresh} />
@@ -470,6 +519,18 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
   const [revPlace, setRevPlace] = useState('');
   const [revDesc, setRevDesc] = useState('');
   const [busy, setBusy] = useState(false);
+  // Версия, которую карточка видела в последний раз: уходит как ожидаемая
+  // (правка — по updatedAt, выпуск — по ревизии); не поле формы, чтобы ручная
+  // правка ревизии не подменяла «что я видел»
+  const seen = useRef({ revision: item.revision, updatedAt: item.updatedAt });
+  const remember = (it: Item) => { seen.current = { revision: it.revision, updatedAt: it.updatedAt }; };
+  // Чужая правка опередила нас: показать причину и взять строку с сервера
+  const takeConflict = (c: { message: string; current: any }) => {
+    addToast(c.message, 'error');
+    if (c.current?.item) { setF(c.current.item); remember(c.current.item); }
+    if (item.id) fetch(`/api/vdr/items/${item.id}/revisions`).then(x => x.ok ? x.json() : { revisions: [] }).then(x => setRevisions(x.revisions || [])).catch(() => {});
+    onChanged();
+  };
 
   useEffect(() => {
     if (item.id) fetch(`/api/vdr/items/${item.id}/revisions`).then(r => r.ok ? r.json() : { revisions: [] }).then(d => setRevisions(d.revisions || [])).catch(() => {});
@@ -491,12 +552,19 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
         equipmentTags: f.equipmentTags, assigneeId: f.assigneeId || null,
         issueDate: f.issueDate || null, dueDate: f.dueDate || null,
         extra: f.extra,
+        ...(isNew ? {} : { expectedUpdatedAt: seen.current.updatedAt }),
       };
       const r = await fetch(isNew ? '/api/vdr/items' : `/api/vdr/items/${item.id}`, {
         method: isNew ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
-      if (!r.ok) { const d = await r.json().catch(() => ({})); addToast(d.error || 'Ошибка', 'error'); return; }
+      if (!r.ok) {
+        const conflict = await conflictOf(r);
+        if (conflict) { takeConflict(conflict); return; }
+        const d = await r.json().catch(() => ({})); addToast(d.error || 'Ошибка', 'error'); return;
+      }
       addToast('Сохранено', 'success');
+      // Следующее сохранение этой же карточки ждёт уже новую версию, а не свою прошлую запись
+      if (!isNew) { const d = await r.json().catch(() => ({})); if (d.item) remember(d.item); }
       onChanged(); if (isNew) onClose();
     } finally { setBusy(false); }
   };
@@ -516,8 +584,10 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
 
   const setReviewCode = async (code: string) => {
     if (isNew) { setF(s => ({ ...s, reviewCode: code })); return; }
-    const r = await fetch(`/api/vdr/items/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewCode: code }) });
-    if (r.ok) { const d = await r.json(); setF(d.item); onChanged(); addToast(`Код ${code}: статус и срок обновлены`, 'success'); }
+    const r = await fetch(`/api/vdr/items/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewCode: code, expectedUpdatedAt: seen.current.updatedAt }) });
+    if (r.ok) { const d = await r.json(); setF(d.item); remember(d.item); onChanged(); addToast(`Код ${code}: статус и срок обновлены`, 'success'); return; }
+    const conflict = await conflictOf(r);
+    if (conflict) takeConflict(conflict);
   };
 
   const issueRevision = async () => {
@@ -526,11 +596,15 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
     try {
       const r = await fetch(`/api/vdr/items/${item.id}/issue-revision`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: revDialog, place: revPlace, description: revDesc }),
+        body: JSON.stringify({ kind: revDialog, place: revPlace, description: revDesc, expectedRevision: seen.current.revision }),
       });
-      if (!r.ok) { addToast('Не удалось выпустить ревизию', 'error'); return; }
+      if (!r.ok) {
+        const conflict = await conflictOf(r);
+        if (conflict) { setRevDialog(null); takeConflict(conflict); return; }
+        addToast('Не удалось выпустить ревизию', 'error'); return;
+      }
       const d = await r.json();
-      setF(d.item);
+      setF(d.item); remember(d.item);
       setRevDialog(null); setRevPlace(''); setRevDesc('');
       addToast(`Ревизия ${d.item.revision}`, 'success');
       fetch(`/api/vdr/items/${item.id}/revisions`).then(x => x.json()).then(x => setRevisions(x.revisions || []));
@@ -636,12 +710,17 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
 
           <Sect title="Главные теги (оборудование документа)" />
           <div className="flex flex-wrap gap-1.5">
-            {tags.map(t => (
-              <span key={t} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-xs font-medium">
+            {tags.map(t => {
+              // Код без тега в проекте — связи по id нет; «на все позиции» тегом не бывает
+              const linked = /^(all items|все позиции)$/i.test(t.trim()) || projectTags.some(p => p.identifier.trim().toLowerCase() === t.trim().toLowerCase());
+              return (
+              <span key={t} title={linked ? undefined : 'Тега с таким кодом в проекте нет — связь по номеру тега не создана'}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium ${linked ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400' : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400'}`}>
                 <TagIcon className="w-3 h-3" /> {t}
                 <button type="button" onClick={() => setF(s => ({ ...s, equipmentTags: JSON.stringify(tags.filter(x => x !== t)) }))} className="hover:text-rose-500 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
-            ))}
+              );
+            })}
             {tags.length === 0 && <span className="text-xs text-slate-400">не присвоены</span>}
           </div>
           <div className="relative">
@@ -736,13 +815,15 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
   const { addToast } = useToastStore();
   const [f, setF] = useState<any>({ ...register });
   const [cols, setCols] = useState<ColumnDef[]>(register.columnsConfig || []);
+  // Версия реестра на момент открытия формы: форма показывает именно её, даже если реестр на экране обновился
+  const openedAt = useRef(register.updatedAt);
   const [newCol, setNewCol] = useState('');
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
     setBusy(true);
     try {
-      const body: any = { columnsConfig: cols };
+      const body: any = { columnsConfig: cols, expectedUpdatedAt: openedAt.current };
       for (const k of ['name', 'vendor', 'contractor', 'owner', 'poNumber', 'ownerProjectNo', 'contractorProjectNo',
         'materialRequisition', 'equipmentTitle', 'contractorDocNo', 'ownerDocNo', 'vendorDocNo',
         'preparedBy', 'checkedBy', 'approvedBy']) body[k] = String(f[k] ?? '');
@@ -752,7 +833,13 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
       body.standardId = f.standardId || null;
       body.managerId = f.managerId || null;
       const r = await fetch(`/api/vdr/registers/${register.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (!r.ok) { addToast('Ошибка сохранения', 'error'); return; }
+      if (!r.ok) {
+        // Реквизиты уже поправил коллега: форма закрывается, экран перечитывает
+        // реестр, и человек правит поверх его версии, а не затирает её
+        const conflict = await conflictOf(r);
+        if (conflict) { addToast(conflict.message, 'error'); onChanged(); onClose(); return; }
+        addToast('Ошибка сохранения', 'error'); return;
+      }
       addToast('Реквизиты сохранены', 'success');
       onChanged(); onClose();
     } finally { setBusy(false); }

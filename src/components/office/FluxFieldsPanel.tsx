@@ -76,7 +76,8 @@ export default function FluxFieldsPanel({ fields, state, forceSave = false, save
         {!state && <p className="px-3 pb-2 text-xs text-amber-700 dark:text-amber-300">Состояние документа ещё загружается или недоступно.</p>}
         {!canEditSchema && state && !readOnly && <p className="px-3 pb-2 text-xs text-amber-700 dark:text-amber-300">Схема недоступна для изменения в этом документе.</p>}
         {readOnly && <p className="px-3 pb-2 text-xs text-amber-700 dark:text-amber-300">Документ открыт только для просмотра.</p>}
-        <div className="max-h-52 overflow-auto px-3 pb-3">
+        {/* Карточка ячейки с формулой (поле, оператор, число) выше 208 px: при прежнем max-h-52 её нижний ряд «Текст + − * /» уходил под список полей, хотя места в панели много */}
+        <div className="max-h-[45vh] overflow-auto px-3 pb-3">
           {!draft?.anchors.length && <p className="text-xs text-slate-500 dark:text-slate-400">Щёлкните ячейку заголовка в документе, выберите поле и привяжите его.</p>}
           {draft?.anchors.map((anchor, anchorIndex) => {
             const active = activeAnchorId === anchor.id;

@@ -16,7 +16,7 @@
  */
 
 import { VEZA_SAMPLE_XML, PLAIN_EQUIPMENT_XML } from './fixtures/veza';
-import { looksLikeVezaXml, parseVezaXml } from '../server/vezaXml';
+import { looksLikeVezaXml, noUnitsReason, parseVezaXml } from '../server/vezaXml';
 import { parseEquipmentXML, detectEquipType } from '../server/equipmentParser';
 import { vezaGroup, vezaProp, vezaUnit } from '../server/vezaDict';
 import type { ParsedBlock, ParsedUnit, SpecGroup } from '../server/equipmentParser';
@@ -252,6 +252,21 @@ console.log('\n11. Подпозиции: оборудование внутри �
   ok('номер экземпляра сохранён', by('1.3/вентилятор2')?.instanceNo === 2, by('1.3/вентилятор2')?.instanceNo);
   ok('сколько всего экземпляров — тоже', by('1.3/вентилятор2')?.instanceCount === 2);
 
+  // Счётчик раздела — итог по блоку (два вентилятора), а не «на штуку»:
+  // «Количество 2» на каждом из двух вентиляторов удваивало бы их в карточке
+  const cnt = (n: string, k: string) => flat(by(n)!.groups).get(`${k}`);
+  const fanGroup = vezaGroup('ptgFAN');
+  ok('у вентилятора количество — один, а не копия счёта блока',
+    cnt('1.3/вентилятор1', `${fanGroup}||Количество`) === '1 шт' && cnt('1.3/вентилятор2', `${fanGroup}||Количество`) === '1 шт',
+    [...flat(by('1.3/вентилятор1')!.groups).entries()].filter(([k]) => /Колич/.test(k)));
+  ok('рабочих 1 из 2: какой из вентиляторов рабочий, файл не говорит — параметра нет',
+    ![...flat(by('1.3/вентилятор1')!.groups).keys()].some(k => /рабочих/.test(k)));
+  ok('у двигателя количество — один',
+    [...flat(by('1.3/вентилятор1/двигатель1')!.groups).entries()].filter(([k]) => /Количество$/.test(k)).every(([, v]) => v === '1 шт'));
+  ok('у блока счётчик остался итогом',
+    [...flat(by('1.3')!.groups).entries()].some(([k, v]) => /Количество$/.test(k) && v === '2 шт'),
+    [...flat(by('1.3')!.groups).entries()].filter(([k]) => /Колич/.test(k)));
+
   // «Вентилятор ПРОБА62-100-01500…» и «Вентилятор ПРОБА62-100» внутри него —
   // один вентилятор, записанный дважды. Вторая позиция удвоила бы реестр
   ok('типоразмер не стал вторым вентилятором',
@@ -371,6 +386,35 @@ console.log('\n16. Вид узла, отнесённый к роли челов�
   ok('и приехал позицией', all.some(b => b.role === 'УВЛАЖНИТЕЛЬ'), all.map(b => b.role));
   const skipped = parseVezaXml(VEZA_SAMPLE_XML, detectEquipType, { kinds: { cadSteamHumidifier: 'НЕ_ПОЗИЦИЯ' } });
   ok('«не позиция» просто пропускается', !(skipped.unknownKinds || []).includes('cadSteamHumidifier'), skipped.unknownKinds);
+}
+
+console.log('\n17. Секунды остаются секундами, а не градусами');
+{
+  // Общий нормализатор единиц сводит «с» к °C (в бланках так пишут градусы).
+  // Словарь САПР отдаёт уже готовое «с» — у «Времени прогрева» клапана из живой
+  // выгрузки (unSecond) вышло «300 °C». Берём образец и меняем единицу у расхода воздуха установки.
+  const withSeconds = VEZA_SAMPLE_XML.replace(
+    'proReportPropType="ptAirFlow" proReportPropValue="5000" proMeasureUnit="unCubicMeterPerHour"',
+    'proReportPropType="ptAirFlow" proReportPropValue="5000" proMeasureUnit="unSecond"');
+  ok('образец изменён', withSeconds !== VEZA_SAMPLE_XML);
+  const unit0 = parseVezaXml(withSeconds, detectEquipType).units[0] as ParsedUnit;
+  const flow = unit0.groups.flatMap(g => g.params).find(p => p.sourceKey === 'ptAirFlow');
+  ok('единица unSecond — «с»', flow?.unit === 'с', flow);
+  ok('и не °C', flow?.unit !== '°C', flow);
+  // Градусы по-прежнему градусы, незнакомая единица по-прежнему нормализуется
+  ok('unCelsiusDegree — °C', vezaUnit('unCelsiusDegree') === '°C');
+}
+
+console.log('\n18. Обрезанный файл называется обрезанным');
+{
+  // Structure лежит в конце файла: при обрыве остаётся словарь, но не состав заказа
+  const cut = VEZA_SAMPLE_XML.slice(0, VEZA_SAMPLE_XML.indexOf('<Structure'));
+  ok('образец обрезан до Structure', cut.length > 0 && cut.length < VEZA_SAMPLE_XML.length);
+  ok('обрезанная выгрузка разбирается без установок', parseVezaXml(cut, detectEquipType).units.length === 0);
+  ok('причина — обрыв файла, а не «другой формат»', /не полностью/.test(noUnitsReason(cut)) && !/бланк/.test(noUnitsReason(cut)), noUnitsReason(cut));
+  ok('чужой XML по-прежнему отправляется к бланкам', /бланк/.test(noUnitsReason('<Root><Nothing/></Root>')));
+  const noUnits = VEZA_SAMPLE_XML.replace(/cadUnitFolder/g, 'cadOtherFolder');
+  ok('выгрузка без установок — отдельная причина', /ни одной установки/.test(noUnitsReason(noUnits)), noUnitsReason(noUnits));
 }
 
 console.log(failed ? `\nПРОВАЛОВ: ${failed}` : '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ');

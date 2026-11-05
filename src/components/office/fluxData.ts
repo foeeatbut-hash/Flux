@@ -108,6 +108,8 @@ export interface OfficeAnchorRow {
   anchorIds: string[];
   cells?: Record<string, string>;
   values?: Record<string, string | number | null>;
+  /** Позиции больше нет в источнике, строка помечена (ISO-время пометки) */
+  removed?: string;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -192,6 +194,9 @@ export const officeDataApi = {
   pinTemplate: (id: string, pinned: boolean) => request<{ pinned: string[] }>(`/api/project-data/office/templates/${encodeURIComponent(id)}/pin`, json({ pinned })),
 };
 
+const TAG_LAYOUT_KEYS = new Set(['x', 'y', '_noPos']);
+const TAG_META_TITLES: Record<string, string> = { mainName: 'Главное наименование' };
+
 /** Приводит только реально выданные каталогом поля к общему UI-контракту. */
 export function fieldsFromCatalog(catalog: Record<string, any>): OfficeField[] {
   const fields: OfficeField[] = [];
@@ -199,7 +204,12 @@ export function fieldsFromCatalog(catalog: Record<string, any>): OfficeField[] {
   for (const field of catalog.elementFields || []) fields.push({ fieldKey: String(field.path), sourceId: 'equipment', entityType: 'element', displayName: String(field.title || field.path), kind: 'text' });
   for (const param of catalog.params || []) fields.push({ fieldKey: `param:${param.group}|${param.key}`, sourceId: 'equipment', entityType: 'element', displayName: `${param.group} · ${param.key}`, unit: param.unit || undefined, kind: 'number' });
   for (const field of catalog.aliases || []) fields.push({ fieldKey: String(field.path), sourceId: 'equipment', entityType: 'element', displayName: String(field.title || field.path), unit: field.unit || undefined, kind: 'number' });
-  for (const field of catalog.metaKeys || []) fields.push({ fieldKey: `meta:${field.key}`, sourceId: 'tags', entityType: 'tag', displayName: String(field.key), kind: 'text' });
+  // Служебные ключи карточки тега в документ не нужны: положение на холсте (x, y) — не данные тега;
+  // «mainName» — то, что в «Тегах» называется «Главное наименование», а не слово на латинице
+  for (const field of catalog.metaKeys || []) {
+    if (TAG_LAYOUT_KEYS.has(String(field.key))) continue;
+    fields.push({ fieldKey: `meta:${field.key}`, sourceId: 'tags', entityType: 'tag', displayName: TAG_META_TITLES[String(field.key)] || String(field.key), kind: 'text' });
+  }
   for (const field of catalog.managementFields || []) fields.push({ fieldKey: String(field.path), sourceId: 'management', entityType: field.entityType, displayName: String(field.title || field.path), kind: field.type || 'text', unit: field.unit || undefined });
   for (const field of catalog.e3fluxFields || []) fields.push({ fieldKey: String(field.path), sourceId: 'e3flux', entityType: field.entityType, displayName: String(field.title || field.path), kind: field.type || 'text', unit: field.unit || undefined });
   return fields;

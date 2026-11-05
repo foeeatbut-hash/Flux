@@ -97,6 +97,14 @@ async function main() {
     const aSource = await prisma.equipmentXmlSource.findUnique({ where: { id: aBody.source.sourceId } });
     check('source baseline stores the original XML digest and revision', aSource?.lastImportedSha256 === a.sha256 && aSource?.lastImportedRevision === a.revision);
 
+    // Тот же файл в другую категорию: понятный отказ уже на плане, а не «привязка повреждена» на записи
+    const beforeOtherCategory = { systems: await count(prisma.equipmentSystem), tags: await count(prisma.tag), sources: await count(prisma.equipmentXmlSource), history: await count(prisma.equipmentHistory) };
+    const otherCategory = { ...a, category: 'FAN' };
+    const otherPreview = await post('preview', otherCategory);
+    const otherPreviewText = JSON.stringify(await otherPreview.json());
+    check('план в другую категорию отказывает и называет причину', otherPreview.status === 409 && /в другой категории/.test(otherPreviewText) && !/повреждена/.test(otherPreviewText));
+    check('отказ по категории ничего не пишет', JSON.stringify(beforeOtherCategory) === JSON.stringify({ systems: await count(prisma.equipmentSystem), tags: await count(prisma.tag), sources: await count(prisma.equipmentXmlSource), history: await count(prisma.equipmentHistory) }));
+
     const aSystem = await prisma.equipmentSystem.findUnique({ where: { id: aBody.source.systemId } });
     const aMono = await prisma.monoblock.findFirst({ where: { systemId: aSystem?.id, name: 'M1' } });
     const fan = await prisma.componentElement.findFirst({ where: { monoblockId: aMono?.id, itemCode: 'B1' } });
@@ -318,6 +326,21 @@ async function main() {
     const staleEquipment = await prisma.componentElement.findMany({ where: { id: { in: staleDocResult.associations.equipmentIds } } });
     check('устаревшая форма успешно импортируется без привязки и предупреждает о конфликте журнала', staleDocResult.bindingWarning && !staleDocResult.associations.bindingId && !staleDocLedger.bindings.some((row: any) => row.fileName === 'stale-form.docx') && staleDocLedger.revision === beforeStaleDoc.revision);
     check('импорт stale-формы сохраняет возвращённые ID и историю, не удаляя прежние записи', staleSystems.length === staleDocResult.associations.systemIds.length && staleEquipment.length === staleDocResult.associations.equipmentIds.length && afterStaleDoc.systems >= beforeStaleDoc.systems && afterStaleDoc.equipment >= beforeStaleDoc.equipment && afterStaleDoc.history > beforeStaleDoc.history);
+    // Тег файла уже стоит на другой позиции проекта: план называет, на какой, и считает такие теги.
+    // Раньше строка молча шла как «Связать», а тег так и оставался за прежней позицией.
+    const takenTag = '5500-T01-TK-123';
+    const takenSystem = await prisma.equipmentSystem.create({ data: { projectId: 'source-import-project', name: 'Чужая установка' } });
+    const takenMono = await prisma.monoblock.create({ data: { systemId: takenSystem.id, name: 'M9' } });
+    const takenHolder = await prisma.componentElement.create({ data: { monoblockId: takenMono.id, itemCode: 'T9', name: 'Чужой бак', equipType: 'ПРОЧЕЕ', specs: JSON.stringify({ groups: [] }), manual: true } });
+    await prisma.tag.create({ data: { projectId: 'source-import-project', identifier: takenTag, componentElements: { connect: [{ id: takenHolder.id }] } } });
+    const takenPreview = await post('preview', makeBody(takenTag, `${takenTag}-taken.xml`));
+    assert.equal(takenPreview.status, 200, (await takenPreview.clone().text()).slice(0, 300));
+    const takenPlan = await takenPreview.json();
+    const takenLink = (takenPlan.plan.tagLinks || []).find((link: any) => link.identifier === takenTag);
+    check('тег файла, занятый другой позицией, помечен в плане', takenLink?.takenBy === takenHolder.id);
+    check('план называет, к чему тег уже привязан', /Чужой бак/.test(takenLink?.takenByWhere || '') && /Чужая установка/.test(takenLink?.takenByWhere || ''));
+    check('сводка плана считает занятые теги', takenPlan.plan.totals?.tagsTaken === 1);
+
     console.log(`Equipment source import HTTP checks: ${checks} passed.`);
   } finally {
     if (server) await new Promise<void>(resolve => server.close(() => resolve()));

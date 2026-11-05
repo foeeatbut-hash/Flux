@@ -113,6 +113,14 @@ export function ensureSchemaColumns(dbPath: string, logInit: (message: string) =
         "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
       )`);
       db.exec('CREATE INDEX IF NOT EXISTS "DocRegisterItemRevision_itemId_idx" ON "DocRegisterItemRevision"("itemId")');
+      // Связь строки ВДР с тегом по id: переименование тега её не рвёт
+      db.exec(`CREATE TABLE IF NOT EXISTS "DocRegisterItemTag" (
+        "itemId" TEXT NOT NULL,
+        "tagId" TEXT NOT NULL,
+        "tagIdentifier" TEXT NOT NULL DEFAULT '',
+        UNIQUE ("itemId", "tagId")
+      )`);
+      db.exec('CREATE INDEX IF NOT EXISTS "DocRegisterItemTag_tagId_idx" ON "DocRegisterItemTag"("tagId")');
 
       // Перевод: глоссарий, память переводов, связь русской и английской версий
       db.exec(`CREATE TABLE IF NOT EXISTS "TermEntry" (

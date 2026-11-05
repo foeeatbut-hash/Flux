@@ -108,7 +108,7 @@ export interface ImportPlan {
    * а предупреждение, что переподбор заденет чужую работу. Нет схем — поля нет.
    */
   inScheme?: { count: number; bySystem: Record<string, number> };
-  totals: { removed: number; restored: number; systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew: number; tagsLinked: number; tagsInvalid: number };
+  totals: { removed: number; restored: number; systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew: number; tagsLinked: number; tagsInvalid: number; tagsTaken?: number };
 }
 
 // ── Валидация значений по типу оборудования (§5.5) ──
@@ -330,6 +330,19 @@ export async function planEquipmentImport(
     const handsOver = new Map(plan.blocks.filter(b => b.replacesId && b.replacesLinked).map(b => [b.key, b.replacesId]));
     plan.tagLinks = plan.tagLinks.map(l => (l.takenBy && (ownId.get(l.blockKey) === l.takenBy || handsOver.get(l.blockKey) === l.takenBy)
       ? { ...l, takenBy: undefined } : l));
+    // Тег, уже стоящий на другой позиции или установке: план называет, на какой. Раньше строка шла
+    // как «Связать» молча, а связь «оставлялась как была» только на записи (equipmentTags, конфликты).
+    const takenIds = [...new Set(plan.tagLinks.map(l => l.takenBy).filter(Boolean) as string[])];
+    if (takenIds.length) {
+      const holders = await prisma.componentElement.findMany({
+        where: { id: { in: takenIds } },
+        select: { id: true, name: true, itemCode: true, monoblock: { select: { name: true, system: { select: { name: true } } } } },
+      });
+      const where = new Map<string, string>(holders.map((h: any) => [h.id,
+        [h.name || h.itemCode, h.monoblock?.system?.name && `установка ${h.monoblock.system.name}`].filter(Boolean).join(' · ')]));
+      plan.tagLinks = plan.tagLinks.map(l => (l.takenBy ? { ...l, takenByWhere: where.get(l.takenBy) || 'другая позиция проекта' } : l));
+    }
+    plan.totals.tagsTaken = plan.tagLinks.filter(l => l.takenBy).length;
     plan.totals.tagsNew = plan.tagLinks.filter(l => l.action === 'create').length;
     plan.totals.tagsLinked = plan.tagLinks.filter(l => l.action === 'link').length;
     plan.totals.tagsInvalid = plan.tagLinks.filter(l => l.action === 'invalid').length;
