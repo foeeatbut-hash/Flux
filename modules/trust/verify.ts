@@ -23,7 +23,8 @@ import { validManifest } from '../schemas';
 import { CONTRACT_VERSION, type ModuleManifest } from '../contract';
 
 export interface RevokedSet { releases: Set<string>; keys: Set<string> }
-export type Verified<T> = { ok: true } & T | { ok: false; why: string };
+// why есть у обоих вариантов: проект собирается без strictNullChecks, и сужение по ok не работает
+export type Verified<T> = ({ ok: true; why?: undefined } & T) | { ok: false; why: string };
 
 /** Отзывы с подписью владельца; чужие и битые записи молча пропускаются — они ничего не отзывают и не отменяют */
 export function readRevocations(envelopes: readonly string[], rootHex: string): RevokedSet & { valid: string[] } {
@@ -57,7 +58,7 @@ export function bundleManifest(files: BundleFiles, moduleId: string, version: st
   let manifest: unknown;
   try { manifest = JSON.parse(bundleText(files, 'manifest.json') || ''); } catch { return 'В пакете нет корректного manifest.json'; }
   if (!validManifest(manifest)) return 'manifest.json не соответствует договору';
-  const m = manifest as ModuleManifest;
+  const m = manifest as unknown as ModuleManifest;
   if (m.id !== moduleId || m.version !== version) return 'manifest.json описывает другой модуль или версию';
   if (m.contractVersion > CONTRACT_VERSION) return `Модулю нужен договор v${m.contractVersion}: обновите Flux`;
   return m;

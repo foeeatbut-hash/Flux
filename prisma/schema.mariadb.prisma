@@ -2092,3 +2092,94 @@ model E3Binding {
   @@unique([e3ProjectId, elementId])
   @@index([e3ProjectId])
 }
+
+/// Flux Studio: запрос на публикацию модуля. Неизменяем: новая правка —
+/// новый запрос, прежний остаётся в истории. Пакет лежит в ModuleChunk
+/// (blobId = id запроса). Подпись разработчика (или владельца — «изменения
+/// владельца») стоит на описании пакета, сервер сверяет её при приёме.
+model ModuleRequest {
+  id            String    @id @default(uuid())
+  moduleId      String
+  version       String
+  /// Подписанная запись запроса FLUXMODREQ1 (modules/trust/envelope.ts)
+  signature     String @db.LongText
+  /// SHA-256 подписи: повтор той же отправки не плодит строк
+  signatureHash String    @unique
+  authorKey     String
+  authorId      String    @default("")
+  byOwner       Boolean   @default(false)
+  parentId      String?
+  baseRelease   String?
+  size          Int
+  sha256        String
+  chunkCount    Int
+  /// pending → returned | rejected | edited | superseded | released
+  state         String    @default("pending")
+  /// Замечания и причина решения владельца (JSON)
+  review        String    @default("") @db.LongText
+  decidedBy     String    @default("")
+  decidedAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([moduleId])
+  @@index([state])
+}
+
+/// Выпуск модуля. Flux верит не строке, а подписи владельца в signature:
+/// у любого сотрудника есть реквизиты базы, и строку может вписать кто угодно.
+model ModuleRelease {
+  id         String   @id @default(uuid())
+  moduleId   String
+  version    String
+  channel    String   @default("production")
+  /// Подписанная запись выпуска FLUXMOD1 — ключом владельца
+  signature  String @db.LongText
+  requestId  String
+  /// Куски пакета (ModuleChunk.blobId): тот же пакет, что пришёл в запросе
+  blobId     String
+  size       Int
+  sha256     String
+  chunkCount Int
+  /// published | revoked — для списка; запуск решает подписанный отзыв
+  state      String   @default("published")
+  createdAt  DateTime @default(now())
+
+  @@unique([moduleId, version])
+  @@index([moduleId])
+}
+
+/// Кусок пакета модуля — по 256 КиБ, как у обновлений: большой пакет одним
+/// полем не проходит предел размера пакета MariaDB.
+model ModuleChunk {
+  id     String @id @default(uuid())
+  blobId String
+  idx    Int
+  data   Bytes  @db.LongBlob
+
+  @@unique([blobId, idx])
+  @@index([blobId])
+}
+
+/// Сертификат разработчика: «ключ X может присылать запросы», подписан владельцем
+model ModuleCertificate {
+  id        String   @id @default(uuid())
+  keyHex    String   @unique
+  userId    String
+  name      String   @default("")
+  signature String @db.LongText
+  createdAt DateTime @default(now())
+}
+
+/// Отзыв выпуска или ключа разработчика, подписан владельцем. Flux помнит
+/// увиденные отзывы у себя: удалить строку отсюда — не значит отменить отзыв.
+model ModuleRevocation {
+  id            String   @id @default(uuid())
+  kind          String
+  target        String
+  reason        String   @default("") @db.LongText
+  signature     String @db.LongText
+  signatureHash String   @unique
+  createdAt     DateTime @default(now())
+
+  @@index([target])
+}
