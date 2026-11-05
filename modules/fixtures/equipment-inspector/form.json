@@ -1,6 +1,5 @@
 {
   "version": 1,
-  "onDataChanged": "recalc",
   "groups": [
     {
       "title": "Позиция оборудования",
@@ -9,6 +8,13 @@
         { "label": "Наименование", "bind": "flux.equipment.name" },
         { "label": "Код позиции", "bind": "flux.equipment.itemCode", "kind": "code" },
         { "label": "Тег", "bind": "flux.tag.identifier", "kind": "code" }
+      ]
+    },
+    {
+      "title": "Расчёт примера",
+      "fields": [
+        { "label": "Параметров", "bind": "calc.out.parameterCount" },
+        { "label": "Пересчётов", "bind": "state.recalculations" }
       ]
     }
   ],

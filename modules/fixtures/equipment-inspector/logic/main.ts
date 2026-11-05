@@ -1,10 +1,10 @@
 import type { ModuleApi } from '../../../contract';
 
-export async function recalc({ flux, calc }: ModuleApi) {
-  const project = await flux.read('project');
-  const equipment = await flux.read('equipment');
-  const tag = await flux.read('tag');
-  // Форма читает тот же снимок, что и обработчик: при событии он собирается заново.
-  calc.out = { parameterCount: equipment?.params.length || 0 };
-  return { flux: { project, equipment, tag }, calc };
+export function setup({ flux, state, calc }: ModuleApi) {
+  state.recalculations ??= 0;
+  flux.on('changed', async () => {
+    const equipment = await flux.read('equipment');
+    state.recalculations = Number(state.recalculations) + 1;
+    calc.out = { parameterCount: equipment?.params.length || 0 };
+  });
 }

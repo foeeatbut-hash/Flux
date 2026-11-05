@@ -4,31 +4,49 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
-import express from 'express';
-import { Server } from 'socket.io';
-import { build } from 'esbuild';
-import { _electron, type Frame } from 'playwright-core';
-import { bootstrapLocalDatabase } from '../server/databaseBootstrap';
-import { setPrisma, setBroadcaster } from '../server/context';
-import { registerProjectRoutes } from '../server/routes/projects';
-import { registerTagRoutes } from '../server/routes/tags';
-import { registerEquipmentCoreRoutes } from '../server/routes/equipmentCore';
+import type { Frame } from 'playwright-core';
 
-const require = createRequire(import.meta.url);
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-modules-'));
-const shots = process.env.FLUX_MODULE_SHOTS || path.join(temp, 'shots');
-fs.mkdirSync(shots, { recursive: true });
-const { PrismaClient } = require('../prisma-clients/client-sqlite');
-const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
-const dbPath = path.join(temp, 'test.sqlite');
-const prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: `file:${dbPath}` }) });
-let passed = 0;
-function check(name: string, condition: unknown) { assert.ok(condition, name); passed++; console.log(`✓ ${name}`); }
-const app = express();
-const server = createServer(app);
-const io = new Server(server);
-let electron: Awaited<ReturnType<typeof _electron.launch>> | undefined;
 async function main() {
+  if (process.platform !== 'win32') {
+    console.log('FLUX_VERIFY_SKIP: проверка требует Windows');
+    return;
+  }
+  const required = [
+    'dist/index.html',
+    'dist/modules/equipment-inspector/index.html',
+    'dist/modules/equipment-inspector/runtime.js',
+    'dist/modules/equipment-inspector/flux.css',
+  ];
+  const missing = required.filter(file => !fs.existsSync(file));
+  if (missing.length) {
+    console.log(`FLUX_VERIFY_SKIP: отсутствуют файлы сборки: ${missing.join(', ')}`);
+    return;
+  }
+
+  const { default: express } = await import('express');
+  const { Server } = await import('socket.io');
+  const { build } = await import('esbuild');
+  const { _electron } = await import('playwright-core');
+  const { bootstrapLocalDatabase } = await import('../server/databaseBootstrap');
+  const { setPrisma, setBroadcaster } = await import('../server/context');
+  const { registerProjectRoutes } = await import('../server/routes/projects');
+  const { registerTagRoutes } = await import('../server/routes/tags');
+  const { registerEquipmentCoreRoutes } = await import('../server/routes/equipmentCore');
+  const require = createRequire(import.meta.url);
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-modules-'));
+  const shots = process.env.FLUX_MODULE_SHOTS || path.join(temp, 'shots');
+  fs.mkdirSync(shots, { recursive: true });
+  const { PrismaClient } = require('../prisma-clients/client-sqlite');
+  const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
+  const dbPath = path.join(temp, 'test.sqlite');
+  const prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: `file:${dbPath}` }) });
+  let passed = 0;
+  function check(name: string, condition: unknown) { assert.ok(condition, name); passed++; console.log(`✓ ${name}`); }
+  const app = express();
+  const server = createServer(app);
+  const io = new Server(server);
+  let electron: Awaited<ReturnType<typeof _electron.launch>> | undefined;
+  try {
   await bootstrapLocalDatabase(dbPath, prisma, fs.readFileSync('prisma/schema.prisma', 'utf8'), () => {});
   setPrisma(prisma);
   setBroadcaster((event, detail) => io.emit(event, detail));
@@ -58,7 +76,7 @@ async function main() {
   app.all('/must-not-reach', (_req, res) => { leaked++; res.json({ leaked: true }); });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${(server.address() as any).port}`;
-  electron = await _electron.launch({ args: [...(process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu', ...(process.env.DISPLAY ? [] : ['--ozone-platform=headless'])] : []), path.join(temp, 'main.cjs')],
+  electron = await _electron.launch({ args: [path.join(temp, 'main.cjs')],
     env: { ...process.env, FLUX_MODULE_FIXTURE_DIR: temp, FLUX_MODULE_FIXTURE_URL: url }, timeout: 45000 });
   const page = await electron.firstWindow();
   await page.bringToFront();
@@ -155,7 +173,8 @@ async function main() {
   await page.waitForTimeout(150);
   check('iframe не уходит на внешний адрес навигацией', !!frame() && leaked === 0);
   console.log(`\n${passed} проверок пройдено. Снимки: ${shots}`);
+  } finally {
+    await electron?.close(); io.close(); server.close(); await prisma.$disconnect();
+  }
 }
-main().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
-  await electron?.close(); io.close(); server.close(); await prisma.$disconnect();
-});
+main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -16,14 +16,22 @@ export async function buildModuleAssets(css: string, fonts: Record<string, strin
   for (const manifest of bundledModules) {
     if (!validManifest(manifest)) throw new Error('Манифест фикстуры не соответствует договору v1');
     const fixture = path.resolve('modules/fixtures', manifest.id);
-    const worker = await build({ entryPoints: ['modules/runtime/worker.ts'], bundle: true, write: false, platform: 'browser', format: 'iife',
-      alias: { 'module-logic': path.join(fixture, manifest.logic) } });
-    const frame = await build({ entryPoints: ['modules/runtime/frame.ts'], bundle: true, write: false, platform: 'browser', format: 'iife',
-      define: { __MODULE_FORM__: fs.readFileSync(path.join(fixture, 'form.json'), 'utf8'), __MODULE_WORKER__: JSON.stringify(worker.outputFiles[0].text) },
+    const worker = await build({
+      entryPoints: ['modules/runtime/worker.ts'], bundle: true, write: false, platform: 'browser', format: 'iife',
+      alias: { 'module-logic': path.join(fixture, manifest.logic) },
+    });
+    const frame = await build({
+      entryPoints: ['modules/runtime/frame.ts'], bundle: true, write: false, platform: 'browser', format: 'iife',
+      define: {
+        __MODULE_FORM__: fs.readFileSync(path.join(fixture, 'form.json'), 'utf8'),
+        __MODULE_WORKER__: JSON.stringify(worker.outputFiles[0].text),
+      },
       plugins: [{ name: 'static-contract-validators', setup(plugin) {
         // CSP модуля запрещает eval/new Function: Ajv выполняет генерацию только при сборке.
         plugin.onResolve({ filter: /^\.\.\/schemas$/ }, () => ({ path: 'validators', namespace: 'module-validators' }));
-        plugin.onLoad({ filter: /.*/, namespace: 'module-validators' }, () => ({ contents: staticValidation, loader: 'js', resolveDir: process.cwd() }));
+        plugin.onLoad({ filter: /.*/, namespace: 'module-validators' }, () => ({
+          contents: staticValidation, loader: 'js', resolveDir: process.cwd(),
+        }));
       } }],
     });
     const prefix = `modules/${manifest.id}/`;
@@ -36,7 +44,11 @@ export async function buildModuleAssets(css: string, fonts: Record<string, strin
       assets[`${prefix}${file}`] = new Uint8Array(Buffer.from(encoded, 'base64'));
       return `./${file}`;
     });
-    assets[`${prefix}index.html`] = '<!doctype html><html lang="ru" style="background:var(--flux-surface)"><head><meta charset="utf-8"><link rel="stylesheet" href="./flux.css"></head><body style="margin:0;min-height:100vh;background:var(--flux-surface);color:var(--flux-text)"><main id="module-root" style="font-size:13px;padding:12px">Загрузка…</main><script src="./runtime.js"></script></body></html>';
+    assets[`${prefix}index.html`] = '<!doctype html><html lang="ru" style="background:var(--flux-surface)">'
+      + '<head><meta charset="utf-8"><link rel="stylesheet" href="./flux.css"></head>'
+      + '<body style="margin:0;min-height:100vh;background:var(--flux-surface);color:var(--flux-text)">'
+      + '<main id="module-root" style="font-size:13px;padding:12px">Загрузка…</main>'
+      + '<script src="./runtime.js"></script></body></html>';
     for (const [file, source] of Object.entries(fonts)) assets[`${prefix}${path.basename(file)}`] = source;
   }
   return assets;

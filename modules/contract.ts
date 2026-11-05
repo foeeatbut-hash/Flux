@@ -39,10 +39,23 @@ export type HostMessage =
   | { flux: 'module'; v: 1; session: string; type: 'event'; event: 'opened' | 'project-changed' | 'changed'; context: LaunchContext; theme: ThemeTokens }
   | { flux: 'module'; v: 1; session: string; type: 'result'; id: string; resource: Resource; data: ReadData[Resource] }
   | { flux: 'module'; v: 1; session: string; type: 'error'; id: string; code: BridgeError };
-export type ThemeTokens = Record<'--flux-surface' | '--flux-bg' | '--flux-hover' | '--flux-sel' | '--flux-line' | '--flux-text' | '--flux-text-muted' | '--flux-accent', string>;
-export const themeKeys: Array<keyof ThemeTokens> = ['--flux-surface', '--flux-bg', '--flux-hover', '--flux-sel', '--flux-line', '--flux-text', '--flux-text-muted', '--flux-accent'];
+export type ThemeTokens = Record<
+  '--flux-surface' | '--flux-bg' | '--flux-hover' | '--flux-sel' | '--flux-line' | '--flux-text' | '--flux-text-muted' | '--flux-accent',
+  string
+>;
+export const themeKeys: Array<keyof ThemeTokens> = [
+  '--flux-surface', '--flux-bg', '--flux-hover', '--flux-sel', '--flux-line', '--flux-text', '--flux-text-muted', '--flux-accent',
+];
 export interface ModuleApi {
-  flux: { read<R extends Resource>(resource: R, entityId?: string): Promise<ReadData[R]> };
+  flux: {
+    read<R extends Resource>(resource: R, entityId?: string): Promise<ReadData[R]>;
+    on(event: 'changed', listener: () => void | Promise<void>): () => void;
+  };
   state: Record<string, unknown>;
   calc: { out: Record<string, unknown> };
+}
+export type ModuleReader = <R extends Resource>(resource: R, entityId?: string) => Promise<ReadData[R]>;
+export interface ModuleOutput {
+  state: ModuleApi['state'];
+  calc: ModuleApi['calc'];
 }

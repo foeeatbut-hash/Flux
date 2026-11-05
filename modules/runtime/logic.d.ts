@@ -1,3 +1,3 @@
 declare module 'module-logic' {
-  export function recalc(api: import('../contract').ModuleApi): Promise<unknown>;
+  export function setup(api: import('../contract').ModuleApi): void | Promise<void>;
 }

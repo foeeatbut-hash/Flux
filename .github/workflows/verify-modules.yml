@@ -27,6 +27,7 @@ jobs:
     env:
       NODE_OPTIONS: --max-old-space-size=8192
       FLUX_MODULE_SHOTS: artifacts/modules-shots
+      DISABLE_HMR: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -42,7 +43,7 @@ jobs:
         run: |
           node_modules/.bin/tsc --noEmit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($suite in @('modules-contract', 'modules-data', 'architecture')) {
+          foreach ($suite in @('modules-contract', 'modules-data', 'modules-limits', 'modules-runtime', 'architecture')) {
             node --import tsx "scripts/test-$suite.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
@@ -53,6 +54,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force artifacts | Out-Null
           node --import tsx scripts/test-modules-native.ts 2>&1 | Tee-Object artifacts/modules-native.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Пуск и карточки в полном Flux, обе темы
+        shell: pwsh
+        run: |
+          node --import tsx scripts/test-modules-flux-ui-live.ts 2>&1 | Tee-Object artifacts/modules-flux-ui.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         if: always()

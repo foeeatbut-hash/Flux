@@ -6,6 +6,13 @@ import { moduleAssetPath } from '../modules/protocol';
 
 let failed = 0;
 let passed = 0;
+let mainCompleted = false;
+process.on('exit', () => {
+  if (!mainCompleted) {
+    console.error('ПРОВАЛ: проверка завершилась до окончания main');
+    process.exitCode = 1;
+  }
+});
 const ok = (name: string, condition: boolean) => {
   if (condition) { passed++; console.log('  ✓', name); }
   else { failed++; console.error('  ✗', name); }
@@ -59,12 +66,16 @@ async function main() {
   messages.length = 0;
   for (const invalid of [
     { ...request('bad-extra'), extra: true }, { ...request('bad-version'), v: 2 },
-    { ...request('bad-method'), type: 'delete' }, { ...request('bad-resource'), resource: 'secret' },
+    { ...request('bad-resource'), resource: 'secret' },
     { ...request('bad-session'), session: 'other' },
   ]) await send(invalid);
   await send(request('bad-source'), {});
   await send(request('bad-origin'), frame, 'https://host.example');
   ok('чужие и изменённые сообщения не доходят до чтения', calls.length === 0 && messages.length === 0);
+  await send({ ...request('bad-method'), type: 'delete' });
+  ok('удаление получает READ_ONLY и не вызывает чтение',
+    messages.length === 1 && messages[0].id === 'bad-method' && messages[0].code === 'READ_ONLY' && calls.length === 0);
+  messages.length = 0;
   await send(request('good'));
   ok('разрешённое чтение возвращает позицию', calls.length === 1 && calls[0][0] === 'equipment' && messages[0]?.data.name === 'Позиция');
   bridge.notify('changed');
@@ -125,6 +136,7 @@ async function main() {
     `flux-module://${id}:123/index.html`, `flux-module://${id}/manifest.json`]) {
     ok(`путь ${url} запрещён`, moduleAssetPath(url, [id]) === null);
   }
+  mainCompleted = true;
   console.log(`\n${passed} проверок пройдено, ${failed} провалено`);
   process.exitCode = failed ? 1 : 0;
 }

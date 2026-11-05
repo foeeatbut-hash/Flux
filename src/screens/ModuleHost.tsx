@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { bundledModules } from '../../modules/bundled';
 import type { LaunchContext } from '../../modules/contract';
 import { useStore } from '../store/store';
-import { readModuleResource } from '../services/moduleDataService';
+import { createModuleReadCycle } from '../services/moduleDataService';
 import ModuleFrame from '../components/modules/ModuleFrame';
 
 export default function ModuleHost() {
@@ -23,6 +23,6 @@ export default function ModuleHost() {
   return <div className="flex h-full min-h-0 flex-col text-[var(--flux-text)] bg-[var(--flux-surface)]">
     <div className="fx-head shrink-0"><h1 className="fx-head-title">{manifest.name}</h1><span className="fx-head-count">{manifest.version}</span></div>
     <ModuleFrame key={`${manifest.id}:${user?.id || ''}`} manifest={manifest} context={context} theme={theme}
-      read={(resource, entityId) => readModuleResource(context, resource, entityId)} />
+      createReadCycle={() => createModuleReadCycle(context)} />
   </div>;
 }

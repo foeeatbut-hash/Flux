@@ -72,7 +72,7 @@ export default function EquipmentDetailPanel({ unit, selectedComponent, onSelect
         {selectedChildren.map(child => <button key={child.id} type="button" data-testid={`equipment-compact-child-${child.id}`} data-equipment-id={child.id} onClick={() => onSelectComponent(child.id)} aria-current={selectedComponent.id === child.id ? 'true' : undefined} className="max-w-48 truncate rounded px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 aria-[current=true]:bg-slate-100 aria-[current=true]:font-medium dark:text-slate-300 dark:hover:bg-slate-800 dark:aria-[current=true]:bg-slate-800">{equipmentIdentityText(child)}{child.tags?.[0]?.identifier ? ` · ${child.tags[0].identifier}` : ''}</button>)}
       </div>}
     </div>
-    <ModuleLaunchActions entry="equipment" entityId={selectedComponent.id} />
+    <div className="shrink-0 px-3 py-1.5"><ModuleLaunchActions entry="equipment" entityId={selectedComponent.id} /></div>
     <div className="min-h-0 flex-1 overflow-y-auto">
       {renderSelectedContent(selectedComponent, search, setSearch)}
     </div>

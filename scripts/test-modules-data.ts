@@ -4,6 +4,13 @@ import { equipmentData, readModuleResource } from '../src/services/moduleDataSer
 import type { LaunchContext } from '../modules/contract';
 
 let passed = 0;
+let mainCompleted = false;
+process.on('exit', () => {
+  if (!mainCompleted) {
+    console.error('ПРОВАЛ: проверка завершилась до окончания main');
+    process.exitCode = 1;
+  }
+});
 function check(name: string, value: unknown) { assert.ok(value, name); passed++; console.log(`✓ ${name}`); }
 const context: LaunchContext = { projectId: 'p', entry: 'equipment', entityId: 'e' };
 const item = { id: 'e', name: 'Вентилятор', itemCode: 'бл1', equipType: 'FAN', version: 2,
@@ -52,6 +59,7 @@ async function main() {
   const count = requests.length;
   await assert.rejects(() => readModuleResource({ ...context, projectId: null }, 'equipment'));
   check('без проекта запрос не уходит', requests.length === count);
+  mainCompleted = true;
   console.log(`\n${passed} проверок пройдено`);
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => { globalThis.fetch = originalFetch; });

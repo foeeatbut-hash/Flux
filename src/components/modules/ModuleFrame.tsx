@@ -1,30 +1,34 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createModuleBridge } from '../../../modules/bridge';
 import { MODULE_SANDBOX } from '../../../modules/protocol';
-import { themeKeys, type LaunchContext, type ModuleManifest, type ReadData, type Resource, type ThemeTokens } from '../../../modules/contract';
+import {
+  themeKeys, type LaunchContext, type ModuleManifest, type ModuleReader, type ThemeTokens,
+} from '../../../modules/contract';
 
 export interface ModuleFrameProps {
   manifest: ModuleManifest;
   context: LaunchContext;
   theme: string;
-  read: <R extends Resource>(resource: R, entityId?: string) => Promise<ReadData[R]>;
-  /** В стенде — отдельный HTTP-источник с теми же файлами и CSP. В продукте всегда flux-module://. */
-  assetUrl?: string;
+  createReadCycle: () => ModuleReader;
 }
 function themeTokens(): ThemeTokens {
   const style = getComputedStyle(document.documentElement);
   return Object.fromEntries(themeKeys.map(key => [key, style.getPropertyValue(key).trim()])) as ThemeTokens;
 }
-export default function ModuleFrame({ manifest, context, theme, read, assetUrl }: ModuleFrameProps) {
+export default function ModuleFrame({ manifest, context, theme, createReadCycle }: ModuleFrameProps) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [session] = useState(() => crypto.randomUUID());
-  const latest = useRef({ context, read });
-  latest.current = { context, read };
+  const latest = useRef({ context, createReadCycle });
+  latest.current = { context, createReadCycle };
   const bridgeRef = useRef<ReturnType<typeof createModuleBridge> | null>(null);
   useEffect(() => {
-    const bridge = createModuleBridge({ frame: () => frame.current?.contentWindow || null, session, manifest,
+    let reader = latest.current.createReadCycle();
+    const bridge = createModuleBridge({
+      frame: () => frame.current?.contentWindow || null, session, manifest,
       context: () => latest.current.context, theme: themeTokens,
-      read: (resource, entityId) => latest.current.read(resource, entityId) });
+      beginReadCycle: () => { reader = latest.current.createReadCycle(); },
+      read: (resource, entityId) => reader(resource, entityId),
+    });
     bridgeRef.current = bridge;
     const listener = (event: MessageEvent) => { void bridge.handle(event); };
     let refresh: ReturnType<typeof setTimeout> | undefined;
@@ -53,6 +57,6 @@ export default function ModuleFrame({ manifest, context, theme, read, assetUrl }
   useEffect(() => { bridgeRef.current?.notify('changed'); }, [theme]);
   return <iframe ref={frame} title={manifest.name} data-testid="flux-module-frame" sandbox={MODULE_SANDBOX}
     referrerPolicy="no-referrer" allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"
-    src={`${assetUrl || `flux-module://${manifest.id}/index.html`}#${session}`}
+    src={`flux-module://${manifest.id}/index.html#${session}`}
     className="h-full w-full min-h-0 flex-1 border-0" />;
 }

@@ -1,6 +1,13 @@
 export const MODULE_SCHEME = 'flux-module';
 export const MODULE_SANDBOX = 'allow-scripts';
-export const MODULE_CSP = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; worker-src blob:; connect-src 'none'; img-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+// Заголовок сохраняет изоляцию, даже если атрибут iframe когда-нибудь
+// ошибочно изменят. Разрешения обеих sandbox складываются ограничительно.
+export const MODULE_CSP = [
+  'sandbox allow-scripts',
+  "default-src 'none'", "script-src 'self'", "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'", 'worker-src blob:', "connect-src 'none'", "img-src 'none'",
+  "frame-src 'none'", "object-src 'none'", "base-uri 'none'", "form-action 'none'",
+].join('; ');
 export const moduleHeaders = (type: string) => ({
   'Content-Type': type, 'Content-Security-Policy': MODULE_CSP,
   'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store',
