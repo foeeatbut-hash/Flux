@@ -18,7 +18,7 @@ import { DESK, ICON_SIZE } from '../../lib/metrics';
 import { useCreatePanel } from '../files/CreatePanel';
 import { isCreated } from '../files/createEntry';
 import { entryKey } from '../files/useSelection';
-import { mergeDesktopEntries, replaceDesktopEntries } from './desktopEntries';
+import { mergeDesktopEntries, replaceDesktopEntries, visibleDesktopEntries } from './desktopEntries';
 import { desktopClickSelection, desktopMarqueeSelection, desktopSelectAll } from './desktopSelection';
 
 type Cell = { col: number; row: number };
@@ -196,8 +196,8 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
 
   const shellReady = !!screenOrigin && shellDesktop?.status === 'ready' && !!shellDesktop.view?.iconsVisible;
   const nativeIconsHidden = shellDesktop?.status === 'ready' && !!screenOrigin && !shellDesktop.view?.iconsVisible;
-  const fluxEntries = shellReady || nativeIconsHidden ? entries.filter((entry) => entry.storage === 'flux') : entries;
-  const fileItems: Extract<DesktopItem, { kind: 'file' }>[] = sortWindowsDesktopEntries(fluxEntries, sortBy).map((entry) => ({ id: entryKey(entry), kind: 'file', entry }));
+  const visibleEntries = visibleDesktopEntries(entries, shellReady || nativeIconsHidden);
+  const fileItems: Extract<DesktopItem, { kind: 'file' }>[] = sortWindowsDesktopEntries(visibleEntries, sortBy).map((entry) => ({ id: entryKey(entry), kind: 'file', entry }));
   // Старые ярлыки приложений остаются файлами Windows на диске, но не
   // захламляют зеркальный стол: запуск программы теперь живёт в Пуске/задачах.
   const shellItems: Extract<DesktopItem, { kind: 'shell' }>[] = shellReady
@@ -292,7 +292,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const arrange = (by: 'name' | 'type' | 'modified') => {
     setSortBy(by);
     if (!root) return;
-    const ordered = sortWindowsDesktopEntries(fluxEntries, by).map((entry) => entry.fileId);
+    const ordered = sortWindowsDesktopEntries(visibleEntries, by).map((entry) => entry.fileId);
     placeCells(Object.fromEntries(ordered.map((id, index) => [id, { col: index % columns, row: Math.floor(index / columns) }])));
   };
 
@@ -302,7 +302,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const cellSize = { width: metric.w, height: metric.h, icon: metric.icon };
   const columns = Math.max(1, Math.floor((area.width - 24) / cellSize.width));
   const positions = React.useMemo(() => layoutWindowsDesktop(items.map((item) => item.kind === 'file' ? item.entry.fileId : item.id), cells, columns), [items.map((item) => item.kind === 'file' ? item.entry.fileId : item.id).join('|'), cells, columns]);
-  const filesHiddenByShell = nativeIconsHidden && fluxEntries.length === 0;
+  const filesHiddenByShell = nativeIconsHidden && visibleEntries.length === 0;
 
   return (
     <section tabIndex={0} onKeyDown={onDesktopKeyDown} className="relative h-full min-h-0 w-full overflow-hidden bg-slate-100 text-slate-800 dark:bg-dark-bg dark:text-slate-100 outline-none" aria-label="Рабочий стол Windows">
