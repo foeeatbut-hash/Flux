@@ -568,7 +568,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       const statusChanged = updated.status !== item.status;
       if (statusChanged) {
         const docName = updated.contractorNo || updated.titleRu || updated.titleEn || 'документ';
-        const route = `/management?vdr=${item.registerId}&item=${item.id}`;
+        const route = `/docflow?tab=registry&vdr=${item.registerId}&item=${item.id}`;
         if (updated.status === 'READY' && register?.managerId) {
           await notifyUser(register.managerId, 'ДОКУМЕНТЫ', `Документ готов: ${docName}`,
             `${updated.titleRu || updated.titleEn || ''} · рев. ${updated.revision}${me?.name ? ` · ${me.name}` : ''}`, route);

@@ -221,7 +221,7 @@ export default function TranslateScreen() {
       case 'tr.tmxIn': fileRef.current?.open(); break;
       case 'tr.seed': seed(); break;
       case 'tr.vdrFill':
-        useWindowStore.getState().open('/management');
+        useWindowStore.getState().open('/docflow');
         addToast('Реестр документации: кнопка «Английские названия» заполнит пустые', 'info');
         break;
       case 'tr.side': setSide((v) => !v); break;

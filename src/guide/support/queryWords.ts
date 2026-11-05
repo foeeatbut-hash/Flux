@@ -36,6 +36,7 @@ function fieldMatches(fieldValue: string | undefined, token: string): boolean {
 // Разделы для навигационных команд «открой …»
 export const ROUTE_WORDS: { stems: string[]; route: string; name: string }[] = [
   { stems: ['менеджмент', 'закупк'], route: '/management', name: 'Менеджмент' },
+  { stems: ['документооборот', 'вдр'], route: '/docflow', name: 'Документооборот' },
   { stems: ['тег', 'реестр', 'схем', 'холст', 'граф'], route: '/registry', name: 'Теги' },
   { stems: ['оборудован'], route: '/equipment', name: 'Оборудование' },
   { stems: ['проводник', 'файл'], route: '/explorer', name: 'Проводник' },

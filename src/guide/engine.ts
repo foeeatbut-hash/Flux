@@ -222,6 +222,7 @@ function knowledgeAnswer(question: string): GuideMessage | null {
 function openSectionAnswer(question: string): GuideMessage | null {
   const p = parseQuestion(question);
   const routeWords: Array<[RegExp, string, string]> = [
+    [/документооборот|вдр|реестр документ/, '/docflow', 'Документооборот'],
     [/тег|реестр/, '/registry', 'Теги'],
     [/оборудован|вентилятор|установк/, '/equipment', 'Оборудование'],
     [/каталог/, '/catalog', 'Каталог'],

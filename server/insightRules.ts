@@ -275,7 +275,7 @@ export function projectCheck(snap: ProjectSnapshot, opts: CheckOptions = {}): Ch
     findings: snap.vdr.filter(v => v.status === 'REMARKS').map(v => ({
       id: v.id, title: `${v.contractorNo || v.vdrCode || '—'} · ${v.titleRu}`,
       subtitle: `${v.registerName} · рев. ${v.revision}`,
-      route: `/management?vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
+      route: `/docflow?tab=registry&vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
     })),
   });
 
@@ -291,7 +291,7 @@ export function projectCheck(snap: ProjectSnapshot, opts: CheckOptions = {}): Ch
       .map(({ v, d }) => ({
         id: v.id, title: `${v.contractorNo || v.vdrCode || '—'} · ${v.titleRu}`,
         subtitle: `просрочен на ${d} ${plural(d as number, 'день', 'дня', 'дней')} · ${v.registerName}`,
-        route: `/management?vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
+        route: `/docflow?tab=registry&vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
       })),
   });
 
@@ -304,7 +304,7 @@ export function projectCheck(snap: ProjectSnapshot, opts: CheckOptions = {}): Ch
     findings: snap.vdr.filter(v => (v.status === 'READY' || v.status === 'ACCEPTED') && !v.docId).map(v => ({
       id: v.id, title: `${v.contractorNo || v.vdrCode || '—'} · ${v.titleRu}`,
       subtitle: `${v.registerName} · статус ${v.status === 'READY' ? 'готов' : 'принят'}`,
-      route: `/management?vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
+      route: `/docflow?tab=registry&vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
     })),
   });
 

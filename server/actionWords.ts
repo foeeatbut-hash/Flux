@@ -46,7 +46,7 @@ const AREA: Record<string, { word: string; route: string }> = {
   mail: { word: 'письмо', route: '/mail' },
   users: { word: 'сотрудника', route: '/users' },
   departments: { word: 'подразделение', route: '/users' },
-  vdr: { word: 'строку ВДР', route: '/management' },
+  vdr: { word: 'строку ВДР', route: '/docflow' },
   procurement: { word: 'закупку', route: '/management' },
   updates: { word: 'обновление', route: '/settings?section=updates' },
   dictionaries: { word: 'справочник', route: '/directory' },
