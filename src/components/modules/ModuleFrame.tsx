@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createModuleBridge } from '../../../modules/bridge';
 import { useRealTimeSync } from '../SocketProvider';
-import { subscribeModuleRefresh, requestModuleRefresh } from '../../services/moduleRefresh';
+import { subscribeModuleRefresh } from '../../services/moduleRefresh';
 import { MODULE_SANDBOX } from '../../../modules/protocol';
 import {
   themeKeys, type LaunchContext, type ModuleManifest, type ModuleReader, type ThemeTokens,
@@ -26,6 +26,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle 
   const latest = useRef({ context, createReadCycle });
   latest.current = { context, createReadCycle };
   const bridgeRef = useRef<ReturnType<typeof createModuleBridge> | null>(null);
+  const refreshRef = useRef<ReturnType<typeof subscribeModuleRefresh> | null>(null);
   useEffect(() => {
     let reader = latest.current.createReadCycle();
     const bridge = createModuleBridge({
@@ -38,13 +39,15 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle 
     const listener = (event: MessageEvent) => { void bridge.handle(event); };
     window.addEventListener('message', listener);
     const unsubscribe = subscribeModuleRefresh(() => bridge.notify('changed'), () => connected.current);
+    refreshRef.current = unsubscribe;
     return () => {
       bridge.dispose(); bridgeRef.current = null;
       unsubscribe();
+      refreshRef.current = null;
       window.removeEventListener('message', listener);
     };
   }, [session, manifest]);
-  useEffect(() => { if (isConnected) requestModuleRefresh(); }, [isConnected]);
+  useEffect(() => { refreshRef.current?.connectionChanged(); }, [isConnected]);
   useEffect(() => { bridgeRef.current?.notify('project-changed'); }, [context.projectId, context.entry, context.entityId]);
   useEffect(() => { bridgeRef.current?.notify('changed'); }, [theme]);
   return <iframe ref={frame} title={manifest.name} data-testid="flux-module-frame" sandbox={MODULE_SANDBOX}

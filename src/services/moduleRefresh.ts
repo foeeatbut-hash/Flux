@@ -17,6 +17,7 @@ export function requestModuleRefresh() {
 }
 export function subscribeModuleRefresh(notify: () => void, connected: () => boolean) {
   const subscriber = { notify, connected };
+  let wasConnected = connected();
   if (!subscribers.size) {
     for (const event of events) window.addEventListener(event, requestModuleRefresh);
     // Один редкий опрос на все модули. При живом сокете общая база не
@@ -26,7 +27,7 @@ export function subscribeModuleRefresh(notify: () => void, connected: () => bool
     }, MODULE_FALLBACK_MS);
   }
   subscribers.add(subscriber);
-  return () => {
+  const unsubscribe = () => {
     subscribers.delete(subscriber);
     if (!subscribers.size) {
       clearTimeout(pending); clearInterval(fallback);
@@ -34,4 +35,13 @@ export function subscribeModuleRefresh(notify: () => void, connected: () => bool
       invalidateModuleReads();
     }
   };
+  return Object.assign(unsubscribe, {
+    connectionChanged() {
+      const next = connected();
+      // Новое окно при уже живом сокете использует общий кэш. Сбрасывать
+      // его нужно после разрыва связи, когда могли быть пропущены события.
+      if (next && !wasConnected) requestModuleRefresh();
+      wasConnected = next;
+    },
+  });
 }

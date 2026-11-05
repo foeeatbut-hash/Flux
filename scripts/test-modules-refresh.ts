@@ -32,6 +32,8 @@ async function main() {
   const offB = subscribeModuleRefresh(() => { notifications++; }, () => connected);
   const wait = () => new Promise(resolve => setTimeout(resolve, 120));
   try {
+    offA.connectionChanged(); offB.connectionChanged(); await wait();
+    check('открытие нового окна при живом сокете не сбрасывает общий кэш', notifications === 0);
     check('один запасной таймер на все окна, не чаще двух минут', timers.length === 1 && timers[0].ms === MODULE_FALLBACK_MS
       && MODULE_FALLBACK_MS >= 120000);
     timers[0].run(); await wait();
@@ -51,6 +53,9 @@ async function main() {
     check('entity:changed сбрасывает общий кэш до перечитывания', calls === beforeEvent + 1);
     window.dispatchEvent(new Event('focus')); await wait();
     check('возврат фокуса перечитывает все открытые модули', notifications === 6);
+    offA.connectionChanged(); offB.connectionChanged();
+    connected = true; offA.connectionChanged(); offB.connectionChanged(); await wait();
+    check('восстановление соединения перечитывает окна один раз', notifications === 8);
   } finally {
     offA(); offB(); globalThis.window = oldWindow;
     globalThis.setInterval = oldInterval; globalThis.clearInterval = oldClear;
