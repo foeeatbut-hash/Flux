@@ -15,6 +15,10 @@ export const INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   'auth:write-session',
   'owner:select-key',
   'owner:sign-login',
+  // Выпуски модулей: проверка и кэш в главном процессе, подпись владельца из хранилища (electron/modules.ts)
+  'modules:state',
+  'modules:sync',
+  'modules:sign',
   'app:get-server-url',
   'app:get-database',
   'app:probe-database',

@@ -1,5 +1,7 @@
 export const MODULE_SCHEME = 'flux-module';
 export const MODULE_SANDBOX = 'allow-scripts';
+/** Папка общей оболочки в dist/modules: index.html, стили и шрифты для выпусков из базы. Не имя модуля — у тех нет «_» */
+export const MODULE_SHELL_DIR = '_shell';
 // Заголовок сохраняет изоляцию, даже если атрибут iframe когда-нибудь
 // ошибочно изменят. Разрешения обеих sandbox складываются ограничительно.
 export const MODULE_CSP = [

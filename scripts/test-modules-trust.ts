@@ -11,6 +11,7 @@ import { joinChunks, packBundle, splitChunks, unpackBundle, validBundlePath } fr
 import { MODULE_CHUNK_BYTES, parseReleaseClaim, releaseKey } from '../modules/trust/claims';
 import { readCertificates, readRevocations, verifyRelease, verifyRequest } from '../modules/trust/verify';
 import { diffFiles, diffLines, diffPermissions, manifestOf } from '../modules/trust/diff';
+import { buildCertificateClaim, buildOwnerRequestClaim, buildReleaseClaim, buildRevocationClaim } from '../modules/trust/owner';
 import {
   certificateEnvelope, hexOf, moduleBundle, newKey, releaseEnvelope, requestEnvelope, revocationEnvelope,
 } from './fixtures/moduleTrust';
@@ -110,6 +111,26 @@ console.log('Разница');
   const perms = diffPermissions(manifestOf(narrowed), manifestOf(after)!);
   ok('расширение разрешений выделено', perms.widened && perms.added.reads?.includes('equipment'));
   ok('новая подпрограмма помечена', diffPermissions(null, manifestOf(after)!).isNew);
+}
+
+console.log('Что подписывает владелец — из байт пакета');
+{
+  const bundle = moduleBundle('1.1.0');
+  const requestSignature = requestEnvelope(dev, bundle, { version: '1.1.0' });
+  const claim = buildReleaseClaim({ requestId: 'r1', requestSignature, bundle, channel: 'test', notBefore: 5 });
+  const signature = sealEnvelope('release', claim, root);
+  ok('выпуск из байт запроса проверяется', verifyRelease({ signature, chunks: splitChunks(bundle), rootHex, revoked: none, now }).ok && claim.author === devHex && claim.channel === 'test');
+  assert.throws(() => buildReleaseClaim({ requestId: 'r1', requestSignature, bundle: moduleBundle('1.1.0', { 'logic/main.ts': 'evil()' }), channel: 'production', notBefore: 0 }), /не тот/); passed++;
+  assert.throws(() => buildReleaseClaim({ requestId: 'r1', requestSignature, bundle, channel: 'beta' as any, notBefore: 0 })); passed++;
+  const edited = moduleBundle('1.1.0', { 'logic/main.ts': '// правка владельца' });
+  const ownerClaim = buildOwnerRequestClaim({ ownerHex: rootHex, parentSignature: requestSignature, parentRequestId: 'r1', bundle: edited, comment: 'поправил' });
+  ok('правка владельца — запрос с корнем и ссылкой на запрос разработчика', ownerClaim.author === rootHex && ownerClaim.parentRequest === 'r1'
+    && verifyRequest({ signature: sealEnvelope('request', ownerClaim, root), bundle: edited, rootHex, certificates: new Map() }).ok);
+  assert.throws(() => buildOwnerRequestClaim({ ownerHex: rootHex, parentSignature: requestSignature, parentRequestId: 'r1', bundle: moduleBundle('2.0.0'), comment: '' }), /другой модуль или версию/); passed++;
+  ok('отзыв ключа', buildRevocationClaim({ kind: 'key', target: devHex.toUpperCase(), reason: '' }).target === devHex);
+  assert.throws(() => buildRevocationClaim({ kind: 'release', target: 'не выпуск', reason: '' })); passed++;
+  ok('сертификат', buildCertificateClaim({ key: devHex, userId: 'u1', name: 'Иван' }).key === devHex);
+  assert.throws(() => buildCertificateClaim({ key: 'abc', userId: 'u1', name: '' })); passed++;
 }
 
 console.log(`\nВСЕ ТЕСТЫ ПРОЙДЕНЫ (${passed})`);
