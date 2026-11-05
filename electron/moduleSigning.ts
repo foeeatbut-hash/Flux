@@ -1,5 +1,5 @@
 /**
- * Подпись владельца для модулей: выпуск, правка владельца, отзыв, сертификат.
+ * Подпись владельца для модулей: выпуск, правка владельца, отзыв, сертификат, откат канала.
  *
  * Закрытый ключ — ключ издателя (`keys.update`) из хранилища владельца, тот же
  * файл, что для входа владельца (electron/ownerLogin.ts). Ключ не покидает
@@ -19,7 +19,7 @@ import { trustedAuthSender } from './authStorage';
 import { decrypt } from '../tools/flux-owner/src/vault.cjs';
 import { UPDATE_PUBLIC_KEY_HEX } from './updateKey';
 import { publicHexOf, sealEnvelope, type EnvelopeKind } from '../modules/trust/envelope';
-import { buildCertificateClaim, buildOwnerRequestClaim, buildReleaseClaim, buildRevocationClaim } from '../modules/trust/owner';
+import { buildCertificateClaim, buildOwnerRequestClaim, buildPinClaim, buildReleaseClaim, buildRevocationClaim } from '../modules/trust/owner';
 import { MODULE_BUNDLE_MAX } from '../modules/trust/claims';
 
 const VAULT_MAX = 12 * 1024 * 1024;
@@ -39,6 +39,8 @@ export function moduleClaimFor(request: any, ownerHex: string): { kind: Envelope
       parentRequestId: String(request.parentRequestId || ''), bundle: bytesOf(request.bundle), comment: String(request.comment || '') }) };
     case 'revocation': return { kind: 'revocation', claim: buildRevocationClaim({ kind: request.target === 'key' ? 'key' : 'release', target: request.value, reason: request.reason }) };
     case 'certificate': return { kind: 'certificate', claim: buildCertificateClaim({ key: request.key, userId: request.userId, name: request.name }) };
+    case 'pin': return { kind: 'pin', claim: buildPinClaim({ moduleId: String(request.moduleId || ''), channel: request.channel,
+      version: request.version ? String(request.version) : null, reason: String(request.reason || '') }) };
     default: throw new Error('Неизвестное действие подписи');
   }
 }

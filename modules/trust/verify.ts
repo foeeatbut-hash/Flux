@@ -15,12 +15,13 @@
  */
 import { openEnvelope, peekEnvelope, sha256Hex } from './envelope';
 import {
-  parseCertificateClaim, parseReleaseClaim, parseRequestClaim, parseRevocationClaim, releaseKey,
-  type CertificateClaim, type ReleaseClaim, type RequestClaim, type BundleDigest,
+  parseCertificateClaim, parsePinClaim, parseReleaseClaim, parseRequestClaim, parseRevocationClaim, releaseKey,
+  type CertificateClaim, type ModuleChannel, type PinClaim, type ReleaseClaim, type RequestClaim, type BundleDigest,
 } from './claims';
 import { joinChunks, splitChunks, unpackBundle, bundleText, RUNTIME_FILE, type BundleFiles } from './bundle';
 import { validManifest } from '../schemas';
 import { CONTRACT_VERSION, type ModuleManifest } from '../contract';
+import { compareVersions } from '../../shared/versionCompare';
 
 export interface RevokedSet { releases: Set<string>; keys: Set<string> }
 // why есть у обоих вариантов: проект собирается без strictNullChecks, и сужение по ok не работает
@@ -36,6 +37,28 @@ export function readRevocations(envelopes: readonly string[], rootHex: string): 
     out.valid.push(text);
   }
   return out;
+}
+
+/** Потолок версии по каналу: `модуль:канал` → версия; без записи потолка нет */
+export type ChannelCaps = Map<string, string>;
+export const capKey = (moduleId: string, channel: ModuleChannel) => `${moduleId}:${channel}`;
+
+/**
+ * Назначения каналов с подписью владельца. Для каждой пары «модуль, канал»
+ * действует запись с наибольшим iat; чужие и битые пропускаются.
+ */
+export function readPins(envelopes: readonly string[], rootHex: string): { caps: ChannelCaps; valid: string[] } {
+  const latest = new Map<string, PinClaim>(), valid: string[] = [];
+  for (const text of envelopes) {
+    const claim = parsePinClaim(openEnvelope('pin', text, rootHex));
+    if (!claim) continue;
+    valid.push(text);
+    const key = capKey(claim.moduleId, claim.channel), prev = latest.get(key);
+    if (!prev || claim.iat >= prev.iat) latest.set(key, claim);
+  }
+  const caps: ChannelCaps = new Map();
+  for (const [key, claim] of latest) if (claim.version) caps.set(key, claim.version);
+  return { caps, valid };
 }
 
 export function describeBundle(bytes: Uint8Array): BundleDigest {
@@ -70,6 +93,8 @@ export function verifyRelease(input: {
   signature: string; chunks: readonly Uint8Array[]; rootHex: string; revoked: RevokedSet; now: number;
   /** Что сказано в строке таблицы: подпись обязана говорить о том же */
   moduleId?: string; version?: string;
+  /** Откат владельца: выпуски канала выше потолка не запускаются */
+  caps?: ChannelCaps;
 }): Verified<RunnableRelease> {
   if (!input.rootHex) return { ok: false, why: 'В этой сборке нет ключа владельца: модули из базы не запускаются' };
   if (!String(input.signature || '').trim()) return { ok: false, why: 'У выпуска нет подписи владельца' };
@@ -83,6 +108,8 @@ export function verifyRelease(input: {
   }
   if (input.revoked.releases.has(releaseKey(claim.moduleId, claim.version))) return { ok: false, why: 'Выпуск отозван владельцем' };
   if (input.revoked.keys.has(claim.author)) return { ok: false, why: 'Сертификат разработчика выпуска отозван' };
+  const cap = input.caps?.get(capKey(claim.moduleId, claim.channel));
+  if (cap && compareVersions(claim.version, cap) > 0) return { ok: false, why: `Владелец вернул канал «${claim.channel}» на версию ${cap}` };
   if (claim.notBefore > input.now) return { ok: false, why: 'Время выпуска ещё не наступило' };
   const chunks = checkChunks(claim, input.chunks);
   if (chunks) return { ok: false, why: chunks };

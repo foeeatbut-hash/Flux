@@ -64,6 +64,14 @@ export interface CertificateClaim { v: 1; key: string; userId: string; name: str
 /** Отзыв выпуска (`moduleId@version`) или ключа разработчика, подписан владельцем */
 export interface RevocationClaim { v: 1; kind: 'release' | 'key'; target: string; reason: string; iat: number }
 
+/**
+ * Назначение канала (откат): выпуски модуля в этом канале выше `version` не
+ * запускаются. `version: null` снимает ограничение. Для канала действует
+ * запись с наибольшим `iat`: старую запись, подсунутую вместо новой, Flux
+ * не принимает.
+ */
+export interface PinClaim { v: 1; moduleId: string; channel: ModuleChannel; version: string | null; reason: string; iat: number }
+
 const HEX64 = /^[0-9a-f]{64}$/;
 export const MODULE_ID = /^[a-z][a-z0-9-]{0,63}$/;
 export const MODULE_VERSION = /^\d{1,6}\.\d{1,6}\.\d{1,6}$/;
@@ -117,4 +125,11 @@ export function parseRevocationClaim(v: unknown): RevocationClaim | null {
   if (v.kind === 'key' ? !(typeof v.target === 'string' && HEX64.test(v.target))
     : !(typeof v.target === 'string' && /^[a-z][a-z0-9-]{0,63}@\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(v.target))) return null;
   return v as unknown as RevocationClaim;
+}
+
+export function parsePinClaim(v: unknown): PinClaim | null {
+  if (!isObject(v) || !exactKeys(v, ['v', 'moduleId', 'channel', 'version', 'reason', 'iat'])) return null;
+  if (v.v !== 1 || typeof v.moduleId !== 'string' || !MODULE_ID.test(v.moduleId) || !MODULE_CHANNELS.includes(v.channel as ModuleChannel)
+    || !(v.version === null || (typeof v.version === 'string' && MODULE_VERSION.test(v.version))) || !str(v.reason, 2000) || !time(v.iat)) return null;
+  return v as unknown as PinClaim;
 }

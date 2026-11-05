@@ -12,8 +12,9 @@
  * - отзывы, однажды увиденные, хранятся здесь и не забываются: удалить строку
  *   отзыва из базы — не значит вернуть отозванный выпуск;
  * - выпуск, пропавший из базы, продолжает работать из кэша: удалить новую
- *   строку, чтобы вернуть старую версию, нельзя. Откат — решение владельца
- *   (шаг (б): подписанное назначение канала).
+ *   строку, чтобы вернуть старую версию, нельзя. Откат — решение владельца:
+ *   подписанное назначение канала («не выше версии X», FLUXMODPIN1); как и
+ *   отзывы, назначения только добавляются, а из двух побеждает более позднее.
  *
  * Без electron: проверяется скриптом (scripts/test-modules-publishing.ts).
  */
@@ -21,7 +22,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { splitChunks } from '../modules/trust/bundle';
 import { sha256Hex } from '../modules/trust/envelope';
-import { readRevocations, verifyRelease, type RevokedSet, type RunnableRelease } from '../modules/trust/verify';
+import { readPins, readRevocations, verifyRelease, type ChannelCaps, type RevokedSet, type RunnableRelease } from '../modules/trust/verify';
 import { MODULE_ID, MODULE_VERSION, type ModuleChannel } from '../modules/trust/claims';
 import { compareVersions } from '../shared/versionCompare';
 
@@ -51,6 +52,20 @@ export class ModuleCache {
     let saved: unknown = [];
     try { saved = JSON.parse(await fs.readFile(path.join(this.dir, 'revocations.json'), 'utf8')); } catch { /* ещё не было */ }
     return readRevocations(Array.isArray(saved) ? saved.filter((s) => typeof s === 'string') : [], this.rootHex);
+  }
+
+  async pins(): Promise<{ caps: ChannelCaps; valid: string[] }> {
+    let saved: unknown = [];
+    try { saved = JSON.parse(await fs.readFile(path.join(this.dir, 'pins.json'), 'utf8')); } catch { /* ещё не было */ }
+    return readPins(Array.isArray(saved) ? saved.filter((s) => typeof s === 'string') : [], this.rootHex);
+  }
+
+  async addPins(envelopes: readonly string[]): Promise<ChannelCaps> {
+    const known = await this.pins();
+    const fresh = readPins(envelopes, this.rootHex).valid.filter((s) => !known.valid.includes(s));
+    // Список растёт, но не бесконечно: по каждой паре «модуль, канал» нужна только последняя запись
+    if (fresh.length) await atomicWrite(path.join(this.dir, 'pins.json'), JSON.stringify([...known.valid, ...fresh].slice(-2000)));
+    return fresh.length ? (await this.pins()).caps : known.caps;
   }
 
   /** Новые отзывы добавляются к увиденным; запись без подписи владельца не сохраняется */
@@ -90,13 +105,14 @@ export class ModuleCache {
   /** Все проверенные выпуски модуля, новые первыми; каждый проверяется с диска заново */
   async verifiedVersions(moduleId: string, channels: readonly ModuleChannel[] = ['production']): Promise<Array<RunnableRelease | { version: string; why: string }>> {
     const revoked = await this.revoked();
+    const { caps } = await this.pins();
     const versions = (await fs.readdir(path.join(this.dir, 'releases', moduleId)).catch(() => [] as string[]))
       .filter((v) => MODULE_VERSION.test(v)).sort((a, b) => compareVersions(b, a));
     const out: Array<RunnableRelease | { version: string; why: string }> = [];
     for (const version of versions) {
       const dir = this.releaseDir(moduleId, version);
       const [signature, bundle] = await Promise.all([fs.readFile(path.join(dir, 'release.sig'), 'utf8').catch(() => ''), fs.readFile(path.join(dir, 'bundle.bin')).catch(() => null)]);
-      const checked = verifyRelease({ signature, chunks: bundle ? splitChunks(new Uint8Array(bundle)) : [], rootHex: this.rootHex, revoked, now: this.now(), moduleId, version });
+      const checked = verifyRelease({ signature, chunks: bundle ? splitChunks(new Uint8Array(bundle)) : [], rootHex: this.rootHex, revoked, now: this.now(), moduleId, version, caps });
       if (!checked.ok) { out.push({ version, why: checked.why }); continue; }
       if (!channels.includes(checked.claim.channel)) { out.push({ version, why: `Выпуск в канале «${checked.claim.channel}»` }); continue; }
       out.push(checked);
@@ -123,8 +139,8 @@ export class ModuleCache {
       const keep = new Set(all.filter((r): r is RunnableRelease => 'claim' in r).slice(0, KEEP_VERSIONS).map((r) => r.claim.version));
       for (const r of all) {
         const version = 'claim' in r ? r.claim.version : r.version;
-        // Выпуск «на завтра» битым не считается: время ещё придёт
-        if (!keep.has(version) && !('why' in r && /не наступило/.test(r.why))) await fs.rm(this.releaseDir(moduleId, version), { recursive: true, force: true });
+        // Выпуск «на завтра» и выпуск выше отката владельца битыми не считаются: время придёт или откат снимут
+        if (!keep.has(version) && !('why' in r && /не наступило|вернул канал/.test(r.why))) await fs.rm(this.releaseDir(moduleId, version), { recursive: true, force: true });
       }
     }
   }
@@ -138,6 +154,8 @@ export async function syncModuleReleases(cache: ModuleCache, get: (route: string
   const report: SyncReport = { installed: [], broken: [] };
   const revocations = await get('/api/modules/revocations');
   await cache.addRevocations(Array.isArray(revocations?.revocations) ? revocations.revocations : []);
+  const pins = await get('/api/modules/pins');
+  await cache.addPins(Array.isArray(pins?.pins) ? pins.pins : []);
   const list = await get('/api/modules/releases');
   const known = new Set((await cache.cached()).map((c) => `${c.moduleId}@${c.version}`));
   for (const row of Array.isArray(list?.releases) ? list.releases as ReleaseRow[] : []) {

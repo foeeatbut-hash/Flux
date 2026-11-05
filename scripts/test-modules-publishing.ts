@@ -80,7 +80,9 @@ async function main() {
     developer2: { id: 'developer2', role: 'ENGINEER_AUTO' }, other: { id: 'other', role: 'ENGINEER_VENT' },
   };
   app.use('/api', (req: any, res, next) => { req.authUser = sessions[String(req.headers.authorization || '').replace(/^Bearer /, '')]; return req.authUser ? next() : res.status(401).end(); });
-  registerModulePublishingRoutes(app, { getPrisma: () => db, broadcast: () => {}, modulePublicKeyHex: rootHex });
+  // Право присылать код — у разработчиков; рабочий канал (module.publish) этому набору не нужен: запросы идут в тестовый
+  registerModulePublishingRoutes(app, { getPrisma: () => db, broadcast: () => {}, modulePublicKeyHex: rootHex,
+    can: (user, feature) => feature === 'module.develop' && user.role === 'ENGINEER_AUTO' });
   const server = await new Promise<import('http').Server>((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const origin = `http://127.0.0.1:${(server.address() as any).port}`;
   const call = async (who: string, route: string, method = 'GET', body?: unknown) => {

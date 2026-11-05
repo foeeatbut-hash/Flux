@@ -7,6 +7,7 @@ import { RUNTIME_FILE } from '../modules/trust/bundle';
 import type { RunnableRelease } from '../modules/trust/verify';
 import { UPDATE_PUBLIC_KEY_HEX } from './updateKey';
 import { ModuleCache, type ReleaseRow } from './moduleCache';
+import { MODULE_CHANNELS, type ModuleChannel } from '../modules/trust/claims';
 import { trustedAuthSender } from './authStorage';
 import { setupModuleSigning } from './moduleSigning';
 
@@ -41,14 +42,23 @@ export function setupModuleProtocol(distRoot: string) {
   const bundledIds = bundledModules.map(item => item.id);
   const cache = new ModuleCache(path.join(app.getPath('userData'), 'modules'), UPDATE_PUBLIC_KEY_HEX);
   let runnable = new Map<string, RunnableRelease>();
+  // Каналы человека назначает владелец (тестовый — назначенным). Хранятся рядом с кэшем,
+  // чтобы тестировщик и без связи с базой запускал свой выпуск; по умолчанию — только рабочий
+  const channelsFile = path.join(app.getPath('userData'), 'modules', 'channels.json');
+  let channels: ModuleChannel[] = ['production'];
+  const readChannels = (value: unknown): ModuleChannel[] => {
+    const list = (Array.isArray(value) ? value : []).filter((c): c is ModuleChannel => MODULE_CHANNELS.includes(c as ModuleChannel));
+    return list.includes('production') ? list : ['production', ...list];
+  };
+  const loadedChannels = fs.readFile(channelsFile, 'utf8').then(text => { channels = readChannels(JSON.parse(text)); }).catch(() => {});
   const refresh = async () => {
-    try { runnable = await cache.runnable(); }
+    try { runnable = await cache.runnable(channels); }
     catch (e: any) { console.error('[Модули] Кэш выпусков не прочитан:', e?.message); }
     // Встроенный пример с тем же именем остаётся встроенным: выпуск его не подменяет
     for (const id of bundledIds) runnable.delete(id);
     return runnable;
   };
-  const ready = refresh();
+  const ready = loadedChannels.then(refresh);
   const describe = (list: Map<string, RunnableRelease>) => [...list.values()].map(r => ({
     manifest: r.manifest, version: r.claim.version, channel: r.claim.channel, author: r.claim.author,
   }));
@@ -74,9 +84,16 @@ export function setupModuleProtocol(distRoot: string) {
   });
   ipcMain.handle('modules:sync', async (event, data: any) => {
     if (!trustedAuthSender(event)) return { ok: false, error: 'Доступно только окну Flux.' };
+    const pins = Array.isArray(data?.pins) ? data.pins.filter((s: unknown) => typeof s === 'string').slice(0, 5000) : [];
+    if (Array.isArray(data?.channels)) {
+      channels = readChannels(data.channels);
+      await fs.mkdir(path.dirname(channelsFile), { recursive: true });
+      await fs.writeFile(channelsFile, JSON.stringify(channels)).catch(() => {});
+    }
     const revocations = Array.isArray(data?.revocations) ? data.revocations.filter((s: unknown) => typeof s === 'string').slice(0, 10000) : [];
     const releases = Array.isArray(data?.releases) ? data.releases.slice(0, SYNC_MAX_RELEASES) : [];
     await cache.addRevocations(revocations);
+    await cache.addPins(pins);
     const installed: string[] = [], broken: Array<{ moduleId: string; version: string; why: string }> = [];
     for (const r of releases) {
       if (!r || !Array.isArray(r.chunks) || r.chunks.length > SYNC_MAX_CHUNKS) continue;

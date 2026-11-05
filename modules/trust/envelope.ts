@@ -24,6 +24,8 @@ export const ENVELOPE_PREFIX = {
   request: 'FLUXMODREQ1',
   certificate: 'FLUXMODCERT1',
   revocation: 'FLUXMODREV1',
+  /** Назначение канала: «рабочий канал не выше версии X» — откат, подписанный владельцем */
+  pin: 'FLUXMODPIN1',
 } as const;
 export type EnvelopeKind = keyof typeof ENVELOPE_PREFIX;
 

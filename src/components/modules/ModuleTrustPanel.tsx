@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Btn, Field, Input, Seg, Status, Toolbar } from '../ui';
 import { moduleReleaseService, signAsOwner, type LocalModules, type ModuleReleaseRow } from '../../services/moduleReleaseService';
 import OwnerSignDialog from './OwnerSignDialog';
+import ModuleTestersPanel from './ModuleTestersPanel';
 
-type Dialog = null | { kind: 'revoke-release'; release: ModuleReleaseRow } | { kind: 'revoke-key' } | { kind: 'certify' };
+type Dialog = null | { kind: 'revoke-release'; release: ModuleReleaseRow } | { kind: 'revoke-key' } | { kind: 'certify' }
+  | { kind: 'pin'; release: ModuleReleaseRow } | { kind: 'unpin'; release: ModuleReleaseRow };
 
 /**
  * Выпуски, сертификаты разработчиков и отзывы — у владельца. Плюс проверка
@@ -43,13 +45,18 @@ export default function ModuleTrustPanel() {
         <td>{r.moduleId}</td><td className="tabular-nums">{r.version}</td><td>{r.channel === 'test' ? 'тестовый' : 'рабочий'}</td>
         <td>{r.state === 'revoked' ? <Status tone="rose">Отозван</Status> : <Status tone="emerald">Выпущен</Status>}</td>
         <td>{running.get(r.moduleId) === r.version ? <Status tone="emerald">Запускается</Status> : ''}</td>
-        <td><div className="fx-row-acts">{r.state !== 'revoked' && <Btn size="sm" tone="ghost" onClick={() => setDialog({ kind: 'revoke-release', release: r })}>Отозвать</Btn>}</div></td>
+        <td><div className="fx-row-acts">
+          {r.state !== 'revoked' && <Btn size="sm" tone="ghost" title="Выпуски канала выше этой версии перестанут запускаться у всех" onClick={() => setDialog({ kind: 'pin', release: r })}>Вернуть канал сюда</Btn>}
+          {r.state !== 'revoked' && <Btn size="sm" tone="ghost" title="Снять ограничение отката канала" onClick={() => setDialog({ kind: 'unpin', release: r })}>Снять откат</Btn>}
+          {r.state !== 'revoked' && <Btn size="sm" tone="ghost" onClick={() => setDialog({ kind: 'revoke-release', release: r })}>Отозвать</Btn>}
+        </div></td>
       </tr>)}</tbody>
     </table>
     {local?.broken?.length ? <div className="px-3 py-2 text-sm">
       <div className="font-semibold">Не прошли проверку на этом компьютере</div>
       {local.broken.map((b) => <div key={`${b.moduleId}@${b.version}`}>{b.moduleId} {b.version} — {b.why}</div>)}
     </div> : null}
+    <ModuleTestersPanel />
     <Toolbar><span className="font-semibold">Сертификаты разработчиков</span><span className="fx-n">{certs.length}</span></Toolbar>
     <table className="fx-table">
       <thead><tr><th>Профиль</th><th>Имя</th><th>Ключ</th></tr></thead>
@@ -63,7 +70,24 @@ function TrustDialog({ dialog, onClose, onDone }: { dialog: Exclude<Dialog, null
   const [key, setKey] = useState(''), [userId, setUserId] = useState(''), [name, setName] = useState(''), [reason, setReason] = useState('');
   const [scope, setScope] = useState<'key' | 'release'>('key');
   const title = dialog.kind === 'certify' ? 'Выдать сертификат разработчику' : dialog.kind === 'revoke-key' ? 'Отозвать ключ разработчика'
-    : `Отозвать выпуск ${dialog.release.moduleId} ${dialog.release.version}`;
+    : dialog.kind === 'pin' ? `Вернуть канал «${dialog.release.channel === 'test' ? 'тестовый' : 'рабочий'}» на ${dialog.release.moduleId} ${dialog.release.version}`
+      : dialog.kind === 'unpin' ? `Снять откат: ${dialog.release.moduleId}, канал «${dialog.release.channel === 'test' ? 'тестовый' : 'рабочий'}»`
+        : `Отозвать выпуск ${dialog.release.moduleId} ${dialog.release.version}`;
+  if (dialog.kind === 'pin' || dialog.kind === 'unpin') {
+    return <OwnerSignDialog title={title} danger={dialog.kind === 'pin'} action="Подписать назначение" onClose={onClose}
+      onSign={async (password) => {
+        const signed = await signAsOwner({ kind: 'pin', moduleId: dialog.release.moduleId, channel: dialog.release.channel,
+          version: dialog.kind === 'pin' ? dialog.release.version : null, reason }, password);
+        if (!signed) return 'Подпись отменена';
+        await moduleReleaseService.pin(signed);
+        onDone(); return '';
+      }}>
+      <Field label="Причина"><Input value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
+      <div className="fx-hint">{dialog.kind === 'pin'
+        ? 'Откат подписывает владелец. Выпуски этого канала выше выбранной версии у всех перестанут запускаться, работает выбранная; работает и без связи с базой.'
+        : 'Выпуски канала снова запускаются по общим правилам: запускается новейший проверенный.'}</div>
+    </OwnerSignDialog>;
+  }
   return <OwnerSignDialog title={title} danger={dialog.kind !== 'certify'} action={dialog.kind === 'certify' ? 'Подписать сертификат' : 'Подписать отзыв'} onClose={onClose}
     onSign={async (password) => {
       const signed = dialog.kind === 'certify'

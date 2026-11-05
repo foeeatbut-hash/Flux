@@ -2191,3 +2191,20 @@ model ModuleRevocation {
 
   @@index([target])
 }
+
+/// Назначение канала (откат), подписано владельцем: выпуски канала выше
+/// версии не запускаются. Flux помнит увиденные назначения у себя, а из двух
+/// по паре «модуль, канал» действует позднее (modules/trust/claims.ts, PinClaim).
+model ModuleChannelPin {
+  id            String   @id @default(uuid())
+  moduleId      String
+  channel       String
+  /// Пусто — ограничение снято
+  version       String   @default("")
+  reason        String   @default("")
+  signature     String
+  signatureHash String   @unique
+  createdAt     DateTime @default(now())
+
+  @@index([moduleId, channel])
+}

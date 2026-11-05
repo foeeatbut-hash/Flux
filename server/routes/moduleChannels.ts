@@ -1,0 +1,60 @@
+/**
+ * Каналы и откат модулей: кому виден тестовый канал, свои возможности
+ * человека, подписанные владельцем назначения каналов (откат).
+ *
+ * Откат подписывает владелец (electron/moduleSigning.ts): сервер только
+ * сверяет подпись и раздаёт, а проверяет каждый Flux сам.
+ */
+import type { Express, Request, Response } from 'express';
+import { requireOwnerMiddleware } from '../accessPolicy.js';
+import { openEnvelope } from '../../modules/trust/envelope.js';
+import { parsePinClaim } from '../../modules/trust/claims.js';
+import { channelsFor, saveTesters, testersOf } from '../moduleChannels.js';
+import { signatureHash } from '../moduleStore.js';
+
+export interface ModuleChannelDeps {
+  getPrisma: () => any;
+  broadcast: (event: string, payload: unknown) => void;
+  rootHex: () => string;
+  can?: (user: any, feature: string) => boolean;
+}
+
+export function registerModuleChannelRoutes(app: Express, deps: ModuleChannelDeps): void {
+  /** Что человеку можно: каналы, разработка, просьба о рабочем канале */
+  app.get('/api/modules/me', async (req: Request, res: Response) => {
+    const user = (req as any).authUser, owner = user?.role === 'OWNER';
+    const can = (feature: string) => owner || (deps.can ? deps.can(user, feature) : false);
+    res.json({ owner, channels: await channelsFor(deps.getPrisma(), user), develop: can('module.develop'), publish: can('module.publish') });
+  });
+
+  app.get('/api/modules/testers', requireOwnerMiddleware, async (_req: Request, res: Response) => {
+    const db = deps.getPrisma();
+    const users = await db.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true }, orderBy: { name: 'asc' }, take: 2000 });
+    res.json({ testers: await testersOf(db), users });
+  });
+
+  app.put('/api/modules/testers', requireOwnerMiddleware, async (req: Request, res: Response) => {
+    const ids = Array.isArray(req.body?.testers) ? req.body.testers : null;
+    if (!ids) return res.status(400).json({ error: 'Ожидался список тестировщиков' });
+    const saved = await saveTesters(deps.getPrisma(), ids);
+    deps.broadcast('modules:channels', {});
+    res.json({ testers: saved });
+  });
+
+  app.get('/api/modules/pins', async (_req: Request, res: Response) => {
+    const rows = await deps.getPrisma().moduleChannelPin.findMany({ orderBy: { createdAt: 'asc' }, select: { signature: true }, take: 5000 });
+    res.json({ pins: rows.map((r: any) => r.signature) });
+  });
+
+  app.post('/api/modules/pins', requireOwnerMiddleware, async (req: Request, res: Response) => {
+    const db = deps.getPrisma(), signature = String(req.body?.signature || '').trim();
+    const claim = parsePinClaim(openEnvelope('pin', signature, deps.rootHex()));
+    if (!claim) return res.status(400).json({ error: 'Нужна подпись назначения канала ключом владельца' });
+    try {
+      await db.moduleChannelPin.create({ data: { moduleId: claim.moduleId, channel: claim.channel, version: claim.version || '', reason: claim.reason,
+        signature, signatureHash: signatureHash(signature) } });
+    } catch (e: any) { if (e?.code !== 'P2002') return res.status(503).json({ error: e?.message || 'Назначение не записано' }); }
+    deps.broadcast('modules:revoked', { kind: 'pin', target: `${claim.moduleId}:${claim.channel}` });
+    res.json({ ok: true });
+  });
+}

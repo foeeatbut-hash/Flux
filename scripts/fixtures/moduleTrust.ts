@@ -30,7 +30,7 @@ export function requestEnvelope(key: crypto.KeyObject, bundle: Uint8Array, p: {
   return sealEnvelope('request', {
     v: 1, moduleId: p.moduleId || 'equipment-inspector', version: p.version, baseRelease: p.baseRelease ?? null,
     parentRequest: p.parentRequest ?? null, author: publicHexOf(key), iat: Date.now(),
-    meta: { changelog: p.changelog || `Версия ${p.version}`, comment: '', channel: p.channel || 'production', checks: '{"ok":true}', fluxVersion: '1.0.0', contractVersion: 1 },
+    meta: { changelog: p.changelog || `Версия ${p.version}`, comment: '', channel: p.channel || 'test', checks: '{"ok":true}', fluxVersion: '1.0.0', contractVersion: 1 },
     ...describeBundle(bundle),
   }, key);
 }
@@ -48,3 +48,6 @@ export const certificateEnvelope = (root: crypto.KeyObject, devHex: string, user
   sealEnvelope('certificate', { v: 1, key: devHex, userId, name: 'Разработчик', iat: Date.now() }, root);
 export const revocationEnvelope = (root: crypto.KeyObject, kind: 'release' | 'key', target: string) =>
   sealEnvelope('revocation', { v: 1, kind, target, reason: 'проверка', iat: Date.now() }, root);
+/** Назначение канала (откат) владельца: канал не выше версии; version = null снимает ограничение */
+export const pinEnvelope = (root: crypto.KeyObject, moduleId: string, channel: ModuleChannel, version: string | null, iat = Date.now()) =>
+  sealEnvelope('pin', { v: 1, moduleId, channel, version, reason: 'проверка', iat }, root);

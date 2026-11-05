@@ -19,6 +19,7 @@ export interface PublishRequest {
   meta: RequestMeta | null;
 }
 export interface ModuleReleaseRow { id: string; moduleId: string; version: string; channel: ModuleChannel; state: string; signature: string; size: number; chunkCount: number; createdAt: string }
+export interface ModuleMe { owner: boolean; channels: ModuleChannel[]; develop: boolean; publish: boolean }
 export interface RequestDiff { against: { release?: string; request?: string } | null; files: FileDiff[]; permissions: PermissionDiff }
 export interface LocalModules {
   runnable: Array<{ manifest: ModuleManifest; version: string; channel: ModuleChannel; author: string }>;
@@ -48,7 +49,8 @@ export type SignRequest =
   | { kind: 'release'; requestId: string; requestSignature: string; bundle: Uint8Array; channel: ModuleChannel; notBefore: number }
   | { kind: 'owner-edit'; parentRequestId: string; parentSignature: string; bundle: Uint8Array; comment: string }
   | { kind: 'revocation'; target: 'release' | 'key'; value: string; reason: string }
-  | { kind: 'certificate'; key: string; userId: string; name: string };
+  | { kind: 'certificate'; key: string; userId: string; name: string }
+  | { kind: 'pin'; moduleId: string; channel: ModuleChannel; version: string | null; reason: string };
 
 export async function signAsOwner(request: SignRequest, password: string): Promise<string | null> {
   const ipc = bridge();
@@ -75,6 +77,10 @@ export const moduleReleaseService = {
   release: (id: string, signature: string) => call<{ release: ModuleReleaseRow; duplicate?: boolean }>('POST', `/requests/${encodeURIComponent(id)}/release`, { signature }),
   submit: (signature: string, bundle: Uint8Array) => call<{ id: string; duplicate?: boolean }>('POST', '/requests', { signature, bundle: toBase64(bundle) }),
   releases: () => call<{ releases: ModuleReleaseRow[] }>('GET', '/releases').then((r) => r.releases),
+  me: () => call<ModuleMe>('GET', '/me'),
+  testers: () => call<{ testers: string[]; users: Array<{ id: string; name: string; role: string }> }>('GET', '/testers'),
+  saveTesters: (testers: string[]) => call<{ testers: string[] }>('PUT', '/testers', { testers }),
+  pin: (signature: string) => call('POST', '/pins', { signature }),
   revoke: (signature: string) => call('POST', '/revocations', { signature }),
   certificates: () => call<{ certificates: Array<{ keyHex: string; userId: string; name: string; createdAt: string }> }>('GET', '/certificates').then((r) => r.certificates),
   certify: (signature: string) => call('POST', '/certificates', { signature }),
@@ -96,13 +102,14 @@ export const moduleReleaseService = {
     if (!ipc) return null;
     const state = await ipc.invoke('modules:state');
     const cached = new Set<string>((state?.cached || []).map((c: any) => `${c.moduleId}@${c.version}`));
-    const [{ revocations }, releases] = await Promise.all([call<{ revocations: string[] }>('GET', '/revocations'), moduleReleaseService.releases()]);
+    const [{ revocations }, { pins }, me, releases] = await Promise.all([call<{ revocations: string[] }>('GET', '/revocations'),
+      call<{ pins: string[] }>('GET', '/pins'), moduleReleaseService.me(), moduleReleaseService.releases()]);
     const fresh = [];
     for (const r of releases.filter((x) => !cached.has(`${x.moduleId}@${x.version}`))) {
       const { chunks } = await call<{ chunks: string[] }>('GET', `/releases/${encodeURIComponent(r.id)}/chunks`);
       fresh.push({ id: r.id, moduleId: r.moduleId, version: r.version, signature: r.signature, chunks });
     }
-    const result = await ipc.invoke('modules:sync', { revocations, releases: fresh });
+    const result = await ipc.invoke('modules:sync', { revocations, pins, channels: me.channels, releases: fresh });
     if (!result?.ok) throw new Error(result?.error || 'Выпуски не проверены');
     return result;
   },

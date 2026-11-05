@@ -31,6 +31,8 @@ export interface UpdateDeps {
   dataDir: string;
   notifyAll: (category: string, title: string, body: string, route: string, by: string) => Promise<void>;
   broadcast: (event: string, payload: unknown) => void;
+  /** Права человека (module.develop, module.publish); без него модульные маршруты разработчика закрыты */
+  can?: (user: any, feature: string) => boolean;
   /** Internal dependency for isolated fixtures. HTTP requests never select a verification key. */
   updatePublicKeyHex?: string;
 }

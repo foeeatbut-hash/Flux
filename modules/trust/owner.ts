@@ -11,8 +11,8 @@
  */
 import { peekEnvelope } from './envelope';
 import {
-  MODULE_CHANNELS, parseCertificateClaim, parseReleaseClaim, parseRequestClaim, parseRevocationClaim,
-  type CertificateClaim, type ModuleChannel, type ReleaseClaim, type RequestClaim, type RequestMeta, type RevocationClaim,
+  MODULE_CHANNELS, parseCertificateClaim, parsePinClaim, parseReleaseClaim, parseRequestClaim, parseRevocationClaim,
+  type CertificateClaim, type PinClaim, type ModuleChannel, type ReleaseClaim, type RequestClaim, type RequestMeta, type RevocationClaim,
 } from './claims';
 import { unpackBundle } from './bundle';
 import { bundleManifest, describeBundle } from './verify';
@@ -64,5 +64,13 @@ export function buildCertificateClaim(p: { key: string; userId: string; name: st
   const claim = parseCertificateClaim({ v: 1, key: String(p.key || '').trim().toLowerCase(), userId: String(p.userId || ''),
     name: String(p.name || '').slice(0, 200), iat: p.now ?? Date.now() });
   if (!claim) throw new Error('Укажите профиль и открытый ключ разработчика (64 знака hex)');
+  return claim;
+}
+
+/** Откат: канал модуля не выше версии (null — снять ограничение) */
+export function buildPinClaim(p: { moduleId: string; channel: ModuleChannel; version: string | null; reason: string; now?: number }): PinClaim {
+  const claim = parsePinClaim({ v: 1, moduleId: String(p.moduleId || ''), channel: p.channel, version: p.version ? String(p.version) : null,
+    reason: String(p.reason || '').slice(0, 2000), iat: p.now ?? Date.now() });
+  if (!claim) throw new Error('Укажите подпрограмму, канал и версию как 1.2.3');
   return claim;
 }

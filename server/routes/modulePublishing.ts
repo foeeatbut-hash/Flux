@@ -21,10 +21,14 @@ import { unpackBundle } from '../../modules/trust/bundle.js';
 import { checkChunks, verifyRequest } from '../../modules/trust/verify.js';
 import { diffFiles, diffPermissions, manifestOf } from '../../modules/trust/diff.js';
 import { MODULE_ROOT_KEY_HEX, loadTrust, readBlob, readBundle, signatureHash, writeBlob } from '../moduleStore.js';
+import { channelsFor } from '../moduleChannels.js';
+import { registerModuleChannelRoutes } from './moduleChannels.js';
 
 export interface ModulePublishingDeps {
   getPrisma: () => any;
   broadcast: (event: string, payload: unknown) => void;
+  /** Право по функции — та же проверка, что у остальных разделов (module.develop, module.publish) */
+  can?: (user: any, feature: string) => boolean;
   /** Только для проверок с одноразовым ключом; HTTP ключ не выбирает */
   modulePublicKeyHex?: string;
 }
@@ -59,7 +63,11 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
     return release ? unpackBundle(await readBundle(db, release.blobId, release.chunkCount)) : null;
   };
 
+  const can = (req: Request, feature: string) => isOwner(req) || (deps.can ? deps.can((req as any).authUser, feature) : false);
+
   app.post('/api/modules/requests', async (req: Request, res: Response) => {
+    // Права проверяет сервер: окно разработчика может быть любым
+    if (!can(req, 'module.develop')) return fail(res, 403, 'Присылать подпрограммы на публикацию могут только разработчики: нужно право «Разработка подпрограмм»');
     const db = deps.getPrisma(), signature = String(req.body?.signature || '').trim();
     let bundle: Uint8Array;
     try { bundle = new Uint8Array(Buffer.from(String(req.body?.bundle || ''), 'base64')); } catch { return fail(res, 400, 'Пакет не прочитан'); }
@@ -73,6 +81,11 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
       // Сертификат выдан человеку: чужим ключом присылать от своего имени нельзя
       if (byOwner ? !isOwner(req) : trust.certificates.get(claim.author)?.userId !== userId(req)) {
         return fail(res, 403, byOwner ? 'Изменения владельца присылает только владелец' : 'Ключ разработчика выдан другому профилю');
+      }
+      // «Что нового» обязательно: без него пользователь в Store не поймёт, зачем обновляться
+      if (!claim.meta.changelog.trim()) return fail(res, 400, 'Заполните «что нового»: без него выложить нельзя');
+      if (!byOwner && claim.meta.channel === 'production' && !can(req, 'module.publish')) {
+        return fail(res, 403, 'Просить рабочий канал сразу можно с правом «Просить рабочий канал»: отправьте запрос в тестовый');
       }
       if (await db.moduleRelease.findUnique({ where: { moduleId_version: { moduleId: claim.moduleId, version: claim.version } } })) {
         return fail(res, 409, `Версия ${claim.version} уже выпущена: повысьте номер версии`);
@@ -186,8 +199,9 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
     }
   });
 
-  app.get('/api/modules/releases', async (_req: Request, res: Response) => {
-    const rows = await deps.getPrisma().moduleRelease.findMany({ orderBy: { createdAt: 'desc' }, take: 1000 });
+  app.get('/api/modules/releases', async (req: Request, res: Response) => {
+    const db = deps.getPrisma(), channels = await channelsFor(db, (req as any).authUser);
+    const rows = (await db.moduleRelease.findMany({ orderBy: { createdAt: 'desc' }, take: 1000 })).filter((r: any) => channels.includes(r.channel));
     res.json({ releases: rows.map((r: any) => ({ id: r.id, moduleId: r.moduleId, version: r.version, channel: r.channel,
       state: r.state, signature: r.signature, size: r.size, chunkCount: r.chunkCount, createdAt: r.createdAt })) });
   });
@@ -196,7 +210,7 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
   app.get('/api/modules/releases/:id/chunks', async (req: Request, res: Response) => {
     const db = deps.getPrisma();
     const row = await db.moduleRelease.findUnique({ where: { id: String(req.params.id) } });
-    if (!row) return fail(res, 404, 'Выпуск не найден');
+    if (!row || !(await channelsFor(db, (req as any).authUser)).includes(row.channel)) return fail(res, 404, 'Выпуск не найден');
     const rows = await db.moduleChunk.findMany({ where: { blobId: row.blobId }, orderBy: { idx: 'asc' }, select: { data: true } });
     res.json({ chunks: rows.map((r: any) => Buffer.from(r.data).toString('base64')) });
   });
@@ -234,4 +248,6 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
     await db.moduleCertificate.upsert({ where: { keyHex: claim.key }, create: { keyHex: claim.key, ...data }, update: data });
     res.json({ ok: true });
   });
+
+  registerModuleChannelRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, rootHex, can: deps.can });
 }
