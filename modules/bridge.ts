@@ -20,8 +20,8 @@ function messageBytes(message: unknown): number {
   return new TextEncoder().encode(JSON.stringify(message)).byteLength;
 }
 function writeLike(message: Record<string, unknown>): boolean {
-  const verb = /(?:^|[.:_-])(?:write|set|create|update|patch|delete|remove|save|insert)(?:$|[.:_-])/i;
-  return [message.type, message.op].some(value => typeof value === 'string' && verb.test(value))
+  const verb = /(?:^|[.:_-])(?:set[a-z0-9]*|write|create|update|patch|delete|remove|save|insert|put|upsert|rename|mutate)(?:$|[.:_-])/i;
+  return [message.type, message.op].some(value => typeof value === 'string' && verb.test(value.replace(/([a-z0-9])([A-Z])/g, '$1-$2')))
     || ['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(message.method || '').toUpperCase());
 }
 

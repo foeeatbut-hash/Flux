@@ -4,6 +4,7 @@ import { build } from 'esbuild';
 import { readFormBindings } from '../modules/runtime/bindings';
 import type { ModuleForm } from '../modules/runtime/form';
 import { createModuleReadCycle } from '../src/services/moduleDataService';
+import { invalidateModuleReads } from '../src/services/moduleReadCache';
 import { setAuthToken } from '../src/config/env';
 
 let completed = false;
@@ -69,11 +70,15 @@ async function main() {
     await Promise.all([cycle('project'), cycle('equipment'), cycle('tag'), cycle('equipment')]);
     check('один цикл разделяет параллельные GET projects/systems/tags', requests.length === 3
       && new Set(requests).size === 3);
+    await createModuleReadCycle(context)('equipment');
+    check('другое окно модуля использует те же GET', requests.length === 3);
     airflow = '2400';
     check('снимок цикла не меняется посреди расчёта', (await cycle('equipment'))?.params[0].value === '1200');
+    invalidateModuleReads();
     const next = createModuleReadCycle(context);
     check('следующий пересчёт получает свежие параметры', (await next('equipment'))?.params[0].value === '2400');
     deny = true;
+    invalidateModuleReads();
     const denied = createModuleReadCycle(context);
     const before = requests.length;
     await assert.rejects(() => denied('equipment'));

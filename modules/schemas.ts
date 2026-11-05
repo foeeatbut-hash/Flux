@@ -5,9 +5,11 @@ const text = { type: 'string', maxLength: 8192 };
 const id = { type: 'string', minLength: 1, maxLength: 160 };
 const nullableId = { anyOf: [id, { type: 'null' }] };
 const array = (items: object) => ({ type: 'array', maxItems: 10000, items });
-const object = (properties: Record<string, object>, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
+const object = (properties: Record<string, object>, required = Object.keys(properties)) => ({
+  type: 'object', properties, required, additionalProperties: false,
+});
 const tag = object({ id, identifier: text, name: text, parentId: nullableId });
-const dataSchemas = {
+export const dataSchemas = {
   project: { anyOf: [object({ id, name: text, code: text }), { type: 'null' }] },
   equipment: { anyOf: [object({
     id, name: text, itemCode: text, equipType: text, version: { type: 'integer', minimum: 0 },
@@ -23,7 +25,10 @@ const envelope = { flux: { const: 'module' }, v: { const: 1 }, session: id };
 export const messageSchemas = {
   ready: object({ ...envelope, type: { const: 'ready' } }),
   read: object({ ...envelope, id, type: { const: 'read' }, resource: { enum: resources }, entityId: id }, ['flux', 'v', 'session', 'id', 'type', 'resource']),
-  write: object({ ...envelope, id, type: { const: 'write' }, resource: { enum: resources }, entityId: id, data: {} }, ['flux', 'v', 'session', 'id', 'type']),
+  write: object(
+    { ...envelope, id, type: { const: 'write' }, resource: { enum: resources }, entityId: id, data: {} },
+    ['flux', 'v', 'session', 'id', 'type'],
+  ),
   result: { anyOf: resources.map(resource => object({ ...envelope, id, type: { const: 'result' }, resource: { const: resource }, data: dataSchemas[resource] })) },
   error: object({ ...envelope, id, type: { const: 'error' }, code: { enum: ['READ_ONLY', 'DENIED', 'NO_PROJECT', 'FAILED', 'LIMIT'] } }),
   event: object({

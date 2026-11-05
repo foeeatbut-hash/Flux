@@ -105,12 +105,25 @@ window.addEventListener('message', async event => {
     );
     if (generation !== epoch) return;
     render();
-  } catch (_) {
-    if (generation === epoch) root.textContent = 'Данные недоступны. Проверьте подключение и права во Flux.';
+  } catch (error) {
+    if (generation === epoch) root.textContent = error instanceof Error && error.message === 'UNKNOWN_BINDING'
+      ? 'Ошибка формы модуля: неизвестная привязка Flux.'
+      : 'Данные недоступны. Проверьте подключение и права во Flux.';
     return;
   }
   try {
-    client ||= createModuleWorker(__MODULE_WORKER__, { read, initial: output });
+    if (!client) {
+      const created = createModuleWorker(__MODULE_WORKER__, {
+        read, initial: output,
+        onRestart: reason => {
+          if (client !== created) return;
+          note(reason === 'STATE_LIMIT'
+            ? 'Состояние модуля превысило 256 КиБ. Расчёт остановлен.'
+            : 'Фоновый расчёт остановлен. Следующее изменение данных перезапустит его из сохранённого состояния.');
+        },
+      });
+      client = created;
+    }
     const calculated = await client.run(__MODULE_FORM__.onDataChanged);
     if (generation !== epoch) return;
     output = { state: calculated.state, calc: calculated.calc };
@@ -121,8 +134,9 @@ window.addEventListener('message', async event => {
     client = null;
     // Ошибка расчёта не прячет уже прочитанные привязки Flux.
     render();
-    note(error instanceof Error && error.message === 'TIMEOUT'
-      ? 'Расчёт остановлен по времени.' : 'Не удалось выполнить расчёт модуля.');
+    const reason = error instanceof Error ? error.message : '';
+    note(reason === 'STATE_LIMIT' ? 'Состояние модуля превысило 256 КиБ. Расчёт остановлен.'
+      : reason === 'TIMEOUT' ? 'Расчёт остановлен по времени.' : 'Не удалось выполнить расчёт модуля.');
   }
 });
 window.addEventListener('pagehide', reset);

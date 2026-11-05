@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createModuleBridge } from '../../../modules/bridge';
+import { useRealTimeSync } from '../SocketProvider';
+import { subscribeModuleRefresh, requestModuleRefresh } from '../../services/moduleRefresh';
 import { MODULE_SANDBOX } from '../../../modules/protocol';
 import {
   themeKeys, type LaunchContext, type ModuleManifest, type ModuleReader, type ThemeTokens,
@@ -16,6 +18,9 @@ function themeTokens(): ThemeTokens {
   return Object.fromEntries(themeKeys.map(key => [key, style.getPropertyValue(key).trim()])) as ThemeTokens;
 }
 export default function ModuleFrame({ manifest, context, theme, createReadCycle }: ModuleFrameProps) {
+  const { isConnected } = useRealTimeSync();
+  const connected = useRef(isConnected);
+  connected.current = isConnected;
   const frame = useRef<HTMLIFrameElement>(null);
   const [session] = useState(() => crypto.randomUUID());
   const latest = useRef({ context, createReadCycle });
@@ -31,28 +36,15 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle 
     });
     bridgeRef.current = bridge;
     const listener = (event: MessageEvent) => { void bridge.handle(event); };
-    let refresh: ReturnType<typeof setTimeout> | undefined;
-    const changed = () => { clearTimeout(refresh); refresh = setTimeout(() => bridge.notify('changed'), 80); };
-    // У каждого portable свой сервер: чужую SQL-запись дополняем опросом, как каталог.
-    const poll = setInterval(changed, 20_000);
     window.addEventListener('message', listener);
-    // Своих авторов не исключаем: правка в соседнем окне тоже должна перечитать модуль.
-    window.addEventListener('socket:entity:changed', changed);
-    window.addEventListener('socket:tag:updated', changed);
-    window.addEventListener('socket:tag:linked', changed);
-    window.addEventListener('catalog:published', changed);
-    window.addEventListener('focus', changed);
+    const unsubscribe = subscribeModuleRefresh(() => bridge.notify('changed'), () => connected.current);
     return () => {
       bridge.dispose(); bridgeRef.current = null;
-      clearTimeout(refresh); clearInterval(poll);
+      unsubscribe();
       window.removeEventListener('message', listener);
-      window.removeEventListener('socket:entity:changed', changed);
-      window.removeEventListener('socket:tag:updated', changed);
-      window.removeEventListener('socket:tag:linked', changed);
-      window.removeEventListener('catalog:published', changed);
-      window.removeEventListener('focus', changed);
     };
   }, [session, manifest]);
+  useEffect(() => { if (isConnected) requestModuleRefresh(); }, [isConnected]);
   useEffect(() => { bridgeRef.current?.notify('project-changed'); }, [context.projectId, context.entry, context.entityId]);
   useEffect(() => { bridgeRef.current?.notify('changed'); }, [theme]);
   return <iframe ref={frame} title={manifest.name} data-testid="flux-module-frame" sandbox={MODULE_SANDBOX}

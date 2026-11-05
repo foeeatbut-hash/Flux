@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { bundledModules } from './bundled';
 import { validManifest } from './schemas';
+import { validateModuleForm } from './validateForm';
 import Ajv from 'ajv';
 import standaloneCode from 'ajv/dist/standalone';
 import { messageSchemas } from './schemas';
@@ -16,6 +17,8 @@ export async function buildModuleAssets(css: string, fonts: Record<string, strin
   for (const manifest of bundledModules) {
     if (!validManifest(manifest)) throw new Error('Манифест фикстуры не соответствует договору v1');
     const fixture = path.resolve('modules/fixtures', manifest.id);
+    const form = JSON.parse(fs.readFileSync(path.join(fixture, 'form.json'), 'utf8'));
+    validateModuleForm(form, manifest.id, manifest.reads);
     const worker = await build({
       entryPoints: ['modules/runtime/worker.ts'], bundle: true, write: false, platform: 'browser', format: 'iife',
       alias: { 'module-logic': path.join(fixture, manifest.logic) },
@@ -23,7 +26,7 @@ export async function buildModuleAssets(css: string, fonts: Record<string, strin
     const frame = await build({
       entryPoints: ['modules/runtime/frame.ts'], bundle: true, write: false, platform: 'browser', format: 'iife',
       define: {
-        __MODULE_FORM__: fs.readFileSync(path.join(fixture, 'form.json'), 'utf8'),
+        __MODULE_FORM__: JSON.stringify(form),
         __MODULE_WORKER__: JSON.stringify(worker.outputFiles[0].text),
       },
       plugins: [{ name: 'static-contract-validators', setup(plugin) {

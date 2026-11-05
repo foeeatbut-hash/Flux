@@ -58,10 +58,11 @@ async function main() {
     { type: 'equipment:update', payload: { name: 'чужая запись' } },
     { type: 'read', method: 'POST', resource: 'project' },
     { type: 'request', op: 'delete', payload: {} },
+    ...['writeEquipment', 'updateEquipment', 'put', 'upsert', 'rename', 'mutate', 'setValue', 'setvalue'].map(type => ({ type })),
   ].entries()) {
     await write.send({ id: `write-${index}`, ...command });
   }
-  check('запись вне схемы получает READ_ONLY', write.messages.length === 4
+  check('запись вне схемы получает READ_ONLY', write.messages.length === 12
     && write.messages.every(message => message.code === 'READ_ONLY'));
   check('запись-подобные сообщения не достигают чтения', reads === 0);
   write.messages.length = 0;

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
@@ -36,6 +37,16 @@ async function stop(child?: ChildProcess) {
   if (child.exitCode === null) child.kill('SIGKILL');
 }
 async function main() {
+  const missing = ['dist/index.html', 'dist/modules/equipment-inspector/index.html',
+    'dist/modules/equipment-inspector/runtime.js', 'dist/modules/equipment-inspector/flux.css'].filter(file => !existsSync(file));
+  const supported = process.platform === 'win32'
+    || (process.platform === 'linux' && process.env.FLUX_CHROME && process.env.DISPLAY);
+  if (!supported || missing.length) {
+    console.log(`FLUX_VERIFY_SKIP: ${!supported ? 'нужны Windows либо Linux с FLUX_CHROME и DISPLAY'
+      : `отсутствуют файлы сборки: ${missing.join(', ')}`}`);
+    complete = true;
+    return;
+  }
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'flux-modules-full-'));
   const shots = path.resolve(process.env.FLUX_MODULE_SHOTS || path.join(temp, 'shots'));
   await fs.mkdir(shots, { recursive: true });

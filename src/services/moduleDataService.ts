@@ -1,4 +1,5 @@
-import { ENV_CONFIG, getAuthToken, usesCookieTransport } from '../config/env';
+import { ENV_CONFIG, getAuthToken, getAuthSessionKey, usesCookieTransport } from '../config/env';
+import { sharedModuleReads } from './moduleReadCache';
 import { normalizeSpecs } from '../lib/specs';
 import type { EquipmentData, LaunchContext, ModuleReader, ReadData, Resource, TagData } from '../../modules/contract';
 
@@ -16,10 +17,11 @@ async function get(path: string): Promise<any> {
 }
 export function createModuleReadCycle(context: LaunchContext): ModuleReader {
   const requests = new Map<string, Promise<any>>();
+  const shared = sharedModuleReads(JSON.stringify([ENV_CONFIG.apiUrl, getAuthSessionKey()]), get);
   const once = (path: string) => {
     // Общий Promise нужен и параллельным привязкам, и logic. Сброс происходит
     // на событии оболочки; неудачное чтение не переживает новый пересчёт.
-    if (!requests.has(path)) requests.set(path, get(path));
+    if (!requests.has(path)) requests.set(path, shared(path));
     return requests.get(path)!;
   };
   return (resource, entityId) => readResource(context, resource, entityId, once);

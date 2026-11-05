@@ -1,3 +1,4 @@
+import { invalidateModuleReads } from '../src/services/moduleReadCache';
 import assert from 'node:assert/strict';
 import { setAuthToken } from '../src/config/env';
 import { equipmentData, readModuleResource } from '../src/services/moduleDataService';
@@ -50,10 +51,12 @@ async function main() {
   check('чужой ID позиции не отдаётся', await readModuleResource(context, 'equipment', 'foreign') === null);
   check('спецификация проецирует строки Тегов', (await readModuleResource(context, 'specification')).rows[0].identifier === 'T1');
   check('каталог не выдаёт черновики и служебные поля', JSON.stringify(await readModuleResource(context, 'catalog', 'f')) === '{"families":[{"id":"f","name":"Семейство","code":"F","classId":"fan"}]}');
+  invalidateModuleReads();
   const before = requests.length;
   await assert.rejects(() => readModuleResource({ ...context, projectId: 'private' }, 'equipment'));
   check('закрытый проект не даёт читать его оборудование', requests.length === before + 1 && requests.at(-1) === '/api/projects');
   denied = '/api/projects/p/systems';
+  invalidateModuleReads();
   await assert.rejects(() => readModuleResource(context, 'equipment'));
   check('отказ сервера не заменяется подставными данными', requests.at(-1) === denied);
   const count = requests.length;

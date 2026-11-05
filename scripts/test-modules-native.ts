@@ -7,8 +7,8 @@ import { createServer } from 'node:http';
 import type { Frame } from 'playwright-core';
 
 async function main() {
-  if (process.platform !== 'win32') {
-    console.log('FLUX_VERIFY_SKIP: проверка требует Windows');
+  if (process.platform !== 'win32' && !(process.platform === 'linux' && process.env.FLUX_CHROME && process.env.DISPLAY)) {
+    console.log('FLUX_VERIFY_SKIP: нужны Windows либо Linux с FLUX_CHROME и DISPLAY');
     return;
   }
   const required = [
@@ -76,7 +76,7 @@ async function main() {
   app.all('/must-not-reach', (_req, res) => { leaked++; res.json({ leaked: true }); });
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${(server.address() as any).port}`;
-  electron = await _electron.launch({ args: [path.join(temp, 'main.cjs')],
+  electron = await _electron.launch({ args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), path.join(temp, 'main.cjs')],
     env: { ...process.env, FLUX_MODULE_FIXTURE_DIR: temp, FLUX_MODULE_FIXTURE_URL: url }, timeout: 45000 });
   const page = await electron.firstWindow();
   await page.bringToFront();

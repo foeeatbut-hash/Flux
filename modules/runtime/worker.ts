@@ -1,5 +1,6 @@
 import * as logic from 'module-logic';
 import type { ModuleApi, ReadData, Resource } from '../contract';
+import { checkedOutput } from './output';
 
 let nextId = 0;
 let initialized = false;
@@ -28,6 +29,13 @@ const api: ModuleApi = {
 };
 
 onmessage = async ({ data }) => {
+  if (data?.type === 'ping') {
+    try {
+      checkedOutput({ state: api.state, calc: api.calc });
+      postMessage({ type: 'pong', id: data.id });
+    } catch (_) { postMessage({ type: 'failed', code: 'STATE_LIMIT' }); }
+    return;
+  }
   if (data?.type === 'read-result') {
     const request = pending.get(data.id);
     if (!request) return;
@@ -55,8 +63,9 @@ onmessage = async ({ data }) => {
     for (const listener of [...listeners]) await listener();
     // Возврат обработчика не становится данными Flux: наружу выходят только
     // собственное состояние и результаты, указанные в договоре API модуля.
-    postMessage({ type: 'done', data: { state: api.state, calc: api.calc } });
-  } catch (_) {
-    postMessage({ type: 'failed' });
+    const output = checkedOutput({ state: api.state, calc: api.calc });
+    postMessage({ type: 'done', data: output, listeners: listeners.size });
+  } catch (error) {
+    postMessage({ type: 'failed', code: error instanceof Error && error.message === 'STATE_LIMIT' ? 'STATE_LIMIT' : 'WORKER_FAILED' });
   }
 };
