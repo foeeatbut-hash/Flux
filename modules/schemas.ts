@@ -29,7 +29,9 @@ export const messageSchemas = {
     { ...envelope, id, type: { const: 'write' }, resource: { enum: resources }, entityId: id, data: {} },
     ['flux', 'v', 'session', 'id', 'type'],
   ),
-  result: { anyOf: resources.map(resource => object({ ...envelope, id, type: { const: 'result' }, resource: { const: resource }, data: dataSchemas[resource] })) },
+  result: { anyOf: resources.map(resource => object({
+    ...envelope, id, type: { const: 'result' }, resource: { const: resource }, data: dataSchemas[resource],
+  })) },
   error: object({ ...envelope, id, type: { const: 'error' }, code: { enum: ['READ_ONLY', 'DENIED', 'NO_PROJECT', 'FAILED', 'LIMIT'] } }),
   event: object({
     ...envelope, type: { const: 'event' }, event: { enum: ['opened', 'project-changed', 'changed'] },
