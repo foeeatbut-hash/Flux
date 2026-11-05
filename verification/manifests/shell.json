@@ -204,6 +204,15 @@
       "timeoutMs": 30000
     },
     {
+      "id": "shell-drafts-view",
+      "path": "scripts/test-drafts-view.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
       "id": "shell-drafts-panel-ui",
       "path": "scripts/test-drafts-panel-ui.ts",
       "layer": "component",
