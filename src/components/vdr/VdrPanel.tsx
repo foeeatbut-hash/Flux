@@ -17,6 +17,8 @@ import { useModalStore } from '../../store/modalStore';
 import { useTranslateStore } from '../../store/translateStore';
 import { can } from '../../lib/permissions';
 import TagLinkPlanDialog, { unlinkedCount, type TagLinkPlan } from './TagLinkPlanDialog';
+import { DEFAULT_STATUSES } from '../../../shared/docflow/config';
+import { getSettings } from '../../lib/docflowApi';
 
 /**
  * Ответ сервера «запись уже изменили» (409): показать его текст и отдать
@@ -65,13 +67,12 @@ interface Item {
 interface UserLite { id: string; name: string; role?: string; hasSignature?: boolean }
 interface Standard { id: string; name: string; config: any }
 
-// Статус — точка и слово (01-design.md): тон несёт смысл, а не заливка ячейки
-const STATUS_META: Record<string, { label: string; tone: Tone }> = {
-  DRAFT: { label: 'В работе', tone: 'slate' },
-  READY: { label: 'Готово', tone: 'emerald' },
-  REMARKS: { label: 'Замечания', tone: 'amber' },
-  ACCEPTED: { label: 'Принят', tone: 'sky' },
-};
+// Статус — точка и слово (01-design.md): тон несёт смысл, а не заливка ячейки.
+// Список статусов — из настроек ДО проекта (раздел 5); без них — по умолчанию
+function statusMetaOf(standard: Standard | null): Record<string, { label: string; tone: Tone }> {
+  const list: Array<{ code: string; label: string; tone: string }> = standard?.config?.statuses?.length ? standard.config.statuses : DEFAULT_STATUSES;
+  return Object.fromEntries(list.map((s) => [s.code, { label: s.label, tone: (s.tone === 'violet' ? 'sky' : s.tone) as Tone }]));
+}
 
 const fmtD = (s?: string | null) => { try { return s ? new Date(s).toLocaleDateString('ru-RU') : ''; } catch { return ''; } };
 const overdue = (s?: string | null) => !!s && new Date(s).getTime() < Date.now();
@@ -92,6 +93,11 @@ export default function VdrPanel() {
   const [items, setItems] = useState<Item[]>([]);
   const [users, setUsers] = useState<UserLite[]>([]);
   const [standards, setStandards] = useState<Standard[]>([]);
+  // Своя копия настроек проекта сильнее стандарта реестра (стандарты стали шаблонами)
+  const [projectStandard, setProjectStandard] = useState<Standard | null>(null);
+  const loadProjectSettings = () => {
+    void getSettings(projectId).then((a) => setProjectStandard(a.ok && a.data.stored ? { id: `project:${projectId}`, name: 'настройки проекта', config: a.data.config } : null));
+  };
   const [projectTags, setProjectTags] = useState<{ id: string; identifier: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -115,7 +121,8 @@ export default function VdrPanel() {
   }
 
   const register = registers.find(r => r.id === regId) || null;
-  const standard = standards.find(s => s.id === register?.standardId) || standards[0] || null;
+  const standard = projectStandard || standards.find(s => s.id === register?.standardId) || standards[0] || null;
+  const STATUS_META = statusMetaOf(standard);
 
   const loadRegisters = async (): Promise<Register[]> => {
     try {
@@ -164,6 +171,7 @@ export default function VdrPanel() {
       setLoading(false);
       fetch('/api/users').then(r => r.ok ? r.json() : { users: [] }).then(d => setUsers((d.users || []).filter((u: any) => u.isActive !== false))).catch(() => {});
       fetch('/api/vdr/standards').then(r => r.ok ? r.json() : { standards: [] }).then(d => setStandards(d.standards || [])).catch(() => {});
+      loadProjectSettings();
       void loadProjectTags(projectId);
       void loadTagPlan();
     })();
@@ -182,6 +190,7 @@ export default function VdrPanel() {
         .then(r => r.ok ? r.json() : { standards: [] })
         .then(d => setStandards(d.standards || []))
         .catch(() => {});
+      loadProjectSettings();
     };
     // Тег заведён, переименован или удалён — счётчик «не сопоставлено» меняется вместе с ним
     const onTagsChanged = () => { void loadProjectTags(projectId); void loadTagPlan(); };
@@ -340,11 +349,11 @@ export default function VdrPanel() {
   }, [items, search, statusFilter, codeFilter, onlyMine, onlyOverdue, user?.id]);
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { DRAFT: 0, READY: 0, REMARKS: 0, ACCEPTED: 0 };
+    const c: Record<string, number> = Object.fromEntries(Object.keys(STATUS_META).map((k) => [k, 0]));
     let od = 0;
     for (const i of items) { c[i.status] = (c[i.status] || 0) + 1; if (overdue(i.dueDate)) od++; }
     return { ...c, OVERDUE: od };
-  }, [items]);
+  }, [items, standard]);
 
   if (loading) return <div className="flex items-center justify-center py-20 text-slate-400"><Loader2 className="w-6 h-6 animate-spin" /></div>;
 
@@ -509,6 +518,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
   projectTags: { id: string; identifier: string }[];
   onClose: () => void; onChanged: () => void;
 }) {
+  const STATUS_META = statusMetaOf(standard);
   const user = useStore(s => s.user);
   const canEdit = can(user, 'docflow.edit');
   const canIssue = can(user, 'docflow.issue');
@@ -906,7 +916,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
         <div className="grid grid-cols-2 gap-2.5">
           <F label="Название реестра" k="name" />
           <div>
-            <label className="fx-label block">Стандарт документооборота</label>
+            <label className="fx-label block" title="Действует, пока у проекта нет своих настроек документооборота">Шаблон (без настроек проекта)</label>
             <select value={f.standardId || ''} onChange={e => setF((s: any) => ({ ...s, standardId: e.target.value || null }))} className={inputCls + ' cursor-pointer'}>
               <option value="">— по умолчанию —</option>
               {standards.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}

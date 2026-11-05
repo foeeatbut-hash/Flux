@@ -214,6 +214,22 @@ model DocStandard {
   updatedAt DateTime @updatedAt
 }
 
+/// Настройки документооборота проекта (docs/docflow-program.md, раздел 5).
+/// У проекта своя копия, а не ссылка на шаблон: правка шаблона или другого
+/// проекта её не меняет. Шаблоны — прежние глобальные `DocStandard`.
+model DocflowSettings {
+  id          String   @id @default(uuid())
+  projectId   String   @unique
+  config      String   @default("{}") // JSON: shared/docflow/config.ts
+  /// Откуда скопировано: {"kind":"project|template|standard","name":"…","at":"…"}
+  source      String   @default("")
+  /// Снимок до последнего переноса или миграции — «отменить одним действием»
+  undo        String   @default("")
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 // История ревизий строки ВДР (документа): лист «Учёт ревизий» документа
 // и лист Accounting for revisions при экспорте собираются отсюда.
 model DocRegisterItemRevision {

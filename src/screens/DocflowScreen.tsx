@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { SectionHead, Tabs } from '../components/ui';
 import VdrPanel from '../components/vdr/VdrPanel';
 import DocflowSettings from '../components/docflow/DocflowSettings';
-import { can } from '../lib/permissions';
+import { can, hasAdminRole } from '../lib/permissions';
 import { useAppContext } from '../store/policyStore';
 import NoProject from '../components/NoProject';
 import { useStore } from '../store/store';
@@ -37,7 +37,7 @@ export default function DocflowScreen() {
         <Tabs label="Вкладки документооборота" value={tab} onChange={setTab} tabs={tabs} />
       </SectionHead>
       {tab === 'registry' ? <div className="flex-1 min-h-0 overflow-y-auto"><VdrPanel /></div>
-        : tab === 'settings' ? <div className="flex-1 min-h-0 overflow-y-auto"><DocflowSettings isAdmin={can(user, 'docflow.settings')} addToast={addToast} /></div>
+        : tab === 'settings' ? <div className="flex-1 min-h-0 overflow-hidden"><DocflowSettings projectId={project.id} canEdit={can(user, 'docflow.settings')} isAdmin={hasAdminRole(user)} addToast={addToast} /></div>
           : <div className="p-4 text-sm text-slate-500 dark:text-dark-text-muted">Этот раздел находится в разработке.</div>}
     </div>
   );
