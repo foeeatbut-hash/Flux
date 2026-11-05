@@ -196,7 +196,8 @@ export function checkName(config: DocflowConfig, name: string, row: RowForCheck)
   };
   soft('язык', row.language, 'Язык');
   soft('проект', row.projectCode, 'Проект');
-  soft('заказ', f['шифр'] === undefined ? row.poNumber : undefined, 'Заказ');
+  // Заказ внутри шифра уже сверен вместе с шифром целиком
+  if (f['шифр'] === undefined) soft('заказ', row.poNumber, 'Заказ');
   if (f['тег'] !== undefined) {
     const tags = row.tags || [];
     if (!tags.length) add('тег', 'missing', f['тег'], '', false, 'у строки нет тегов');

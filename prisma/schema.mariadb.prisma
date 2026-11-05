@@ -222,6 +222,42 @@ model DocflowSettings {
   updatedAt   DateTime @updatedAt
 }
 
+/// Связь файла папки проекта со строкой ВДР (docs/docflow-program.md, 4 и 7.3).
+/// Файл адресуется ключом привязанной папки и путём внутри неё, а не путём
+/// компьютера: буква диска у каждого своя. Отвязка не удаляет запись — это история
+/// связей (`unlinkedAt`). `pathKey` — хеш ключа папки и пути, заполнен только у
+/// действующей связи: уникальный индекс не даёт двум людям связать один файл с
+/// разными строками (NULL у истории индексу не мешает ни в одной из трёх баз).
+model DocFileLink {
+  id           String    @id @default(uuid())
+  itemId       String
+  projectId    String
+  revision     String    @default("")
+  role         String    @default("file") // file | remarks
+  /// Для замечаний: к какой связи-файлу выданной ревизии они относятся
+  toLinkId     String?
+  folderKey    String
+  relativePath String @db.Text
+  fileName     String @db.Text
+  sha256       String    @default("")
+  size         Float     @default(0)
+  /// Код рассмотрения заказчика и дата получения — у файла замечаний
+  reviewCode   String    @default("")
+  receivedAt   DateTime?
+  pathKey      String?   @unique
+  /// Файл не найден там, где его оставили (удалён или перемещён); пусто — на месте
+  lostAt       DateTime?
+  linkedById   String?
+  unlinkedAt   DateTime?
+  unlinkedById String?
+  unlinkReason String    @default("") @db.Text
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([itemId])
+  @@index([projectId, folderKey])
+}
+
 // История ревизий строки ВДР (документа)
 model DocRegisterItemRevision {
   id          String   @id @default(uuid())
