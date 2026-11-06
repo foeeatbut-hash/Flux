@@ -19,6 +19,12 @@ import { can } from '../../lib/permissions';
 import TagLinkPlanDialog, { unlinkedCount, type TagLinkPlan } from './TagLinkPlanDialog';
 import { DEFAULT_STATUSES } from '../../../shared/docflow/config';
 import { getSettings } from '../../lib/docflowApi';
+import FileCell from './RowFileCells';
+import AssignFileDialog from '../docflow/AssignFileDialog';
+import { useProjectDocs } from '../docflow/useProjectDocs';
+import { useBindingLedger } from '../explorer/useProjectFolderBindings';
+import type { PickRow } from '../docflow/RowPicker';
+import type { WindowsFileRef } from '../../lib/windowsFiles';
 
 /**
  * Ответ сервера «запись уже изменили» (409): показать его текст и отдать
@@ -87,6 +93,18 @@ export default function VdrPanel() {
   const projectId = activeProject?.id || 'default';
   const canManage = can(user, 'docflow.edit');
   const canIssue = can(user, 'docflow.issue');
+  const canAssign = can(user, 'docflow.files');
+  // Файлы и возвраты строк: ссылки в столбцах «Файл» и «Возврат» (docs/docflow-program.md, 7.4)
+  const { docs: projectDocs, reload: reloadDocs } = useProjectDocs([projectId], projectId !== 'default' && can(user, 'docflow.view'));
+  const docsOfProject = projectDocs[projectId];
+  const { bindings: folderBindings } = useBindingLedger(user?.id);
+  const [assign, setAssign] = useState<{ role: 'file' | 'remarks'; item: Item; file?: WindowsFileRef } | null>(null);
+  const linksOfItem = useMemo(() => {
+    const map = new Map<string, import('../../../shared/docflow/links').DocLinkDto[]>();
+    for (const l of docsOfProject?.links || []) if (!l.unlinkedAt) map.set(l.itemId, [...(map.get(l.itemId) || []), l]);
+    for (const list of map.values()) list.sort((a, b) => a.revision.localeCompare(b.revision) || a.createdAt.localeCompare(b.createdAt));
+    return map;
+  }, [docsOfProject]);
 
   const [registers, setRegisters] = useState<Register[]>([]);
   const [regId, setRegId] = useState<string>(searchParams.get('vdr') || '');
@@ -444,6 +462,8 @@ export default function VdrPanel() {
                     <th>Статус</th>
                     <th>Теги</th>
                     <th>Исполнитель</th>
+                    <th>Файл</th>
+                    <th>Возврат</th>
                     <th className="w-20"><span className="sr-only">Действия</span></th>
                   </tr>
                 </thead>
@@ -451,6 +471,14 @@ export default function VdrPanel() {
                   {filtered.map(it => (
                     <tr key={it.id}
                       onClick={() => setCardItem(it)}
+                      onDragOver={e => { if (canAssign && e.dataTransfer.types.includes('application/x-flux-entries')) e.preventDefault(); }}
+                      onDrop={e => {
+                        // Файл из Проводника на строку: «Привязать к строке» с той же проверкой имени (3.4)
+                        const raw = e.dataTransfer.getData('application/x-flux-entries');
+                        if (!raw || !canAssign) return;
+                        e.preventDefault();
+                        try { const first = JSON.parse(raw)?.[0]; if (first?.kind === 'file' && first.ref) setAssign({ role: 'file', item: it, file: first.ref }); } catch { /* чужой перенос */ }
+                      }}
                       aria-selected={focusItemId === it.id}
                       className="cursor-pointer">
                       <td onClick={e => e.stopPropagation()}>
@@ -468,6 +496,12 @@ export default function VdrPanel() {
                       <td className="max-w-36"><div className="truncate text-slate-500" title={tagsOf(it).join('; ')}>{tagsOf(it).slice(0, 2).join('; ')}{tagsOf(it).length > 2 ? '…' : ''}</div></td>
                       <td className="whitespace-nowrap text-slate-500">{users.find(u => u.id === it.assigneeId)?.name?.split(' ')[0] || '—'}</td>
                       <td onClick={e => e.stopPropagation()}>
+                        {docsOfProject && <FileCell itemId={it.id} links={linksOfItem.get(it.id) || []} role="file" bindings={folderBindings} canAssign={canAssign} onAssign={() => setAssign({ role: 'file', item: it })} onChanged={() => void reloadDocs(projectId)} />}
+                      </td>
+                      <td onClick={e => e.stopPropagation()}>
+                        {docsOfProject && <FileCell itemId={it.id} links={linksOfItem.get(it.id) || []} role="remarks" bindings={folderBindings} canAssign={canAssign} onAssign={() => setAssign({ role: 'remarks', item: it })} onChanged={() => void reloadDocs(projectId)} />}
+                      </td>
+                      <td onClick={e => e.stopPropagation()}>
                         <div className="fx-row-acts">
                           {it.status !== 'READY' && it.status !== 'ACCEPTED' && (
                             <button type="button" title="Готово — уведомить менеджера" onClick={() => patchItem(it.id, { status: 'READY' }, 'Менеджер уведомлён')}
@@ -478,7 +512,7 @@ export default function VdrPanel() {
                     </tr>
                   ))}
                   {filtered.length === 0 && (
-                    <tr><td colSpan={11} className="py-6 text-slate-500 dark:text-slate-400">Строк нет{onlyMine ? ' (фильтр «Мои» включён)' : ''}.</td></tr>
+                    <tr><td colSpan={13} className="py-6 text-slate-500 dark:text-slate-400">Строк нет{onlyMine ? ' (фильтр «Мои» включён)' : ''}.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -500,6 +534,11 @@ export default function VdrPanel() {
           onClose={() => setCardItem(null)}
           onChanged={refresh}
         />
+      )}
+      {assign && register && docsOfProject && (
+        <AssignFileDialog role={assign.role} projectId={projectId} docs={docsOfProject} bindings={folderBindings} file={assign.file}
+          row={{ id: assign.item.id, registerId: assign.item.registerId, registerName: register.name, contractorNo: assign.item.contractorNo, ownerNo: assign.item.ownerNo, vendorNo: assign.item.vendorNo, titleRu: assign.item.titleRu, titleEn: assign.item.titleEn, vdrCode: assign.item.vdrCode, revision: assign.item.revision, status: assign.item.status } satisfies PickRow}
+          onClose={() => setAssign(null)} onDone={() => { void reloadDocs(projectId); refresh(); }} />
       )}
       {tagPlanOpen && (
         <TagLinkPlanDialog projectId={projectId} initial={tagPlan} onClose={() => setTagPlanOpen(false)} onChanged={refresh} />

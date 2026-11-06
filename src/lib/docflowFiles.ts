@@ -71,7 +71,7 @@ export async function ensureFolders(base: WindowsFileRef, path: string, group: s
     const exists = await windowsFilesRequest<WindowsFileEntry>({ action: 'stat', ref: next });
     if (!exists.ok) {
       const made = await windowsFilesRequest({ action: 'mkdir', parent: current, name: part, group });
-      if (!made.ok) throw new Error(made.error.message);
+      if ('error' in made) throw new Error(made.error.message);
     } else if (exists.data.kind !== 'directory') throw new Error(`«${part}» — файл, а нужна папка`);
     current = next;
   }
@@ -83,14 +83,29 @@ export interface MovePlan { target: WindowsFileRef; folderPath: string; name: st
 /** Перенос с проверкой отпечатка: файл изменили после выбора — перенос откажет, ничего не сломав. */
 export async function moveFile(ref: WindowsFileRef, folder: WindowsFileRef, name: string, baseSha256: string, group: string): Promise<WindowsFileRef> {
   const answer = await windowsFilesRequest<{ ref?: WindowsFileRef }>({ action: 'move', ref, parent: folder, name, baseSha256, group });
-  if (!answer.ok) throw new Error(answer.error.message);
+  if ('error' in answer) throw new Error(answer.error.message);
   return answer.data.ref || { rootId: folder.rootId, relativePath: join(folder.relativePath, name) };
 }
 
 export async function renameFile(ref: WindowsFileRef, name: string, group: string): Promise<WindowsFileRef> {
   const answer = await windowsFilesRequest<{ ref: WindowsFileRef }>({ action: 'rename', ref, name, group });
-  if (!answer.ok) throw new Error(answer.error.message);
+  if ('error' in answer) throw new Error(answer.error.message);
   return answer.data.ref;
 }
 
 export const newGroup = (label: string) => `docflow-${label}-${Date.now().toString(36)}`;
+
+/** Файл по связи на этом компьютере: привязанная папка + путь внутри неё. Null — папка не найдена среди корней. */
+export async function refOfLink(link: { folderKey: string; relativePath: string }, bindings: ProjectFolderBinding[]): Promise<WindowsFileRef | null> {
+  const binding = bindings.find((b) => b.locationKey === link.folderKey);
+  const base = binding ? await folderOfBinding(binding) : null;
+  return base ? { ...base, relativePath: join(base.relativePath, link.relativePath) } : null;
+}
+
+/** «Открыть» или «Показать в Проводнике»; причина отказа — готовым текстом для подсказки. */
+export async function openLinked(link: { folderKey: string; relativePath: string }, bindings: ProjectFolderBinding[], how: 'open' | 'reveal'): Promise<string> {
+  const ref = await refOfLink(link, bindings);
+  if (!ref) return 'Папка проекта не найдена на этом компьютере: откройте её в Проводнике и привяжите заново.';
+  const answer = await windowsFilesRequest({ action: how, ref });
+  return 'error' in answer ? answer.error.message : '';
+}

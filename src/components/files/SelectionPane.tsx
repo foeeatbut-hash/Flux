@@ -5,7 +5,7 @@ import { ICON_SIZE } from '../../lib/metrics';
 import { entryRef } from './fileOps';
 import { X as T } from './explorerTheme';
 
-export default function SelectionPane({ entries, rootId, mode, onProperties }: { entries: WindowsFileEntry[]; rootId: string; mode: 'details' | 'preview'; onProperties: (entry: WindowsFileEntry) => void }) {
+export default function SelectionPane({ entries, rootId, mode, onProperties, docDetails }: { entries: WindowsFileEntry[]; rootId: string; mode: 'details' | 'preview'; onProperties: (entry: WindowsFileEntry) => void; /** Блок «Документооборот» для файла проекта (docs/docflow-program.md, 3.2). */ docDetails?: (entry: WindowsFileEntry) => React.ReactNode }) {
   const entry = entries.length === 1 ? entries[0] : null;
   const [metadata, setMetadata] = React.useState<WindowsFileMetadata | null>(null);
   const [preview, setPreview] = React.useState<{ image?: string; text?: string; pdf?: string; error?: string }>({});
@@ -42,6 +42,7 @@ export default function SelectionPane({ entries, rootId, mode, onProperties }: {
         ['Хранение', entry.storage === 'flux' ? 'Черновик Flux' : 'Windows'],
         ['Теги', metadata?.tags.join(', ') || '—'], ['Ревизия', metadata?.revision || '—'], ['Ответственный', metadata?.responsible || '—'],
       ].map(([label, value]) => <React.Fragment key={label}><dt className={T.muted}>{label}</dt><dd className="min-w-0 break-words">{value}</dd></React.Fragment>)}</dl>
+      {docDetails?.(entry)}
       <button type="button" onClick={() => onProperties(entry)} className={`mt-5 rounded py-2 text-xs ${T.iconButton}`}>Свойства</button>
     </>}
   </aside>;

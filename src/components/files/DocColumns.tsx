@@ -9,7 +9,9 @@ export const DOC_COLUMNS: FolderColumn[] = ['cipher', 'docType', 'docRev', 'docS
 export const isDocColumn = (column: FolderColumn) => DOC_COLUMNS.includes(column);
 
 const DOT: Record<DocflowTone, string> = {
-  slate: 'bg-slate-400', sky: 'bg-sky-500', emerald: 'bg-emerald-500', amber: 'bg-amber-500', rose: 'bg-rose-500', violet: 'bg-violet-500',
+  slate: 'bg-slate-400', sky: 'bg-sky-500', emerald: 'bg-emerald-500', amber: 'bg-amber-500', rose: 'bg-rose-500',
+  // Фиолетового в палитре Flux нет: как и в реестре, «на проверке» рисуется синим
+  violet: 'bg-sky-500',
 };
 
 export function OffMaskBadge({ problems }: { problems: string[] }) {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Btn, Dialog, Field, Input, Select } from '../ui';
 import NameCheckView from './NameCheckView';
+import ImportFileChooser from '../ImportFileChooser';
 import RowPicker, { cipherOfRow, type PickRow } from './RowPicker';
 import type { ProjectDocs } from './useProjectDocs';
 import { createLink, planLink, type LinkPlan } from '../../lib/docflowApi';
@@ -25,13 +26,15 @@ export interface AssignFileDialogProps {
   bindings: ProjectFolderBinding[];
   row?: PickRow;
   file?: WindowsFileRef;
+  /** Предлагать ли «Переименовать в …» (ДО). Из Проводника имя исправляет сам человек (F2): окно только показывает расхождения. */
+  renameOffer?: boolean;
   onClose: () => void;
   onDone: () => void;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-export default function AssignFileDialog({ role, projectId, docs, bindings, row: fixedRow, file, onClose, onDone }: AssignFileDialogProps) {
+export default function AssignFileDialog({ role, projectId, docs, bindings, row: fixedRow, file, renameOffer = true, onClose, onDone }: AssignFileDialogProps) {
   const { config } = docs;
   const mine = React.useMemo(() => bindingsOfProject(bindings, projectId), [bindings, projectId]);
   const [row, setRow] = React.useState<PickRow | null>(fixedRow || null);
@@ -56,11 +59,6 @@ export default function AssignFileDialog({ role, projectId, docs, bindings, row:
   }, [mine]);
   React.useEffect(() => { if (file) void open(file); }, [file, open]);
 
-  const choose = async () => {
-    const answer = await windowsFilesRequest<{ canceled: boolean; file?: { ref: WindowsFileRef } }>({ action: 'pickDocumentFile' });
-    if (!answer.ok) { setError(answer.error.message); return; }
-    if (!answer.data.canceled && answer.data.file) await open(answer.data.file.ref);
-  };
   const byPath = async () => {
     const answer = await windowsFilesRequest<WindowsFileRef | null>({ action: 'resolveAddress', text: path.trim() });
     if (!answer.ok || !answer.data) { setError('Файл по этому пути не найден среди доступных папок. Нажмите «Выбрать…».'); return; }
@@ -83,7 +81,7 @@ export default function AssignFileDialog({ role, projectId, docs, bindings, row:
   const revision = role === 'remarks' ? fileLinks.find((l) => l.id === toLinkId)?.revision || '' : plan?.check.revision || row?.revision || '';
   const placement = source && plan ? planPlacement({ source, role, config, row: plan.row, revision, projectId, bindings: mine, finalName }) : null;
   const needReplace = role === 'file' && !!plan?.sameRevisionFile;
-  const ready = !!source && !!row && !!plan && !!placement && !placement.error && !busy && (!blocked || (fix === 'rename' && !!plan.expectedName)) && (!needReplace || replace) && (role === 'file' || !!toLinkId);
+  const ready = !!source && !!row && !!plan && !!placement && !placement.error && !busy && (!blocked || (renameOffer && fix === 'rename' && !!plan.expectedName)) && (!needReplace || replace) && (role === 'file' || !!toLinkId);
   const hint = React.useMemo(() => (source ? parseFileName(config, source.name).fields['шифр'] : undefined), [config, source?.name]);
 
   const recheck = async () => {
@@ -125,7 +123,7 @@ export default function AssignFileDialog({ role, projectId, docs, bindings, row:
             <div className="flex gap-2">
               <Input aria-label="Путь к файлу" value={path} placeholder="C:\Users\…\Загрузки\Замечания.pdf" onChange={(e) => setPath(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && path.trim()) void byPath(); }} />
               <Btn disabled={!path.trim() || busy} onClick={() => void byPath()}>Найти</Btn>
-              <Btn disabled={busy} onClick={() => void choose()}>Выбрать…</Btn>
+              <ImportFileChooser label="Выбрать…" disabled={busy} onFiles={() => undefined} onWindowsFile={(ref) => void open(ref)} />
             </div>
           </Field>
         )}
@@ -137,7 +135,8 @@ export default function AssignFileDialog({ role, projectId, docs, bindings, row:
         {role === 'file' && plan && row && (
           <div className="space-y-2 rounded border border-slate-200 p-3 dark:border-slate-700">
             <NameCheckView check={plan.check} />
-            {blocked && (
+            {blocked && !renameOffer && <p className="text-rose-700 dark:text-rose-400">Переименуйте файл (F2) так, чтобы имя сходилось со строкой, и свяжите снова.</p>}
+            {blocked && renameOffer && (
               <div role="radiogroup" aria-label="Что сделать с именем" className="space-y-1.5 pt-1">
                 {plan.expectedName
                   ? <label className="flex items-start gap-2"><input type="radio" name="fix" checked={fix === 'rename'} onChange={() => setFix('rename')} /><span>Переименовать в <strong className="font-medium">{plan.expectedName}</strong><br /><span className="text-slate-500 dark:text-slate-400">{source?.name} → {plan.expectedName}</span></span></label>

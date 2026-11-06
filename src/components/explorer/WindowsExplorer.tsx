@@ -44,6 +44,8 @@ import { FONT_STACK, SIZE, X as T } from '../files/explorerTheme';
 import ProjectFolderBindingDialog from './ProjectFolderBindingDialog';
 import { resolveBoundProject, effectiveProjectIds } from '../../lib/projectFolderBindings';
 import { useBindingLedger, useLocationChains } from './useProjectFolderBindings';
+import { useExplorerDocflow } from './useExplorerDocflow';
+import { DOC_FILTERS } from '../files/docEntryInfo';
 
 const bytes = (n: number) => n < 1024 ? `${n} Б` : n < 1048576 ? `${(n / 1024).toFixed(0)} КБ` : n < 1073741824 ? `${(n / 1048576).toFixed(1)} МБ` : `${(n / 1073741824).toFixed(1)} ГБ`;
 
@@ -91,7 +93,7 @@ export default function WindowsExplorer() {
   // Ключи мест нужны, только если в журнале есть привязки; без них мост не вызывается.
   const chainRefs = React.useMemo(() => projectBindings.length ? shownRows.map((entry) => entryRef(entry, rootId)) : [], [shownRows, projectBindings.length, rootId]);
   const { chainOf, version: chainVersion } = useLocationChains(chainRefs, projectBindings.length > 0);
-  const entries = React.useMemo(() => orderedEntries(shownRows.filter((entry) => view.hidden || !entry.hidden).map((entry) => {
+  const allEntries = React.useMemo(() => orderedEntries(shownRows.filter((entry) => view.hidden || !entry.hidden).map((entry) => {
     const manual = entry.metadata?.projectIds || [];
     const inherited = manual.length || !entry.rootId && !rootId ? null : resolveBoundProject(projectBindings, chainOf(entryRef(entry, rootId)));
     const projectIds = effectiveProjectIds(manual, inherited);
@@ -101,6 +103,9 @@ export default function WindowsExplorer() {
     if (!metadata && !projectIds.length) return entry;
     return { ...entry, ...(metadata ? { metadata } : {}), ...(projectIds.length ? { projectNames: projectIds.map((id) => projectNames[id] || 'Недоступный проект') } : {}) };
   }), view), [shownRows, view, projectNames, projectBindings, chainOf, chainVersion, rootId]);
+  // Документооборот: сведения о файлах проекта, фильтры, меню и слежение (docs/docflow-program.md, 3.2–3.5)
+  const docflow = useExplorerDocflow({ entries: allEntries, rootId, bindings: projectBindings, chainOf, chainVersion, complete: !search.results.active && folder.nextOffset === null && !folder.loading, reload: folder.reload });
+  const entries = docflow.visible;
   const selection = useSelection(entries, `${placeKey(place)}:${search.results.active}`);
   const single = selection.selected.length === 1 ? selection.selected[0] : null;
   const operations = useExplorerOperations({ folder: ref, rootId, selected: selection.selected, reload: folder.reload });
@@ -345,12 +350,14 @@ export default function WindowsExplorer() {
     { label: 'Сжать в ZIP-файл', disabled: !ref || !!ref.draftId || menuEntries.some((e) => !!e.draftId), onClick: () => { if (ref) setArchive({ refs: menuEntries.map((e) => entryRef(e, rootId)), parent: { ...ref }, name: targetEntry.name.replace(/\.[^.]+$/u, '') + '.zip' }); } },
     { label: 'Удалить', danger: true, separated: true, onClick: () => void ops.trash(menuEntries) },
     { label: 'Свойства', disabled: menuEntries.length !== 1, onClick: () => showProperties(targetEntry) },
+    ...docflow.menuItems(menuEntries, targetEntry),
     { label: 'Показать дополнительные параметры', separated: true, disabled: menuEntries.some((e) => !!e.draftId), onClick: () => { const fake = { clientX: context!.x, clientY: context!.y } as React.MouseEvent; void showShellMenu(fake); } },
   ] : [
     { label: 'Просмотреть', items: Object.entries(VIEW_LABELS).map(([layout, label]) => ({ label, onClick: () => setView({ ...view, layout: layout as FolderView['layout'] }) })) },
     { label: 'Обновить', onClick: refresh }, panel.menuItem(),
     { label: 'Копировать свойства Flux', checked: operations.carryMeta, onClick: () => operations.setCarryMeta(!operations.carryMeta) },
     { label: 'Вставить', disabled: !ops.clip || !canWrite, onClick: () => void ops.paste() },
+    ...docflow.folderMenuItems(ref),
     { label: 'Открыть Корзину', separated: true, onClick: () => setRecycle(true) },
   ];
   const computer = place.kind === 'computer';
@@ -369,10 +376,11 @@ export default function WindowsExplorer() {
         {panel.nameElement}
         {recycle ? <RecyclePane onChanged={refresh} /> : search.results.active || ref ? <>
           {search.results.active && <p role="status" className={`px-4 py-2 text-xs ${T.muted}`}>{search.results.status === 'running' ? 'Поиск…' : 'Результаты поиска'} · найдено: {entries.length}{search.results.reason && search.results.reason !== 'complete' ? ` · ${search.results.reason === 'canceled' ? 'остановлен' : 'достигнуто ограничение поиска'}` : ''}</p>}
-          {!root?.available && ref ? <p className={`p-4 text-xs ${T.muted}`}>Папка недоступна. Проверьте подключение и обновите список.</p> : !entries.length ? <p className={`p-4 text-xs ${T.muted}`}>{folder.loading || !tabs.ready ? 'Открываю папку…' : folder.error ? 'Список папки недоступен.' : search.results.active ? 'Файлы не найдены.' : folder.listing?.unreadableCount ? 'Нет доступных для показа объектов.' : 'Эта папка пуста.'}</p> : <ContentsPane entries={entries} rootId={rootId} selection={selection} view={view} onViewChange={setView} editing={rename ? { fileId: rename.entry.fileId, value: rename.name, onChange: (name) => setRename({ ...rename, name }), onCommit: () => void commitRename(), onCancel: () => setRename(null) } : undefined} onOpen={openEntry} onContext={(e, entry) => { e.preventDefault(); e.stopPropagation(); selection.context(entry); openContext({ x: e.clientX, y: e.clientY, entry }); }} onDragStart={beginDrag} onDrop={(event, entry) => operations.drop(event, entryRef(entry, rootId))} scrollRef={folder.scrollRef} loadMore={() => void folder.loadMore()} hasMore={!search.results.active && folder.nextOffset !== null} busy={folder.loading} />}
+          {docflow.active && <div data-doc-filter className={`flex items-center gap-2 px-4 py-1 text-xs ${T.muted}`}><label className="flex items-center gap-2">Документы проекта<select aria-label="Фильтр документооборота" className="fx-input h-6 py-0 text-xs" value={docflow.filter} onChange={(e) => docflow.setFilter(e.target.value as typeof docflow.filter)}>{DOC_FILTERS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}</select></label></div>}
+          {!root?.available && ref ? <p className={`p-4 text-xs ${T.muted}`}>Папка недоступна. Проверьте подключение и обновите список.</p> : !entries.length ? <p className={`p-4 text-xs ${T.muted}`}>{folder.loading || !tabs.ready ? 'Открываю папку…' : folder.error ? 'Список папки недоступен.' : search.results.active ? 'Файлы не найдены.' : folder.listing?.unreadableCount ? 'Нет доступных для показа объектов.' : 'Эта папка пуста.'}</p> : <ContentsPane doc={docflow.doc} entries={entries} rootId={rootId} selection={selection} view={view} onViewChange={setView} editing={rename ? { fileId: rename.entry.fileId, value: rename.name, onChange: (name) => setRename({ ...rename, name }), onCommit: () => void commitRename(), onCancel: () => setRename(null) } : undefined} onOpen={openEntry} onContext={(e, entry) => { e.preventDefault(); e.stopPropagation(); selection.context(entry); openContext({ x: e.clientX, y: e.clientY, entry }); }} onDragStart={beginDrag} onDrop={(event, entry) => operations.drop(event, entryRef(entry, rootId))} scrollRef={folder.scrollRef} loadMore={() => void folder.loadMore()} hasMore={!search.results.active && folder.nextOffset !== null} busy={folder.loading} />}
         </> : place.kind === 'home' ? <div className="flex-1 overflow-auto p-5 text-xs"><h2 className="mb-4 text-sm">Быстрый доступ</h2><div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-2">{(quick.length ? quick : catalog.roots.map((r) => ({ name: r.name, ref: { rootId: r.id, relativePath: '' }, pinned: false }))).map((item) => <button key={`${item.ref.rootId}:${item.ref.relativePath}`} type="button" onDoubleClick={() => go(placeForRef(item.ref, catalog))} onClick={() => go(placeForRef(item.ref, catalog))} className={`flex items-center gap-2 rounded p-3 text-left ${T.paneHover}`}><PlaceIcon kind="folder" name={item.name} fileRef={item.ref} size={ICON_SIZE.row} />{item.name}</button>)}</div>{sharedSources.length > 0 && <button className={`mt-6 flex items-center gap-2 rounded p-3 text-left ${T.paneHover}`} onClick={() => navigate('/explorer?view=shared')}><IconBadges shared size={ICON_SIZE.row}><FileIcon kind="folder" size={ICON_SIZE.row} /></IconBadges><span>Общий доступ · {sharedSources.length}</span></button>}<div className="mt-6 flex gap-4"><button className={`flex items-center gap-2 rounded p-3 text-left ${T.paneHover}`} onClick={() => setRecycle(true)}><FileIcon kind="bin" size={ICON_SIZE.row} /><span>Корзина</span></button></div></div> : <div className="flex-1 overflow-auto px-3 py-2"><h2 className="mb-3 text-sm">{computer ? 'Устройства и диски' : 'Сетевые расположения'}</h2><div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">{locations.map((v) => <button key={v.id} type="button" disabled={!v.root.available} onDoubleClick={() => go(placeForRoot(v.root.id, catalog))} onClick={() => go(placeForRoot(v.root.id, catalog))} className={`flex min-w-0 items-center gap-3 rounded p-2 text-left text-xs ${T.paneHover} disabled:opacity-40`}><PlaceIcon kind="folder" name={v.name} fileRef={{ rootId: v.root.id, relativePath: '' }} glyph="drive" size={ICON_SIZE.medium} /><span className="min-w-0 flex-1"><span className="block truncate">{v.name}</span>{v.size != null && v.free != null && <><span className="my-1 block h-3 border border-[#a0a0a0] bg-[#e5e5e5] dark:bg-[#e5e5e5]"><span className={`block h-full ${v.free / v.size < .1 ? 'bg-[#c42b1c] dark:bg-[#ff4343]' : 'bg-[#0078d4] dark:bg-[#0078d4]'}`} style={{ width: `${Math.min(100, Math.max(0, (v.size - v.free) / v.size * 100))}%` }} /></span><span className={`block ${T.muted}`}>{bytes(v.free)} свободно из {bytes(v.size)}</span></>}</span></button>)}</div>{place.kind === 'network' && catalog.roots.filter((r) => r.network).map((r) => <button key={r.id} onClick={() => go(placeForRoot(r.id, catalog))} className={`m-2 rounded p-3 text-xs ${T.paneHover}`}>{r.name}</button>)}</div>}
       </main>
-      {pane !== 'none' && !recycle && <SelectionPane entries={selection.selected} rootId={single?.rootId || rootId} mode={pane} onProperties={showProperties} />}
+      {pane !== 'none' && !recycle && <SelectionPane entries={selection.selected} rootId={single?.rootId || rootId} mode={pane} onProperties={showProperties} docDetails={docflow.details} />}
     </div>
     <footer data-explorer-status className={`flex h-6 shrink-0 items-center gap-3 px-3 text-xs bg-[#f3f3f3] dark:bg-[#1c1c1c] ${T.text}`}><span>Элементов: {ref || search.results.active ? entries.length : locations.length}{folder.nextOffset !== null && ref ? '+' : ''}</span>{selection.selected.length > 0 && <span>Выбрано: {selection.selected.length} · {bytes(selection.selected.reduce((n, e) => n + (e.kind === 'file' ? e.size : 0), 0))}</span>}{operations.progress && <span role="status">{operations.progress.label} {operations.progress.done}/{operations.progress.total}</span>}<span className="flex-1" /><button type="button" title="Таблица" aria-label="Таблица" onClick={() => setView({ ...view, layout: 'details' })}><List size={16} /></button><button type="button" title="Крупные значки" aria-label="Крупные значки" onClick={() => setView({ ...view, layout: 'large' })}><Grid2X2 size={16} /></button></footer>
     {context && <ContextMenu x={context.x} y={context.y} items={contextItems} onClose={closeContext} />}
@@ -382,6 +390,6 @@ export default function WindowsExplorer() {
 
     {handlers && single && <Dialog title="Открыть с помощью" onClose={() => setHandlers(null)}>{handlers.length ? handlers.map((handler) => <button className={`block w-full rounded p-3 text-left text-xs ${T.paneHover}`} key={handler.id} onClick={() => { void command({ action: 'openWith', ref: entryRef(single, rootId), handlerId: handler.id }); setHandlers(null); }}>{handler.name}</button>) : <p className="text-xs">Windows не сообщила подходящие приложения.</p>}</Dialog>}
     {archive && <Dialog title="Сжать в ZIP-файл" onClose={() => { if (!busy) setArchive(null); }} footer={<><Btn disabled={busy} onClick={() => setArchive(null)}>Отмена</Btn><Btn tone="primary" disabled={busy || !archive.name.trim()} onClick={() => { void command({ action: 'archive', ...archive, name: archive.name.trim(), group: `archive-${Date.now()}` }).then((answer) => { if (answer.ok) { wanted.current = archive.name.trim(); setArchive(null); void folder.reload(); } }); }}>Сжать</Btn></>}><Field label="Имя архива"><Input autoFocus value={archive.name} onChange={(e) => setArchive({ ...archive, name: e.target.value })} /></Field></Dialog>}
-    {panel.element}{operations.element}
+    {panel.element}{operations.element}{docflow.element}
   </div>;
 }
