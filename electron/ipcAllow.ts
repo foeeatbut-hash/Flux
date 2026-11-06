@@ -18,6 +18,11 @@ export const INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   // Выпуски модулей: проверка и кэш в главном процессе, подпись владельца из хранилища (electron/modules.ts)
   'modules:state',
   'modules:sync',
+  'modules:activate',
+  'modules:install',
+  'modules:remove',
+  'modules:rollback',
+  'modules:synced',
   'modules:sign',
   'app:get-server-url',
   'app:get-database',

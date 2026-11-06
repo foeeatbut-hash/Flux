@@ -23,6 +23,7 @@ import { diffFiles, diffPermissions, manifestOf } from '../../modules/trust/diff
 import { MODULE_ROOT_KEY_HEX, loadTrust, readBlob, readBundle, signatureHash, writeBlob } from '../moduleStore.js';
 import { channelsFor } from '../moduleChannels.js';
 import { registerModuleChannelRoutes } from './moduleChannels.js';
+import { registerModuleStoreRoutes } from './moduleStore.js';
 
 export interface ModulePublishingDeps {
   getPrisma: () => any;
@@ -250,4 +251,5 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
   });
 
   registerModuleChannelRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, rootHex, can: deps.can });
+  registerModuleStoreRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast });
 }

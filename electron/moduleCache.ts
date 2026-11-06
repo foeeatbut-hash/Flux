@@ -131,12 +131,41 @@ export class ModuleCache {
     return out;
   }
 
-  /** Держать KEEP_VERSIONS новейших проверенных версий; отозванные и битые убирать */
-  async prune(): Promise<void> {
+  /** Версии, которые можно запустить прямо сейчас (проверены, в разрешённом канале), новые первыми */
+  async available(moduleId: string, channels: readonly ModuleChannel[] = ['production']): Promise<RunnableRelease[]> {
+    return (await this.verifiedVersions(moduleId, channels)).filter((r): r is RunnableRelease => 'claim' in r);
+  }
+
+  /**
+   * Что запускать из установленного: по каждой подпрограмме — выбранная
+   * версия, а если она больше не проходит проверку (отозвана, выше отката
+   * владельца, повреждена) — ближайшая более старая проверенная. Это и есть
+   * «отзыв откатывает всех»: версия меняется без человека, но только вниз и
+   * только на то, что владелец подписал.
+   */
+  async resolve(wanted: Record<string, string>, channels: readonly ModuleChannel[] = ['production']): Promise<Map<string, RunnableRelease>> {
+    const out = new Map<string, RunnableRelease>();
+    for (const [moduleId, version] of Object.entries(wanted)) {
+      if (!MODULE_ID.test(moduleId) || !MODULE_VERSION.test(version)) continue;
+      const found = (await this.available(moduleId, channels)).find((r) => compareVersions(r.claim.version, version) <= 0);
+      if (found) out.set(moduleId, found);
+    }
+    return out;
+  }
+
+  /** Предыдущая версия для «Вернуть»: ближайшая старше выбранной из уже лежащих на диске — работает без связи */
+  async previous(moduleId: string, current: string, channels: readonly ModuleChannel[] = ['production']): Promise<RunnableRelease | null> {
+    return (await this.available(moduleId, channels)).find((r) => compareVersions(r.claim.version, current) < 0) || null;
+  }
+
+  /** Держать KEEP_VERSIONS новейших проверенных версий и выбранную человеком; отозванные и битые убирать */
+  async prune(selected: readonly string[] = []): Promise<void> {
     const modules = await fs.readdir(path.join(this.dir, 'releases')).catch(() => [] as string[]);
     for (const moduleId of modules.filter((m) => MODULE_ID.test(m))) {
       const all = await this.verifiedVersions(moduleId, ['production', 'test']);
       const keep = new Set(all.filter((r): r is RunnableRelease => 'claim' in r).slice(0, KEEP_VERSIONS).map((r) => r.claim.version));
+      // Выбранную человеком версию не убираем, даже если новее неё уже три: иначе она «пропала бы» без связи
+      for (const r of all) if ('claim' in r && selected.includes(`${moduleId}@${r.claim.version}`)) keep.add(r.claim.version);
       for (const r of all) {
         const version = 'claim' in r ? r.claim.version : r.version;
         // Выпуск «на завтра» и выпуск выше отката владельца битыми не считаются: время придёт или откат снимут

@@ -2208,3 +2208,78 @@ model ModuleChannelPin {
 
   @@index([moduleId, channel])
 }
+
+/// Решения администратора по подпрограмме в Flux Store: допуск, устаревшая,
+/// закрепление версии, обязательность для должностей. Это политика, а не
+/// защита: что можно запустить, решает подпись владельца на выпуске.
+model ModuleStoreEntry {
+  id              String   @id @default(uuid())
+  moduleId        String   @unique
+  /// pending | admitted | delisted | banned
+  status          String   @default("pending")
+  /// Устаревшая: новым не ставится, у установивших работает
+  deprecated      Boolean  @default(false)
+  /// Пользователи не обновят выше этой версии; пусто — без закрепления
+  pinVersion      String   @default("")
+  /// JSON-список кодов должностей, для которых действует закрепление; пусто — для всех
+  pinRoles        String   @default("[]")
+  /// JSON-список кодов должностей, которым подпрограмма ставится сама
+  requiredRoles   String   @default("[]")
+  requiredVersion String   @default("")
+  note            String   @default("")
+  updatedBy       String   @default("")
+  updatedAt       DateTime @default(now()) @updatedAt
+}
+
+/// Что установлено у человека (не у компьютера): на другом его компьютере те же
+/// подпрограммы ставятся одной кнопкой. Запускает Flux только то, что
+/// установлено в локальном выборе главного процесса и подписано владельцем.
+model ModuleInstall {
+  id          String   @id @default(uuid())
+  userId      String
+  moduleId    String
+  version     String
+  /// user | required | dependency
+  source      String   @default("user")
+  /// "" — как общий переключатель, on | off — свой у подпрограммы
+  autoUpdate  String   @default("")
+  installedAt DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@unique([userId, moduleId])
+  @@index([moduleId])
+}
+
+/// Журнал Store: кто что поставил, обновил, вернул, удалил, решил
+model ModuleStoreLog {
+  id          String   @id @default(uuid())
+  userId      String
+  userName    String   @default("")
+  moduleId    String
+  action      String
+  fromVersion String   @default("")
+  toVersion   String   @default("")
+  detail      String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@index([moduleId, createdAt])
+  @@index([userId, createdAt])
+}
+
+/// Отзыв и оценка: внутренние, видны сотрудникам; одна запись на человека
+model ModuleReview {
+  id        String   @id @default(uuid())
+  moduleId  String
+  userId    String
+  userName  String   @default("")
+  rating    Int
+  text      String   @default("")
+  version   String   @default("")
+  reports   Int      @default(0)
+  hidden    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([moduleId, userId])
+  @@index([moduleId])
+}

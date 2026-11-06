@@ -44,10 +44,23 @@ const validators = Object.fromEntries(Object.entries(messageSchemas).map(([key, 
 export function validMessage(type: keyof typeof messageSchemas, value: unknown): boolean {
   return !!validators[type](value);
 }
+const shortText = (max: number) => ({ type: 'string', maxLength: max });
+const storeBlock = object({
+  category: { enum: ['calc', 'link', 'docs', 'reports', 'other'] }, summary: shortText(200), description: shortText(4000),
+  color: { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' },
+  requires: object({
+    flux: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' }, platform: { enum: ['any', 'windows'] },
+    external: { type: 'array', maxItems: 10, items: shortText(80) },
+  }, []),
+  dependsOn: { type: 'array', maxItems: 10, uniqueItems: true, items: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,63}$' } },
+  roles: { type: 'array', maxItems: 20, uniqueItems: true, items: shortText(64) },
+  screenshots: { type: 'array', maxItems: 8, uniqueItems: true, items: { type: 'string', pattern: '^store/[A-Za-z0-9_-]{1,40}\\.(png|jpg|webp)$' } },
+}, ['category', 'summary']);
 export const manifestSchema = object({
   id: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,63}$' }, name: text, author: text,
   version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' }, contractVersion: { const: 1 },
   entries: { type: 'array', uniqueItems: true, items: { enum: ['start', 'equipment', 'tag'] } },
   reads: { type: 'array', uniqueItems: true, items: { enum: resources } }, logic: { const: 'logic/main.ts' },
-});
+  store: storeBlock,
+}, ['id', 'name', 'author', 'version', 'contractVersion', 'entries', 'reads', 'logic']);
 export const validManifest = ajv.compile(manifestSchema);

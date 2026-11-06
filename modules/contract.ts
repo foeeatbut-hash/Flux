@@ -6,6 +6,21 @@ export interface LaunchContext {
   entry: 'start' | 'equipment' | 'tag';
   entityId: string | null;
 }
+/** Витрина Flux Store (modules/store/model.ts): необязательна, без неё подпрограмма попадает в «Прочее» */
+export interface ModuleStoreBlock {
+  category: 'calc' | 'link' | 'docs' | 'reports' | 'other';
+  summary: string;
+  description?: string;
+  /** Цвет значка и подложки, #rrggbb */
+  color?: string;
+  requires?: { flux?: string; platform?: 'any' | 'windows'; external?: string[] };
+  /** Идентификаторы подпрограмм, без которых эта не работает */
+  dependsOn?: string[];
+  /** Для каких должностей (коды Role) */
+  roles?: string[];
+  /** Снимки экрана внутри пакета: store/имя.png */
+  screenshots?: string[];
+}
 export interface ModuleManifest {
   id: string;
   name: string;
@@ -15,6 +30,7 @@ export interface ModuleManifest {
   entries: Array<'start' | 'equipment' | 'tag'>;
   reads: Resource[];
   logic: string;
+  store?: ModuleStoreBlock;
 }
 export interface Parameter { group: string; key: string; value: string; unit: string }
 export interface TagData { id: string; identifier: string; name: string; parentId: string | null }
