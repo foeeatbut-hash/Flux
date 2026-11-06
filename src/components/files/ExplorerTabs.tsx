@@ -18,7 +18,7 @@ import { FONT_STACK, SIZE, X as T } from './explorerTheme';
  */
 
 const DRAG_MIME = 'application/x-flux-explorer-tab';
-const hasFiles = (event: React.DragEvent) => [...event.dataTransfer.types].some((type) => type === 'Files' || type === 'application/x-flux-entries');
+const hasFiles = (event: React.DragEvent) => [...event.dataTransfer.types].some((type) => type === 'Files' || type === 'application/x-flux-entries' || type === 'application/x-flux-draft');
 
 export default function ExplorerTabs({ tabs, activeId, onPick, onClose, onNew, onMove, onDropOnTab }: {
   tabs: ExplorerTab[];

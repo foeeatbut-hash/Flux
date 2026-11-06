@@ -5,6 +5,8 @@ import { useToastStore } from '../../store/toastStore';
 import { copyName, entryRef, getClip, makeClip, setClip, subscribeClip, trashQuestion, type ClipItem } from './fileOps';
 import { clipboardAction, choicesForPlan, planSummary, publishRequestFor } from './explorerOperationLogic';
 import type { BridgeRequest } from './createEntry';
+import { DRAFT_MIME, parseDraftDrag } from '../../lib/draftsActions';
+import { offerDraftDrop } from '../../store/draftsPublishStore';
 
 type Progress = { done: number; total: number; label: string };
 type PublishDialogState = { plan: WindowsPublishPlan; choices: Record<string, WindowsFileChoice>; applyChoice: WindowsFileChoice };
@@ -227,6 +229,9 @@ export function useExplorerOperations({ folder, reload, selected: _selected, roo
 
   const drop = useCallback((event: React.DragEvent, parent = folder || undefined) => {
     event.preventDefault();
+    // Черновик из панели «Черновики»: публикация с подтверждением, а не перенос Проводника.
+    const draftItems = parseDraftDrag(event.dataTransfer.getData(DRAFT_MIME));
+    if (draftItems) { if (parent) offerDraftDrop(draftItems, parent, event.ctrlKey || event.metaKey); return; }
     if (!parent || busyRef.current) return;
     const encoded = event.dataTransfer.getData('application/x-flux-entries');
     if (encoded) {

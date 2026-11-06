@@ -5,6 +5,7 @@ import { WINDOWS_FILES_CHANNEL, WINDOWS_FILES_CHANGED, WINDOWS_FILES_DROP, WINDO
 import { createArchive } from './archives';
 import { replaceCopy } from './replacementCopy';
 import { WindowsFilesService } from './service';
+import { listDrafts } from './draftIndex';
 import { WindowsFilesError } from './paths';
 import { windowsPublicDesktopFolder } from '../desktopShell';
 import { enumerateWindowsVolumes, openWindowsRecycleBin } from './nativePlaces';
@@ -145,6 +146,7 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
         }
         case 'openRecycleBin': await openWindowsRecycleBin(); data = { opened: true }; break;
         case 'draftTrash': data = await service.draftTrash(); break;
+        case 'draftsList': data = await listDrafts(service, request.offset, request.limit); break;
         case 'prepareDroppedImportRefs': {
           const paths = explorer.drops.importPaths(event.sender.id, request.ticket);
           if (paths.length > WINDOWS_IMPORT_REFS_PER_PICK) throw new WindowsFilesError('INVALID_REQUEST', 'Выберите не более 128 файлов за один раз.');

@@ -32,7 +32,8 @@ const NAMES: Array<[string, 'file' | 'directory']> = [
   ['Модель.sldprt', 'file'], ['Библиотека.dll', 'file'], ['Журнал.log', 'file'], ['Запись.wav', 'file'],
 ];
 const entries: WindowsFileEntry[] = NAMES.map(([name, kind], index) => ({
-  name, relativePath: name, storage: index === 6 ? 'flux' : 'windows', kind, fileId: `shot-${index}`, size: 1000 + index,
+  // Черновики Flux на стол не выводятся (панель «Черновики»), поэтому все строки — файлы Windows: стенд проверяет значки, а не источник.
+  name, relativePath: name, storage: 'windows', kind, fileId: `shot-${index}`, size: 1000 + index,
   modifiedAt: '2026-10-01T10:00:00.000Z', linked: false,
 }));
 (window as any).electron = {

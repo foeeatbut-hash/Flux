@@ -1,4 +1,8 @@
 export interface WindowsFileRef { rootId: string; relativePath: string; draftId?: string }
+export interface WindowsDraftEntry extends WindowsFileEntry { parent: WindowsFileRef }
+export interface WindowsDraftListing {
+  entries: WindowsDraftEntry[]; total: number; nextOffset: number | null; unreadableCount: number;
+}
 export interface PortableFolderLocator {
   /** Хеш точной папки; первый anchor повторяет его и имеет пустой относительный путь. */
   folderKey: string;
@@ -53,6 +57,7 @@ export type WindowsFilesRequest =
   | { action: 'volumes' }
   | { action: 'openRecycleBin' }
   | { action: 'draftTrash' }
+  | { action: 'draftsList'; offset?: number; limit?: number }
   | { action: 'prepareDroppedImportRefs'; ticket: string }
   | { action: 'selectionProvenance'; ref: WindowsFileRef; fileRef?: WindowsFileRef; suggestedTag?: string }
   | { action: 'resolvePortableFolder'; locator: PortableFolderLocator }

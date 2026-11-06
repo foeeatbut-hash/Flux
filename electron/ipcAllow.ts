@@ -40,6 +40,7 @@ export const SEND_CHANNELS: ReadonlySet<string> = new Set([
 
 /** События оболочки, которые окно может слушать через общий мост */
 export const LISTEN_CHANNELS: ReadonlySet<string> = new Set([
+  'drafts:toggle',
   'notify:open',
   'updater:status',
   'updater:error',

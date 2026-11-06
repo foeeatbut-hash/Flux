@@ -6,7 +6,7 @@ import { WindowsFilesError } from './paths';
 
 export interface StoredRoot { id: string; path: string; name: string; kind: WindowsKnownFolder }
 export interface StoredPublication { ref: { rootId: string; relativePath: string }; sha256: string; fileId: string; status?: 'pending' | 'complete' }
-export interface StoredDraft { id: string; parent: { rootId: string; relativePath: string; draftId?: string }; name: string; kind?: 'file' | 'directory'; parentFileId?: string; publishedRef?: { rootId: string; relativePath: string }; trashed?: boolean }
+export interface StoredDraft { id: string; createdAt?: string; parent: { rootId: string; relativePath: string; draftId?: string }; name: string; kind?: 'file' | 'directory'; parentFileId?: string; publishedRef?: { rootId: string; relativePath: string }; trashed?: boolean }
 interface StoredState {
   version: 1; deviceId: string; roots: StoredRoot[];
   metadata: Record<string, WindowsFileHistory>; identity: Record<string, string>;
