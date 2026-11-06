@@ -141,6 +141,8 @@ export default function DraftsLayer() {
     return () => { document.removeEventListener('dragover', over); document.removeEventListener('drop', end, true); document.removeEventListener('dragend', end, true); end(); };
   }, []);
   React.useEffect(() => () => clearTimeout(hoverTimer.current), []);
+  // Плитка исчезла (удалили, опубликовали) под курсором: pointerleave у неё не придёт, и карточка висела бы с чужими сведениями.
+  React.useEffect(() => { if (hover && !entries.some((entry) => entry.draftId === hover.entry.draftId)) setHover(null); }, [entries, hover]);
   React.useEffect(() => { if (displayId === null) { setHover(null); setMenu(null); setCreateMenu(null); setQuery(''); } }, [displayId]);
 
   const now = Date.now();

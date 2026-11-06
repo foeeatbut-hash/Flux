@@ -20,6 +20,7 @@ const MUTATIONS: Mutation[] = [
   { name: 'hover-delay', file: 'src/components/drafts/DraftDetails.tsx', from: 'HOVER_DELAY = 500', to: 'HOVER_DELAY = 0', expect: 'сведения не раньше 500 мс' },
   { name: 'explorer-drop', file: 'src/components/files/useExplorerOperations.tsx', from: 'if (draftItems) { if (parent) offerDraftDrop(draftItems, parent, event.ctrlKey || event.metaKey); return; }', to: '', expect: 'waitFor' },
   { name: 'drop-setting', file: 'src/store/draftsPublishStore.ts', from: 'if (!useDraftsSettings.getState().dropPublish) {', to: 'if (false) {', expect: 'при выключенной настройке окна публикации нет' },
+  { name: 'stale-hover', file: 'src/components/drafts/DraftsLayer.tsx', from: 'if (hover && !entries.some((entry) => entry.draftId === hover.entry.draftId)) setHover(null);', to: '', expect: 'to be detached' },
   { name: 'snooze', file: 'src/components/drafts/DraftsLayer.tsx', from: 'now >= settings.snoozeUntil', to: 'true', expect: '«Позже» скрывает напоминание' },
   { name: 'close-outside', file: 'src/components/drafts/DraftsLayer.tsx', from: '|| !useDraftsSettings.getState().closeOutside', to: '', expect: 'без «закрывать щелчком вне» панель остаётся' },
   { name: 'drop-highlight', file: 'src/components/files/ContentsPane.tsx', from: 'role="row" data-entry-key={entryKey(entry)} data-entry-kind={entry.kind}', to: 'role="row" data-entry-key={entryKey(entry)}', expect: 'подсвечена «опубликовать сюда»' },

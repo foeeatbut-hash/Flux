@@ -161,7 +161,8 @@ process.on('exit', () => { if (!completed) process.exitCode = 1; });
     assert.deepEqual(bad, [], 'кегль не мельче 12 px, веса 400/500/600');
 
     // Шаг 5: меню, клавиши, перетаскивание на папку, сведения, напоминание, настройки.
-    const reset = (stamps: Record<number, string>) => page.evaluate((st) => {
+    const reset = async (stamps: Record<number, string>) => {
+      await page.evaluate((st) => {
       const f = (window as any).__drafts;
       f.calls.length = 0; f.published.length = 0; f.trashed.length = 0; f.toasts.setState({ toasts: [] });
       for (const key of Object.keys(f.realFiles)) delete f.realFiles[key];
@@ -173,7 +174,10 @@ process.on('exit', () => { if (!completed) process.exitCode = 1; });
         f.make('a2', 'Схема.pdf', st[1]), f.make('a3', 'Бланки', st[2], { kind: 'directory', size: 0 }), f.make('a4', 'Узел.dwg', st[3]),
       ]);
       f.store.setState({ projectNames: { p1: 'Проект П-1' }, review: false, sheet: false });
-    }, stamps);
+      }, stamps);
+      // Источник обновляется по событию моста с паузой: без ожидания проверка видела бы прежний список.
+      await page.waitForFunction(() => { const f = (window as any).__drafts; return f.store.getState().entries.length === 4 && f.store.getState().entries.some((e: any) => e.draftId === 'a3'); });
+    };
     const fresh = { 0: iso(0), 1: iso(1), 2: iso(20), 3: iso(40) };
     const tile = (id: string) => panel.locator(`[data-draft-id="${id}"]`);
     await reset(fresh);
@@ -213,11 +217,20 @@ process.on('exit', () => { if (!completed) process.exitCode = 1; });
     await tile('a2').waitFor({ state: 'detached' });
     assert.deepEqual(await page.evaluate(() => (window as any).__drafts.trashed), ['Схема П1.pdf'], 'Del отправляет в корзину Flux');
     // Сведения при наведении — не раньше 500 мс.
+    // Плитка исчезла под курсором: карточка с её сведениями не остаётся (pointerleave у удалённой плитки не придёт).
+    await page.evaluate(() => (window as any).__drafts.toasts.setState({ toasts: [] })); // тост «В корзине Flux» мог лечь поверх плитки
+    await page.mouse.move(1200, 5); // плитка могла сама оказаться под неподвижным курсором: pointerenter приходит только при движении
+    const doomed = (await tile('a3').boundingBox())!;
+    await page.mouse.move(doomed.x + doomed.width / 2, doomed.y + doomed.height / 2);
+    await page.locator('[data-draft-details]', { hasText: 'Бланки' }).waitFor();
+    await page.evaluate(() => { const f = (window as any).__drafts; f.setEntries(f.entries().filter((e: any) => e.draftId !== 'a3')); });
+    await page.locator('[data-draft-details]').waitFor({ state: 'detached' });
+    await page.mouse.move(1200, 5);
     const letter = (await tile('a1').boundingBox())!;
     await page.mouse.move(letter.x + letter.width / 2, letter.y + letter.height / 2);
     await page.waitForTimeout(250);
     assert.equal(await page.locator('[data-draft-details]').count(), 0, 'сведения не раньше 500 мс');
-    await page.locator('[data-draft-details]').waitFor();
+    await page.locator('[data-draft-details]', { hasText: 'Письмо.docx' }).waitFor();
     const details = await page.locator('[data-draft-details]').innerText();
     assert.ok(details.includes('Письмо.docx') && details.includes('Проект П-1') && details.includes('AHU-2') && details.includes('черновик'), `сведения: имя, проект, тег, состояние (${details.replace(/\n/g, ' | ')})`);
     await page.mouse.move(letter.x + 200, 5);
