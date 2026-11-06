@@ -7,7 +7,7 @@ import type { WindowsFileEntry, WindowsFileRef, WindowsFilesRequest, WindowsFile
 import type { Clip } from '../../../src/components/files/fileOps';
 import '../../../src/index.css';
 
-type Stored = { entry: WindowsFileEntry; text: string; sha: string; meta?: boolean };
+type Stored = { entry: WindowsFileEntry; text: string; sha: string };
 type MockState = { files: Map<string, Stored>; drafts: Map<string, Stored>; windowsTrash: WindowsRecycleItem[]; fluxTrash: any[]; calls: WindowsFilesRequest[]; groups: string[]; publishPlan: WindowsPublishPlan; ticketNames: string[]; ticketDone: Set<number>; failNames: string[]; hashFailNames: string[]; purgeFailure?: { draftId: string; mode: 'error' | 'throw' }; delayName: string; delayMs: number; undoGroups: string[]; changed: number };
 const key = (ref: WindowsFileRef) => ref.draftId || `${ref.rootId}/${ref.relativePath}`;
 const root = { rootId: 'root', relativePath: '' };
@@ -63,14 +63,14 @@ const bridge = {
         const ref = { rootId: req.parent.rootId, relativePath: req.parent.relativePath ? `${req.parent.relativePath}/${req.name}` : req.name };
         if (state.files.has(key(ref))) return fail('Имя уже занято') as WindowsFilesResponse<T>;
         const entry = makeEntry(req.name, { relativePath: ref.relativePath, kind: item.entry.kind });
-        state.files.set(key(ref), { entry, text: item.text, sha: item.sha, meta: !!req.carryMeta });
+        state.files.set(key(ref), { entry, text: item.text, sha: item.sha });
         if (req.action === 'move') (req.ref.draftId ? state.drafts : state.files).delete(key(req.ref));
         return answer({ ref }) as WindowsFilesResponse<T>;
       }
       case 'replaceCopy': {
         const item = source(req.ref); const targetRef = { rootId: req.parent.rootId, relativePath: req.parent.relativePath ? `${req.parent.relativePath}/${req.name}` : req.name }; const target = state.files.get(key(targetRef));
         if (!item || !target || target.sha !== req.targetSha256 || item.sha !== req.baseSha256) return fail('Файл изменился перед заменой') as WindowsFilesResponse<T>;
-        target.text = item.text; target.sha = item.sha; target.meta = !!req.carryMeta;
+        target.text = item.text; target.sha = item.sha;
         if (req.move) (req.ref.draftId ? state.drafts : state.files).delete(key(req.ref));
         return answer({ replaced: true }) as WindowsFilesResponse<T>;
       }

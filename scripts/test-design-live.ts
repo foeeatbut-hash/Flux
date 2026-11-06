@@ -42,6 +42,7 @@ const SECTIONS: Array<[string, string, boolean]> = [
   ['Оборудование', '/equipment', true],
   ['Справочник', '/directory', true],
   ['Менеджмент', '/management', true],
+  ['Документооборот', '/docflow', true],
   ['Настройки', '/settings', true],
   ['Журнал', '/logs', true],
   ['Сотрудники', '/users', true],
