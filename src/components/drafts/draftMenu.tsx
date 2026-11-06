@@ -15,7 +15,7 @@ export function draftMenuItems(entry: WindowsDraftEntry, pinned: boolean): MenuI
   return [
     { label: 'Открыть', hint: 'Enter', icon: entry.kind === 'directory' ? <FolderOpen /> : <FileText />, onClick: () => openDraft(entry) },
     { label: 'Опубликовать в проект…', hint: 'Ctrl+P', icon: <Upload />, separated: true, onClick: () => void publishToProject([entry]) },
-    // ВДР хранит серверный идентификатор файла, у черновика его нет: добавить можно только опубликованный файл.
+    // Сначала нужна публикация в проект; связь DocFileLink доступна только после слияния PR #138.
     { label: 'Добавить в ВДР…', icon: <FilePlus2 />, disabled: true, title: 'Доступно после публикации: ВДР хранит опубликованные файлы' },
     { label: pinned ? 'Открепить' : 'Закрепить первым', icon: pinned ? <PinOff /> : <Pin />, onClick: () => togglePin(entry) },
     { label: 'Переименовать', hint: 'F2', icon: <Pencil />, separated: true, onClick: () => void renameDraft(entry) },
