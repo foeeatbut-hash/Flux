@@ -14,7 +14,8 @@
         "src/components/docflow/DocflowSettings.tsx",
         "src/components/docflow/ReconcileTab.tsx",
         "src/components/docflow/AssignFileDialog.tsx",
-        "src/components/vdr/RowFileCells.tsx"
+        "src/components/vdr/RowFileCells.tsx",
+        "src/components/docflow/MaskBuilder.tsx"
       ]
     }
   ],
@@ -110,6 +111,18 @@
       ],
       "prerequisites": [],
       "timeoutMs": 300000
+    },
+    {
+      "id": "docflow-mask-ui",
+      "path": "scripts/test-docflow-mask-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
     }
   ],
   "actions": [
@@ -185,6 +198,42 @@
         }
       ],
       "manual": []
+    },
+    {
+      "id": "docflow.mask-folder-check",
+      "program": "docflow",
+      "label": "Проверить маску по рабочей папке",
+      "sources": [
+        "src/components/docflow/MaskBuilder.tsx",
+        "src/lib/docflowAssign.ts"
+      ],
+      "triggers": [
+        "Проверить на файлах рабочей папки"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Имена из рабочей папки и подпапок разбираются текущей маской без сохранения и изменения файлов",
+        "Ошибка чтения видна и не выдаётся за успешный результат"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-mask-ui",
+          "layer": "component",
+          "claims": [
+            "Рабочая папка читается через мост, изменение маски и исключений сразу меняет разбор",
+            "Проверка не пишет файлы и настройки, отказ чтения показывает ошибку"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить маску в назначенной сетевой папке на Windows",
+          "expected": [
+            "Доступные файлы разобраны, ошибки доступа показаны"
+          ]
+        }
+      ]
     }
   ],
   "connections": []

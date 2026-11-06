@@ -107,7 +107,7 @@ export async function scanFolder(root: WindowsFileRef, limit = 5000): Promise<{ 
     let offset: number | null = 0;
     while (offset !== null) {
       const answer: WindowsFilesResponse<ListPage> = await windowsFilesRequest<ListPage>({ action: 'list', ref, offset, limit: 500 });
-      if (!answer.ok) break;
+      if ('error' in answer) throw new Error(answer.error.message || 'Не удалось прочитать папку');
       for (const entry of answer.data.entries) {
         const path = joinPath(rel, entry.name);
         if (entry.kind === 'directory') queue.push({ ref: { ...ref, relativePath: joinPath(ref.relativePath, entry.name) }, rel: path });

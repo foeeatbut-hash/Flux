@@ -129,7 +129,7 @@ export default function DocflowSettings({ projectId, canEdit, isAdmin, addToast 
               columns={[{ key: 'code', title: 'Код ВДР', width: '90px', mono: true, placeholder: 'E02' }, { key: 'titleRu', title: 'Наименование' }, { key: 'titleEn', title: 'English' },
                 { key: 'stage', title: 'Стадия', width: '80px', kind: 'select', options: [{ value: '', label: '—' }, { value: 'П', label: 'П' }, { value: 'Р', label: 'Р' }] },
                 { key: 'template', title: 'Шаблон файла', placeholder: 'путь к шаблону' }]} />}
-            {section === 'masks' && <MaskBuilder config={draft} onChange={setDraft} disabled={ro} samples={samples} onSamples={setSamples} />}
+            {section === 'masks' && <MaskBuilder key={projectId} projectId={projectId} config={draft} onChange={setDraft} disabled={ro} samples={samples} onSamples={setSamples} />}
             {section === 'folders' && <div className="flex flex-col gap-3 max-w-xl">
               <p className="text-xs text-slate-500 dark:text-slate-400">Сами папки привязываются в Проводнике («Привязать папку» → назначение). Здесь — структура внутри каждой.</p>
               {([['work', 'Рабочая'], ['issue', 'Выпуск'], ['returns', 'Возвраты'], ['incoming', 'Входящие']] as const).map(([key, label]) => (
