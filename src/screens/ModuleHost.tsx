@@ -1,6 +1,7 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
 import { bundledModules } from '../../modules/bundled';
+import { useInstalledModules } from '../workspace/installedSections';
 import type { LaunchContext } from '../../modules/contract';
 import { useStore } from '../store/store';
 import { createModuleReadCycle } from '../services/moduleDataService';
@@ -11,7 +12,10 @@ export default function ModuleHost() {
   const project = useStore(state => state.activeProject);
   const user = useStore(state => state.user);
   const theme = useStore(state => state.theme);
-  const manifest = bundledModules.find(item => location.pathname === `/module/${item.id}`);
+  const installed = useInstalledModules();
+  // Встроенный пример — из сборки; подпрограмма из Store — проверенный манифест главного процесса
+  const manifest = bundledModules.find(item => location.pathname === `/module/${item.id}`)
+    || installed.find(item => location.pathname === `/module/${item.manifest.id}`)?.manifest;
   if (!manifest) return <div className="fx-empty"><div className="fx-empty-title">Модуль недоступен</div></div>;
   if (manifest.contractVersion !== 1) return <div className="fx-empty"><div className="fx-empty-title">Обновите Flux для этого модуля</div></div>;
   const params = new URLSearchParams(location.search);

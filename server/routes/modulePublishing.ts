@@ -251,5 +251,5 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
   });
 
   registerModuleChannelRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, rootHex, can: deps.can });
-  registerModuleStoreRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast });
+  registerModuleStoreRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, rootHex });
 }

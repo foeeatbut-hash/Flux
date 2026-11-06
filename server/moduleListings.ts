@@ -54,7 +54,7 @@ export const appliesTo = (roles: string[], user: any) => roles.length === 0 || p
 
 export interface Built { listings: StoreListing[]; autoUpdate: boolean }
 
-export async function buildListings(db: any, user: any, now = Date.now()): Promise<Built> {
+export async function buildListings(db: any, user: any, rootHex = MODULE_ROOT_KEY_HEX, now = Date.now()): Promise<Built> {
   const admin = user?.role === 'OWNER' || user?.role === 'ADMIN';
   const channels = await channelsFor(db, user);
   const [releases, entries, installs, reviews, trust, autoRow] = await Promise.all([
@@ -62,7 +62,7 @@ export async function buildListings(db: any, user: any, now = Date.now()): Promi
     db.moduleStoreEntry.findMany({ take: 2000 }),
     db.moduleInstall.findMany({ select: { userId: true, moduleId: true, version: true, source: true, autoUpdate: true, installedAt: true }, take: 100000 }),
     db.moduleReview.findMany({ where: { hidden: false }, select: { moduleId: true, rating: true }, take: 100000 }),
-    loadTrust(db, MODULE_ROOT_KEY_HEX),
+    loadTrust(db, rootHex),
     db.appSetting.findFirst({ where: { key: 'modules.autoupdate', userId: String(user?.id || '') } }).catch(() => null),
   ]);
   const entryBy = new Map<string, any>(entries.map((e: any) => [e.moduleId, e]));

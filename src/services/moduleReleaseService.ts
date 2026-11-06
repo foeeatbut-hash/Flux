@@ -33,7 +33,8 @@ export async function call<T>(method: string, url: string, body?: unknown): Prom
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error || `Запрос не выполнен (${res.status})`);
+  // status отличает отказ сервера по правилам от обрыва связи: первый отменяет действие, второй нет
+  if (!res.ok) throw Object.assign(new Error(data?.error || `Запрос не выполнен (${res.status})`), { status: res.status });
   return data as T;
 }
 

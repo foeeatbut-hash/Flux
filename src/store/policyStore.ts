@@ -21,6 +21,7 @@ import { create } from 'zustand';
 import { PLATFORM_OFF, canUseFeature, type AppContext, type PlatformState } from '../lib/appPolicy';
 import { parsePermissions, type PermMap } from '../lib/permissions';
 import { useStore } from './store';
+import { useSectionsVersion } from '../workspace/installedSections';
 
 /** Что отдаёт `GET /api/me/bootstrap`. */
 export interface PolicyBootstrap {
@@ -96,6 +97,8 @@ export function useAppContext(): AppContext {
   const platform = usePolicyStore((s) => s.platform);
   const permissions = usePolicyStore((s) => s.permissions);
   const rolePermissions = usePolicyStore((s) => s.rolePermissions);
+  // Список разделов меняется, когда из Store ставят или удаляют подпрограмму: тот же контекст пересчитывает Пуск и панель задач
+  const sections = useSectionsVersion((s) => s.version);
   return React.useMemo<AppContext>(() => ({
     user: user
       ? {
@@ -105,7 +108,7 @@ export function useAppContext(): AppContext {
       }
       : null,
     platform,
-  }), [user, platform, permissions, rolePermissions]);
+  }), [user, platform, permissions, rolePermissions, sections]);
 }
 
 /** Тот же контекст вне React — для обработчиков и хранилищ. */

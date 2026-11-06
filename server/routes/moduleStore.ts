@@ -16,6 +16,7 @@ import { STORE_STATUSES, type StoreListing } from '../../modules/store/model.js'
 export interface ModuleStoreDeps {
   getPrisma: () => any;
   broadcast: (event: string, payload: unknown) => void;
+  rootHex: () => string;
 }
 
 const fail = (res: Response, status: number, error: string) => res.status(status).json({ error });
@@ -34,14 +35,14 @@ export function registerModuleStoreRoutes(app: Express, deps: ModuleStoreDeps): 
   const find = async (db: any, req: Request, res: Response): Promise<{ listing: StoreListing; all: StoreListing[] } | null> => {
     const moduleId = String(req.params.id || '');
     if (!MODULE_ID.test(moduleId)) { fail(res, 404, 'Подпрограмма не найдена'); return null; }
-    const { listings } = await buildListings(db, userOf(req));
+    const { listings } = await buildListings(db, userOf(req), deps.rootHex());
     const listing = listings.find((l) => l.moduleId === moduleId);
     if (!listing) { fail(res, 404, 'Подпрограмма не найдена'); return null; }
     return { listing, all: listings };
   };
 
   app.get('/api/modules/store', async (req: Request, res: Response) => {
-    try { res.json(await buildListings(deps.getPrisma(), userOf(req))); }
+    try { res.json(await buildListings(deps.getPrisma(), userOf(req), deps.rootHex())); }
     catch (e: any) { fail(res, 503, e?.message || 'Store недоступен'); }
   });
 
@@ -111,7 +112,7 @@ export function registerModuleStoreRoutes(app: Express, deps: ModuleStoreDeps): 
   app.delete('/api/modules/installs/:id', async (req: Request, res: Response) => {
     const db = deps.getPrisma(), user = userOf(req), moduleId = String(req.params.id);
     if (!MODULE_ID.test(moduleId)) return fail(res, 404, 'Подпрограмма не найдена');
-    const { listings } = await buildListings(db, user);
+    const { listings } = await buildListings(db, user, deps.rootHex());
     const listing = listings.find((l) => l.moduleId === moduleId);
     if (listing?.required && listing.status !== 'banned') return fail(res, 409, 'Подпрограмма обязательна для вашей должности: удалить её может только администратор');
     const dependants = listings.filter((l) => l.mine && l.dependsOn.includes(moduleId)).map((l) => l.name);
@@ -159,7 +160,7 @@ export function registerModuleStoreRoutes(app: Express, deps: ModuleStoreDeps): 
   app.get('/api/modules/store-admin', admin, async (req: Request, res: Response) => {
     const db = deps.getPrisma();
     const [{ listings }, entries, installs, logs] = await Promise.all([
-      buildListings(db, userOf(req)),
+      buildListings(db, userOf(req), deps.rootHex()),
       db.moduleStoreEntry.findMany({ take: 2000 }),
       db.moduleInstall.findMany({ select: { userId: true, moduleId: true, version: true, source: true }, take: 100000 }),
       db.moduleStoreLog.findMany({ orderBy: { createdAt: 'desc' }, take: 300 }),
