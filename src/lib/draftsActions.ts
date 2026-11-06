@@ -54,7 +54,7 @@ const failure = (name: string, message: string, draftKept = false): DraftPublish
  * Опубликовать черновик в папку Windows.
  *
  * Без копии — перенос черновика в папку и «Отобразить в Windows»; с копией —
- * копия (метаданные переходят вместе с ней) переносится и публикуется, а
+ * копия переносится и публикуется, а
  * исходный черновик остаётся в панели. Занятое имя (черновик или файл Windows)
  * получает «(2)», «(3)» — как «Оставить оба» в Проводнике.
  */
@@ -65,7 +65,7 @@ export async function publishDraftInto(request: DraftRequest, item: DraftDragIte
   for (let n = 1; n <= MAX_NAMES && !placed; n++) {
     name = numberedName(item.name, n, item.kind === 'directory');
     const answer = opts.keepCopy
-      ? await request<{ ref?: WindowsFileRef }>({ action: 'copy', ref: item.ref, parent, name, carryMeta: true })
+      ? await request<{ ref?: WindowsFileRef }>({ action: 'copy', ref: item.ref, parent, name })
       : await request<{ ref?: WindowsFileRef }>({ action: 'move', ref: item.ref, parent, name });
     if ('error' in answer) {
       if (answer.error.code === 'EEXIST') continue;

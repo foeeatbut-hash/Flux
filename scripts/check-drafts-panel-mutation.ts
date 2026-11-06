@@ -14,7 +14,7 @@ const UI = 'scripts/test-drafts-panel-ui.ts';
 const MUTATIONS: Mutation[] = [
   { name: 'button', file: 'src/components/drafts/DraftsButton.tsx', from: 'onClick=', to: 'onDoubleClick=', expect: 'waitFor' },
   { name: 'columns', file: 'src/components/drafts/DraftsCompact.tsx', from: 'repeat(${s.columns}, minmax(0, 1fr))', to: 'repeat(4, minmax(0, 1fr))', expect: 'столбцов плиток' },
-  { name: 'state-filter', file: 'src/lib/draftsPanel.ts', from: '(!q.state || draftState(entry, q.openDrafts) === q.state)', to: '(true)', expect: 'фильтр «не в проекте»' },
+  { name: 'state-filter', file: 'src/lib/draftsPanel.ts', from: '(!q.state || draftState(entry, q.openDrafts, projectOf) === q.state)', to: '(true)', expect: 'фильтр «не в проекте»' },
   { name: 'review', file: 'src/components/drafts/DraftsLayer.tsx', from: '...(reviewing ? { olderThanDays: oldDays } : {}),', to: '', expect: '«Разобрать старые» оставляет только давние' },
   { name: 'pin', file: 'src/components/drafts/draftsOps.ts', from: ': [...pinned, id]', to: ': pinned', expect: 'закреплённый черновик первым' },
   { name: 'hover-delay', file: 'src/components/drafts/DraftDetails.tsx', from: 'HOVER_DELAY = 500', to: 'HOVER_DELAY = 0', expect: 'сведения не раньше 500 мс' },

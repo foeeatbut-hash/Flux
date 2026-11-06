@@ -9,7 +9,7 @@
 import React from 'react';
 import { ChevronDown, PanelBottom, Settings } from 'lucide-react';
 import type { WindowsDraftEntry } from '../../../filesystem/contracts';
-import { draftState, formatSize, shortWhen, type DraftsSection } from '../../lib/draftsPanel';
+import { draftState, formatSize, shortWhen, type DraftProjectOf, type DraftsSection } from '../../lib/draftsPanel';
 import { useDraftsSettings } from '../../store/draftsSettingsStore';
 import { DraftRow, DraftTile, type DraftItemHandlers } from './DraftTile';
 import { IconButton, KindChips, ModeToggle, SearchField, SortControl, StateChips } from './DraftsControls';
@@ -21,6 +21,7 @@ export const COMPACT_W = { 3: 320, 4: 400, 5: 480, 6: 560 } as const;
 export interface DraftsModel {
   sections: DraftsSection[]; shown: number; total: number;
   openDrafts: ReadonlySet<string>; now: number;
+  projectOf: DraftProjectOf;
   projectNames: (entry: WindowsDraftEntry) => string[];
 }
 
@@ -34,7 +35,7 @@ export default function DraftsCompact({ model, query, setQuery, selected, handle
   const grid = s.compactMode === 'grid';
   const when = (entry: WindowsDraftEntry) => s.sort === 'size' ? formatSize(entry.size) : shortWhen(entry.modifiedAt, model.now);
   const item = (entry: WindowsDraftEntry) => {
-    const state = draftState(entry, model.openDrafts);
+    const state = draftState(entry, model.openDrafts, model.projectOf);
     const selectedHere = selected === entry.draftId;
     return grid
       ? <DraftTile key={entry.draftId} entry={entry} state={state} dot={s.dots} meta={when(entry)} size={s.icons} width="100%" selected={selectedHere} handlers={handlers} />

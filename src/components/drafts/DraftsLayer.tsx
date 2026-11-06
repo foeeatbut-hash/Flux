@@ -13,6 +13,7 @@ import { useToastStore } from '../../store/toastStore';
 import ContextMenu from '../ContextMenu';
 import { useCreatePanel } from '../files/CreatePanel';
 import type { WindowsDraftEntry } from '../../../filesystem/contracts';
+import { useDraftProjects } from './useDraftProjects';
 import DraftsStrip, { STRIP_H } from './DraftsStrip';
 import DraftsCompact, { COMPACT_H, COMPACT_W, type DraftsModel } from './DraftsCompact';
 import DraftsSettingsPanel from './DraftsSettingsPanel';
@@ -145,19 +146,20 @@ export default function DraftsLayer() {
   React.useEffect(() => { if (hover && !entries.some((entry) => entry.draftId === hover.entry.draftId)) setHover(null); }, [entries, hover]);
   React.useEffect(() => { if (displayId === null) { setHover(null); setMenu(null); setCreateMenu(null); setQuery(''); } }, [displayId]);
 
+  const projectOf = useDraftProjects(entries);
   const now = Date.now();
   const oldDays = settings.remindDays || DEFAULT_OLD_DAYS;
   const kept = new Set(settings.kept);
-  const scoped = scopedDrafts(entries, { folders: settings.folders, scope: settings.scope, projectId });
+  const scoped = scopedDrafts(entries, { folders: settings.folders, scope: settings.scope, projectId }, projectOf);
   // Черновики, которые человек ещё не решил оставить: их число — в «Разобрать старые · N».
   const old = scoped.filter((entry) => isOld(entry, oldDays, now) && !(entry.draftId && kept.has(entry.draftId)));
   const reviewing = review && settings.view === 'compact';
   const visible = sortDrafts(filterDrafts(entries, {
     kind: reviewing ? 'all' : settings.kind, state: reviewing ? null : settings.state, text: query, folders: settings.folders, scope: settings.scope, projectId, openDrafts, now,
     ...(reviewing ? { olderThanDays: oldDays } : {}),
-  }).filter((entry) => !reviewing || !(entry.draftId && kept.has(entry.draftId))), settings.sort, settings.dir, settings.pinned);
+  }, projectOf).filter((entry) => !reviewing || !(entry.draftId && kept.has(entry.draftId))), settings.sort, settings.dir, settings.pinned, projectOf);
   const nameOf = (id: string) => projectNames[id] || 'Проект';
-  const sections = groupDrafts(visible, settings.group, { now, openDrafts, projectName: nameOf, pinned: settings.pinned });
+  const sections = groupDrafts(visible, settings.group, { now, openDrafts, projectName: nameOf, pinned: settings.pinned, projectOf });
   const reminderDue = settings.remindDays > 0 && old.length > 0 && now >= settings.snoozeUntil;
   const showHover = (entry: WindowsDraftEntry | null, rect?: DOMRect) => {
     clearTimeout(hoverTimer.current);
@@ -198,7 +200,7 @@ export default function DraftsLayer() {
     {!loading && !error && visible.length === 0 && <div className="px-3 py-2 text-xs text-[var(--flux-text-muted)]">{reviewing ? 'Старых черновиков нет' : entries.length ? 'Ничего не найдено' : 'Черновиков пока нет'}</div>}
   </>;
   const model: DraftsModel = { sections, shown: visible.length, total: reviewing ? old.length : scoped.length, openDrafts, now,
-    projectNames: (entry) => (entry.metadata?.projectIds || []).map(nameOf) };
+    projectOf, projectNames: (entry) => { const id = projectOf(entry); return id ? [nameOf(id)] : []; } };
   const showStatus = visible.length === 0 || error || loading ? status : undefined;
   const store = useDraftsPanelStore.getState();
   const banner = reviewing
@@ -210,7 +212,7 @@ export default function DraftsLayer() {
     <section ref={panelRef} aria-label="Черновики" data-drafts-panel data-drafts-view={settings.view}
       className="fx-glass fx-rise-in absolute flex flex-col overflow-hidden rounded-lg border border-[var(--flux-line)] text-[var(--flux-text)]" style={{ left: frame.left, top: frame.top, width: frame.width, height: frame.height, zIndex: Z.tray }}>
       {strip
-        ? <DraftsStrip sections={sections} shown={visible.length} total={scoped.length} query={query} setQuery={setQuery} openDrafts={openDrafts} selected={selected} handlers={handlers} now={now} status={showStatus}
+        ? <DraftsStrip sections={sections} shown={visible.length} total={scoped.length} query={query} setQuery={setQuery} openDrafts={openDrafts} projectOf={projectOf} selected={selected} handlers={handlers} now={now} status={showStatus}
           onSettings={openSettings} review={reminderDue ? { label: `Разобрать · ${old.length}`, open: () => { settings.set({ view: 'compact' }); store.setReview(true); } } : undefined} />
         : <DraftsCompact model={model} query={query} setQuery={setQuery} selected={selected} handlers={handlers} status={showStatus} banner={banner} onSettings={openSettings}
           bottom={{
@@ -220,7 +222,7 @@ export default function DraftsLayer() {
           }} />}
     </section>
     {sheet && <DraftsSettingsPanel style={sheetFrame} onClose={() => store.setSheet(false)} />}
-    {hover && !menu && <DraftDetails entry={hover.entry} rect={hover.rect} state={draftState(hover.entry, openDrafts)} projects={(hover.entry.metadata?.projectIds || []).map(nameOf)} />}
+    {hover && !menu && <DraftDetails entry={hover.entry} rect={hover.rect} state={draftState(hover.entry, openDrafts, projectOf)} projects={model.projectNames(hover.entry)} />}
     {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={draftMenuItems(menu.entry, isPinned(menu.entry))} />}
     {createMenu && <ContextMenu x={createMenu.left} y={createMenu.top} onClose={() => setCreateMenu(null)} items={creator.sections()[0]?.items ?? []} />}
     {creator.element}

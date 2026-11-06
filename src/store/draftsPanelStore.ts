@@ -8,7 +8,7 @@ interface DraftsPanelState {
   loading: boolean; error: string; total: number; unavailable: number;
   /** «Разобрать старые»: компактная панель с отбором давних черновиков */
   review: boolean;
-  /** Названия проектов для подсказки и групп: идентификаторы в метаданных, имена — на сервере */
+  /** Названия проектов для подсказки и групп; принадлежность задаёт привязка папки */
   projectNames: Record<string, string>;
   /** Лист настроек открыт поверх панели */
   sheet: boolean;

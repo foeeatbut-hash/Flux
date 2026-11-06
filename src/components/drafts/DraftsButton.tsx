@@ -4,6 +4,7 @@ import { badgeLabel } from '../../lib/taskbar';
 import { BAR_BTN, BAR_ICON } from '../../lib/metrics';
 import { badgeCount } from '../../lib/draftsPanel';
 import { useDraftsPanelStore } from '../../store/draftsPanelStore';
+import { useDraftProjects } from './useDraftProjects';
 import { useDraftsSettings } from '../../store/draftsSettingsStore';
 
 /** Пауза перед открытием наведением: проезд курсора к соседней кнопке не должен открывать панель. */
@@ -18,7 +19,8 @@ export default function DraftsButton({ displayId }: { displayId?: number }) {
   const badge = useDraftsSettings((s) => s.badge);
   const openOn = useDraftsSettings((s) => s.openOn);
   // «Не в проекте» — по проекту, а не по тому, открыт ли файл в окне: открытый черновик из проекта не станет «не в проекте».
-  const count = React.useMemo(() => badgeCount(entries, badge, NO_OPEN), [entries, badge]);
+  const projectOf = useDraftProjects(entries);
+  const count = React.useMemo(() => badgeCount(entries, badge, NO_OPEN, projectOf), [entries, badge, projectOf]);
   const timer = React.useRef<ReturnType<typeof setTimeout>>(undefined);
   React.useEffect(() => () => clearTimeout(timer.current), []);
   return <button type="button" data-drafts-button={id} aria-label="Черновики" aria-expanded={open} title="Черновики"
