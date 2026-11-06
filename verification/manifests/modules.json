@@ -6,7 +6,9 @@
       "id": "modules",
       "label": "Модули Flux",
       "routes": [
-        "/module/equipment-inspector"
+        "/module/equipment-inspector",
+        "/module-requests",
+        "/store"
       ],
       "sources": [
         "src/screens/ModuleHost.tsx",
@@ -24,7 +26,15 @@
         "modules/runtime/worker.ts",
         "modules/runtime/output.ts",
         "src/services/moduleReadCache.ts",
-        "src/services/moduleRefresh.ts"
+        "src/services/moduleRefresh.ts",
+        "src/screens/ModuleRequests.tsx",
+        "src/screens/StoreScreen.tsx",
+        "src/components/store/StoreHome.tsx",
+        "src/components/store/StoreModulePage.tsx",
+        "src/components/store/StoreLibrary.tsx",
+        "src/components/store/StoreAdmin.tsx",
+        "src/components/store/StoreDialogs.tsx",
+        "src/services/moduleStoreActions.ts"
       ]
     }
   ],
