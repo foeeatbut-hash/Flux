@@ -9,7 +9,7 @@ import { useStore } from '../../src/store/store';
 import { useDisplayStore } from '../../src/store/displayStore';
 import { useDesktopStore } from '../../src/store/desktopStore';
 import { ENV_CONFIG } from '../../src/config/env';
-import type { WindowsFileEntry, WindowsFileMetadata, WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse, WindowsRoot, WindowsVolume } from '../../filesystem/contracts';
+import type { WindowsFileEntry, WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse, WindowsRoot, WindowsVolume } from '../../filesystem/contracts';
 
 const root: WindowsRoot = { id: 'desktop-id', name: 'Рабочий стол', kind: 'desktop', available: true };
 const entries: WindowsFileEntry[] = [
@@ -30,7 +30,6 @@ if (new URLSearchParams(location.search).get('mix')) {
 }
 const diskRoot: WindowsRoot = { id: 'disk-c', name: 'Локальный диск (C:)', kind: 'custom', available: true };
 const volumes: WindowsVolume[] = [{ id: 'volume-c', name: 'Локальный диск (C:)', kind: 'fixed', size: 256 * 1024 ** 3, free: 128 * 1024 ** 3, root: diskRoot }];
-const metadata: WindowsFileMetadata = { fileId: 'file-3', tags: ['AHU-01'], projectIds: ['project-1'], revision: 'A', responsible: 'Иванов', history: [{ at: '2026-09-22T09:00:00.000Z', action: 'save', relativePath: 'Проекты/Отчёт.xlsx' }] };
 const calls: WindowsFilesRequest[] = [];
 const drafts: WindowsFileEntry[] = [];
 // Созданное мостом на ходу (mkdir, copy, move) и удалённое (trash): без этого сценарии
@@ -46,7 +45,7 @@ const searchEvents: import('../../filesystem/contracts').WindowsSearchEvent[] = 
 let draftSequence = 0;
 // Большая папка: 450 файлов, список отдаётся страницами по offset/limit, как настоящий мост
 const BIG = 'Большая';
-const bigEntries: WindowsFileEntry[] = Array.from({ length: 450 }, (_, index) => ({ name: `Файл ${String(index + 1).padStart(3, '0')}.txt`, relativePath: `${BIG}/Файл ${String(index + 1).padStart(3, '0')}.txt`, storage: 'windows', kind: 'file', fileId: `big-${index + 1}`, size: 100 + index, modifiedAt: '2026-09-10T09:00:00.000Z', linked: false, ...(index === 149 ? { metadata: { ...metadata, fileId: 'big-150' } } : {}) }));
+const bigEntries: WindowsFileEntry[] = Array.from({ length: 450 }, (_, index) => ({ name: `Файл ${String(index + 1).padStart(3, '0')}.txt`, relativePath: `${BIG}/Файл ${String(index + 1).padStart(3, '0')}.txt`, storage: 'windows', kind: 'file', fileId: `big-${index + 1}`, size: 100 + index, modifiedAt: '2026-09-10T09:00:00.000Z', linked: false }));
 /** Снимок-заглушка для миниатюры: небо, холм, солнце */
 function photoThumbnail(): string {
   const canvas = document.createElement('canvas'); canvas.width = 96; canvas.height = 96;
@@ -60,8 +59,6 @@ function photoThumbnail(): string {
 const parentOf = (path: string) => path.split('/').slice(0, -1).join('/');
 const sourceEntry = (relativePath: string) => [...entries, ...nested, ...bigEntries, ...created, ...drafts].find((item) => item.relativePath === relativePath);
 const draftChildren = new Map<string, WindowsFileEntry[]>();
-let delayedMetadataPath = '';
-let failedMetadataPath = '';
 let delayedListPath = '';
 let delayedSearchMs = 0;
 let shellMenuOpenDelayMs = 0;
@@ -96,10 +93,6 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
   if (request.action === 'shellMenu' && shellMenuOpenDelayMs) await new Promise((resolve) => setTimeout(resolve, shellMenuOpenDelayMs));
   if (request.action === 'shellMenuInvoke' && shellMenuInvokeDelayMs) await new Promise((resolve) => setTimeout(resolve, shellMenuInvokeDelayMs));
   if (request.action === 'list' && request.ref.relativePath === delayedListPath) await new Promise((resolve) => setTimeout(resolve, 350));
-  if (request.action === 'metadata' && request.ref.relativePath === delayedMetadataPath) {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    if (request.ref.relativePath === failedMetadataPath) return { ok: false, error: { code: 'READ_FAILED', message: 'Тестовая ошибка устаревшего запроса.' } };
-  }
   switch (request.action) {
     case 'roots': return { ok: true, data: [root, { id: 'documents-id', name: 'Документы', kind: 'documents', available: true }, { id: 'downloads-id', name: 'Загрузки', kind: 'downloads', available: true }] };
     case 'recycleBin': return { ok: true, data: { supported: true, items: [] } };
@@ -147,7 +140,6 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
       const all = [...childPath(request.ref), ...(!request.ref.draftId ? created.filter((item) => parentOf(item.relativePath) === request.ref.relativePath) : [])].filter((item) => !removed.has(item.relativePath));
       return { ok: true, data: { root, entries: [...all.slice(offset, offset + limit), ...(offset === 0 && !request.ref.draftId ? drafts.filter((item) => item.relativePath.startsWith(request.ref.relativePath ? `${request.ref.relativePath}/` : '') && item.relativePath.split('/').length === request.ref.relativePath.split('/').filter(Boolean).length + 1).filter((item) => !removed.has(item.relativePath)) : [])], nextOffset: offset + limit < all.length ? offset + limit : null, truncated: false, ...(listFault === 'partial' && request.ref.relativePath === '' ? { unreadableCount: 2 } : {}) } };
     }
-    case 'metadata': return { ok: true, data: { ...metadata, revision: request.ref.relativePath } };
     case 'systemProperties': return { ok: true, data: { author: 'Тестовый автор', createdAt: '2026-09-22T09:00:00.000Z', hidden: false } };
     case 'fileHash': {
       const found = sourceEntry(request.ref.relativePath);
@@ -214,7 +206,7 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
     case 'redo': return { ok: true, data: { label: 'Тестовая операция', state: { undo: { id: 'fixture-undo', label: 'Тестовая операция', at: '2026-10-01T10:00:00.000Z' }, redo: null } } };
     case 'shellMenu': return { ok: true, data: { token: `fixture-shell-menu-${++shellMenuSequence}`, items: [{ id: 1, label: 'Проверить пункт оболочки', enabled: true, verb: 'open' }] } };
     case 'shellMenuInvoke': case 'shellMenuClose': return { ok: true, data: {} };
-    case 'rename': case 'open': case 'reveal': case 'watch': case 'unwatch': case 'setMetadata': return { ok: true, data: {} };
+    case 'rename': case 'open': case 'reveal': case 'watch': case 'unwatch': return { ok: true, data: {} };
     case 'addRoot': return { ok: true, data: { ...root, id: 'custom-id', kind: 'custom' } };
     default: return { ok: false, error: { code: 'INVALID_ACTION', message: 'Команда не поддержана стендом.' } };
   }
@@ -223,8 +215,6 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
 (window as any).__searchEvents = searchEvents;
 (window as any).__fixtureKind = 'emulated-windows-files-bridge';
 (window as any).__draftFolderIds = [];
-(window as any).__delayMetadataPath = (path: string) => { delayedMetadataPath = path; };
-(window as any).__failMetadataPath = (path: string) => { failedMetadataPath = path; };
 (window as any).__delayListPath = (path: string) => { delayedListPath = path; };
 (window as any).__delaySearch = (milliseconds: number) => { delayedSearchMs = Math.max(0, milliseconds); };
 (window as any).__nativeAppOpenCalls = [];

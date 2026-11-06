@@ -42,7 +42,7 @@ import { isTypingTarget } from '../files/explorerKeys';
 import { orderedEntries, VIEW_LABELS, type FolderView } from '../files/viewModel';
 import { FONT_STACK, SIZE, X as T } from '../files/explorerTheme';
 import ProjectFolderBindingDialog from './ProjectFolderBindingDialog';
-import { resolveBoundProject, effectiveProjectIds } from '../../lib/projectFolderBindings';
+import { resolveBoundProject } from '../../lib/projectFolderBindings';
 import { useBindingLedger, useLocationChains } from './useProjectFolderBindings';
 import { useExplorerDocflow } from './useExplorerDocflow';
 import { DOC_FILTERS } from '../files/docEntryInfo';
@@ -94,14 +94,12 @@ export default function WindowsExplorer() {
   const chainRefs = React.useMemo(() => projectBindings.length ? shownRows.map((entry) => entryRef(entry, rootId)) : [], [shownRows, projectBindings.length, rootId]);
   const { chainOf, version: chainVersion } = useLocationChains(chainRefs, projectBindings.length > 0);
   const allEntries = React.useMemo(() => orderedEntries(shownRows.filter((entry) => view.hidden || !entry.hidden).map((entry) => {
-    const manual = entry.metadata?.projectIds || [];
-    const inherited = manual.length || !entry.rootId && !rootId ? null : resolveBoundProject(projectBindings, chainOf(entryRef(entry, rootId)));
-    const projectIds = effectiveProjectIds(manual, inherited);
-    const metadata = entry.metadata || inherited ? { ...(entry.metadata || { fileId: entry.fileId, tags: [], revision: '', responsible: '', history: [] }), projectIds } : undefined;
-    // Сохраняем ссылку на строку без проектных метаданных: при обновлении списка
-    // это не запускает повторное раскрытие выбранной строки и не двигает прокрутку.
-    if (!metadata && !projectIds.length) return entry;
-    return { ...entry, ...(metadata ? { metadata } : {}), ...(projectIds.length ? { projectNames: projectIds.map((id) => projectNames[id] || 'Недоступный проект') } : {}) };
+    // Проект файла — из привязки папки (общей для всех); своих проектов у файла нет
+    const inherited = !entry.rootId && !rootId ? null : resolveBoundProject(projectBindings, chainOf(entryRef(entry, rootId)));
+    // Строка без проекта остаётся той же ссылкой: при обновлении списка это не запускает
+    // повторное раскрытие выбранной строки и не двигает прокрутку.
+    if (!inherited) return entry;
+    return { ...entry, projectNames: [projectNames[inherited] || 'Недоступный проект'] };
   }), view), [shownRows, view, projectNames, projectBindings, chainOf, chainVersion, rootId]);
   // Документооборот: сведения о файлах проекта, фильтры, меню и слежение (docs/docflow-program.md, 3.2–3.5)
   const docflow = useExplorerDocflow({ entries: allEntries, rootId, bindings: projectBindings, chainOf, chainVersion, complete: !search.results.active && folder.nextOffset === null && !folder.loading, reload: folder.reload });
@@ -355,7 +353,6 @@ export default function WindowsExplorer() {
   ] : [
     { label: 'Просмотреть', items: Object.entries(VIEW_LABELS).map(([layout, label]) => ({ label, onClick: () => setView({ ...view, layout: layout as FolderView['layout'] }) })) },
     { label: 'Обновить', onClick: refresh }, panel.menuItem(),
-    { label: 'Копировать свойства Flux', checked: operations.carryMeta, onClick: () => operations.setCarryMeta(!operations.carryMeta) },
     { label: 'Вставить', disabled: !ops.clip || !canWrite, onClick: () => void ops.paste() },
     ...docflow.folderMenuItems(ref),
     { label: 'Открыть Корзину', separated: true, onClick: () => setRecycle(true) },

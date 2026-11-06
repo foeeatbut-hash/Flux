@@ -11,7 +11,7 @@
  */
 import React from 'react';
 import { X } from 'lucide-react';
-import { FILE_STATUSES, STATUS_ORDER, statusOf, formatSize } from '../explorer/FileItems';
+import { formatSize } from '../explorer/FileItems';
 import { isSystemKind, type DeskItem } from '../../lib/desktop';
 import { titleOf } from './DeskIcon';
 
@@ -33,11 +33,10 @@ const Row = ({ label, children }: { label: string; children: React.ReactNode }) 
 );
 
 export default function DeskProperties({
-  item, onClose, onStatus, onOpenPlace,
+  item, onClose, onOpenPlace,
 }: {
   item: DeskItem;
   onClose: () => void;
-  onStatus: (code: string) => void;
   onOpenPlace: () => void;
 }) {
   React.useEffect(() => {
@@ -86,28 +85,6 @@ export default function DeskProperties({
         {!sys && item.kind !== 'folder' && (
           <>
             <Row label="Тег">{item.tag || <span className="text-slate-400">не привязан</span>}</Row>
-            <Row label="Ревизия"><span className="font-mono tabular-nums">{item.revision || '1'}</span></Row>
-            <Row label="Стадия">
-              {/* Меняется здесь же: чаще всего стадию и меняют, закончив работу */}
-              <span className="flex flex-wrap gap-1">
-                {STATUS_ORDER.map((code) => {
-                  const s = FILE_STATUSES[code];
-                  const active = (item.status || 'D') === code;
-                  return (
-                    <button
-                      key={code}
-                      type="button"
-                      onClick={() => onStatus(code)}
-                      title={`Перевести в «${s.label}»`}
-                      className={`inline-flex items-center gap-1 text-2xs font-semibold px-1.5 py-0.5 rounded-full cursor-pointer
-                                  ${active ? s.chip : 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-450 hover:brightness-95'}`}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} /> {s.label}
-                    </button>
-                  );
-                })}
-              </span>
-            </Row>
           </>
         )}
         {!sys && !!item.size && <Row label="Размер">{formatSize(item.size)}</Row>}
@@ -135,4 +112,3 @@ export default function DeskProperties({
   );
 }
 
-export { statusOf };

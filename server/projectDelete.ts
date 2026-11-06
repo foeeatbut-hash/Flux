@@ -132,6 +132,9 @@ export async function deleteProjectData(
   itemIds.push(...(await e.idsWithin('docRegisterItem', 'registerId', registerIds)));
   await e.within('docRegisterItemRevision', 'itemId', [...new Set(itemIds)]);
   await e.within('docRegisterItemTag', 'itemId', [...new Set(itemIds)]);
+  // Связи файлов со строками и настройки документооборота проекта уходят вместе со строками
+  await e.where('docFileLink', { projectId });
+  await e.where('docflowSettings', { projectId });
   await e.where('docRegisterItem', { projectId });
   await e.within('docRegisterItem', 'registerId', registerIds);
   await e.where('docRegister', { projectId });

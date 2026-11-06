@@ -50,13 +50,6 @@ function parseSize(value: unknown): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new WindowsFilesError('INVALID_REQUEST', 'Размер в условии поиска указан неверно.');
   return value;
 }
-function text(value: unknown, what: string): string | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== 'string' || value.length > 200) throw new WindowsFilesError('INVALID_REQUEST', `Условие «${what}» указано неверно.`);
-  return fold(value);
-}
-
-type FluxMetadata = { data: { metadata: Record<string, { tags: string[]; projectIds: string[]; revision: string }> } };
 
 /** Проверяет условия до запуска: ошибка приходит ответом на команду, а не потоком. */
 export function compileFilter(query: unknown, filters: WindowsSearchFilters | undefined) {
@@ -67,13 +60,11 @@ export function compileFilter(query: unknown, filters: WindowsSearchFilters | un
   if (f.extensions !== undefined && (!Array.isArray(f.extensions) || f.extensions.length > 50 || f.extensions.some(ext => typeof ext !== 'string' || !/^[^./\\\s]{1,16}$/u.test(ext.replace(/^\./u, ''))))) throw new WindowsFilesError('INVALID_REQUEST', 'Расширения в условии поиска указаны неверно.');
   const extensions = f.extensions ? new Set(f.extensions.map(ext => fold(ext.replace(/^\./u, '')))) : null;
   const from = parseDate(f.modifiedFrom), to = parseDate(f.modifiedTo), min = parseSize(f.sizeMin), max = parseSize(f.sizeMax);
-  const tag = text(f.tag, 'тег'), projectId = text(f.projectId, 'проект'), revision = text(f.revision, 'ревизия');
   const onlyDrafts = f.onlyDrafts === true;
   const trimmed = query.trim();
-  const hasFilter = !!(f.kind || extensions || from !== undefined || to !== undefined || min !== undefined || max !== undefined || tag || projectId || revision || onlyDrafts);
+  const hasFilter = !!(f.kind || extensions || from !== undefined || to !== undefined || min !== undefined || max !== undefined || onlyDrafts);
   if (!trimmed && !hasFilter) throw new WindowsFilesError('INVALID_REQUEST', 'Введите, что искать, или задайте условие.');
   const matches = nameMatcher(trimmed);
-  const needsFlux = !!(tag || projectId || revision);
   return {
     onlyDrafts, kind: f.kind,
     /** Условия, которым хватает записи каталога: без обращения к файлу. */
@@ -83,20 +74,13 @@ export function compileFilter(query: unknown, filters: WindowsSearchFilters | un
       if (extensions) { if (directory) return false; const dot = name.lastIndexOf('.'); if (dot < 0 || !extensions.has(fold(name.slice(dot + 1)))) return false; }
       return matches(name);
     },
-    /** Условия, которым нужны размер, дата и свойства Flux. */
-    full: (entry: { kind: string; size: number; modifiedAt: string; fileId: string }, state: FluxMetadata) => {
+    /** Условия, которым нужны размер и дата. */
+    full: (entry: { kind: string; size: number; modifiedAt: string; fileId: string }) => {
       const modified = Date.parse(entry.modifiedAt);
       if (from !== undefined && modified < from) return false;
       if (to !== undefined && modified > to) return false;
       if (entry.kind === 'file') { if (min !== undefined && entry.size < min) return false; if (max !== undefined && entry.size > max) return false; }
       else if (min !== undefined || max !== undefined) return false; // у папки размера нет: Windows тоже не показывает её в поиске по размеру
-      if (needsFlux) {
-        const meta = state.data.metadata[entry.fileId];
-        if (!meta) return false;
-        if (tag && !meta.tags.some(item => fold(item) === tag)) return false;
-        if (projectId && !meta.projectIds.some(item => fold(item) === projectId)) return false;
-        if (revision && fold(meta.revision) !== revision) return false;
-      }
       return true;
     },
   };
@@ -164,9 +148,7 @@ async function walk(service: WindowsFilesService, owner: number, start: WindowsF
   const hit = async (ref: WindowsFileRef, parentPath: string): Promise<void> => {
     let entry;
     try { entry = await service.entry(ref, true); } catch { return; } // файл исчез между списком и запросом — не ошибка поиска
-    if (!filter.full(entry, service.state)) return;
-    const metadata = service.state.data.metadata[entry.fileId];
-    if (metadata) entry.metadata = { ...metadata, history: [] };
+    if (!filter.full(entry)) return;
     page.push({ ...entry, rootId: ref.rootId, parentPath });
     if (++found >= limits.hits) stop = 'limit-hits';
     if (page.length >= PAGE_SIZE || Date.now() - flushed >= PAGE_MS) await flush();

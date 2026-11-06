@@ -45,7 +45,7 @@ check(grouped[0].kind === 'group' && grouped[0].label === 'Папки · Пап�
   'Группы следуют тому же порядку, что и клавиатурная навигация');
 check(grouped.filter((row) => row.kind === 'group').length === 4, 'Заголовок появляется при смене группы в отсортированном списке');
 check(source[0].name === 'zeta.txt', 'Построение модели не меняет исходный массив');
-const tagged = { ...source[0], metadata: { fileId: source[0].fileId, tags: ['Тег Б', 'Тег А'], projectIds: ['Проект Б', 'Проект А'], revision: '', responsible: '', history: [] } };
-check(groupLabel(tagged, 'tags') === 'Тег А, Тег Б' && groupLabel(source[0], 'tags') === 'Без тегов', 'Группировка тегов учитывает метаданные и отсутствие тегов');
-check(groupLabel(tagged, 'project') === 'Проект А, Проект Б' && normalizeFolderView({ group: 'project' }).group === 'project', 'Группировка проектов сохраняется в настройках вида');
+const named = { ...source[0], projectNames: ['Проект Б', 'Проект А'] };
+check(groupLabel(named, 'project') === 'Проект А, Проект Б' && groupLabel(source[0], 'project') === 'Без проекта' && normalizeFolderView({ group: 'project' }).group === 'project', 'Группировка проектов берёт названия из привязки папки и сохраняется в настройках вида');
+check(normalizeFolderView({ group: 'tags', columns: ['name', 'tags', 'revision', 'responsible', 'cipher'] }).group === 'none' && normalizeFolderView({ columns: ['name', 'tags', 'revision', 'responsible', 'cipher'] }).columns.join() === 'name,cipher', 'Сохранённые столбцы и группировка прежних свойств файла отбрасываются, столбцы документооборота остаются');
 console.log(`ALL TESTS PASSED (${passed})`);

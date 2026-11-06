@@ -166,7 +166,6 @@ model DocRegisterItem {
   equipmentTags  String    @default("[]") @db.Text // JSON: идентификаторы тегов
   status         String    @default("DRAFT") // DRAFT | READY | REMARKS | ACCEPTED
   docId          String? // ConstructorDoc сформированного документа
-  fileNodeId     String? // файл замечаний в Проводнике
   assigneeId     String? // инженер-исполнитель (получает «замечания»)
   remarks        String    @default("") @db.Text
   reviewCode     String    @default("") // код рассмотрения заказчика (A/B/C/D/Q…)

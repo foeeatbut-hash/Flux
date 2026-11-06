@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { WindowsFileRef, WindowsFileMetadata, WindowsUndoLabel, WindowsUndoResult, WindowsUndoState } from '../../filesystem/contracts';
+import type { WindowsFileRef, WindowsUndoLabel, WindowsUndoResult, WindowsUndoState } from '../../filesystem/contracts';
 import { snapshotFile } from './fileSnapshot';
 import { WindowsFilesError } from './paths';
 import type { WindowsFilesService } from './service';
@@ -21,9 +21,8 @@ export interface Fingerprint { kind: 'file' | 'directory'; fileId: string; size:
 export interface TrashInfo { path: string; at: number; size: number | null; name: string }
 /** Место объекта: папка (capability) и имя в ней. Черновик узнаётся по draftId — его путь для показа может меняться. */
 export interface Place { parent: WindowsFileRef; name: string }
-type MetaValues = Pick<WindowsFileMetadata, 'tags' | 'projectIds' | 'revision' | 'responsible'>;
 export type UndoOp =
-  | { kind: 'replace'; at: WindowsFileRef; before: string; after: string; beforeSha256: string; afterSha256: string; beforeMetadata: MetaValues; afterMetadata: MetaValues }
+  | { kind: 'replace'; at: WindowsFileRef; before: string; after: string; beforeSha256: string; afterSha256: string }
   | { kind: 'move'; from: Place; to: Place; fileId: string; draftId?: string }
   /** Создание, копирование, импорт: отмена — в корзину, повтор — обратно из корзины. */
   | { kind: 'create'; at: WindowsFileRef; fingerprint: Fingerprint | null; trashed?: TrashInfo }
@@ -213,12 +212,7 @@ async function shift(service: WindowsFilesService, entry: UndoEntry, op: Extract
 }
 
 async function restoreReplacement(service: WindowsFilesService, entry: UndoEntry, op: Extract<UndoOp, { kind: 'replace' }>, redo: boolean) {
-  const expected = redo ? op.beforeMetadata : op.afterMetadata;
-  const metadata = await service.metadata(op.at);
-  const current = { tags: metadata.tags, projectIds: metadata.projectIds, revision: metadata.revision, responsible: metadata.responsible };
-  if (JSON.stringify(current) !== JSON.stringify(expected)) throw changed(entry.label);
   await service.replaceFromFile(op.at, service.journal.snapshotPath(redo ? op.after : op.before), redo ? op.beforeSha256 : op.afterSha256);
-  await service.setMetadata(op.at, redo ? op.afterMetadata : op.beforeMetadata);
 }
 
 async function undoOne(service: WindowsFilesService, entry: UndoEntry): Promise<void> {

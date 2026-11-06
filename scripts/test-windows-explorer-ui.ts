@@ -238,20 +238,17 @@ async function loadUntil(page: Page, count: number) {
 
     await openProperties(page, /Отчёт\.xlsx/);
     await page.getByRole('dialog', { name: /Свойства/ }).waitFor();
-    ok('Свойства показывают проекты, теги и историю', await page.getByText('Проект 1 · текущий').isVisible() && await page.getByText('AHU-01', { exact: true }).count() >= 1 && await page.getByText(/История файла/).isVisible());
-    await page.getByRole('button', { name: 'Сохранить свойства' }).click();
-    ok('Свойства отправляются только в windowsFiles bridge', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'setMetadata')));
+    ok('Свойства показывают только то, что знает Windows: без проектов, тегов, ревизии и ответственного', await page.getByText('Автор', { exact: true }).isVisible() && await page.getByText('Тестовый автор').isVisible()
+      && await page.getByLabel('Ревизия').count() === 0 && await page.getByLabel('Ответственный').count() === 0 && await page.getByText(/^Теги$/).count() === 0 && await page.getByRole('button', { name: 'Сохранить свойства' }).count() === 0);
+    ok('Свойства не обращаются к моста за локальными свойствами', await page.evaluate(() => !(window as any).__windowsFilesCalls.some((request: any) => request.action === 'setMetadata' || request.action === 'metadata')));
+    await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
 
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path='));
     await page.getByRole('searchbox').fill('');
     await page.getByRole('row', { name: /Инструкция\.docx/ }).waitFor();
-    await page.evaluate(() => { (window as any).__delayMetadataPath('Инструкция.docx'); (window as any).__failMetadataPath('Инструкция.docx'); });
-    await openProperties(page, /Инструкция\.docx/);
-    await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
     await openProperties(page, /Архив\.bin/);
     await page.getByRole('dialog', { name: /Свойства · Архив\.bin/ }).waitFor();
-    await page.waitForTimeout(400);
-    ok('Поздний сбой закрытой карточки не портит новую карточку', await page.getByLabel('Ревизия').inputValue() === 'Архив.bin' && await page.getByRole('alert').count() === 0);
+    ok('Свойства другого файла открываются со своими данными', await page.getByRole('alert').count() === 0);
     await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
 
     await page.getByRole('treeitem', { name: 'Проекты' }).click();

@@ -55,7 +55,7 @@ async function ensureTables(): Promise<void> {
         "revision" TEXT NOT NULL DEFAULT 'A', "issueDate" TIMESTAMP(3),
         "reasonForIssue" TEXT NOT NULL DEFAULT '', "language" TEXT NOT NULL DEFAULT '',
         "equipmentTags" TEXT NOT NULL DEFAULT '[]', "status" TEXT NOT NULL DEFAULT 'DRAFT',
-        "docId" TEXT, "fileNodeId" TEXT, "assigneeId" TEXT, "remarks" TEXT NOT NULL DEFAULT '',
+        "docId" TEXT, "assigneeId" TEXT, "remarks" TEXT NOT NULL DEFAULT '',
         "reviewCode" TEXT NOT NULL DEFAULT '', "dueDate" TIMESTAMP(3),
         "extra" TEXT NOT NULL DEFAULT '{}', "meta" TEXT NOT NULL DEFAULT '{}',
         "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -540,7 +540,6 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
           }
           if ('assigneeId' in (req.body || {})) data.assigneeId = req.body.assigneeId || null;
           if ('docId' in (req.body || {})) data.docId = req.body.docId || null;
-          if ('fileNodeId' in (req.body || {})) data.fileNodeId = req.body.fileNodeId || null;
           if (typeof req.body?.equipmentTags === 'string') data.equipmentTags = req.body.equipmentTags;
           if (req.body?.issueDate !== undefined) data.issueDate = req.body.issueDate ? new Date(req.body.issueDate) : null;
           if (req.body?.dueDate !== undefined) data.dueDate = req.body.dueDate ? new Date(req.body.dueDate) : null;

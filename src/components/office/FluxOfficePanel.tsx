@@ -43,7 +43,7 @@ interface Props {
   fileId: string;
   /** Файл Проводника: содержимое уходит на сервер только в запросе, «Выпустить» недоступно. */
   localSource?: OfficeLocalSource;
-  /** Есть обработчик — в шапке выбор проекта (у файла Проводника проекта нет). */
+  /** Есть обработчик — в шапке выбор проекта (у файла из Проводника проекта не выбирается). */
   onProjectChange?: (projectId: string) => void;
   projectId: string;
   fileName: string;

@@ -36,14 +36,15 @@ export interface WindowsFileEntry {
   fileId: string; size: number; modifiedAt: string; linked: boolean;
   /** Стабильный ключ строки/выбора, пока сетевой список выясняет канонический fileId. */
   uiKey?: string;
-  rootId?: string; createdAt?: string; hidden?: boolean; author?: string; metadata?: WindowsFileMetadata;
+  rootId?: string; createdAt?: string; hidden?: boolean; author?: string;
   detailsPending?: boolean;
-  /** Названия проектов для показа; идентификаторы остаются в metadata. */
+  /** Названия проектов для показа: проект берётся из привязки папки (общей для всех), своих проектов у файла нет. */
   projectNames?: string[];
 }
 export interface WindowsFileContent extends WindowsFileEntry { base64: string; sha256: string }
-export interface WindowsFileMetadata {
-  fileId: string; tags: string[]; projectIds: string[]; revision: string; responsible: string;
+/** История действий над файлом в Проводнике (теги, проекты, ревизия и ответственный локально не хранятся: их заменили имя по маске и строка ВДР). */
+export interface WindowsFileHistory {
+  fileId: string;
   history: { at: string; action: string; relativePath: string; sha256?: string }[];
 }
 export interface WindowsFilesChanged { rootId: string; relativePath: string; rescan?: true; entries?: WindowsFileEntry[] }
@@ -74,9 +75,9 @@ export type WindowsFilesRequest =
   | { action: 'mkdir'; parent: WindowsFileRef; name: string; group?: string }
   | { action: 'rename'; ref: WindowsFileRef; name: string; group?: string }
   | { action: 'move'; ref: WindowsFileRef; parent: WindowsFileRef; name: string; baseSha256?: string; group?: string }
-  | { action: 'copy'; ref: WindowsFileRef; parent: WindowsFileRef; name: string; baseSha256?: string; carryMeta?: boolean; group?: string }
+  | { action: 'copy'; ref: WindowsFileRef; parent: WindowsFileRef; name: string; baseSha256?: string; group?: string }
   | { action: 'trash'; ref: WindowsFileRef; baseSha256?: string; group?: string }
-  | { action: 'replaceCopy'; ref: WindowsFileRef; parent: WindowsFileRef; name: string; targetSha256: string; baseSha256?: string; move?: boolean; carryMeta?: boolean; group?: string }
+  | { action: 'replaceCopy'; ref: WindowsFileRef; parent: WindowsFileRef; name: string; targetSha256: string; baseSha256?: string; move?: boolean; group?: string }
   | { action: 'archive'; refs: WindowsFileRef[]; parent: WindowsFileRef; name: string; group?: string }
   | { action: 'purgeDraft'; ref: WindowsFileRef }
   | { action: 'systemProperties'; ref: WindowsFileRef }
@@ -85,8 +86,6 @@ export type WindowsFilesRequest =
   | { action: 'permanentDelete'; ref: WindowsFileRef; baseSha256?: string }
   | { action: 'copyPath'; refs: WindowsFileRef[] }
   | { action: 'reveal' | 'open'; ref: WindowsFileRef }
-  | { action: 'metadata'; ref: WindowsFileRef }
-  | { action: 'setMetadata'; ref: WindowsFileRef; metadata: Pick<WindowsFileMetadata, 'tags' | 'projectIds' | 'revision' | 'responsible'> }
   | { action: 'watch' | 'unwatch'; ref: WindowsFileRef }
   | WindowsExplorerRequest;
 export type WindowsFilesResponse<T = unknown> = { ok: true; data: T } | { ok: false; error: { code: string; message: string; nativeDiagnostic?: { stage?: string; hresult?: string } } };
@@ -113,8 +112,6 @@ export interface WindowsSearchFilters {
   extensions?: string[];
   modifiedFrom?: string; modifiedTo?: string;
   sizeMin?: number; sizeMax?: number;
-  /** Свойства Flux: ищутся и среди локальных тегов, и среди проектов, и среди ревизий. */
-  tag?: string; projectId?: string; revision?: string;
   onlyDrafts?: boolean;
 }
 export interface WindowsSearchLimits { depth?: number; objects?: number; hits?: number; ms?: number }

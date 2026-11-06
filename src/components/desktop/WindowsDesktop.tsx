@@ -259,8 +259,7 @@ export default function WindowsDesktop({ screenOrigin }: { screenOrigin?: { x: n
   const doProperties = async (entry: WindowsFileEntry) => {
     if (!root) return;
     const ref = entryRef(root.id, entry);
-    const result = await invoke({ action: 'metadata', ref });
-    if (result) navigate(fileRefHref(ref, { properties: true }));
+    navigate(fileRefHref(ref, { properties: true }));
     setMenu(null);
   };
 

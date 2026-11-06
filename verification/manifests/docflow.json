@@ -11,7 +11,10 @@
       "sources": [
         "src/screens/DocflowScreen.tsx",
         "src/components/vdr/VdrPanel.tsx",
-        "src/components/docflow/DocflowSettings.tsx"
+        "src/components/docflow/DocflowSettings.tsx",
+        "src/components/docflow/ReconcileTab.tsx",
+        "src/components/docflow/AssignFileDialog.tsx",
+        "src/components/vdr/RowFileCells.tsx"
       ]
     }
   ],
@@ -46,6 +49,55 @@
       ],
       "prerequisites": [],
       "timeoutMs": 60000
+    },
+    {
+      "id": "docflow-name",
+      "path": "scripts/test-docflow-name.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-settings",
+      "path": "scripts/test-docflow-settings.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
+      "id": "docflow-links",
+      "path": "scripts/test-docflow-links.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
+      "id": "docflow-reconcile",
+      "path": "scripts/test-docflow-reconcile.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-entry-info",
+      "path": "scripts/test-docflow-entry-info.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
     }
   ],
   "actions": [

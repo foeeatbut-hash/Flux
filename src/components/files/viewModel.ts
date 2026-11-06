@@ -2,8 +2,8 @@ import type { WindowsFileEntry } from '../../lib/windowsFiles';
 
 export type FolderLayout = 'extraLarge' | 'large' | 'medium' | 'small' | 'list' | 'details' | 'tiles' | 'content';
 export type FolderSort = 'name' | 'modified' | 'type' | 'size';
-export type FolderGroup = 'none' | 'name' | 'type' | 'date' | 'size' | 'project' | 'tags';
-export type FolderColumn = 'name' | 'created' | 'modified' | 'type' | 'size' | 'author' | 'tags' | 'project' | 'revision' | 'responsible' | 'storage' | 'cipher' | 'docType' | 'docRev' | 'docStatus' | 'inRegistry';
+export type FolderGroup = 'none' | 'name' | 'type' | 'date' | 'size' | 'project';
+export type FolderColumn = 'name' | 'created' | 'modified' | 'type' | 'size' | 'author' | 'project' | 'storage' | 'cipher' | 'docType' | 'docRev' | 'docStatus' | 'inRegistry';
 
 export interface FolderView {
   layout: FolderLayout;
@@ -24,15 +24,14 @@ export const VIEW_LABELS: Record<FolderLayout, string> = {
 
 export const FOLDER_COLUMNS: { id: FolderColumn; label: string }[] = [
   { id: 'name', label: 'Имя' }, { id: 'created', label: 'Дата создания' }, { id: 'modified', label: 'Дата изменения' }, { id: 'type', label: 'Тип' }, { id: 'size', label: 'Размер' }, { id: 'author', label: 'Автор' },
-  { id: 'tags', label: 'Теги' }, { id: 'project', label: 'Проект' }, { id: 'revision', label: 'Ревизия' },
-  { id: 'responsible', label: 'Ответственный' }, { id: 'storage', label: 'Хранение' },
+  { id: 'project', label: 'Проект' }, { id: 'storage', label: 'Хранение' },
   // Документооборот (docs/docflow-program.md, 3.2): значения даёт строка ВДР и имя по маске проекта
   { id: 'cipher', label: 'Шифр' }, { id: 'docType', label: 'Тип документа' }, { id: 'docRev', label: 'Ред.' }, { id: 'docStatus', label: 'Статус' }, { id: 'inRegistry', label: 'В реестре' },
 ];
 const COLUMN_IDS = new Set<FolderColumn>(FOLDER_COLUMNS.map((column) => column.id));
 const LAYOUTS = new Set<FolderLayout>(Object.keys(VIEW_LABELS) as FolderLayout[]);
 const SORTS = new Set<FolderSort>(['name', 'modified', 'type', 'size']);
-const GROUPS = new Set<FolderGroup>(['none', 'name', 'type', 'date', 'size', 'project', 'tags']);
+const GROUPS = new Set<FolderGroup>(['none', 'name', 'type', 'date', 'size', 'project']);
 
 export const DEFAULT_VIEW: FolderView = {
   layout: 'details', sort: 'name', descending: false, group: 'none',
@@ -88,8 +87,7 @@ export function orderedEntries(entries: WindowsFileEntry[], view: FolderView): W
 
 export function groupLabel(entry: WindowsFileEntry, group: FolderGroup): string {
   if (group === 'none') return '';
-  if (group === 'tags') return entry.metadata?.tags.slice().sort().join(', ') || 'Без тегов';
-  if (group === 'project') return (entry.projectNames || entry.metadata?.projectIds)?.slice().sort().join(', ') || 'Без проекта';
+  if (group === 'project') return entry.projectNames?.slice().sort().join(', ') || 'Без проекта';
   if (group === 'name') return entry.name.slice(0, 1).toLocaleUpperCase('ru') || '#';
   if (group === 'type') return entry.kind === 'directory' ? 'Папки' : extensionOf(entry.name).toLocaleUpperCase('ru') || 'Без расширения';
   if (group === 'size') return entry.kind === 'directory' ? 'Папки' : entry.size === 0 ? 'Пустые' : entry.size < 1024 * 1024 ? 'Маленькие' : entry.size < 100 * 1024 * 1024 ? 'Средние' : 'Большие';

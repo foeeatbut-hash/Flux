@@ -825,10 +825,6 @@ export const dataService = {
     });
   },
 
-  /** Статус документооборота: D черновик → C на проверке → B согласован → A выдан */
-  async setFileStatus(id: string, statusCode: string): Promise<any> {
-    return request(`/files/${id}`, { method: 'PATCH', body: JSON.stringify({ statusCode }) });
-  },
 
   /** Удаление мягкое: содержимое уходит в корзину Проводника и восстановимо */
   async trashNode(id: string, isFile: boolean): Promise<{ success: boolean; trashed?: boolean }> {

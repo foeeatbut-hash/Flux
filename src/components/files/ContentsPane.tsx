@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { windowsFilesRequest, type WindowsFileEntry, type WindowsFileMetadata, type WindowsFileRef, type WindowsThumbnail } from '../../lib/windowsFiles';
+import { windowsFilesRequest, type WindowsFileEntry, type WindowsFileRef, type WindowsThumbnail } from '../../lib/windowsFiles';
 import WindowsFileIcon from '../explorer/WindowsFileIcon';
 import { ICON_SIZE, explorerIconSize } from '../../lib/metrics';
 import { X as T, FONT_STACK } from './explorerTheme';
@@ -30,15 +30,12 @@ export interface ContentsPaneProps {
 const GRID_LAYOUTS = new Set<FolderLayout>(['extraLarge', 'large', 'medium', 'small', 'tiles']);
 const COLUMN_LABEL = Object.fromEntries(FOLDER_COLUMNS.map((column) => [column.id, column.label])) as Record<FolderColumn, string>;
 const THUMB_CACHE_LIMIT = 256;
-const METADATA_CACHE_LIMIT = 512;
+const SYSTEM_CACHE_LIMIT = 512;
 const THUMB_CONCURRENCY = 4;
 type ThumbJob = { key: string; ref: WindowsFileRef; size: number; resolve: (url: string | null) => void; signal?: AbortSignal };
 type SystemProperties = { author: string; createdAt: string; hidden: boolean };
 type SystemJob = { key: string; ref: WindowsFileRef; resolve: (value: SystemProperties | null) => void; signal?: AbortSignal };
 const thumbnailCache = new Map<string, Promise<string | null>>();
-const metadataCache = new Map<string, WindowsFileMetadata>();
-const metadataPending = new Map<string, Promise<WindowsFileMetadata | null>>();
-const metadataQueue: Array<{ key: string; ref: WindowsFileRef; resolve: (value: WindowsFileMetadata | null) => void }> = [];
 const systemPropertiesCache = new Map<string, SystemProperties>();
 const systemPropertiesPending = new Map<string, Promise<SystemProperties | null>>();
 const systemControllers = new Map<string, AbortController>();
@@ -48,39 +45,9 @@ const thumbnailQueue: ThumbJob[] = [];
 const thumbnailControllers = new Map<string, AbortController>();
 const thumbnailSubscribers = new Map<string, Map<AbortSignal, () => void>>();
 let activeThumbnails = 0;
-let activeMetadata = 0;
 let activeSystemProperties = 0;
 
 const entryMetadataKey = (rootId: string, entry: WindowsFileEntry) => `${entry.rootId || rootId}\0${entry.relativePath}\0${entry.draftId || ''}\0${entry.modifiedAt}`;
-
-function requestMetadata(key: string, ref: WindowsFileRef): Promise<WindowsFileMetadata | null> {
-  const cached = metadataCache.get(key);
-  if (cached) return Promise.resolve(cached);
-  const pending = metadataPending.get(key);
-  if (pending) return pending;
-  const result = new Promise<WindowsFileMetadata | null>((resolve) => {
-    metadataQueue.push({ key, ref, resolve });
-    pumpMetadata();
-  });
-  metadataPending.set(key, result);
-  void result.finally(() => metadataPending.delete(key));
-  return result;
-}
-
-function pumpMetadata() {
-  while (activeMetadata < 4 && metadataQueue.length) {
-    const job = metadataQueue.shift()!;
-    activeMetadata++;
-    void windowsFilesRequest<WindowsFileMetadata>({ action: 'metadata', ref: job.ref }).then((answer) => {
-      const value = answer.ok ? answer.data : null;
-      if (value) {
-        metadataCache.set(job.key, value);
-        if (metadataCache.size > METADATA_CACHE_LIMIT) metadataCache.delete(metadataCache.keys().next().value!);
-      }
-      job.resolve(value);
-    }).catch(() => job.resolve(null)).finally(() => { activeMetadata--; pumpMetadata(); });
-  }
-}
 
 function requestSystemProperties(key: string, ref: WindowsFileRef, signal?: AbortSignal): Promise<SystemProperties | null> {
   if (signal?.aborted) return Promise.resolve(null);
@@ -108,7 +75,7 @@ function pumpSystemProperties() {
       const value = answer.ok ? answer.data : null;
       if (value) {
         systemPropertiesCache.set(job.key, value);
-        if (systemPropertiesCache.size > METADATA_CACHE_LIMIT) systemPropertiesCache.delete(systemPropertiesCache.keys().next().value!);
+        if (systemPropertiesCache.size > SYSTEM_CACHE_LIMIT) systemPropertiesCache.delete(systemPropertiesCache.keys().next().value!);
       }
       job.resolve(value);
     }).catch(() => job.resolve(null)).finally(() => { activeSystemProperties--; pumpSystemProperties(); });
@@ -255,23 +222,9 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
   const thumbnailSize = Math.max(32, Math.min(256, iconSize * 2));
   const ordered = useMemo(() => contentsRows(shownEntries, view).flatMap((row) => row.kind === 'entry' ? [row.entry] : []), [shownEntries, view]);
 
-  const [metadataValues, setMetadataValues] = useState<Record<string, WindowsFileMetadata | null>>({});
   const [systemValues, setSystemValues] = useState<Record<string, SystemProperties | null>>({});
   const systemValuesRef = useRef(systemValues); systemValuesRef.current = systemValues;
-  const wantsMetadata = view.layout === 'details' && view.columns.some((column) => ['tags', 'project', 'revision', 'responsible'].includes(column));
   const wantsSystemProperties = view.layout === 'details' && view.columns.some((column) => ['created', 'author'].includes(column));
-  useEffect(() => {
-    if (!wantsMetadata) return;
-    for (const virtualRow of visibleRows) for (const item of rows[virtualRow.index] || []) {
-      if (item.kind !== 'entry') continue;
-      const entry = item.entry;
-      const key = entryMetadataKey(rootId, entry);
-      if (metadataCache.has(key) || metadataValues[key] !== undefined || entry.metadata) continue;
-      void requestMetadata(key, { rootId: entry.rootId || rootId, relativePath: entry.relativePath, ...(entry.draftId ? { draftId: entry.draftId } : {}) })
-        .then((metadata) => setMetadataValues((current) => current[key] === metadata ? current : { ...current, [key]: metadata }));
-    }
-  }, [wantsMetadata, visibleRows, rows, rootId, metadataValues]);
-
   useEffect(() => {
     if (!wantsSystemProperties) return;
     const controllers: AbortController[] = [];
@@ -296,7 +249,6 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
   </span>;
 
   const cellValue = (entry: WindowsFileEntry, column: FolderColumn) => {
-    const metadata = metadataValues[entryMetadataKey(rootId, entry)];
     switch (column) {
       case 'name': return renderName(entry);
       case 'modified': return formatDate(entry.modifiedAt);
@@ -305,10 +257,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
       case 'created': return formatDate(entry.createdAt || systemValues[entryMetadataKey(rootId, entry)]?.createdAt || '');
       case 'author': return entry.author || systemValues[entryMetadataKey(rootId, entry)]?.author || '—';
       case 'storage': return entry.storage === 'flux' ? 'Только в Flux' : 'Windows';
-      case 'tags': return entry.metadata?.tags?.join(', ') || metadata?.tags?.join(', ') || '—';
-      case 'project': return entry.projectNames?.join(', ') || entry.metadata?.projectIds?.join(', ') || metadata?.projectIds?.join(', ') || '—';
-      case 'revision': return entry.metadata?.revision || metadata?.revision || '—';
-      case 'responsible': return entry.metadata?.responsible || metadata?.responsible || '—';
+      case 'project': return entry.projectNames?.join(', ') || '—';
       case 'cipher': case 'docType': case 'docRev': case 'docStatus': case 'inRegistry': return doc?.cell(entry, column) ?? '—';
     }
   };

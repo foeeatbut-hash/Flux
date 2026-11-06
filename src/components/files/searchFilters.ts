@@ -3,8 +3,8 @@
  * что понимает мост (даты ISO, размеры в байтах, расширения). Без React.
  *
  * Тип, дата изменения и размер — как в Проводнике Windows 11 (те же слова и те
- * же границы). Тег, проект и «Только черновики» — свойства Flux: Windows их не
- * знает, мост ищет их в своих данных.
+ * же границы). «Только черновики» — свойство Flux: Windows его не
+ * знает, мост ищет его в своих данных.
  */
 import type { WindowsSearchFilters } from '../../lib/windowsFiles';
 
@@ -12,8 +12,8 @@ export type TypeFilter = 'any' | 'folders' | 'documents' | 'tables' | 'presentat
 export type DateFilter = 'any' | 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'thisMonth' | 'lastMonth' | 'thisYear' | 'older';
 export type SizeFilter = 'any' | 'tiny' | 'small' | 'medium' | 'large' | 'huge' | 'giant';
 
-export interface SearchUi { type: TypeFilter; modified: DateFilter; size: SizeFilter; tag: string; projectId: string; onlyDrafts: boolean }
-export const NO_FILTERS: SearchUi = { type: 'any', modified: 'any', size: 'any', tag: '', projectId: '', onlyDrafts: false };
+export interface SearchUi { type: TypeFilter; modified: DateFilter; size: SizeFilter; onlyDrafts: boolean }
+export const NO_FILTERS: SearchUi = { type: 'any', modified: 'any', size: 'any', onlyDrafts: false };
 
 export const TYPE_LABELS: Record<TypeFilter, string> = {
   any: 'Любой', folders: 'Папки', documents: 'Документы', tables: 'Таблицы', presentations: 'Презентации',
@@ -78,8 +78,6 @@ export function toBridgeFilters(ui: SearchUi, now = new Date()): WindowsSearchFi
     if (min !== undefined) out.sizeMin = min;
     if (max !== undefined) out.sizeMax = max;
   }
-  if (ui.tag.trim()) out.tag = ui.tag.trim();
-  if (ui.projectId) out.projectId = ui.projectId;
   if (ui.onlyDrafts) out.onlyDrafts = true;
   return out;
 }
@@ -90,8 +88,6 @@ export function activeFilters(ui: SearchUi): string[] {
   if (ui.type !== 'any') out.push(`Тип: ${TYPE_LABELS[ui.type]}`);
   if (ui.modified !== 'any') out.push(`Изменён: ${DATE_LABELS[ui.modified]}`);
   if (ui.size !== 'any') out.push(`Размер: ${SIZE_LABELS[ui.size].replace(/ \(.*/, '')}`);
-  if (ui.tag.trim()) out.push(`Тег: ${ui.tag.trim()}`);
-  if (ui.projectId) out.push('Проект');
   if (ui.onlyDrafts) out.push('Только черновики');
   return out;
 }

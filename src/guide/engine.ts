@@ -522,7 +522,7 @@ async function filesAnswer(p: ParsedQuestion, ctx: AskContext): Promise<GuideMes
     return say(`Файлов по ${what} в проекте не найдено.`, {
       status: 'no-match',
       text: `Файлов по ${what} в проекте нет. Проверьте код тега (латинская B и кириллическая В различаются) и выбранный проект.`,
-      source: sourceOf(ctx, 'Проводник проекта'),
+      source: sourceOf(ctx, 'Папка проекта в Проводнике'),
     });
   }
   return withContext(say(`Файлов по ${what}: ${res.total}.`, {
@@ -534,7 +534,7 @@ async function filesAnswer(p: ParsedQuestion, ctx: AskContext): Promise<GuideMes
       total: res.total,
     },
     actions: [{ kind: 'navigate', label: 'Открыть Проводник', route: '/explorer' }],
-    source: sourceOf(ctx, 'Проводник проекта'),
+    source: sourceOf(ctx, 'Папка проекта в Проводнике'),
   }), ctx, { intent: 'document_search', label: `Файлы по ${what}`, code: tag || undefined, query: q });
 }
 
@@ -593,7 +593,7 @@ async function countAnswer(p: ParsedQuestion, ctx: AskContext): Promise<GuideMes
       return say(`Файлов в проекте: ${res.total}.`, {
         outcome: `Файлов: ${res.total}`,
         actions: [{ kind: 'navigate', label: 'Открыть Проводник', route: '/explorer' }],
-        source: sourceOf(ctx, 'Проводник проекта'),
+        source: sourceOf(ctx, 'Папка проекта в Проводнике'),
       });
     }
   }

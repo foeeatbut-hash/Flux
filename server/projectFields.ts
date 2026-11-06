@@ -63,14 +63,12 @@ const signersKey = (fileId: string) => `office_signers:${fileId}`;
 
 export interface Signer { userId: string; name: string; date: string; source: 'file' | 'vdr' | 'author' }
 
-/** Строка ВДР, к которой привязан файл */
-async function vdrItemOf(fileId: string): Promise<any | null> {
-  if (!fileId) return null;
-  return getPrisma().docRegisterItem.findFirst({
-    where: { fileNodeId: fileId },
-    include: { register: { select: { preparedById: true, checkedById: true, approvedById: true } } },
-  }).catch(() => null);
-}
+/**
+ * Строка ВДР файла архива. Связь `fileNodeId` удалена (docs/docflow-program.md, 3.6): файлы
+ * документов связываются со строками через DocFileLink по папке проекта, а у файла серверного
+ * архива строки ВДР больше нет — подписанты берутся из выбора в панели или из автора файла.
+ */
+async function vdrItemOf(_fileId: string): Promise<any | null> { return null; }
 
 /**
  * Кто подписывает файл. Выбранное в панели — главное; нет — подписанты

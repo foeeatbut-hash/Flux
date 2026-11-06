@@ -62,7 +62,7 @@ interface Item {
   id: string; registerId: string; contractorNo: string; ownerNo: string; vendorNo: string;
   titleEn: string; titleRu: string; vdrCode: string; revision: string;
   issueDate?: string | null; reasonForIssue: string; language: string;
-  equipmentTags: string; status: string; docId?: string | null; fileNodeId?: string | null;
+  equipmentTags: string; status: string; docId?: string | null;
   assigneeId?: string | null; remarks: string; reviewCode: string; dueDate?: string | null;
   extra: Record<string, string>;
   updatedAt?: string;
@@ -621,19 +621,6 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
     } finally { setBusy(false); }
   };
 
-  // Прикреплённый файл лежит в архиве Flux, а Проводника с архивом больше нет:
-  // Word, Excel и PDF открываются своими редакторами, остальное — программой Windows
-  const openAttached = async (fileId: string) => {
-    try {
-      const r = await fetch(`/api/files/${encodeURIComponent(fileId)}?meta=1`);
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d.file) { addToast(d.error || 'Файл не найден', 'error'); return; }
-      const file = { id: fileId, name: String(d.file.name || ''), type: d.file.type, folderId: d.file.folderId };
-      if (appsFor(file)[0]?.id === 'windows') void openInWindowsSaid(fileId, file.name, addToast);
-      else navigate(openHref(file));
-    } catch (e: any) { addToast(e?.message || 'Не удалось открыть файл', 'error'); }
-  };
-
   const setReviewCode = async (code: string) => {
     if (isNew) { setF(s => ({ ...s, reviewCode: code })); return; }
     const r = await fetch(`/api/vdr/items/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewCode: code, expectedUpdatedAt: seen.current.updatedAt }) });
@@ -753,12 +740,6 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
             <label className="fx-label block">Замечания</label>
             <textarea value={f.remarks} onChange={e => setF(s => ({ ...s, remarks: e.target.value }))} rows={2} className={inputCls} />
           </div>
-          {f.fileNodeId && (
-            <button type="button" onClick={() => void openAttached(f.fileNodeId!)}
-              className="fx-btn fx-btn-sm w-full justify-center">
-              <FileText className="w-3.5 h-3.5" /> Прикреплённый файл — открыть
-            </button>
-          )}
 
           <Sect title="Главные теги (оборудование документа)" />
           <div className="flex flex-wrap gap-1.5">
