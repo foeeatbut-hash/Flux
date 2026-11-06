@@ -7,6 +7,7 @@ import viteConfig from '../vite.config';
 const evidence = '/tmp/flux-docflow-negative-evidence';
 type Scenario = { name: string; file: string; from: string; to: string; expected: RegExp; test?: string; precondition?: string; fixture?: string; env?: Record<string, string> };
 const cases: Scenario[] = [
+  { name: 'docflow-screen-route', file: '/scripts/fixtures/windows-explorer-ui.tsx', from: "route.pathname === '/docflow'", to: "new URLSearchParams(location.search).get('screen') === 'docflow'", test: 'scripts/test-docflow-explorer-ui.ts', fixture: '/scripts/fixtures/windows-explorer-ui.tsx', precondition: '✓ «Открыть в ДО» ведёт на строку реестра', expected: /getByRole\('columnheader'.*Файл/s },
   { name: 'empty-files', file: '/src/components/docflow/MaskBuilder.tsx', from: '...scan });', to: '...scan, files: [] });', expected: /getByRole\('table'.*Разбор файлов рабочей папки/s },
   { name: 'fixed-mask', file: '/src/components/docflow/MaskBuilder.tsx', from: 'parseFileName(config, name)', to: "parseFileName({ ...config, masks: { ...config.masks, file: '{шифр}_{ред}' } }, name)", expected: /getByText\('читается'.*detached/s },
   { name: 'ignore-disabled', file: '/src/components/docflow/MaskBuilder.tsx', from: 'const ignored = isIgnored(config, name);', to: 'const ignored = false;', expected: /✗ Исключение применяется до сохранения настроек/ },

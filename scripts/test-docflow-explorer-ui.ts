@@ -93,6 +93,8 @@ const posts = (page: Page) => page.evaluate(() => (window as any).__docflowPosts
     await sub.getByRole('button', { name: 'Открыть в ДО' }).click();
     await page.getByTestId('route').filter({ hasText: /^\/docflow\?tab=registry&vdr=r1&item=i1$/ }).waitFor({ timeout: 5000 });
     ok('«Открыть в ДО» ведёт на строку реестра', true);
+    await page.getByRole('columnheader', { name: 'Файл', exact: true }).waitFor();
+    ok('Открыт настоящий экран ДО, Проводник размонтирован', await page.locator('[data-windows-explorer]').count() === 0);
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path=Проекты'));
     await page.getByRole('row', { name: /3700-B01-E02-004_A\.pdf/ }).waitFor();
 

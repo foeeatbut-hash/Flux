@@ -270,6 +270,7 @@ useStore.getState().setActiveProject({ id: 'project-1', name: 'Проект 1' }
 
 function LocationDebug() { const location = useLocation(); const navigate = useNavigate(); (window as any).__go = navigate; return <output data-testid="route">{location.pathname}{location.search}</output>; }
 function Fixture() {
+  const route = useLocation();
   const [desktop, setDesktop] = useState<false | 'ready' | 'fallback'>(false);
   (window as any).__showWindowsDesktop = (mode: 'ready' | 'fallback' = 'ready') => { (window as any).__desktopShellMode = mode; setDesktop(mode); };
   (window as any).__seedExplorerSharedSource = () => {
@@ -278,7 +279,9 @@ function Fixture() {
     useStore.setState({ user: { id } as any });
   };
   return <div style={{ position: 'absolute', inset: 0, width: '100vw', height: '100vh' }}>
-    {desktop ? <WindowsDesktop key={desktop} screenOrigin={{ x: -1280, y: -200 }} /> : <div className="h-full"><LocationDebug />{new URLSearchParams(location.search).get('screen') === 'docflow' ? <DocflowScreen /> : <Explorer />}</div>}
+    {/* Переход между программами должен менять экран: оставшийся Проводник
+        иначе прочтёт параметры ДО как своё пустое место и перепишет адрес. */}
+    {desktop ? <WindowsDesktop key={desktop} screenOrigin={{ x: -1280, y: -200 }} /> : <div className="h-full"><LocationDebug />{route.pathname === '/docflow' ? <DocflowScreen /> : <Explorer />}</div>}
     <ToastProvider />
   </div>;
 }
