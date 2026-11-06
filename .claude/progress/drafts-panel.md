@@ -62,7 +62,7 @@ drafts-panel-ui падает (низ 700 вместо 748).
 
 ## Осталось
 
-- [ ] Шаг 4 — компактная панель (сейчас в DraftsLayer заглушка-список с
+- [x] Шаг 4 (сделан; коммит «шаг 4 из 6») — компактная панель (сейчас в DraftsLayer заглушка-список с
   кнопкой «Полоса»): 400 × 540 над кнопкой, ширина растёт со столбцами
   (3–6, settings.columns); шапка 36: «N из M», Плитки/Список
   (settings.compactMode), «Полоса», настройки; строка поиск + SortControl;
@@ -101,3 +101,7 @@ drafts-panel-ui падает (низ 700 вместо 748).
   docs/methodology/03-programs/shell.md; «Внедрено» в roadmap; удалить этот
   файл хода; Windows CI (.github/workflows/verify-drafts-panel.yml), несколько
   мониторов и 125 % — вручную владельцем.
+
+## Состояние после шага 4
+
+Компактная панель (DraftsCompact.tsx), мутации в scripts/check-drafts-panel-mutation.ts (таблица), фикстура-мост scripts/fixtures/drafts-panel.tsx. Файлы шага 5 уже написаны, но не подключены: draftsOps.ts, draftMenu.tsx, DraftDetails.tsx, DraftPublishDialog.tsx, DraftsSettingsPanel.tsx, DraftsReminder.tsx; Layer-версия с ними — /tmp/drafts-step4/DraftsLayer.next.tsx (если потеряна — собрать заново по списку в «Осталось»). Снимки: scripts/_shots-drafts.ts (не коммитить).

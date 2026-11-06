@@ -57,7 +57,7 @@ export default function DraftsStrip({ sections, shown, total, query, setQuery, o
 
   return <>
     <header className="flex h-[34px] shrink-0 items-center gap-1.5 border-b border-[var(--flux-line)] pl-2.5 pr-1.5">
-      <h2 className="text-[13px] font-semibold">Черновики</h2>
+      <h2 className="text-[13px] font-[600]">Черновики</h2>
       <span className="text-xs text-[var(--flux-text-muted)] tabular-nums" data-drafts-count>{shown} из {total}</span>
       <span className="mx-1 h-4 w-px bg-[var(--flux-line)]" aria-hidden="true" />
       <KindChips />

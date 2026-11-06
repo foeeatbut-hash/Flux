@@ -4,8 +4,9 @@
  * (01-design.md, раздел 3: зелёной заливки у выбранного нет).
  */
 import React from 'react';
-import { Search } from 'lucide-react';
-import { KIND_FILTERS, SORT_CYCLE, SORT_LABEL, type DraftKindFilter } from '../../lib/draftsPanel';
+import { LayoutGrid, List, Search } from 'lucide-react';
+import { KIND_FILTERS, SORT_CYCLE, SORT_LABEL, STATE_LABEL, STATE_ORDER, type DraftKindFilter } from '../../lib/draftsPanel';
+import { StateDot } from './DraftTile';
 import { useDraftsSettings } from '../../store/draftsSettingsStore';
 
 export function KindChips({ short = false }: { short?: boolean }) {
@@ -22,7 +23,7 @@ export function Chip({ on, onClick, children, title }: { on: boolean; onClick: (
 }
 
 export function SearchField({ value, onChange, width }: { value: string; onChange: (value: string) => void; width?: number }) {
-  return <label className="flex h-6 min-w-0 items-center gap-1.5 rounded border border-[var(--flux-line)] bg-[var(--flux-surface)] px-2" style={{ width }}>
+  return <label className={`flex h-6 min-w-0 items-center gap-1.5 rounded border border-[var(--flux-line)] bg-[var(--flux-surface)] px-2 ${width ? '' : 'flex-1'}`} style={{ width }}>
     <Search size={12} className="shrink-0 text-[var(--flux-text-muted)]" aria-hidden="true" />
     <input aria-label="Поиск по черновикам" placeholder="Поиск" value={value}
       onChange={(event) => onChange(event.target.value)}
@@ -48,4 +49,23 @@ export function SortControl() {
 export function IconButton({ label, onClick, children, pressed }: { label: string; onClick: () => void; children: React.ReactNode; pressed?: boolean }) {
   return <button type="button" aria-label={label} title={label} aria-pressed={pressed} onClick={onClick}
     className={`flex h-6 w-6 shrink-0 items-center justify-center rounded ${pressed ? 'fx-sel' : 'fx-hov text-[var(--flux-text-muted)]'}`}>{children}</button>;
+}
+
+/** Состояние файла: «черновик», «правится», «не в проекте». Повторный щелчок снимает фильтр. */
+export function StateChips() {
+  const state = useDraftsSettings((s) => s.state);
+  const set = useDraftsSettings((s) => s.set);
+  return <div role="group" aria-label="Состояние" className="flex shrink-0 items-center gap-0.5">
+    {STATE_ORDER.map((id) => <Chip key={id} on={state === id} onClick={() => set({ state: state === id ? null : id })}><StateDot state={id} />{STATE_LABEL[id]}</Chip>)}
+  </div>;
+}
+
+/** «Плитки / Список» в шапке компактной панели. */
+export function ModeToggle() {
+  const mode = useDraftsSettings((s) => s.compactMode);
+  const set = useDraftsSettings((s) => s.set);
+  return <div role="group" aria-label="Вид" className="flex shrink-0 items-center gap-0.5">
+    <Chip on={mode === 'grid'} onClick={() => set({ compactMode: 'grid' })}><LayoutGrid size={13} aria-hidden="true" />Плитки</Chip>
+    <Chip on={mode === 'list'} onClick={() => set({ compactMode: 'list' })}><List size={13} aria-hidden="true" />Список</Chip>
+  </div>;
 }

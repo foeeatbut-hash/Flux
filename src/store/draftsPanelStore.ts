@@ -6,6 +6,11 @@ interface Anchor { left: number; top: number; width: number; height: number }
 interface DraftsPanelState {
   displayId: number | null; anchor: Anchor | null; entries: WindowsDraftEntry[];
   loading: boolean; error: string; total: number; unavailable: number;
+  /** «Разобрать старые»: компактная панель с отбором давних черновиков */
+  review: boolean;
+  /** Названия проектов для подсказки и групп: идентификаторы в метаданных, имена — на сервере */
+  projectNames: Record<string, string>;
+  setReview: (review: boolean) => void;
   toggle: (displayId: number, anchor?: Anchor) => void;
   close: () => void;
   reload: () => Promise<void>;
@@ -18,9 +23,10 @@ let profile = '';
 let release: (() => void) | undefined;
 let refresh: ReturnType<typeof setTimeout> | undefined;
 export const useDraftsPanelStore = create<DraftsPanelState>((set, get) => ({
-  displayId: null, anchor: null, entries: [], loading: false, error: '', total: 0, unavailable: 0,
-  toggle: (displayId, anchor) => set(get().displayId === displayId ? { displayId: null } : { displayId, anchor: anchor || null }),
-  close: () => set({ displayId: null }),
+  displayId: null, anchor: null, entries: [], loading: false, error: '', total: 0, unavailable: 0, review: false, projectNames: {},
+  setReview: (review) => set({ review }),
+  toggle: (displayId, anchor) => set(get().displayId === displayId ? { displayId: null, review: false } : { displayId, anchor: anchor || null }),
+  close: () => set({ displayId: null, review: false }),
   reload: async () => {
     if (flight) { again = true; return flight; }
     const epoch = generation;

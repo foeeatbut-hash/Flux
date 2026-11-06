@@ -37,7 +37,7 @@ export function DraftIcon({ entry, size }: { entry: WindowsDraftEntry; size: num
       <path d="M12 4h17l9 9v29a2 2 0 0 1-2 2H12a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" className="fill-slate-100 stroke-slate-300 dark:fill-slate-200 dark:stroke-slate-400" strokeWidth="1" />
       <path d="M29 4v9h9" className="fill-slate-300 dark:fill-slate-400" />
     </svg>
-    {label && <span data-draft-ext className={`absolute bottom-[12%] left-0 rounded-sm px-[3px] font-semibold leading-3 text-white ${tone}`} style={{ fontSize: Math.max(8, Math.round(size / 4.5)) }}>{label}</span>}
+    {label && size >= 24 && <span data-draft-ext className={`absolute bottom-[12%] left-0 rounded-sm px-[3px] font-semibold leading-3 text-white ${tone}`} style={{ fontSize: Math.max(8, Math.round(size / 4.5)) }}>{label}</span>}
   </span>;
 }
 
@@ -75,7 +75,7 @@ function common({ entry, selected, handlers }: ItemProps) {
   };
 }
 
-export function DraftTile(props: ItemProps & { size: 'S' | 'M' | 'L'; width?: number }) {
+export function DraftTile(props: ItemProps & { size: 'S' | 'M' | 'L'; width?: number | string }) {
   const { entry, state, dot, meta, selected, size } = props;
   return <button type="button" {...common(props)} aria-label={`${entry.name}, ${STATE_LABEL[state]}`}
     style={{ width: props.width ?? TILE_W[size] }}
