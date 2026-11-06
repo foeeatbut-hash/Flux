@@ -98,6 +98,18 @@
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-explorer-ui",
+      "path": "scripts/test-docflow-explorer-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
     }
   ],
   "actions": [
