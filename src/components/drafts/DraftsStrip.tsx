@@ -6,7 +6,7 @@
  * станет. Прокрутка без инерции и сглаживания (01-design.md, раздел 7).
  */
 import React from 'react';
-import { ChevronLeft, ChevronRight, LayoutGrid } from 'lucide-react';
+import { ChevronLeft, ChevronRight, LayoutGrid, Settings } from 'lucide-react';
 import type { WindowsDraftEntry } from '../../../filesystem/contracts';
 import { draftState, shortWhen, formatSize, type DraftsSection, type DraftState } from '../../lib/draftsPanel';
 import { useDraftsSettings } from '../../store/draftsSettingsStore';
@@ -15,9 +15,11 @@ import { IconButton, KindChips, SearchField, SortControl } from './DraftsControl
 
 export const STRIP_H = { 1: 150, 2: 260 } as const;
 
-export default function DraftsStrip({ sections, shown, total, query, setQuery, openDrafts, selected, handlers, now, status }: {
+export default function DraftsStrip({ sections, shown, total, query, setQuery, openDrafts, selected, handlers, now, status, onSettings, review }: {
   sections: DraftsSection[]; shown: number; total: number; query: string; setQuery: (value: string) => void;
-  openDrafts: ReadonlySet<string>; selected: string | null; handlers: DraftItemHandlers; now: number; status?: React.ReactNode;
+  openDrafts: ReadonlySet<string>; selected: string | null; handlers: DraftItemHandlers; now: number; status?: React.ReactNode; onSettings: () => void;
+  /** Напоминание о старых: в полосе места для строки нет, поэтому это кнопка в шапке */
+  review?: { label: string; open: () => void };
 }) {
   const s = useDraftsSettings();
   const scroller = React.useRef<HTMLDivElement>(null);
@@ -62,9 +64,11 @@ export default function DraftsStrip({ sections, shown, total, query, setQuery, o
       <span className="mx-1 h-4 w-px bg-[var(--flux-line)]" aria-hidden="true" />
       <KindChips />
       <span className="flex-1" />
+      {review && <button type="button" className="fx-btn fx-btn-sm" onClick={review.open}>{review.label}</button>}
       <SearchField value={query} onChange={setQuery} width={170} />
       <SortControl />
       <IconButton label="Компактный вид" onClick={() => s.set({ view: 'compact' })}><LayoutGrid size={14} /></IconButton>
+      <IconButton label="Настройки панели" onClick={onSettings}><Settings size={14} /></IconButton>
     </header>
     <div className="relative min-h-0 flex-1">
       {status}

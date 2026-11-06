@@ -72,7 +72,7 @@ drafts-panel-ui падает (низ 700 вместо 748).
   из src/components/files/CreatePanel.tsx, родитель — корень Desktop из
   action 'roots'), «Разобрать старые · N» (filterDrafts olderThanDays),
   «В Проводнике» (folderRefHref). Отдельный файл DraftsCompact.tsx.
-- [ ] Шаг 5 — действия: меню правой кнопки (ContextMenu: Открыть Enter,
+- [x] Шаг 5 (сделан; коммит «шаг 5 из 6») — действия: меню правой кнопки (ContextMenu: Открыть Enter,
   Опубликовать в проект… Ctrl+P, Добавить в ВДР… — отключено с подсказкой
   «после публикации»: VDR.fileNodeId серверный, draftId подставлять нельзя;
   Закрепить первым → settings.pinned; Переименовать F2 → action 'rename';
@@ -105,3 +105,7 @@ drafts-panel-ui падает (низ 700 вместо 748).
 ## Состояние после шага 4
 
 Компактная панель (DraftsCompact.tsx), мутации в scripts/check-drafts-panel-mutation.ts (таблица), фикстура-мост scripts/fixtures/drafts-panel.tsx. Файлы шага 5 уже написаны, но не подключены: draftsOps.ts, draftMenu.tsx, DraftDetails.tsx, DraftPublishDialog.tsx, DraftsSettingsPanel.tsx, DraftsReminder.tsx; Layer-версия с ними — /tmp/drafts-step4/DraftsLayer.next.tsx (если потеряна — собрать заново по списку в «Осталось»). Снимки: scripts/_shots-drafts.ts (не коммитить).
+
+## Состояние после шага 5
+
+Готово всё по шагу 5; мутации все падают как положено (scripts/check-drafts-panel-mutation.ts, 14 штук); tsc, architecture, drafts-*, taskbar, explorer, windows-files, glass зелёные кроме трёх прежних средовых (office-explorer-live, remaining-files-explorer-api, windows-files-electron). Остался шаг 6: раздел shell.md и «Внедрено» уже написаны (проверить), снимки обоих видов в трёх режимах (scripts/_shots-drafts.ts, не коммитить), удалить этот файл, push, описание PR #137.

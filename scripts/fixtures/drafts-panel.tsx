@@ -10,6 +10,12 @@ import { useToastStore } from '../../src/store/toastStore';
 import { useDraftsPanelStore } from '../../src/store/draftsPanelStore';
 import { useDraftsSettings } from '../../src/store/draftsSettingsStore';
 import { useDraftsPublishStore } from '../../src/store/draftsPublishStore';
+import ContentsPane from '../../src/components/files/ContentsPane';
+import { useSelection } from '../../src/components/files/useSelection';
+import { useExplorerOperations } from '../../src/components/files/useExplorerOperations';
+import { entryRef } from '../../src/components/files/fileOps';
+import { DEFAULT_VIEW } from '../../src/components/files/viewModel';
+import { windowsFilesRequest, type WindowsFileEntry } from '../../src/lib/windowsFiles';
 import { BAR_H } from '../../src/lib/metrics';
 import type { WorkspaceDisplay } from '../../workspace/displays';
 import type { WindowsDraftEntry, WindowsFilesChanged } from '../../filesystem/contracts';
@@ -105,8 +111,28 @@ useWindowStore.setState({ displays, area: { w: 1280, h: 800 }, activeDisplayId: 
   setEntries: (next: WindowsDraftEntry[]) => { entries = next; notify(); },
   entries: () => entries, draft, make, calls, realFiles, published, trashed, failPublish: false,
 };
+
+/**
+ * Окно Проводника в миниатюре: настоящие ContentsPane и useExplorerOperations с их drop().
+ * Проверяется ровно то, что делает Проводник, когда на папку отпускают черновик.
+ */
+const folderEntry = (name: string, kind: 'file' | 'directory'): WindowsFileEntry => ({ name, relativePath: name, storage: 'windows', kind, fileId: name, size: 100, modifiedAt: new Date().toISOString(), linked: false });
+const miniEntries = [folderEntry('Проект', 'directory'), folderEntry('Архив', 'directory'), folderEntry('Заметка.txt', 'file')];
+function MiniExplorer() {
+  const selection = useSelection(miniEntries, 'mini');
+  const [view, setView] = React.useState(DEFAULT_VIEW);
+  const operations = useExplorerOperations({ folder: { rootId: 'root', relativePath: '' }, reload: async () => undefined, selected: [], rootId: 'root', request: windowsFilesRequest });
+  return <div data-mini-explorer className="fixed rounded border border-[var(--flux-line)] bg-[var(--flux-surface)]" style={{ left: 500, top: 20, width: 600, height: 300 }}
+    onDragOver={(event) => event.preventDefault()} onDrop={(event) => operations.drop(event)}>
+    <ContentsPane entries={miniEntries} rootId="root" selection={selection} view={view} onViewChange={setView} onOpen={() => undefined} onContext={(event) => event.preventDefault()}
+      onDrop={(event, entry) => operations.drop(event, entryRef(entry, 'root'))} />
+    {operations.element}
+  </div>;
+}
+
 createRoot(document.getElementById('mount')!).render(<div data-desk className="relative h-screen w-screen overflow-hidden">
   {displays.map((display) => <div key={display.id} className="absolute flex items-center" style={{ left: display.workArea.x, top: display.workArea.h - BAR_H, width: display.workArea.w, height: BAR_H }} onPointerDownCapture={() => useWindowStore.getState().setActiveDisplay(display.id)}><DraftsButton displayId={display.id} /></div>)}
+  <MiniExplorer />
   <DraftsLayer />
   <ModalProvider />
   <ToastProvider />

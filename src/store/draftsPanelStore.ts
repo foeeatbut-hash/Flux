@@ -10,7 +10,10 @@ interface DraftsPanelState {
   review: boolean;
   /** Названия проектов для подсказки и групп: идентификаторы в метаданных, имена — на сервере */
   projectNames: Record<string, string>;
+  /** Лист настроек открыт поверх панели */
+  sheet: boolean;
   setReview: (review: boolean) => void;
+  setSheet: (sheet: boolean) => void;
   toggle: (displayId: number, anchor?: Anchor) => void;
   close: () => void;
   reload: () => Promise<void>;
@@ -23,10 +26,11 @@ let profile = '';
 let release: (() => void) | undefined;
 let refresh: ReturnType<typeof setTimeout> | undefined;
 export const useDraftsPanelStore = create<DraftsPanelState>((set, get) => ({
-  displayId: null, anchor: null, entries: [], loading: false, error: '', total: 0, unavailable: 0, review: false, projectNames: {},
+  displayId: null, anchor: null, entries: [], loading: false, error: '', total: 0, unavailable: 0, review: false, sheet: false, projectNames: {},
   setReview: (review) => set({ review }),
-  toggle: (displayId, anchor) => set(get().displayId === displayId ? { displayId: null, review: false } : { displayId, anchor: anchor || null }),
-  close: () => set({ displayId: null, review: false }),
+  setSheet: (sheet) => set({ sheet }),
+  toggle: (displayId, anchor) => set(get().displayId === displayId ? { displayId: null, review: false, sheet: false } : { displayId, anchor: anchor || null }),
+  close: () => set({ displayId: null, review: false, sheet: false }),
   reload: async () => {
     if (flight) { again = true; return flight; }
     const epoch = generation;

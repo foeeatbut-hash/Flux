@@ -53,6 +53,7 @@ export interface DraftItemHandlers {
   menu: (entry: WindowsDraftEntry, x: number, y: number) => void;
   key: (entry: WindowsDraftEntry, event: React.KeyboardEvent) => void;
   dragStart: (entry: WindowsDraftEntry, event: React.DragEvent) => void;
+  dragEnd?: (entry: WindowsDraftEntry, event: React.DragEvent) => void;
   hover: (entry: WindowsDraftEntry | null, rect?: DOMRect) => void;
   select: (entry: WindowsDraftEntry) => void;
 }
@@ -70,6 +71,7 @@ function common({ entry, selected, handlers }: ItemProps) {
     onContextMenu: (event: React.MouseEvent) => { event.preventDefault(); handlers.select(entry); handlers.menu(entry, event.clientX, event.clientY); },
     onKeyDown: (event: React.KeyboardEvent) => handlers.key(entry, event),
     onDragStart: (event: React.DragEvent) => { handlers.hover(null); handlers.dragStart(entry, event); },
+    onDragEnd: (event: React.DragEvent) => handlers.dragEnd?.(entry, event),
     onPointerEnter: (event: React.PointerEvent) => handlers.hover(entry, event.currentTarget.getBoundingClientRect()),
     onPointerLeave: () => handlers.hover(null),
   };

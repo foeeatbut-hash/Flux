@@ -159,6 +159,219 @@ process.on('exit', () => { if (!completed) process.exitCode = 1; });
       return out;
     });
     assert.deepEqual(bad, [], 'кегль не мельче 12 px, веса 400/500/600');
+
+    // Шаг 5: меню, клавиши, перетаскивание на папку, сведения, напоминание, настройки.
+    const reset = (stamps: Record<number, string>) => page.evaluate((st) => {
+      const f = (window as any).__drafts;
+      f.calls.length = 0; f.published.length = 0; f.trashed.length = 0; f.toasts.setState({ toasts: [] });
+      for (const key of Object.keys(f.realFiles)) delete f.realFiles[key];
+      f.publish.getState().clear();
+      f.windows.setState({ windows: [] });
+      f.settings.getState().set({ view: 'compact', compactMode: 'grid', columns: 4, kind: 'all', state: null, group: 'date', sort: 'modified', dir: 'desc', pinned: [], kept: [], snoozeUntil: 0, remindDays: 14, dropPublish: true, closeOutside: true, openOn: 'click', badge: 'unsent', groupLabels: true });
+      f.setEntries([
+        f.make('a1', 'Письмо.docx', st[0], { metadata: { fileId: 'a1', tags: ['AHU-2'], projectIds: ['p1'], revision: '', responsible: '', history: [] } }),
+        f.make('a2', 'Схема.pdf', st[1]), f.make('a3', 'Бланки', st[2], { kind: 'directory', size: 0 }), f.make('a4', 'Узел.dwg', st[3]),
+      ]);
+      f.store.setState({ projectNames: { p1: 'Проект П-1' }, review: false, sheet: false });
+    }, stamps);
+    const fresh = { 0: iso(0), 1: iso(1), 2: iso(20), 3: iso(40) };
+    const tile = (id: string) => panel.locator(`[data-draft-id="${id}"]`);
+    await reset(fresh);
+    await tile('a2').waitFor();
+    // Меню правой кнопки: восемь пунктов, «Добавить в ВДР» отключён с причиной.
+    await tile('a2').click({ button: 'right' });
+    const menu = page.locator('[data-context-menu]');
+    await menu.waitFor();
+    const labels = await menu.locator('.fx-menu-item').evaluateAll((els) => els.map((el) => el.querySelector('span.flex-1')?.textContent));
+    assert.deepEqual(labels, ['Открыть', 'Опубликовать в проект…', 'Добавить в ВДР…', 'Закрепить первым', 'Переименовать', 'Показать в Проводнике', 'Свойства', 'Удалить'], 'пункты меню черновика');
+    const vdr = menu.getByRole('button', { name: /^Добавить в ВДР/ });
+    assert.ok(await vdr.isDisabled() && /после публикации/i.test(await vdr.getAttribute('title') || ''), '«Добавить в ВДР…» отключён, и сказано почему');
+    assert.ok(await panel.isVisible(), 'щелчок по меню не закрывает панель');
+    await menu.getByRole('button', { name: /^Свойства/ }).click();
+    assert.ok(await page.evaluate(() => (window as any).__drafts.windows.getState().windows.some((w: any) => String(w.href).includes('properties=1') && decodeURIComponent(String(w.href)).includes('Схема.pdf'))), '«Свойства» открывают свойства черновика');
+    assert.ok(await panel.isVisible(), 'после пункта меню панель осталась открытой');
+    await tile('a4').click({ button: 'right' });
+    await menu.getByRole('button', { name: /^Закрепить первым/ }).click();
+    assert.equal(await panel.locator('[data-drafts-body] [data-draft-id]').first().getAttribute('data-draft-id'), 'a4', 'закреплённый черновик первым');
+    assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('flux_drafts_panel') || '{}').pinned), ['a4'], 'закрепление сохраняется');
+    await tile('a4').click({ button: 'right' });
+    assert.ok(await menu.getByRole('button', { name: /^Открепить/ }).isVisible(), 'у закреплённого — «Открепить»');
+    await page.keyboard.press('Escape');
+    assert.ok(await panel.isVisible(), 'Esc закрывает меню, а не панель');
+    await page.evaluate(() => (window as any).__drafts.windows.setState({ windows: [] }));
+    await tile('a2').dblclick();
+    assert.ok(await page.evaluate(() => (window as any).__drafts.windows.getState().windows.some((w: any) => String(w.href).startsWith('/windows-file') && String(w.href).includes('draft=a2'))), 'двойной щелчок открывает черновик');
+    // Переименовать (F2) и Удалить (Del) на выбранной плитке.
+    await tile('a2').focus();
+    await page.keyboard.press('F2');
+    await page.getByRole('dialog').getByRole('textbox').fill('Схема П1.pdf');
+    await page.keyboard.press('Enter');
+    await panel.getByText('Схема П1.pdf').first().waitFor();
+    assert.ok(await page.evaluate(() => (window as any).__drafts.calls.some((c: any) => c.action === 'rename' && c.name === 'Схема П1.pdf' && c.ref.draftId === 'a2')), 'F2 переименовывает через мост');
+    await tile('a2').focus();
+    await page.keyboard.press('Delete');
+    await tile('a2').waitFor({ state: 'detached' });
+    assert.deepEqual(await page.evaluate(() => (window as any).__drafts.trashed), ['Схема П1.pdf'], 'Del отправляет в корзину Flux');
+    // Сведения при наведении — не раньше 500 мс.
+    const letter = (await tile('a1').boundingBox())!;
+    await page.mouse.move(letter.x + letter.width / 2, letter.y + letter.height / 2);
+    await page.waitForTimeout(250);
+    assert.equal(await page.locator('[data-draft-details]').count(), 0, 'сведения не раньше 500 мс');
+    await page.locator('[data-draft-details]').waitFor();
+    const details = await page.locator('[data-draft-details]').innerText();
+    assert.ok(details.includes('Письмо.docx') && details.includes('Проект П-1') && details.includes('AHU-2') && details.includes('черновик'), `сведения: имя, проект, тег, состояние (${details.replace(/\n/g, ' | ')})`);
+    await page.mouse.move(letter.x + 200, 5);
+    await page.waitForTimeout(100);
+    assert.equal(await page.locator('[data-draft-details]').count(), 0, 'сведения исчезают, когда курсор ушёл');
+
+    // Перетаскивание на папку проекта: подсветка, подтверждение, «Оставить копию», занятое имя.
+    const drag = async (id: string, targetName: string, drop = true, modifiers: string[] = []) => {
+      const from = (await tile(id).boundingBox())!;
+      const to = (await page.locator('[data-mini-explorer]').getByText(targetName, { exact: true }).boundingBox())!;
+      await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(from.x + 40, from.y - 30, { steps: 4 });
+      await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 8 });
+      await page.mouse.move(to.x + to.width / 2 + 2, to.y + to.height / 2 + 1, { steps: 2 });
+      if (!drop) return;
+      for (const key of modifiers) await page.keyboard.down(key);
+      await page.mouse.up();
+      for (const key of modifiers) await page.keyboard.up(key);
+    };
+    await drag('a1', 'Проект', false);
+    assert.equal(await page.locator('[data-mini-explorer] [data-draft-drop="true"]').count(), 1, 'папка под курсором подсвечена «опубликовать сюда»');
+    assert.ok(await page.getByText('Опубликовать сюда', { exact: true }).isVisible(), 'у курсора подсказка «Опубликовать сюда»');
+    await page.mouse.up();
+    const dialog = page.getByRole('dialog');
+    await dialog.waitFor();
+    const text = await dialog.innerText();
+    assert.ok(text.includes('«Письмо.docx»') && text.includes('«Проект»') && text.includes('Оставить копию в черновиках'), `подтверждение: что, куда, копия (${text.replace(/\n/g, ' | ')})`);
+    assert.equal(await page.evaluate(() => (window as any).__drafts.calls.filter((c: any) => c.action === 'move').length), 0, 'до подтверждения ничего не перенесено');
+    assert.equal(await dialog.getByRole('checkbox').isChecked(), false, 'копия по умолчанию не отмечена');
+    await dialog.getByRole('button', { name: 'Отмена' }).click();
+    assert.equal(await page.evaluate(() => (window as any).__drafts.calls.filter((c: any) => c.action === 'move' || c.action === 'publishDraft').length), 0, 'отмена ничего не публикует');
+    // Занятое имя в папке назначения.
+    await page.evaluate(() => { (window as any).__drafts.realFiles['Проект'] = ['Письмо.docx']; });
+    await drag('a1', 'Проект');
+    await dialog.waitFor();
+    await dialog.getByRole('button', { name: 'Опубликовать', exact: true }).click();
+    await page.waitForFunction(() => (window as any).__drafts.published.length === 1);
+    assert.deepEqual(await page.evaluate(() => (window as any).__drafts.published), [{ name: 'Письмо (2).docx', parent: 'Проект' }], 'занятое имя получает «(2)»');
+    const order = await page.evaluate(() => (window as any).__drafts.calls.filter((c: any) => ['move', 'copy', 'publishDraft'].includes(c.action)).map((c: any) => `${c.action}${c.name ? ':' + c.name : ''}`));
+    assert.deepEqual(order, ['move:Письмо.docx', 'move:Письмо (2).docx', 'publishDraft'], 'перенос с повтором имени, затем публикация');
+    await tile('a1').waitFor({ state: 'detached' });
+    // С копией: исходный черновик остаётся.
+    await drag('a4', 'Архив');
+    await dialog.waitFor();
+    await dialog.getByRole('checkbox').check();
+    await dialog.getByRole('button', { name: 'Опубликовать', exact: true }).click();
+    await page.waitForFunction(() => (window as any).__drafts.published.length === 2);
+    assert.ok(await page.evaluate(() => (window as any).__drafts.calls.some((c: any) => c.action === 'copy' && c.carryMeta === true && c.parent.relativePath === 'Архив')), 'с галочкой — копия с метаданными');
+    assert.equal(await tile('a4').count(), 1, 'исходный черновик остался в панели');
+    // Ctrl при отпускании отмечает «Оставить копию» заранее.
+    await drag('a4', 'Проект', true, ['Control']);
+    await dialog.waitFor();
+    assert.equal(await dialog.getByRole('checkbox').isChecked(), true, 'Ctrl при отпускании — копия отмечена');
+    await dialog.getByRole('button', { name: 'Отмена' }).click();
+    // Настройка «перетаскивание публикует» выключена — окна нет, но причина названа.
+    await page.evaluate(() => (window as any).__drafts.settings.getState().set({ dropPublish: false }));
+    await drag('a4', 'Проект');
+    await page.waitForTimeout(200);
+    assert.equal(await page.getByRole('dialog').count(), 0, 'при выключенной настройке окна публикации нет');
+    assert.ok(await page.evaluate(() => (window as any).__drafts.toasts.getState().toasts.some((t: any) => /выключена в настройках/.test(t.message))), 'причина названа');
+    await page.evaluate(() => (window as any).__drafts.settings.getState().set({ dropPublish: true }));
+    // Отпустили в пустое место: наружу не вытаскивается, подсказка путь.
+    await page.evaluate(() => (window as any).__drafts.toasts.setState({ toasts: [] }));
+    await drag('a4', 'Проект', false);
+    await page.mouse.move(900, 600, { steps: 4 });
+    await page.mouse.up();
+    await page.waitForFunction(() => (window as any).__drafts.toasts.getState().toasts.some((t: any) => /остаётся во Flux/.test(t.message)));
+
+    // Напоминание: «N черновика старше 14 дней — Разобрать / Позже».
+    await reset(fresh);
+    const reminder = panel.locator('[data-drafts-reminder]');
+    await reminder.waitFor();
+    assert.equal((await reminder.innerText()).replace(/\s+/g, ' ').trim(), '2 черновика старше 14 дней Разобрать Позже', 'текст напоминания');
+    await reminder.getByRole('button', { name: 'Позже' }).click();
+    assert.equal(await reminder.count(), 0, '«Позже» скрывает напоминание');
+    assert.ok(await page.evaluate(() => JSON.parse(localStorage.getItem('flux_drafts_panel') || '{}').snoozeUntil) > Date.now() + 20 * 3600_000, '«Позже» усыпляет примерно на сутки');
+    await page.evaluate(() => (window as any).__drafts.settings.getState().set({ snoozeUntil: 0, remindDays: 0 }));
+    assert.equal(await reminder.count(), 0, 'срок «никогда» выключает напоминание');
+    await page.evaluate(() => (window as any).__drafts.settings.getState().set({ remindDays: 30 }));
+    assert.match((await reminder.innerText()).replace(/\s+/g, ' '), /^1 черновик старше 30 дней/, 'срок 30 дней: старше — один');
+    await page.evaluate(() => (window as any).__drafts.settings.getState().set({ remindDays: 14 }));
+    await reminder.getByRole('button', { name: 'Разобрать', exact: true }).click();
+    const review = panel.locator('[data-drafts-review]');
+    await review.waitFor();
+    assert.equal(await panel.locator('[data-draft-id]').count(), 2, 'разбор показывает только старые');
+    await review.getByRole('button', { name: 'Оставить все' }).click();
+    assert.deepEqual((await page.evaluate(() => JSON.parse(localStorage.getItem('flux_drafts_panel') || '{}').kept)).sort(), ['a3', 'a4'], '«Оставить все» запоминает черновики');
+    assert.equal(await panel.locator('[data-draft-id]').count(), 0, 'оставленные уходят из разбора');
+    await review.getByRole('button', { name: 'Готово' }).click();
+    assert.equal(await panel.locator('[data-draft-id]').count(), 4, 'после разбора в панели по-прежнему все черновики');
+    assert.equal(await reminder.count(), 0, 'об оставленных напоминание молчит');
+    await page.evaluate(() => (window as any).__drafts.settings.getState().set({ kept: [] }));
+    await panel.getByRole('button', { name: /^Разобрать старые/ }).click();
+    await review.getByRole('button', { name: 'Удалить все' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Удалить', exact: true }).click();
+    await page.waitForFunction(() => (window as any).__drafts.trashed.length === 2);
+    assert.deepEqual((await page.evaluate(() => (window as any).__drafts.trashed)).sort(), ['Бланки', 'Узел.dwg'], '«Удалить все» — в корзину Flux после вопроса');
+    await reset(fresh);
+    await panel.getByRole('button', { name: /^Разобрать старые/ }).click();
+    await review.getByRole('button', { name: 'Опубликовать все' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Опубликовать', exact: true }).click();
+    await page.waitForFunction(() => (window as any).__drafts.published.length === 2);
+    assert.equal(await page.evaluate(() => (window as any).__drafts.calls.filter((c: any) => c.action === 'move').length), 0, 'на месте — без переноса');
+    // Полоса: напоминание — кнопка в шапке.
+    await reset(fresh);
+    await page.evaluate(() => (window as any).__drafts.settings.getState().set({ view: 'strip' }));
+    await panel.getByRole('button', { name: 'Разобрать · 2' }).click();
+    assert.equal(await panel.getAttribute('data-drafts-view'), 'compact', '«Разобрать» в полосе открывает компактную панель');
+    assert.equal(await panel.locator('[data-drafts-review]').count(), 1);
+
+    // Настройки: лист, значения, сохранение, Esc по слоям.
+    await reset(fresh);
+    await panel.getByRole('button', { name: 'Настройки панели' }).click();
+    const sheet = page.locator('[data-drafts-settings]');
+    await sheet.waitFor();
+    const sheetBox = (await sheet.boundingBox())!;
+    assert.ok(sheetBox.x >= 0 && sheetBox.y >= 0 && sheetBox.x + sheetBox.width <= 1280, 'лист настроек в пределах окна');
+    for (const title of ['Вид панели', 'Полоса: ряды', 'Полоса: значки', 'Компактная: столбцы', 'Компактная: показ', 'Подписи групп', 'Сортировка', 'Группы', 'Черновики', 'Папки-черновики', 'Точка состояния', 'Счётчик на кнопке', 'Открывать', 'Закрывать щелчком вне панели', 'Перетаскивание на папку публикует', 'Напоминать о старых']) {
+      assert.ok(await sheet.locator('.fx-set-text', { hasText: title }).count() >= 1, `в настройках есть «${title}»`);
+    }
+    await sheet.getByRole('group', { name: 'Столбцы плиток' }).getByRole('button', { name: '5' }).click();
+    assert.ok(Math.abs((await panel.boundingBox())!.width - 480) <= 1, 'столбцы 5 — панель шире');
+    await sheet.getByRole('switch', { name: 'Подписи групп' }).click();
+    assert.equal(await panel.locator('[data-drafts-body] h3').count(), 0, 'подписи групп выключены');
+    await sheet.getByRole('group', { name: 'Напоминание о старых' }).getByRole('button', { name: 'Никогда' }).click();
+    assert.equal(await panel.locator('[data-drafts-reminder]').count(), 0, 'напоминание выключено в настройках');
+    await sheet.getByRole('group', { name: 'Счётчик на кнопке' }).getByRole('button', { name: 'Нет' }).click();
+    assert.equal(await page.locator('[data-drafts-button="1"] span.rounded-full').count(), 0, 'счётчик на кнопке выключен');
+    await sheet.getByRole('group', { name: 'Счётчик на кнопке' }).getByRole('button', { name: 'Все' }).click();
+    assert.equal(await page.locator('[data-drafts-button="1"]').getByText('4', { exact: true }).count(), 1, 'счётчик «все» показывает все черновики');
+    await sheet.getByRole('switch', { name: 'Закрывать щелчком вне панели' }).click();
+    await page.mouse.click(900, 200);
+    assert.ok(await panel.isVisible(), 'без «закрывать щелчком вне» панель остаётся');
+    await page.keyboard.press('Escape');
+    assert.equal(await sheet.count(), 0, 'Esc сначала закрывает лист настроек');
+    assert.ok(await panel.isVisible(), 'а панель остаётся');
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('flux_drafts_panel') || '{}'));
+    assert.deepEqual([saved.columns, saved.groupLabels, saved.remindDays, saved.badge, saved.closeOutside], [5, false, 0, 'all', false], 'настройки сохраняются на рабочем месте');
+    // Открытие наведением.
+    await page.evaluate(() => { const f = (window as any).__drafts; f.store.getState().close(); f.settings.getState().set({ openOn: 'hover' }); });
+    await page.locator('[data-drafts-button="1"]').hover();
+    await panel.waitFor();
+    // Лист над полосой.
+    await page.evaluate(() => { const f = (window as any).__drafts; f.store.getState().close(); f.settings.getState().set({ view: 'strip', openOn: 'click' }); });
+    await page.locator('[data-drafts-button="1"]').click();
+    await panel.getByRole('button', { name: 'Настройки панели' }).click();
+    await page.waitForTimeout(300); // лист появляется со сдвигом fx-rise-in
+    const above = (await sheet.boundingBox())!;
+    const stripBox = (await panel.boundingBox())!;
+    assert.ok(above.y + above.height <= stripBox.y + 1 && above.y >= 0, `над полосой лист настроек стоит выше неё (${JSON.stringify(above)})`);
+    await sheet.getByRole('button', { name: 'Сбросить' }).click();
+    assert.equal((await page.evaluate(() => JSON.parse(localStorage.getItem('flux_drafts_panel') || '{}'))).columns, 4, '«Сбросить» возвращает умолчания');
+    await page.evaluate(() => (window as any).__drafts.store.getState().close());
     assert.deepEqual(errors, [], 'нет ошибок страницы');
     completed = true;
     console.log('Проверки панели черновиков пройдены');

@@ -7,6 +7,8 @@
 import { create } from 'zustand';
 import type { WindowsFileRef } from '../lib/windowsFiles';
 import type { DraftDragItem } from '../lib/draftsActions';
+import { useDraftsSettings } from './draftsSettingsStore';
+import { useToastStore } from './toastStore';
 
 export interface DraftPublishRequest {
   items: DraftDragItem[];
@@ -27,3 +29,16 @@ export const useDraftsPublishStore = create<State>((set) => ({
   ask: (request) => set({ request }),
   clear: () => set({ request: null }),
 }));
+
+/**
+ * Черновик отпустили на папку Windows: Проводник и дерево зовут это одно место.
+ * Выключенная настройка «Перетаскивание на папку публикует» не молчит: человек
+ * увидит, почему ничего не произошло, и где это включить.
+ */
+export function offerDraftDrop(items: DraftDragItem[], parent: WindowsFileRef, keepCopy: boolean) {
+  if (!useDraftsSettings.getState().dropPublish) {
+    useToastStore.getState().addToast('Публикация перетаскиванием выключена в настройках панели «Черновики». Опубликуйте через меню черновика.', 'info');
+    return;
+  }
+  useDraftsPublishStore.getState().ask({ items, parent, keepCopy });
+}

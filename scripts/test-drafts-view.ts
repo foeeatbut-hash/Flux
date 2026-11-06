@@ -57,6 +57,13 @@ ok('Группы по дате: Сегодня, Вчера, Неделя, Ран
   assert.deepEqual(sections[3].items.map((e) => e.draftId), ['d', 'e']);
   assert.equal(groupDrafts(all, 'none', { openDrafts: none }).length, 1);
 });
+ok('Закреплённые — первая группа, их нет среди остальных', () => {
+  const sections = groupDrafts(sortDrafts(all, 'modified', 'desc', ['e']), 'date', { now: NOW, openDrafts: none, pinned: ['e'] });
+  assert.deepEqual(sections.map((s) => s.label), ['Закреплённые', 'Сегодня', 'Вчера', 'Неделя', 'Раньше']);
+  assert.deepEqual(sections[0].items.map((e) => e.draftId), ['e']);
+  assert.deepEqual(sections[4].items.map((e) => e.draftId), ['d'], 'закреплённый не повторяется в своей дате');
+  assert.deepEqual(groupDrafts(all, 'date', { now: NOW, openDrafts: none, pinned: ['нет-такого'] }).map((s) => s.label), ['Сегодня', 'Вчера', 'Неделя', 'Раньше']);
+});
 ok('Короткое время под плиткой', () => {
   assert.equal(shortWhen(at(0), NOW), '9:30');
   assert.equal(shortWhen(at(1), NOW), 'вчера 9:30');

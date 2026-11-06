@@ -134,8 +134,15 @@ export interface DraftsSection { key: string; label: string; items: WindowsDraft
  * что дала сортировка; сами группы — в порядке первого появления, а у дат —
  * всегда от свежих к старым, иначе «Раньше» оказывалась бы впереди «Сегодня».
  */
-export function groupDrafts(sorted: readonly WindowsDraftEntry[], group: DraftGroup, opts: { now?: number; openDrafts: ReadonlySet<string>; projectName?: (id: string) => string }): DraftsSection[] {
+export function groupDrafts(sorted: readonly WindowsDraftEntry[], group: DraftGroup, opts: { now?: number; openDrafts: ReadonlySet<string>; projectName?: (id: string) => string; pinned?: readonly string[] }): DraftsSection[] {
   if (group === 'none') return [{ key: 'all', label: '', items: [...sorted] }];
+  // Закреплённые — своя первая группа: иначе «первым» было бы только внутри «Раньше» или «Проект».
+  const pinnedIds = new Set(opts.pinned || []);
+  const pinnedItems = sorted.filter((entry) => entry.draftId && pinnedIds.has(entry.draftId));
+  if (pinnedItems.length) {
+    const rest = groupDrafts(sorted.filter((entry) => !(entry.draftId && pinnedIds.has(entry.draftId))), group, { ...opts, pinned: [] });
+    return [{ key: 'pinned', label: 'Закреплённые', items: pinnedItems }, ...rest];
+  }
   const keyOf = (entry: WindowsDraftEntry): [string, string] => {
     if (group === 'date') { const g = dateGroup(entry.modifiedAt, opts.now); return [g, g]; }
     if (group === 'project') { const id = projectKey(entry); return [id || '-', id ? opts.projectName?.(id) || 'Проект' : 'Без проекта']; }

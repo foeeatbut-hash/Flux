@@ -195,6 +195,15 @@
       "timeoutMs": 30000
     },
     {
+      "id": "shell-drafts-actions",
+      "path": "scripts/test-drafts-actions.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
       "id": "shell-drafts-store",
       "path": "scripts/test-drafts-store.ts",
       "layer": "unit",

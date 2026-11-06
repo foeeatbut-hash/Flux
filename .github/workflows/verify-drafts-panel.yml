@@ -11,6 +11,8 @@ on:
       - 'electron/filesystem/**'
       - 'filesystem/contracts.ts'
       - 'scripts/*drafts*'
+      - 'src/components/files/**'
+      - 'src/store/drafts*'
       - 'scripts/fixtures/drafts*'
       - '.github/workflows/verify-drafts-panel.yml'
 permissions:
@@ -39,7 +41,7 @@ jobs:
           $env:NODE_OPTIONS='--max-old-space-size=8192'
           npx tsc --noEmit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($check in @('test-drafts-desktop','test-drafts-source','test-drafts-store','test-architecture','test-windows-files','test-windows-files-bridge','check-verification')) {
+          foreach ($check in @('test-drafts-desktop','test-drafts-source','test-drafts-store','test-drafts-view','test-drafts-actions','test-architecture','test-windows-files','test-windows-files-bridge','check-verification')) {
             node --import tsx "scripts/$check.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
