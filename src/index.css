@@ -1571,6 +1571,8 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-hov { transition: background-color var(--flux-dur-fast) var(--flux-ease); }
   .fx-hov:hover { background: var(--flux-hover); }
   .fx-sel { background: var(--flux-sel); color: var(--flux-text); font-weight: 500; }
+  /* Папка, на которую сейчас отпустят черновик из панели «Черновики» (DraftsLayer ставит атрибут на время перетаскивания) */
+  [data-draft-drop="true"] { outline: 2px solid var(--flux-accent); outline-offset: -2px; background: var(--flux-sel); }
 
   /* ── Диалог ── */
   /* Диалог — дочернее окно и всегда «активное»: ободок и тень те же, что у

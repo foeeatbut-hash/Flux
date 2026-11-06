@@ -77,6 +77,17 @@
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 900000
+    },
+    {
+      "id": "filesystem-explorer-drafts-source",
+      "path": "scripts/test-drafts-source.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "temporary-filesystem"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 30000
     }
   ],
   "actions": [

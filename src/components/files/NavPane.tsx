@@ -10,6 +10,8 @@ import type { NavRow } from './navTree';
 import { refKey, type Place } from './places';
 import { usePlacesStore } from '../../store/placesStore';
 import { useToastStore } from '../../store/toastStore';
+import { DRAFT_MIME, isDraftDrag, parseDraftDrag } from '../../lib/draftsActions';
+import { offerDraftDrop } from '../../store/draftsPublishStore';
 import { FONT_STACK, SIZE, X as T } from './explorerTheme';
 
 /**
@@ -23,6 +25,9 @@ import { FONT_STACK, SIZE, X as T } from './explorerTheme';
  */
 
 const INDENT = 8;
+
+/** Принимают черновик только настоящие папки Windows: у папки-черновика Flux публиковать некуда. */
+const takesDraft = (row: NavRow) => !!row.place?.ref && !row.place.ref.draftId && row.place.kind === 'folder';
 
 export default function NavPane({ place, onOpen, onOpenInNewTab }: {
   place: Place;
@@ -103,7 +108,12 @@ export default function NavPane({ place, onOpen, onOpenInNewTab }: {
           : (
             <div key={row.key} role="treeitem" data-nav-key={row.key} aria-level={row.depth + 1} aria-selected={row.selected}
               aria-current={row.selected ? 'page' : undefined} aria-expanded={row.expandable ? row.expanded : undefined}
-              tabIndex={row.key === focusKey ? 0 : -1} title={row.label}
+              tabIndex={row.key === focusKey ? 0 : -1} title={row.label} data-draft-target={takesDraft(row) ? 'true' : undefined}
+              onDragOver={(event) => { if (takesDraft(row) && isDraftDrag(event)) { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; } }}
+              onDrop={(event) => {
+                const items = takesDraft(row) ? parseDraftDrag(event.dataTransfer.getData(DRAFT_MIME)) : null;
+                if (items) { event.preventDefault(); offerDraftDrop(items, row.place!.ref!, event.ctrlKey || event.metaKey); }
+              }}
               onClick={() => row.place && onOpen(row.place)}
               onContextMenu={(event) => { if (!row.place) return; event.preventDefault(); setMenu({ x: event.clientX, y: event.clientY, row }); }}
               className="group relative cursor-default select-none outline-none" style={{ height: SIZE.navItem }}>

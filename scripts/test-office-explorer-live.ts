@@ -131,7 +131,19 @@ void (async () => {
           return;
         }
       }
-      if (status >= 400 && !/\/api\/(license|auth|presence)/.test(response.url())) failed.push(String(status) + ' ' + response.url());
+      if (status >= 400 && !/\/api\/(license|auth|presence)/.test(response.url())) {
+        failed.push(String(status) + ' ' + response.url());
+        if (new URL(response.url()).pathname === '/api/project-data/office-local/write-state') {
+          // Хеши различают конфликт содержимого и потерю ответа; байты документа в журнал не попадают.
+          const body = request.postDataJSON();
+          const reply = await response.json().catch(() => null);
+          console.error('OFFICE_LOCAL_STATE_CONFLICT', JSON.stringify({
+            status, route, expectedHash: body?.baseHash,
+            contentHash: createHash('sha256').update(Buffer.from(body?.base64 || '', 'base64')).digest('hex'),
+            actualHash: reply?.baseHash, error: reply?.error,
+          }));
+        }
+      }
       if (new URL(response.url()).pathname === '/api/project-data/office-local/update-fields') {
         let error: string | undefined;
         let result: any = null;

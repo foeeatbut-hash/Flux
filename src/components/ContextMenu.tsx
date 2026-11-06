@@ -34,6 +34,10 @@ export interface MenuItem {
    * пункт «Создать», поэтому панель открывается уже на нужном месте.
    */
   defaultOpen?: boolean;
+  /** Сочетание клавиш справа: «Enter», «Ctrl+P» — только подсказка, клавишу обрабатывает экран */
+  hint?: string;
+  /** Подсказка при наведении; у отключённого пункта — почему он отключён */
+  title?: string;
   onClick?: () => void;
 }
 
@@ -96,6 +100,7 @@ function Rows({ items, onClose, depth, bounds, auto }: { items: MenuItem[]; onCl
             <button
               type="button"
               disabled={it.disabled}
+              title={it.title}
               aria-haspopup={hasSub || undefined}
               aria-expanded={hasSub ? open === i : undefined}
               onMouseEnter={() => {
@@ -118,6 +123,7 @@ function Rows({ items, onClose, depth, bounds, auto }: { items: MenuItem[]; onCl
                 {it.checked ? <Check className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" /> : it.icon}
               </span>
               <span className="flex-1 truncate">{it.label}</span>
+              {it.hint && <span className="ml-3 shrink-0 text-xs text-slate-400">{it.hint}</span>}
               {hasSub && <ChevronRight className="w-3.5 h-3.5 shrink-0 text-slate-400" />}
             </button>
 
