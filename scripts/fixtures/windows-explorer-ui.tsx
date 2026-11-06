@@ -243,7 +243,8 @@ async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesRespons
     return canvas.toDataURL('image/png');
   }, onSearch: (callback: (event: import('../../filesystem/contracts').WindowsSearchEvent) => void) => { searchListeners.add(callback); return () => { searchListeners.delete(callback); }; }, onChanged: (callback: (change: { rootId: string; relativePath: string; rescan: true }) => void) => { changeListeners.add(callback); return () => { changeListeners.delete(callback); }; } },
   desktopShell: {
-    snapshot: async () => ({ status: 'ready', revision: 'fixture', items: [
+    // «fallback» — стол без моста оболочки Windows: тогда Flux сам рисует файлы Windows.
+    snapshot: async () => (window as any).__desktopShellMode === 'fallback' ? { status: 'unavailable', revision: '', items: [], view: null } : ({ status: 'ready', revision: 'fixture', items: [
       { id: 'shell-folder', name: 'Системная папка', kind: 'directory', position: { x: -1200, y: -100 }, icon: null, monitorId: 2 },
       { id: 'shell-file', name: 'План.xlsx', kind: 'file', position: { x: -1104, y: -100 }, icon: null, monitorId: 2, fileRef: { rootId: 'desktop-id', relativePath: 'План.xlsx' } },
     ], view: { physicalBounds: { x: -1920, y: -300, width: 4800, height: 1920 }, iconSize: 32, spacing: { x: 96, y: 104 }, iconsVisible: true } }),
@@ -269,15 +270,15 @@ useStore.getState().setActiveProject({ id: 'project-1', name: 'Проект 1' }
 
 function LocationDebug() { const location = useLocation(); const navigate = useNavigate(); (window as any).__go = navigate; return <output data-testid="route">{location.pathname}{location.search}</output>; }
 function Fixture() {
-  const [desktop, setDesktop] = useState(false);
-  (window as any).__showWindowsDesktop = () => setDesktop(true);
+  const [desktop, setDesktop] = useState<false | 'ready' | 'fallback'>(false);
+  (window as any).__showWindowsDesktop = (mode: 'ready' | 'fallback' = 'ready') => { (window as any).__desktopShellMode = mode; setDesktop(mode); };
   (window as any).__seedExplorerSharedSource = () => {
     const id = 'fixture-owner';
     localStorage.setItem(`flux.shared-sources:${ENV_CONFIG.apiUrl}:${id}`, JSON.stringify([{ sourceKey: 'fixture-source', fileId: 'shared-file', ref: { rootId: root.id, relativePath: 'Инструкция.docx' }, name: 'Инструкция.docx', baseSha: 'fixture-sha', audience: 'ALL' }]));
     useStore.setState({ user: { id } as any });
   };
   return <div style={{ position: 'absolute', inset: 0, width: '100vw', height: '100vh' }}>
-    {desktop ? <WindowsDesktop screenOrigin={{ x: -1280, y: -200 }} /> : <div className="h-full"><LocationDebug /><Explorer /></div>}
+    {desktop ? <WindowsDesktop key={desktop} screenOrigin={{ x: -1280, y: -200 }} /> : <div className="h-full"><LocationDebug /><Explorer /></div>}
     <ToastProvider />
   </div>;
 }

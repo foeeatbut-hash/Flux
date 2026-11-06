@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { WindowsFileRef, WindowsSearchEvent, WindowsSearchFilters, WindowsSearchHit, WindowsSearchLimits, WindowsSearchStop } from '../../filesystem/contracts';
 import { WindowsFilesError, isContained, joinRelative, validateWindowsName } from './paths';
 import type { WindowsFilesService } from './service';
+import { unpublishedDrafts } from './draftIndex';
 
 // Пределы защищают интерфейс и диск: поиск с корня огромного тома без них
 // превращается в многоминутный обход. Верхняя планка — у нас, а не у renderer:
@@ -181,7 +182,7 @@ async function walk(service: WindowsFilesService, owner: number, start: WindowsF
   const root = service.state.root(resolved.rootId);
 
   // Черновики Flux — часть дерева, как и обычные файлы: поиск обязан их находить.
-  const draftsHere = Object.values(service.state.data.drafts).filter(draft => !draft.trashed && !draft.publishedRef && draft.parent.rootId === resolved.rootId);
+  const draftsHere = unpublishedDrafts(service).filter(draft => draft.parent.rootId === resolved.rootId);
   const inside = (draft: (typeof draftsHere)[number]) => {
     if (virtualStart) {
       for (let id: string | undefined = draft.parent.draftId, hops = 0; id && hops < 64; id = service.state.data.drafts[id]?.parent.draftId, hops++) if (id === startDraft!.id) return true;

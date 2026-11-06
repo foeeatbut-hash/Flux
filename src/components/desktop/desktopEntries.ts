@@ -1,4 +1,8 @@
 import type { WindowsFileEntry } from '../../lib/windowsFiles';
+export function visibleDesktopEntries(entries: readonly WindowsFileEntry[], shellManaged: boolean): WindowsFileEntry[] {
+  return shellManaged ? [] : entries.filter((entry) => entry.storage === 'windows' && !entry.draftId);
+}
+
 const entryPath = (entry: WindowsFileEntry) => `${entry.rootId || ''}\0${entry.relativePath}\0${entry.draftId || ''}`;
 export function mergeDesktopEntries(previous: WindowsFileEntry[], incoming: WindowsFileEntry[]): WindowsFileEntry[] {
   const byPath = new Map(previous.map((entry) => [entryPath(entry), entry]));

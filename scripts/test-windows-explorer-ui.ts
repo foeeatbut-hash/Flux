@@ -732,11 +732,22 @@ async function loadUntil(page: Page, count: number) {
       await (window as any).electron.windowsFiles.invoke({ action: 'createDraft', parent: { rootId: 'desktop-id', relativePath: '' }, name: 'Выбор рабочего стола.txt' });
       (window as any).__emitChanged('desktop-id', '');
     });
-    const desktopFile = page.locator('[data-desktop-item]').first();
+    await page.waitForTimeout(300);
+    // Черновики Flux живут в панели «Черновики»: поверх значков Windows на столе их нет.
+    ok('Черновик Flux не выводится на стол поверх значков Windows', await page.locator('[data-desktop-item]').count() === 0 && await page.getByText('Выбор рабочего стола.txt').count() === 0);
+    await page.mouse.move(shellBox!.x + shellBox!.width / 2, shellBox!.y + shellBox!.height / 2);
+    await page.mouse.down();
+    ok('Нажатие на значок оболочки не запускает рамку и не перехватывает указатель', await page.evaluate(() => !document.querySelector('section[aria-label="Рабочий стол Windows"] [class*="border-[#0067c0]"]')));
+    await page.mouse.up();
+    // Рамка, Ctrl+A и обновление проверяются на столе без моста оболочки:
+    // только там Flux сам рисует файлы Windows.
+    await page.evaluate(() => (window as any).__showWindowsDesktop('fallback'));
+    await page.locator('section[aria-label="Рабочий стол Windows"] [data-desktop-item]').first().waitFor();
+    const desktopFile = page.locator('[data-desktop-item]').last();
     const desktopFileBox = await desktopFile.boundingBox();
     if (!desktopFileBox) throw new Error('Не нашёлся файл для рамочного выделения рабочего стола');
-    // Старт рамки — пустое место справа от файла: ниже и правее лежит значок оболочки (<button>), на нём рамка не начинается.
-    const emptyStart = { x: desktopFileBox.x + desktopFileBox.width + 20, y: desktopFileBox.y + desktopFileBox.height / 2 };
+    // Старт рамки — пустое место под последним файлом сетки: справа и слева от него стоят соседи, на них рамка не начинается.
+    const emptyStart = { x: desktopFileBox.x + desktopFileBox.width / 2, y: desktopFileBox.y + desktopFileBox.height + 20 };
     await page.mouse.move(emptyStart.x, emptyStart.y);
     await page.mouse.down();
     await page.mouse.move(desktopFileBox.x + desktopFileBox.width / 2, desktopFileBox.y + desktopFileBox.height / 2, { steps: 5 });
@@ -744,10 +755,6 @@ async function loadUntil(page: Page, count: number) {
     ok('Рамка на рабочем столе выделяет пересечённый файл', await desktopFile.getAttribute('aria-selected') === 'true');
     await page.mouse.click(emptyStart.x, emptyStart.y);
     ok('Простой щелчок по пустому месту рабочего стола снимает выделение', await desktopFile.getAttribute('aria-selected') !== 'true');
-    await page.mouse.move(shellBox!.x + shellBox!.width / 2, shellBox!.y + shellBox!.height / 2);
-    await page.mouse.down();
-    ok('Нажатие на значок оболочки не запускает рамку и не перехватывает указатель', await page.evaluate(() => !document.querySelector('section[aria-label="Рабочий стол Windows"] [class*="border-[#0067c0]"]')));
-    await page.mouse.up();
     await page.locator('section[aria-label="Рабочий стол Windows"] > div.relative').focus();
     await page.keyboard.press('Control+A');
     ok('Ctrl+A выделяет все значки рабочего стола Windows', await page.locator('[data-desktop-item][aria-selected="true"]').count() === await page.locator('[data-desktop-item]').count());
@@ -758,6 +765,8 @@ async function loadUntil(page: Page, count: number) {
     await page.getByRole('status').filter({ hasText: 'Не удалось' }).waitFor({ timeout: 5000 }).catch(() => undefined);
     ok('Ошибка обновления сохраняет уже показанные значки рабочего стола', desktopItemCountBeforeFailure > 0 && await page.locator('[data-desktop-item]').count() === desktopItemCountBeforeFailure);
     await page.evaluate(() => (window as any).__setExplorerListFault('none'));
+    await page.evaluate(() => (window as any).__showWindowsDesktop('ready'));
+    await page.getByRole('button', { name: 'Системная папка' }).waitFor();
     await page.screenshot({ path: '/tmp/flux-desktop-light.png' });
     await page.evaluate(() => document.documentElement.classList.add('dark'));
     await page.screenshot({ path: '/tmp/flux-desktop-dark.png' });
