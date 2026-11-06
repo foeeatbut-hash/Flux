@@ -53,7 +53,7 @@ export interface Card {
 export interface Action {
   to: Status;
   action: string;
-  needs: { reason: boolean; assignee: boolean; release: boolean; target: boolean };
+  needs: { reason: boolean; assignee: boolean; release: boolean; moduleRelease?: boolean; target: boolean };
 }
 
 const ACTION_NAMES: Record<string, string> = {

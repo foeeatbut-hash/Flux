@@ -95,7 +95,7 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
     });
     if (!verdict.ok) return fail(res, ERRORS.INVALID_TRANSITION, verdict.error || 'Так менять нельзя');
 
-    if (ctx.report.moduleId && to === 'VERIFY' && !MODULE_VERSION.test(String(body.resolvedVersion || ''))) return fail(res, ERRORS.VALIDATION, 'Для подпрограммы нужна версия исправления');
+    if (ctx.report.moduleId && ((to === 'VERIFY' && !MODULE_VERSION.test(String(body.resolvedVersion || ''))) || (to === 'DONE' && !MODULE_VERSION.test(String(ctx.report.resolvedVersion || ''))))) return fail(res, ERRORS.VALIDATION, 'Для подпрограммы нужна версия исправления');
     const patch: Record<string, unknown> = { status: to };
     if (to === 'IN_PROGRESS') {
       const assignee = String(body.assigneeId || ctx.report.assigneeId || '');
@@ -339,7 +339,7 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
     const side = ctx.mine && !ctx.triage ? 'author' : (ctx.triage ? 'triage' : 'author');
     ok(res, allowedFrom(ctx.report.status as Status, side).map((r) => ({
       to: r.to, action: r.action,
-      needs: { reason: !!r.reason, assignee: !!r.assignee, release: !!r.release, target: !!r.target },
+      needs: { reason: !!r.reason, assignee: !!r.assignee, release: !!r.release, moduleRelease: !!ctx.report.moduleId && !!r.release, target: !!r.target },
     })));
   });
 }

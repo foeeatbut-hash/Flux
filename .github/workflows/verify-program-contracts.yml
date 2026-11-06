@@ -96,6 +96,7 @@ jobs:
           for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-icons-shell-ui test-import-file-chooser-ui test-chat-ui test-chat-screen-ui test-owner-login-ui test-modules-restart-ui test-feedback-module-ui; do
             node --import tsx "scripts/$check.ts"
           done
+          SHOT="${{ runner.temp }}/store/store.png" node --import tsx scripts/test-modules-store-ui.ts
           for check in test-remaining-identity-import-ui test-remaining-files-notes-ui test-remaining-engineering-registry-ui test-remaining-collaboration-handbook-ui test-remaining-shell-ui; do
             node --import tsx "scripts/$check.ts"
           done
@@ -175,6 +176,9 @@ jobs:
             ${{ runner.temp }}/flux-source-inventory.json
             ${{ runner.temp }}/flux-infrastructure.json
             ${{ runner.temp }}/flux-ui-vite.log
+            /tmp/flux-restart-*.png
+            /tmp/feedback-module-*.png
+            ${{ runner.temp }}/store/*.png
             /tmp/catalog-ui-report.json
             /tmp/catalog-ui-*.png
             /tmp/employee-import-*.png

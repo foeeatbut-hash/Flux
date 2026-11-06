@@ -67,6 +67,43 @@ jobs:
           npx prisma generate --schema=prisma/schema.prisma
           npx prisma generate --schema=prisma/schema.mariadb.prisma
           npx prisma generate --schema=prisma/schema.postgresql.prisma
+      - name: "Модули: публикация, Store и откаты на PostgreSQL и MariaDB"
+        env:
+          MODULES_PG_BASE: postgresql://postgres:disposable-ci-fixture-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres
+          MODULES_MARIA_BASE: mysql://root:disposable-ci-fixture-password@127.0.0.1:${{ job.services.mariadb.ports[3306] }}/
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const { spawnSync } = require('node:child_process');
+          const { Client } = require('pg');
+          const mariadb = require('mariadb');
+          (async () => {
+            for (const provider of ['pg', 'maria']) {
+              const base = new URL(process.env[provider === 'pg' ? 'MODULES_PG_BASE' : 'MODULES_MARIA_BASE']);
+              const db = provider === 'pg'
+                ? new Client({ connectionString: base.href })
+                : await mariadb.createConnection({ host: base.hostname, port: Number(base.port), user: decodeURIComponent(base.username), password: decodeURIComponent(base.password) });
+              if (provider === 'pg') await db.connect();
+              try {
+                for (const suite of ['publishing', 'channels', 'store']) {
+                  const name = `flux_modules_${provider}_${suite}_fixture`;
+                  await db.query(provider === 'pg' ? `CREATE DATABASE "${name}"` : `CREATE DATABASE \`${name}\``);
+                  const fixture = new URL(base.href);
+                  fixture.pathname = `/${name}`;
+                  const env = { ...process.env };
+                  delete env.FLUX_MODULES_PG_FIXTURE_URL;
+                  delete env.FLUX_MODULES_MARIA_FIXTURE_URL;
+                  env[provider === 'pg' ? 'FLUX_MODULES_PG_FIXTURE_URL' : 'FLUX_MODULES_MARIA_FIXTURE_URL'] = fixture.href;
+                  console.log(`Проверка ${suite}: ${provider}`);
+                  const result = spawnSync(process.execPath, ['--import', 'tsx', `scripts/test-modules-${suite}.ts`], { env, stdio: 'inherit' });
+                  if (result.error) throw result.error;
+                  if (result.status !== 0) throw new Error(`${suite}/${provider} завершился с кодом ${result.status} (${result.signal || 'без сигнала'})`);
+                }
+              } finally { await db.end(); }
+            }
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+          NODE
       - name: Проверка типов
         run: npm run lint
       - name: Сессии, лицензии, подписи, упаковка и сохранность базы

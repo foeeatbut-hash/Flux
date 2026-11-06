@@ -14,7 +14,7 @@ try {
       page.on('pageerror', error => errors.push(error.message));
       page.on('console', message => { if (message.type() === 'error' && !/WebSocket connection to .* failed|\[vite\] failed to connect to websocket/.test(message.text())) errors.push(message.text()); });
       await page.route('**/restart-fixture', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html class="${theme === 'dark' ? 'dark' : ''}" data-glass="${solid ? 'off' : 'on'}"><head><link rel="stylesheet" href="/src/index.css"></head><body><div id="root" style="height:650px"></div><script type="module" src="/scripts/module-restart-fixture.tsx"></script></body></html>` }));
-      await page.goto(`${url}/restart-fixture`);
+      await page.goto(`${url}/restart-fixture`, { waitUntil: 'domcontentloaded' });
       await page.locator('iframe').waitFor({ timeout: 10000 });
       await page.evaluate(() => { (window as any).frameBefore = document.querySelector('iframe'); (window as any).frameBefore.dataset.calculation = 'kept'; (window as any).install('2.0.0'); });
       const button = page.getByRole('button', { name: 'Вышла версия 2.0.0 — Перезапустить' });
@@ -29,7 +29,7 @@ try {
       await page.waitForFunction(() => (window as any).frameBefore !== document.querySelector('iframe'));
       if (await page.locator('.fx-head-count').textContent() !== '2.0.0' || await button.count()) throw new Error('Новая версия не запущена по кнопке');
       // Каждый сценарий начинает новое окно с версией 1.0.0.
-      await page.reload();
+      await page.reload({ waitUntil: 'domcontentloaded' });
       await page.locator('iframe').waitFor();
       await page.evaluate(() => { (window as any).frameBefore = document.querySelector('iframe'); (window as any).install('2.0.0'); });
       await button.waitFor();
@@ -40,7 +40,7 @@ try {
       await page.getByText('Модуль недоступен').waitFor();
       if (await page.locator('iframe').count()) throw new Error('Отозванный автор продолжает работать');
 
-      await page.reload();
+      await page.reload({ waitUntil: 'domcontentloaded' });
       await page.locator('iframe').waitFor();
       await page.evaluate(() => (window as any).install('2.0.0'));
       await button.click();

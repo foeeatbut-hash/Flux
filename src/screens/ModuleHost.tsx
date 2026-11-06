@@ -29,7 +29,6 @@ function ModuleHostSession({ current, location, project, theme }: {
   // Манифест и мост остаются прежними, пока человек не решит прервать расчёт.
   const [running, setRunning] = useState(current);
   const [generation, setGeneration] = useState(0);
-  useEffect(() => { if (!current) setRunning(undefined); else if (!running) setRunning(current); }, [running, current]);
   const trust = useModuleStore(state => state.local);
   const denied = (item: typeof current) => {
     if (!item) return false;
@@ -45,7 +44,10 @@ function ModuleHostSession({ current, location, project, theme }: {
   // Отзыв и подписанный откат — исключения: недействующий код нельзя
   // удерживать ради незавершённого расчёта, даже если уже выбрано обновление.
   const active = current ? (blocked ? selected : running || selected) : undefined;
-  useEffect(() => { if (blocked) setRunning(selected); }, [blocked, selected]);
+  useEffect(() => {
+    if (!current || blocked) setRunning(selected);
+    else if (!running && selected) setRunning(selected);
+  }, [current, running, blocked, selected]);
   const manifest = active?.manifest;
   if (!manifest) return <div className="fx-empty"><div className="fx-empty-title">Модуль недоступен</div></div>;
   if (manifest.contractVersion !== 1) return <div className="fx-empty"><div className="fx-empty-title">Обновите Flux для этого модуля</div></div>;
@@ -59,9 +61,9 @@ function ModuleHostSession({ current, location, project, theme }: {
     data-running-api={String(manifest.contractVersion)} data-running-developer={manifest.author} data-running-name={manifest.name}
     className="flex h-full min-h-0 flex-col text-[var(--flux-text)] bg-[var(--flux-surface)]">
     <div className="fx-head shrink-0"><h1 className="fx-head-title">{manifest.name}</h1><span className="fx-head-count">{manifest.version}</span>
-      {current && current.manifest.version !== manifest.version && <div className="fx-head-acts"><button className="fx-btn" onClick={() => {
-        setRunning(current); setGeneration(value => value + 1);
-      }}>Вышла версия {current.manifest.version} — Перезапустить</button></div>}
+      {selected && selected.manifest.version !== manifest.version && <div className="fx-head-acts"><button className="fx-btn" onClick={() => {
+        setRunning(selected); setGeneration(value => value + 1);
+      }}>Вышла версия {selected.manifest.version} — Перезапустить</button></div>}
     </div>
     <ModuleFrame key={`${manifest.id}:${manifest.version}:${generation}`} manifest={manifest} channel={active?.channel} context={context} theme={theme}
       createReadCycle={() => createModuleReadCycle(context)} />

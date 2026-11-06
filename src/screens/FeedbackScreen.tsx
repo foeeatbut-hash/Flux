@@ -302,7 +302,7 @@ export default function FeedbackScreen() {
         {scope !== 'summary' && card && (
           <>
             <FeedbackCard card={card} actions={actions} names={names} triage={cardTriage} busy={busy}
-              assignees={assignees} candidates={twins} failure={failure}
+              assignees={triage ? assignees : card.capabilities?.triage && me?.id ? [{ id: me.id, name: names[me.id] || 'Я' }] : []} candidates={twins} failure={failure}
               onAct={(to, input, key) => void act(to, input, key)}
               onPriority={(value, key) => void priority(value, key)}
               onOpenFile={(id, name, inline) => {

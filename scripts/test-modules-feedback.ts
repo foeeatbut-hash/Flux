@@ -9,6 +9,7 @@ import { ensureRemoteSchema } from '../server/schema-sync';
 import { setPrisma } from '../server/context';
 import { registerModulePublishingRoutes } from '../server/routes/modulePublishing';
 import { registerFeedbackRoutes } from '../server/routes/feedback';
+import { fingerprintOfEvents } from '../server/feedback/bundle';
 import { settings } from '../server/feedback/policy';
 import { technicalFingerprint } from '../feedback/fingerprint';
 import { validateSubmit } from '../feedback/contracts';
@@ -69,6 +70,7 @@ async function main() {
   const fp = { errorCode: 'crash', moduleId: 'calc-a', moduleVersion: '1.0.0' };
   ok('другая подпрограмма меняет отпечаток', technicalFingerprint(fp) !== technicalFingerprint({ ...fp, moduleId: 'calc-b' }));
   ok('другая версия меняет отпечаток', technicalFingerprint(fp) !== technicalFingerprint({ ...fp, moduleVersion: '1.0.1' }));
+  ok('сводка полного пакета различает версии модуля', fingerprintOfEvents([{ event: 'log.error', data: { code: 'E' } }], '1.2.3', '/module/calc-a', fp) !== fingerprintOfEvents([{ event: 'log.error', data: { code: 'E' } }], '1.2.3', '/module/calc-a', { ...fp, moduleVersion: '1.0.1' }));
   const body = submit(); const made = await call('ann', '/feedback/reports', 'POST', body);
   assert.equal(made.status, 201, JSON.stringify(made.body)); const id = made.body.data.id;
   ok('адресат хранится в общей карточке', made.body.data.moduleId === 'calc-a' && made.body.data.moduleVersion === '1.0.0');
@@ -99,6 +101,9 @@ async function main() {
   ok('разработчик берёт в работу', (await mutate('dev', 'transition', { to: 'IN_PROGRESS', assigneeId: 'dev' })).status === 200);
   ok('исправление модуля требует номер версии', (await mutate('dev', 'transition', { to: 'VERIFY', noReleaseReason: 'без выпуска' })).status === 400);
   ok('версия исправления общая', (await mutate('dev', 'transition', { to: 'VERIFY', resolvedVersion: '1.1.0' })).status === 200);
+  await db.feedbackReport.update({ where: { id }, data: { resolvedVersion: null } });
+  ok('старое обращение модуля без версии нельзя закрыть как готовое', (await mutate('ann', 'transition', { to: 'DONE' })).status === 400);
+  await db.feedbackReport.update({ where: { id }, data: { resolvedVersion: '1.1.0' } });
   ok('ещё не выпущенное исправление нельзя предложить обновить', !(await call('ann', `/feedback/reports/${id}`)).body.data.moduleFixAvailable);
   await publish(dev, 'dev', 'calc-a', '1.1.0');
   ok('доступный выпуск открывает предложение обновить', (await call('ann', `/feedback/reports/${id}`)).body.data.moduleFixVersion === '1.1.0');
