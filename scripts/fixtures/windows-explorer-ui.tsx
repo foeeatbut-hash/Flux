@@ -251,7 +251,7 @@ useDisplayStore.setState({ workspace: { enabled: true, displays: [
   { id: 1, label: 'Основной', primary: true, scaleFactor: 1, bounds: { x: 0, y: 0, w: 1920, h: 1080 }, workArea: { x: 0, y: 0, w: 1920, h: 1040 } },
 ], bounds: { x: -1280, y: -200, w: 3200, h: 1280 }, primaryId: 1, mixedScale: true }, available: true });
 useDesktopStore.getState().pinApp('/registry');
-(window as any).__bindings = docflowBindings;
+(window as any).__bindings = (window as any).__bindings || docflowBindings;
 (window as any).__docflowPosts = docflowPosts;
 if (DOCFLOW) useStore.setState({ user: { id: 'admin', role: 'ADMIN', name: 'Администратор' } as any });
 (window as any).fetch = async (url: string, init?: RequestInit) => {

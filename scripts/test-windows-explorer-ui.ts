@@ -266,7 +266,7 @@ async function loadUntil(page: Page, count: number) {
 
     await page.evaluate(() => (window as any).__go('/explorer?root=desktop-id&path=Проекты&target=Проекты%2FОтчёт.xlsx&properties=1'));
     await page.getByRole('dialog', { name: /Свойства · Отчёт\.xlsx/ }).waitFor();
-    ok('Deep link свойств загружает родительскую папку и выбирает целевой файл', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'list' && request.ref.relativePath === 'Проекты')) && await page.getByText('Проект 1 · текущий').isVisible());
+    ok('Deep link свойств загружает родительскую папку и выбирает целевой файл', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'list' && request.ref.relativePath === 'Проекты')) && await page.getByText('Тестовый автор').isVisible());
     await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
 
     ok('Шапка Проводника без кнопок создания: создание только правой кнопкой', await page.locator('[data-explorer-commands]').getByRole('button', { name: /Создать|Новая папка/ }).count() === 0);
