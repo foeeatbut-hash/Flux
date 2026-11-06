@@ -104,6 +104,17 @@ async function main() {
   assert.equal((await post('dev', signed)).status, 403);
   assert.equal((await post('owner', sealEnvelope('promotion', claim, dev))).status, 400);
   assert.equal((await post('owner', sealEnvelope('promotion', { ...claim, releaseSignatureHash: '0'.repeat(64) }, root))).status, 400);
+  const revokedBundle = moduleBundle('1.0.1');
+  const revokedRequest = await submit('dev', dev, revokedBundle, { version: '1.0.1', channel: 'test' });
+  assert.equal(revokedRequest.status, 200);
+  const revokedRelease = await release(revokedRequest.body.id, revokedBundle, '1.0.1', devHex, 'test');
+  assert.equal(revokedRelease.status, 200);
+  const revocation = revocationEnvelope(root, 'release', `${MODULE}@1.0.1`);
+  assert.equal((await call('owner', '/api/modules/revocations', 'POST', { signature: revocation })).status, 200);
+  const revokedPromotion = sealEnvelope('promotion', buildPromotionClaim({ releaseSignature: revokedRelease.body.release.signature, rootHex }), root);
+  const rejected = await post('owner', revokedPromotion);
+  assert.ok([400, 409].includes(rejected.status), `отозванный выпуск не переводится: HTTP ${rejected.status}`);
+  assert.equal(await db.appSetting.count({ where: { key: 'modules.promotions', value: revokedPromotion } }), 0, 'назначение отозванного выпуска не сохранено');
   const signedAgain = sealEnvelope('promotion', { ...claim, iat: claim.iat + 1 }, root);
   const concurrent = await Promise.all([post('owner', signed), post('owner', signedAgain), post('owner', signed)]);
   assert.ok(concurrent.every(r => r.status === 200));
@@ -124,6 +135,11 @@ async function main() {
   assert.equal((await offline.runnable()).size, 1);
   await offline.addRevocations([revocationEnvelope(root, 'release', `${MODULE}@1.0.0`)]);
   assert.equal((await offline.runnable()).size, 0);
+  assert.equal((await call('owner', '/api/modules/revocations', 'POST', { signature: revocationEnvelope(root, 'key', devHex) })).status, 200);
+  const revokedAuthorPromotion = sealEnvelope('promotion', { ...claim, iat: claim.iat + 2 }, root);
+  const rejectedAuthor = await post('owner', revokedAuthorPromotion);
+  assert.ok([400, 409].includes(rejectedAuthor.status), `выпуск отозванного автора не переводится: HTTP ${rejectedAuthor.status}`);
+  assert.equal(await db.appSetting.count({ where: { key: 'modules.promotions', value: revokedAuthorPromotion } }), 0, 'назначение выпуска отозванного автора не сохранено');
   console.log('Перевод, подписи, кэш, откат и отзыв проверены');
 
   server.close();

@@ -4,8 +4,8 @@ import { getPrisma } from '../context.js';
 import { actorOf, fail, ok } from './policy.js';
 import { ERRORS, isUuid, LIMITS } from '../../feedback/contracts.js';
 import { developerModules, moduleHandler, developerPackage, feedbackRoot, type ModuleFeedbackDeps } from './modules.js';
-import { validCrashBatch } from '../../feedback/moduleCrashes.js';
-import { CRASH_PREFIX, moduleSignals } from './moduleSignals.js';
+import { validCrashBatch, MODULE_CRASH_BATCHES_PER_MINUTE } from '../../feedback/moduleCrashes.js';
+import { CRASH_PREFIX, moduleSignals, confirmedKnownProblems } from './moduleSignals.js';
 import { applyMutation, MutationError } from './mutations.js';
 import { reserveRate } from './service.js';
 import { ensureFeedbackTables } from './tables.js';
@@ -23,7 +23,14 @@ export function registerModuleFeedbackRoutes(app: Express, deps: Deps) {
     const id = `module-crash-${batch.id}`, value = JSON.stringify(batch);
     const previous = await db.appSetting.findUnique({ where: { id } });
     if (previous) return previous.value === value ? ok(res, { accepted: true, repeat: true }) : fail(res, ERRORS.IDEMPOTENCY_CONFLICT, 'Ключ счётчиков уже занят');
-    if (!await reserveRate(db, actor.id, 'moduleCrash', 30)) return fail(res, ERRORS.RATE_LIMITED, 'Слишком много пакетов счётчиков');
+    const pairs = [...new Map(batch.events.map((e) => [`${e.moduleId}@${e.version}`, { moduleId: e.moduleId, version: e.version }])).values()];
+    const releases = await db.moduleRelease.findMany({ where: { OR: pairs }, select: { moduleId: true, version: true, signature: true } });
+    const existing = new Set(releases.flatMap((r: any) => {
+      const claim = parseReleaseClaim(openEnvelope('release', r.signature, feedbackRoot(deps)));
+      return claim && claim.moduleId === r.moduleId && claim.version === r.version ? [`${r.moduleId}@${r.version}`] : [];
+    }));
+    if (pairs.some((p) => !existing.has(`${p.moduleId}@${p.version}`))) return fail(res, ERRORS.VALIDATION, 'Подпрограмма или подписанный выпуск не найдены');
+    if (!await reserveRate(db, actor.id, 'moduleCrash', MODULE_CRASH_BATCHES_PER_MINUTE)) return fail(res, ERRORS.RATE_LIMITED, 'Слишком много пакетов счётчиков');
     try {
       // Единственная запись — и расписка, и сами счётчики: повтор после обрыва
       // не прибавляет их второй раз. Ни пользователя, ни данных здесь нет.
@@ -41,7 +48,7 @@ export function registerModuleFeedbackRoutes(app: Express, deps: Deps) {
     const actor = actorOf(req); if (!actor) return fail(res, ERRORS.FORBIDDEN, 'Нужно войти');
     const db = getPrisma(), admin = deps.can((req as any).authUser, 'feedback.triage');
     const allowed = admin ? null : await developerModules(db, actor.id, feedbackRoot(deps));
-    const { counts } = await moduleSignals(db);
+    const { counts } = await moduleSignals(db, feedbackRoot(deps));
     ok(res, counts.filter((e) => !allowed || allowed.includes(e.moduleId)));
   });
 
@@ -80,13 +87,14 @@ export function registerModuleFeedbackRoutes(app: Express, deps: Deps) {
   }
   app.get('/api/feedback/modules/:moduleId/similar', async (req: Request, res: Response) => {
     if (!actorOf(req)) return fail(res, ERRORS.FORBIDDEN, 'Нужно войти');
-    const db = getPrisma(), { known } = await moduleSignals(db);
+    const db = getPrisma(), known = await confirmedKnownProblems(db, feedbackRoot(deps));
     ok(res, known.filter((r: any) => r.moduleId === req.params.moduleId).map((r: any) => ({ id: r.id, number: r.number, title: r.title, workaround: r.moduleWorkaround })));
   });
   app.post('/api/feedback/reports/:id/affected', async (req: Request, res: Response) => {
     const actor = actorOf(req); if (!actor) return fail(res, ERRORS.FORBIDDEN, 'Нужно войти');
     const db = getPrisma(), report = await db.feedbackReport.findUnique({ where: { id: String(req.params.id) } });
-    if (!report?.moduleId || !report.moduleKnown || ['DONE', 'REJECTED', 'WITHDRAWN', 'DUPLICATE'].includes(report.status)) return fail(res, ERRORS.NOT_FOUND, 'Известная проблема не найдена');
+    const known = await confirmedKnownProblems(db, feedbackRoot(deps));
+    if (!report?.moduleId || !known.some((r: any) => r.id === report.id)) return fail(res, ERRORS.NOT_FOUND, 'Известная проблема не найдена');
     const id = createHash('sha256').update(`module-affected:${report.id}:${actor.id}`).digest('hex');
     await db.appSetting.upsert({ where: { id }, update: {}, create: { id, key: `modules.affected.${report.id}`, userId: null, value: '1' } });
     ok(res, { count: await db.appSetting.count({ where: { key: `modules.affected.${report.id}` } }) });

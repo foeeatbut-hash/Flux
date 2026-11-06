@@ -8,10 +8,10 @@
 import type { Express, Request, Response } from 'express';
 import { requireOwnerMiddleware } from '../accessPolicy.js';
 import { openEnvelope } from '../../modules/trust/envelope.js';
-import { parsePinClaim, parseReleaseClaim } from '../../modules/trust/claims.js';
+import { parsePinClaim, parseReleaseClaim, releaseKey } from '../../modules/trust/claims.js';
 import { channelsFor, promotionsOf, saveTesters, testersOf } from '../moduleChannels.js';
 import { parsePromotionClaim, readPromotions } from '../../modules/trust/promotion.js';
-import { signatureHash } from '../moduleStore.js';
+import { loadTrust, signatureHash } from '../moduleStore.js';
 
 export interface ModuleChannelDeps {
   getPrisma: () => any;
@@ -54,6 +54,9 @@ export function registerModuleChannelRoutes(app: Express, deps: ModuleChannelDep
     const signed = release && parseReleaseClaim(openEnvelope('release', release.signature, deps.rootHex()));
     if (!signed || signed.channel !== 'test' || signed.moduleId !== claim.moduleId || signed.version !== claim.version
       || signatureHash(release.signature) !== claim.releaseSignatureHash) return res.status(400).json({ error: 'Назначение не совпадает с подписанным выпуском' });
+    const trust = await loadTrust(db, deps.rootHex());
+    if (trust.revoked.releases.has(releaseKey(signed.moduleId, signed.version)) || trust.revoked.keys.has(signed.author))
+      return res.status(409).json({ error: 'Выпуск или ключ его автора отозван' });
     try {
       await db.appSetting.create({ data: { id: `module-promotion-${signatureHash(signature)}`, key: 'modules.promotions', userId: null, value: signature } });
     } catch (e: any) {

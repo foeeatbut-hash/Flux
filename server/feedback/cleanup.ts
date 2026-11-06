@@ -20,6 +20,7 @@
  */
 
 import { getPrisma, onDatabaseSwapped } from '../context.js';
+import { expireModuleCrashes } from './moduleSignals.js';
 import { sweepRateWindows } from './service.js';
 
 /** Как часто проходить. Раз в час: спешить здесь некуда. */
@@ -78,6 +79,8 @@ export async function sweepUploads(now = new Date()): Promise<{ dropped: number;
     }
   } catch (_) { /* то же самое: молча ждём следующего прохода */ }
 
+  try { await expireModuleCrashes(prisma, now.getTime()); }
+  catch (_) { /* общая база могла смениться — повторим уборку через час */ }
   await sweepRateWindows(prisma, now.getTime());
 
   return { dropped, expired };

@@ -321,6 +321,7 @@ function PanelBody({ userId, appVersion, anchor, sectionKey, modules, activeId, 
                 {storeModule && <option value={storeModule.id}>{storeModule.name} · {storeModule.version} · {storeModule.developer}</option>}
                 {modules.filter((m) => m.manifest.id !== storeModule?.id).map((m) => <option key={m.manifest.id} value={m.manifest.id}>{m.manifest.name} · {m.version} · {m.author}</option>)}
               </select>
+              {recipient && <span className="block mt-1 text-xs text-slate-600 dark:text-slate-300">Заголовок и описание увидит разработчик подпрограммы. Данные проектов не передаются.</span>}
             </label>}
             <label className="block">
               <span className="sr-only">Что случилось</span>

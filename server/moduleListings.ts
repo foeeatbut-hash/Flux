@@ -77,7 +77,7 @@ export async function buildListings(db: any, user: any, rootHex = MODULE_ROOT_KE
     if (!channels.includes(channel)) continue;
     (byModule.get(r.moduleId) || byModule.set(r.moduleId, []).get(r.moduleId)!).push({ ...r, channel });
   }
-  const signals = await moduleSignals(db);
+  const signals = await moduleSignals(db, rootHex);
   const listings: StoreListing[] = [];
   for (const [moduleId, rows] of byModule) {
     rows.sort((a, b) => compareVersions(b.version, a.version));
