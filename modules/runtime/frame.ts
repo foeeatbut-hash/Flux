@@ -1,6 +1,6 @@
 import {
   resources, themeKeys,
-  type HostMessage, type ModuleOutput, type Resource, type ReadData,
+  type HostMessage, type ModuleOutput, type Resource, type ReadData, type ModuleFailureKind,
 } from '../contract';
 import { validMessage } from '../schemas';
 import { renderForm, type ModuleForm } from './form';
@@ -51,6 +51,12 @@ function read(resource: string, entityId?: string): Promise<unknown> {
       ...(entityId ? { entityId } : {}),
     }, '*');
   });
+}
+function reportFailure(reason: string) {
+  // В родительское окно не передаются тексты исключений и данные модуля.
+  const kind: ModuleFailureKind = reason === 'STATE_LIMIT' ? 'memory'
+    : reason === 'TIMEOUT' || reason === 'BACKGROUND_TIMEOUT' ? 'timeout' : 'crash';
+  parent.postMessage({ flux: 'module', v: 1, session, type: 'failure', kind }, '*');
 }
 function note(text: string) {
   const node = document.createElement('p');
@@ -117,6 +123,7 @@ window.addEventListener('message', async event => {
         read, initial: output,
         onRestart: reason => {
           if (client !== created) return;
+          if (reason !== 'WORKER_RECYCLED') reportFailure(reason);
           note(reason === 'STATE_LIMIT'
             ? 'Состояние модуля превысило 256 КиБ. Расчёт остановлен.'
             : 'Фоновый расчёт остановлен. Следующее изменение данных перезапустит его из сохранённого состояния.');
@@ -135,6 +142,7 @@ window.addEventListener('message', async event => {
     // Ошибка расчёта не прячет уже прочитанные привязки Flux.
     render();
     const reason = error instanceof Error ? error.message : '';
+    if (['STATE_LIMIT', 'TIMEOUT', 'WORKER_FAILED'].includes(reason)) reportFailure(reason);
     note(reason === 'STATE_LIMIT' ? 'Состояние модуля превысило 256 КиБ. Расчёт остановлен.'
       : reason === 'TIMEOUT' ? 'Расчёт остановлен по времени.' : 'Не удалось выполнить расчёт модуля.');
   }

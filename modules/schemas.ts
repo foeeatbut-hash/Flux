@@ -24,6 +24,7 @@ const envelope = { flux: { const: 'module' }, v: { const: 1 }, session: id };
 // Эти JSON Schema — источник проверки сообщений и будущих типов редактора Studio.
 export const messageSchemas = {
   ready: object({ ...envelope, type: { const: 'ready' } }),
+  failure: object({ ...envelope, type: { const: 'failure' }, kind: { enum: ['crash', 'timeout', 'memory', 'bridge'] } }),
   read: object({ ...envelope, id, type: { const: 'read' }, resource: { enum: resources }, entityId: id }, ['flux', 'v', 'session', 'id', 'type', 'resource']),
   write: object(
     { ...envelope, id, type: { const: 'write' }, resource: { enum: resources }, entityId: id, data: {} },

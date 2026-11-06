@@ -47,6 +47,11 @@ export const FEEDBACK_TABLES: TableSpec[] = [
       key('frequency'),
       key('impact'),
       key('sectionKey'),
+      opt('moduleId'), opt('moduleVersion'), opt('moduleChannel'),
+      opt('moduleApiVersion'), opt('moduleDeveloper'), text('moduleDiagnosticsJson', '{}'),
+      { name: 'moduleForwarded', kind: 'bool', notNull: true, def: false },
+      { name: 'moduleKnown', kind: 'bool', notNull: true, def: false },
+      text('moduleWorkaround'),
       opt('projectId'),
       at('incidentAt'),
       // Когда отправку приняли — отдельно от того, когда сломалось: после
@@ -239,7 +244,7 @@ let ready = false;
 export async function ensureFeedbackTables(prisma: any, log?: (m: string) => void): Promise<string> {
   if (ready) return '';
   try {
-    await prisma.feedbackReport.findFirst({ select: { submitHash: true } });
+    await prisma.feedbackReport.findFirst({ select: { submitHash: true, moduleId: true, moduleVersion: true, moduleDiagnosticsJson: true, moduleKnown: true, moduleForwarded: true } });
     ready = true;
     return '';
   } catch (_) { /* таблицы нет или она неполная — создаём */ }

@@ -40,3 +40,8 @@ export function positionsOf(user: any): string[] {
   try { const extra = JSON.parse(user?.extraPositions || '[]'); if (Array.isArray(extra)) list.push(...extra); } catch { /* нет дополнительных */ }
   return [...new Set(list.filter((v) => typeof v === 'string' && v))] as string[];
 }
+
+export async function promotionsOf(db: any): Promise<string[]> {
+  const rows = await db.appSetting.findMany({ where: { key: 'modules.promotions', userId: null }, select: { value: true } }).catch(() => []);
+  return rows.map((row: any) => row.value).filter((value: unknown): value is string => typeof value === 'string');
+}

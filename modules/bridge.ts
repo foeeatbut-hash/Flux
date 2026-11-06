@@ -1,6 +1,6 @@
 import type {
   BridgeError, HostMessage, LaunchContext, ModuleManifest, ReadData,
-  ReadRequest, Resource, ThemeTokens,
+  ReadRequest, Resource, ThemeTokens, ModuleFailureKind,
 } from './contract';
 import { validMessage } from './schemas';
 
@@ -12,6 +12,7 @@ export interface ModuleBridgeOptions {
   theme: () => ThemeTokens;
   read: <R extends Resource>(resource: R, entityId?: string) => Promise<ReadData[R]>;
   beginReadCycle?: () => void;
+  onFailure?: (kind: ModuleFailureKind) => void;
 }
 
 function messageBytes(message: unknown): number {
@@ -39,9 +40,10 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       options.frame()?.postMessage(message, '*');
     }
   }
-  const error = (id: string, code: BridgeError) => post({
-    flux: 'module', v: 1, session: options.session, type: 'error', id, code,
-  });
+  const error = (id: string, code: BridgeError) => {
+    if (code !== 'NO_PROJECT') options.onFailure?.('bridge');
+    post({ flux: 'module', v: 1, session: options.session, type: 'error', id, code });
+  };
   function notify(event: 'opened' | 'project-changed' | 'changed') {
     generation++;
     options.beginReadCycle?.();
@@ -69,6 +71,10 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       return;
     }
     if (!ready) return;
+    if (validMessage('failure', message)) {
+      options.onFailure?.(message.kind as ModuleFailureKind);
+      return;
+    }
     // Ошибочная форма записи всё равно не становится неизвестной командой:
     // модуль получает явный запрет, а ни один обработчик чтения не вызывается.
     if (message.flux === 'module' && message.v === 1 && writeLike(message)) {

@@ -48,7 +48,7 @@ export default function StoreScreen() {
     if (kind === 'open') navigate(moduleHref(l.moduleId));
     else if (kind === 'install' || kind === 'update') setDialog({ kind, listing: l });
   };
-  const report = (l: StoreListing) => window.dispatchEvent(new CustomEvent('flux:report-module', { detail: { moduleId: l.moduleId, name: l.name, version: l.mine?.version || l.version, developer: l.developer } }));
+  const report = (l: StoreListing) => window.dispatchEvent(new CustomEvent('flux:report-module', { detail: { moduleId: l.moduleId, name: l.name, version: l.version, channel: l.channel, apiVersion: String(l.manifest.contractVersion), developer: l.developer } }));
 
   const nav = (id: View, label: string, icon: React.ReactNode, count = 0) => <button type="button" className="stx-nav" aria-current={!openId && view === id ? 'page' : undefined}
     data-testid={`stx-nav-${id}`} onClick={() => go(id)}>{icon}<span>{label}</span>{count > 0 && <span className="stx-count">{count}</span>}</button>;

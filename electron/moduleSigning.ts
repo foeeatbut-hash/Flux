@@ -19,7 +19,7 @@ import { trustedAuthSender } from './authStorage';
 import { decrypt } from '../tools/flux-owner/src/vault.cjs';
 import { UPDATE_PUBLIC_KEY_HEX } from './updateKey';
 import { publicHexOf, sealEnvelope, type EnvelopeKind } from '../modules/trust/envelope';
-import { buildCertificateClaim, buildOwnerRequestClaim, buildPinClaim, buildReleaseClaim, buildRevocationClaim } from '../modules/trust/owner';
+import { buildCertificateClaim, buildOwnerRequestClaim, buildPinClaim, buildPromotionClaim, buildReleaseClaim, buildRevocationClaim } from '../modules/trust/owner';
 import { MODULE_BUNDLE_MAX } from '../modules/trust/claims';
 
 const VAULT_MAX = 12 * 1024 * 1024;
@@ -32,6 +32,7 @@ const bytesOf = (value: unknown) => {
 /** Что подписать — по виду запроса окна; всё остальное в нём игнорируется */
 export function moduleClaimFor(request: any, ownerHex: string): { kind: EnvelopeKind; claim: unknown } {
   switch (request?.kind) {
+    case 'promotion': return { kind: 'promotion', claim: buildPromotionClaim({ releaseSignature: String(request.releaseSignature || ''), rootHex: ownerHex }) };
     case 'release': return { kind: 'release', claim: buildReleaseClaim({ requestId: String(request.requestId || ''),
       requestSignature: String(request.requestSignature || ''), bundle: bytesOf(request.bundle), channel: request.channel,
       notBefore: Number(request.notBefore) || 0 }) };

@@ -21,7 +21,8 @@ import { unpackBundle } from '../../modules/trust/bundle.js';
 import { checkChunks, verifyRequest } from '../../modules/trust/verify.js';
 import { diffFiles, diffPermissions, manifestOf } from '../../modules/trust/diff.js';
 import { MODULE_ROOT_KEY_HEX, loadTrust, readBlob, readBundle, signatureHash, writeBlob } from '../moduleStore.js';
-import { channelsFor } from '../moduleChannels.js';
+import { effectiveChannel, readPromotions } from '../../modules/trust/promotion.js';
+import { channelsFor, promotionsOf } from '../moduleChannels.js';
 import { registerModuleChannelRoutes } from './moduleChannels.js';
 import { registerModuleStoreRoutes } from './moduleStore.js';
 
@@ -202,7 +203,15 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
 
   app.get('/api/modules/releases', async (req: Request, res: Response) => {
     const db = deps.getPrisma(), channels = await channelsFor(db, (req as any).authUser);
-    const rows = (await db.moduleRelease.findMany({ orderBy: { createdAt: 'desc' }, take: 1000 })).filter((r: any) => channels.includes(r.channel));
+    const promotions = readPromotions(await promotionsOf(db), rootHex()).claims;
+    const rows = (await db.moduleRelease.findMany({ orderBy: { createdAt: 'desc' }, take: 1000 })).flatMap((r: any) => {
+      const claim = parseReleaseClaim(openEnvelope('release', r.signature, rootHex()));
+      // Непроверенная строка остаётся видна кэшу как отказ: только главный
+      // процесс решает, можно ли запускать байты, и сообщает причину человеку.
+      const channel = claim && claim.moduleId === r.moduleId && claim.version === r.version
+        ? effectiveChannel(claim, r.signature, promotions) : r.channel;
+      return channels.includes(channel) ? [{ ...r, channel }] : [];
+    });
     res.json({ releases: rows.map((r: any) => ({ id: r.id, moduleId: r.moduleId, version: r.version, channel: r.channel,
       state: r.state, signature: r.signature, size: r.size, chunkCount: r.chunkCount, createdAt: r.createdAt })) });
   });
@@ -211,7 +220,9 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
   app.get('/api/modules/releases/:id/chunks', async (req: Request, res: Response) => {
     const db = deps.getPrisma();
     const row = await db.moduleRelease.findUnique({ where: { id: String(req.params.id) } });
-    if (!row || !(await channelsFor(db, (req as any).authUser)).includes(row.channel)) return fail(res, 404, 'Выпуск не найден');
+    const claim = row && parseReleaseClaim(openEnvelope('release', row.signature, rootHex()));
+    const promotions = readPromotions(await promotionsOf(db), rootHex()).claims;
+    if (!claim || claim.moduleId !== row.moduleId || claim.version !== row.version || !(await channelsFor(db, (req as any).authUser)).includes(effectiveChannel(claim, row.signature, promotions))) return fail(res, 404, 'Выпуск не найден');
     const rows = await db.moduleChunk.findMany({ where: { blobId: row.blobId }, orderBy: { idx: 'asc' }, select: { data: true } });
     res.json({ chunks: rows.map((r: any) => Buffer.from(r.data).toString('base64')) });
   });

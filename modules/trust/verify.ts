@@ -21,6 +21,7 @@ import {
 import { joinChunks, splitChunks, unpackBundle, bundleText, RUNTIME_FILE, type BundleFiles } from './bundle';
 import { validManifest } from '../schemas';
 import { CONTRACT_VERSION, type ModuleManifest } from '../contract';
+import { effectiveChannel, type PromotionClaim } from './promotion';
 import { compareVersions } from '../../shared/versionCompare';
 
 export interface RevokedSet { releases: Set<string>; keys: Set<string> }
@@ -95,6 +96,7 @@ export function verifyRelease(input: {
   moduleId?: string; version?: string;
   /** Откат владельца: выпуски канала выше потолка не запускаются */
   caps?: ChannelCaps;
+  promotions?: readonly PromotionClaim[];
 }): Verified<RunnableRelease> {
   if (!input.rootHex) return { ok: false, why: 'В этой сборке нет ключа владельца: модули из базы не запускаются' };
   if (!String(input.signature || '').trim()) return { ok: false, why: 'У выпуска нет подписи владельца' };
@@ -108,8 +110,9 @@ export function verifyRelease(input: {
   }
   if (input.revoked.releases.has(releaseKey(claim.moduleId, claim.version))) return { ok: false, why: 'Выпуск отозван владельцем' };
   if (input.revoked.keys.has(claim.author)) return { ok: false, why: 'Сертификат разработчика выпуска отозван' };
-  const cap = input.caps?.get(capKey(claim.moduleId, claim.channel));
-  if (cap && compareVersions(claim.version, cap) > 0) return { ok: false, why: `Владелец вернул канал «${claim.channel}» на версию ${cap}` };
+  const channel = effectiveChannel(claim, input.signature, input.promotions || []);
+  const cap = input.caps?.get(capKey(claim.moduleId, channel));
+  if (cap && compareVersions(claim.version, cap) > 0) return { ok: false, why: `Владелец вернул канал «${channel}» на версию ${cap}` };
   if (claim.notBefore > input.now) return { ok: false, why: 'Время выпуска ещё не наступило' };
   const chunks = checkChunks(claim, input.chunks);
   if (chunks) return { ok: false, why: chunks };

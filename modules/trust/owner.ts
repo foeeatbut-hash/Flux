@@ -9,7 +9,8 @@
  *
  * Только Node: берут главный процесс (electron/moduleSigning.ts) и проверки.
  */
-import { peekEnvelope } from './envelope';
+import { openEnvelope, peekEnvelope, sha256Hex } from './envelope';
+import { parsePromotionClaim, type PromotionClaim } from './promotion';
 import {
   MODULE_CHANNELS, parseCertificateClaim, parsePinClaim, parseReleaseClaim, parseRequestClaim, parseRevocationClaim,
   type CertificateClaim, type PinClaim, type ModuleChannel, type ReleaseClaim, type RequestClaim, type RequestMeta, type RevocationClaim,
@@ -72,5 +73,14 @@ export function buildPinClaim(p: { moduleId: string; channel: ModuleChannel; ver
   const claim = parsePinClaim({ v: 1, moduleId: String(p.moduleId || ''), channel: p.channel, version: p.version ? String(p.version) : null,
     reason: String(p.reason || '').slice(0, 2000), iat: p.now ?? Date.now() });
   if (!claim) throw new Error('Укажите подпрограмму, канал и версию как 1.2.3');
+  return claim;
+}
+
+export function buildPromotionClaim(p: { releaseSignature: string; rootHex: string; now?: number }): PromotionClaim {
+  const release = parseReleaseClaim(openEnvelope('release', p.releaseSignature, p.rootHex));
+  if (!release || release.channel !== 'test') throw new Error('Нужен подписанный владельцем выпуск тестового канала');
+  const claim = parsePromotionClaim({ v: 1, moduleId: release.moduleId, version: release.version,
+    releaseSignatureHash: sha256Hex(p.releaseSignature), channel: 'production', iat: p.now ?? Date.now() });
+  if (!claim) throw new Error('Назначение канала не прошло проверку');
   return claim;
 }

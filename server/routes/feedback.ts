@@ -9,6 +9,8 @@
  * неизвестному отправителю бесплатный способ занять память сервера.
  */
 
+import { developerModules, feedbackRoot, type ModuleFeedbackDeps } from '../feedback/modules.js';
+import { registerModuleFeedbackRoutes } from '../feedback/moduleRoutes.js';
 import type { Express, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
 import { ensureFeedbackTables } from '../feedback/tables.js';
@@ -27,7 +29,7 @@ import {
   TYPE_NAMES, STATUS_NAMES, IMPACT_NAMES, FREQUENCY_NAMES, PRIORITY_NAMES,
 } from '../../feedback/contracts.js';
 
-export interface FeedbackDeps extends UploadDeps {
+export interface FeedbackDeps extends UploadDeps, ModuleFeedbackDeps {
   /** Право по функции: то же, что у остальных разделов. */
   can: (user: any, feature: string) => boolean;
   /** Версия программы: пишется в карточку, чтобы знать, где это ломалось. */
@@ -55,6 +57,7 @@ export function registerFeedbackRoutes(app: Express, deps: FeedbackDeps): void {
         triage: deps.can(user, 'feedback.triage'),
         diagnostics: deps.can(user, 'feedback.diagnostics'),
         manage: deps.can(user, 'feedback.manage'),
+        modules: (await developerModules(getPrisma(), actor.id, feedbackRoot(deps))).length > 0,
       },
       limits: LIMITS,
       dictionary: {
@@ -90,6 +93,7 @@ export function registerFeedbackRoutes(app: Express, deps: FeedbackDeps): void {
 
   // Порядок важен: «by-request» должен разбираться раньше, чем «:id»
   registerAutomaticRoutes(app, deps);
+  registerModuleFeedbackRoutes(app, deps);
   registerReportRoutes(app, deps);
   registerActionRoutes(app, deps);
   // Сводка, дубли и выгрузка идут после карточек: их пути начинаются с тех же

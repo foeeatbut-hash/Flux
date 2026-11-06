@@ -29,6 +29,9 @@ import {
 } from './fixtures/moduleTrust';
 
 const Database = require('better-sqlite3');
+const pgUrl = String(process.env.FLUX_MODULES_PG_FIXTURE_URL || '').trim();
+const mariaUrl = String(process.env.FLUX_MODULES_MARIA_FIXTURE_URL || '').trim();
+const dialect = pgUrl ? 'postgresql' : mariaUrl ? 'mysql' : 'sqlite';
 let passed = 0;
 const ok = (name: string, value: unknown) => { assert.ok(value, name); passed++; console.log(`  ✓ ${name}`); };
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-module-channels-'));
@@ -46,13 +49,28 @@ async function main() {
   ok('роль есть и в запасном списке окна', FALLBACK_ROLES.some((r) => r.code === 'MODULE_DEVELOPER'));
   ok('обычная инженерная роль разработку не получает', !JSON.parse(BUILTIN_ROLES.find((r) => r.code === 'ENGINEER_AUTO')!.permissions)['module.develop']);
 
-  const file = path.join(dir, 'flux.sqlite');
-  new Database(file).close();
-  const { PrismaClient } = require('@prisma/client-sqlite');
-  const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
-  const db = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: `file:${file}` }) });
+  assert.ok(!(pgUrl && mariaUrl), 'задайте только одну fixture-базу');
+  let db: any;
+  const fixture = pgUrl || mariaUrl;
+  if (fixture) {
+    const url = new URL(fixture);
+    assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) && url.pathname.includes('fixture'), 'только одноразовая база на loopback с fixture в имени');
+    const { PrismaClient } = require(pgUrl ? '@prisma/client-pg' : '@prisma/client-mysql');
+    db = pgUrl ? new PrismaClient({ adapter: new (require('@prisma/adapter-pg').PrismaPg)({ connectionString: fixture }) })
+      : new PrismaClient({ adapter: new (require('@prisma/adapter-mariadb').PrismaMariaDb)(fixture) });
+    const tables = await db.$queryRawUnsafe(pgUrl ? "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog', 'information_schema')"
+      : 'SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = DATABASE()');
+    assert.equal(Number(tables[0].n), 0, 'база для проверки должна быть пустой');
+  } else {
+    const file = path.join(dir, 'flux.sqlite');
+    new Database(file).close();
+    const { PrismaClient } = require('@prisma/client-sqlite');
+    const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
+    db = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: `file:${file}` }) });
+  }
+  const schema = { sqlite: 'schema.prisma', postgresql: 'schema.postgresql.prisma', mysql: 'schema.mariadb.prisma' }[dialect];
   const log: string[] = [];
-  await ensureRemoteSchema(db, 'sqlite', fs.readFileSync(path.join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8'), (m) => log.push(m));
+  await ensureRemoteSchema(db, dialect, fs.readFileSync(path.join(__dirname, '..', 'prisma', schema), 'utf8'), (m) => log.push(m));
   ok('таблицы созданы, включая назначения каналов', !log.some((m) => /Не удалось|Ошибка при/.test(m)) && (await db.moduleChannelPin.count()) === 0);
 
   // Права берутся из таблицы ниже, как userCan на настоящем сервере

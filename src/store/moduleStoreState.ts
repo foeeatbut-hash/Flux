@@ -35,6 +35,6 @@ export const useModuleStore = create<ModuleStoreState>((set) => ({
   setLocal: (local) => {
     set({ local });
     // Запускается только проверенное главным процессом: его манифесты и попадают в «Пуск»
-    syncInstalledSections((local?.runnable || []).map((r) => ({ manifest: r.manifest, version: r.version, channel: r.channel })));
+    syncInstalledSections((local?.runnable || []).map((r) => ({ manifest: r.manifest, version: r.version, channel: r.channel, author: r.author })));
   },
 }));

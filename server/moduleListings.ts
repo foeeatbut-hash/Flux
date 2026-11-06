@@ -1,3 +1,4 @@
+import { moduleSignals } from './feedback/moduleSignals.js';
 /**
  * Витрина Flux Store: из выпусков, решений администратора, отзывов и
  * установок человека собирается список карточек.
@@ -8,7 +9,7 @@
  * из-за этого не запустится и не получит больше, чем показано, потому что
  * окно сверяет отпечаток разрешений после проверки (см. permissionsDigest).
  */
-import { peekEnvelope } from '../modules/trust/envelope.js';
+import { openEnvelope, peekEnvelope } from '../modules/trust/envelope.js';
 import { parseReleaseClaim, parseRequestClaim } from '../modules/trust/claims.js';
 import { unpackBundle, bundleText } from '../modules/trust/bundle.js';
 import { compareVersions } from '../shared/versionCompare.js';
@@ -17,7 +18,8 @@ import {
 } from '../modules/store/model.js';
 import type { ModuleManifest } from '../modules/contract.js';
 import { loadTrust, readBundle, MODULE_ROOT_KEY_HEX } from './moduleStore.js';
-import { channelsFor, positionsOf } from './moduleChannels.js';
+import { effectiveChannel, readPromotions } from '../modules/trust/promotion.js';
+import { channelsFor, positionsOf, promotionsOf } from './moduleChannels.js';
 
 interface ReleaseInfo { manifest: ModuleManifest | null; changelog: string; author: string; notBefore: number }
 const cache = new Map<string, ReleaseInfo>();
@@ -65,12 +67,17 @@ export async function buildListings(db: any, user: any, rootHex = MODULE_ROOT_KE
     loadTrust(db, rootHex),
     db.appSetting.findFirst({ where: { key: 'modules.autoupdate', userId: String(user?.id || '') } }).catch(() => null),
   ]);
+  const promotions = readPromotions(await promotionsOf(db), rootHex).claims;
   const entryBy = new Map<string, any>(entries.map((e: any) => [e.moduleId, e]));
   const byModule = new Map<string, any[]>();
   for (const r of releases) {
-    if (!channels.includes(r.channel)) continue;
-    (byModule.get(r.moduleId) || byModule.set(r.moduleId, []).get(r.moduleId)!).push(r);
+    const claim = parseReleaseClaim(openEnvelope('release', r.signature, rootHex));
+    if (!claim || claim.moduleId !== r.moduleId || claim.version !== r.version) continue;
+    const channel = effectiveChannel(claim, r.signature, promotions);
+    if (!channels.includes(channel)) continue;
+    (byModule.get(r.moduleId) || byModule.set(r.moduleId, []).get(r.moduleId)!).push({ ...r, channel });
   }
+  const signals = await moduleSignals(db);
   const listings: StoreListing[] = [];
   for (const [moduleId, rows] of byModule) {
     rows.sort((a, b) => compareVersions(b.version, a.version));
@@ -106,7 +113,8 @@ export async function buildListings(db: any, user: any, rootHex = MODULE_ROOT_KE
       installs: installs.filter((i: any) => i.moduleId === moduleId).length, pinned,
       required: required.length > 0 && entry.requiredVersion && positionsOf(user).some((p) => required.includes(p)) ? entry.requiredVersion : null,
       mine: mineRow ? { version: mineRow.version, auto: mineRow.autoUpdate || '', source: mineRow.source, installedAt: new Date(mineRow.installedAt).toISOString() } : null,
-      forMyRole: info.roles.length === 0 || appliesTo(info.roles, user), known: [], crashes: null,
+      forMyRole: info.roles.length === 0 || appliesTo(info.roles, user), known: signals.known.filter((r: any) => r.moduleId === moduleId).map((r: any) => ({ id: r.id, number: r.number, title: r.title, workaround: r.moduleWorkaround })),
+      crashes: admin ? { version: top.r.version, count: signals.counts.filter((c) => c.moduleId === moduleId && c.version === top.r.version).reduce((n, c) => n + c.count, 0) } : null,
     });
   }
   return { listings, autoUpdate: autoRow?.value === '1' };

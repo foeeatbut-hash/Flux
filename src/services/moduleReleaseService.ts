@@ -51,6 +51,7 @@ export type SignRequest =
   | { kind: 'owner-edit'; parentRequestId: string; parentSignature: string; bundle: Uint8Array; comment: string }
   | { kind: 'revocation'; target: 'release' | 'key'; value: string; reason: string }
   | { kind: 'certificate'; key: string; userId: string; name: string }
+  | { kind: 'promotion'; releaseSignature: string }
   | { kind: 'pin'; moduleId: string; channel: ModuleChannel; version: string | null; reason: string };
 
 export async function signAsOwner(request: SignRequest, password: string): Promise<string | null> {
@@ -81,6 +82,7 @@ export const moduleReleaseService = {
   me: () => call<ModuleMe>('GET', '/me'),
   testers: () => call<{ testers: string[]; users: Array<{ id: string; name: string; role: string }> }>('GET', '/testers'),
   saveTesters: (testers: string[]) => call<{ testers: string[] }>('PUT', '/testers', { testers }),
+  promote: (signature: string) => call('POST', '/promotions', { signature }),
   pin: (signature: string) => call('POST', '/pins', { signature }),
   revoke: (signature: string) => call('POST', '/revocations', { signature }),
   certificates: () => call<{ certificates: Array<{ keyHex: string; userId: string; name: string; createdAt: string }> }>('GET', '/certificates').then((r) => r.certificates),
@@ -103,14 +105,14 @@ export const moduleReleaseService = {
     if (!ipc) return null;
     const state = await ipc.invoke('modules:state');
     const cached = new Set<string>((state?.cached || []).map((c: any) => `${c.moduleId}@${c.version}`));
-    const [{ revocations }, { pins }, me, releases] = await Promise.all([call<{ revocations: string[] }>('GET', '/revocations'),
-      call<{ pins: string[] }>('GET', '/pins'), moduleReleaseService.me(), moduleReleaseService.releases()]);
+    const [{ revocations }, { pins }, { promotions }, me, releases] = await Promise.all([call<{ revocations: string[] }>('GET', '/revocations'),
+      call<{ pins: string[] }>('GET', '/pins'), call<{ promotions: string[] }>('GET', '/promotions'), moduleReleaseService.me(), moduleReleaseService.releases()]);
     const fresh = [];
     for (const r of releases.filter((x) => !cached.has(`${x.moduleId}@${x.version}`))) {
       const { chunks } = await call<{ chunks: string[] }>('GET', `/releases/${encodeURIComponent(r.id)}/chunks`);
       fresh.push({ id: r.id, moduleId: r.moduleId, version: r.version, signature: r.signature, chunks });
     }
-    const result = await ipc.invoke('modules:sync', { revocations, pins, channels: me.channels, releases: fresh });
+    const result = await ipc.invoke('modules:sync', { revocations, pins, promotions, channels: me.channels, releases: fresh });
     if (!result?.ok) throw new Error(result?.error || 'Выпуски не проверены');
     return result;
   },

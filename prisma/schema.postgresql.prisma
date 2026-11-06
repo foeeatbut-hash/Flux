@@ -1299,6 +1299,15 @@ model FeedbackReport {
   impact                    String    @default("NORMAL")
   /// Раздел программы, где случилось
   sectionKey                String    @default("")
+  moduleId                  String?
+  moduleVersion             String?
+  moduleChannel             String?
+  moduleApiVersion          String?
+  moduleDeveloper           String?
+  moduleDiagnosticsJson     String    @default("{}")
+  moduleForwarded           Boolean   @default(false)
+  moduleKnown               Boolean   @default(false)
+  moduleWorkaround          String    @default("")
   projectId                 String?
   /// Когда возникло — по словам автора, а не когда отправлено
   incidentAt                DateTime

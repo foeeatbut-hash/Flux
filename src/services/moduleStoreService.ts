@@ -15,6 +15,8 @@ export interface LocalInstalled { version: string; at: number; dirty?: boolean; 
 export interface LocalState {
   ok: boolean; error?: string; userId: string; channels: ModuleChannel[];
   installed: Record<string, LocalInstalled>;
+  revoked?: { releases: string[]; keys: string[] };
+  channelCaps?: Record<string, string>;
   available: LocalAvailable[];
   /** Выбранная версия больше не проходит проверку (отозвана, откат владельца): запущена более старая */
   fallbacks: Record<string, { wanted: string; running: string | null }>;
@@ -56,6 +58,7 @@ export const moduleStoreApi = {
   releases: () => call<{ releases: ReleaseRow[] }>('GET', '/releases').then((r) => r.releases),
   chunks: (releaseId: string) => call<{ chunks: string[] }>('GET', `/releases/${encodeURIComponent(releaseId)}/chunks`).then((r) => r.chunks),
   revocations: () => call<{ revocations: string[] }>('GET', '/revocations').then((r) => r.revocations),
+  promotions: () => call<{ promotions: string[] }>('GET', '/promotions').then((r) => r.promotions),
   pins: () => call<{ pins: string[] }>('GET', '/pins').then((r) => r.pins),
   me: () => call<{ channels: ModuleChannel[]; owner: boolean; develop: boolean; publish: boolean }>('GET', '/me'),
 };

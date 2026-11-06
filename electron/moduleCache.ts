@@ -24,6 +24,7 @@ import { splitChunks } from '../modules/trust/bundle';
 import { sha256Hex } from '../modules/trust/envelope';
 import { readPins, readRevocations, verifyRelease, type ChannelCaps, type RevokedSet, type RunnableRelease } from '../modules/trust/verify';
 import { MODULE_ID, MODULE_VERSION, type ModuleChannel } from '../modules/trust/claims';
+import { effectiveChannel, readPromotions } from '../modules/trust/promotion';
 import { compareVersions } from '../shared/versionCompare';
 
 /** Сколько проверенных версий модуля держать: «Вернуть предыдущую версию» без связи (Flux Store) */
@@ -58,6 +59,18 @@ export class ModuleCache {
     let saved: unknown = [];
     try { saved = JSON.parse(await fs.readFile(path.join(this.dir, 'pins.json'), 'utf8')); } catch { /* ещё не было */ }
     return readPins(Array.isArray(saved) ? saved.filter((s) => typeof s === 'string') : [], this.rootHex);
+  }
+
+  async promotions() {
+    let saved: unknown = [];
+    try { saved = JSON.parse(await fs.readFile(path.join(this.dir, 'promotions.json'), 'utf8')); } catch { /* ещё не было */ }
+    return readPromotions(Array.isArray(saved) ? saved.filter((s): s is string => typeof s === 'string') : [], this.rootHex);
+  }
+
+  async addPromotions(envelopes: readonly string[]): Promise<void> {
+    const known = await this.promotions();
+    const fresh = readPromotions(envelopes, this.rootHex).valid.filter(s => !known.valid.includes(s));
+    if (fresh.length) await atomicWrite(path.join(this.dir, 'promotions.json'), JSON.stringify([...new Set([...known.valid, ...fresh])]));
   }
 
   async addPins(envelopes: readonly string[]): Promise<ChannelCaps> {
@@ -106,15 +119,17 @@ export class ModuleCache {
   async verifiedVersions(moduleId: string, channels: readonly ModuleChannel[] = ['production']): Promise<Array<RunnableRelease | { version: string; why: string }>> {
     const revoked = await this.revoked();
     const { caps } = await this.pins();
+    const { claims: promotions } = await this.promotions();
     const versions = (await fs.readdir(path.join(this.dir, 'releases', moduleId)).catch(() => [] as string[]))
       .filter((v) => MODULE_VERSION.test(v)).sort((a, b) => compareVersions(b, a));
     const out: Array<RunnableRelease | { version: string; why: string }> = [];
     for (const version of versions) {
       const dir = this.releaseDir(moduleId, version);
       const [signature, bundle] = await Promise.all([fs.readFile(path.join(dir, 'release.sig'), 'utf8').catch(() => ''), fs.readFile(path.join(dir, 'bundle.bin')).catch(() => null)]);
-      const checked = verifyRelease({ signature, chunks: bundle ? splitChunks(new Uint8Array(bundle)) : [], rootHex: this.rootHex, revoked, now: this.now(), moduleId, version, caps });
+      const checked = verifyRelease({ signature, chunks: bundle ? splitChunks(new Uint8Array(bundle)) : [], rootHex: this.rootHex, revoked, now: this.now(), moduleId, version, caps, promotions });
       if (!checked.ok) { out.push({ version, why: checked.why }); continue; }
-      if (!channels.includes(checked.claim.channel)) { out.push({ version, why: `Выпуск в канале «${checked.claim.channel}»` }); continue; }
+      const channel = effectiveChannel(checked.claim, signature, promotions);
+      if (!channels.includes(channel)) { out.push({ version, why: `Выпуск в канале «${channel}»` }); continue; }
       out.push(checked);
     }
     return out;
@@ -185,6 +200,8 @@ export async function syncModuleReleases(cache: ModuleCache, get: (route: string
   await cache.addRevocations(Array.isArray(revocations?.revocations) ? revocations.revocations : []);
   const pins = await get('/api/modules/pins');
   await cache.addPins(Array.isArray(pins?.pins) ? pins.pins : []);
+  const promotions = await get('/api/modules/promotions');
+  await cache.addPromotions(Array.isArray(promotions?.promotions) ? promotions.promotions : []);
   const list = await get('/api/modules/releases');
   const known = new Set((await cache.cached()).map((c) => `${c.moduleId}@${c.version}`));
   for (const row of Array.isArray(list?.releases) ? list.releases as ReleaseRow[] : []) {

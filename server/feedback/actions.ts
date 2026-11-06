@@ -8,6 +8,8 @@
  */
 
 import type { Express, Request, Response } from 'express';
+import { moduleHandler, moduleRecipients, feedbackRoot, type ModuleFeedbackDeps } from './modules.js';
+import { MODULE_VERSION } from '../../modules/trust/claims.js';
 import { getPrisma } from '../context.js';
 import { ensureFeedbackTables } from './tables.js';
 import { actorOf, fail, ok, triageRecipients, type Actor } from './policy.js';
@@ -19,11 +21,11 @@ import {
   ERRORS, LIMITS, PRIORITIES, checkText, isUuid, type Priority, type Status,
 } from '../../feedback/contracts.js';
 
-export interface ActionDeps {
+export interface ActionDeps extends ModuleFeedbackDeps {
   can: (user: any, feature: string) => boolean;
 }
 
-interface Ctx { actor: Actor; prisma: any; triage: boolean; report: any; mine: boolean }
+interface Ctx { actor: Actor; prisma: any; triage: boolean; report: any; mine: boolean; developer: boolean }
 
 export function registerActionRoutes(app: Express, deps: ActionDeps): void {
   /** Карточка вместе с ответом на «кто я ей». */
@@ -36,10 +38,12 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
     const id = String(req.params.id || '');
     if (!isUuid(id)) { fail(res, ERRORS.NOT_FOUND, 'Обращение не найдено'); return null; }
     const report = await prisma.feedbackReport.findUnique({ where: { id } });
-    const triage = deps.can((req as any).authUser, 'feedback.triage');
+    const globalTriage = deps.can((req as any).authUser, 'feedback.triage');
+    const developer = !globalTriage && await moduleHandler(prisma, actor.id, report, feedbackRoot(deps));
+    const triage = globalTriage || developer;
     const mine = !!report && report.authorId === actor.id;
     if (!report || (!mine && !triage)) { fail(res, ERRORS.NOT_FOUND, 'Обращение не найдено'); return null; }
-    return { actor, prisma, triage, report, mine };
+    return { actor, prisma, triage, report, mine, developer };
   }
 
   /** Общее для всех изменений: ключ, ожидаемая ревизия. */
@@ -91,8 +95,13 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
     });
     if (!verdict.ok) return fail(res, ERRORS.INVALID_TRANSITION, verdict.error || 'Так менять нельзя');
 
+    if (ctx.report.moduleId && to === 'VERIFY' && !MODULE_VERSION.test(String(body.resolvedVersion || ''))) return fail(res, ERRORS.VALIDATION, 'Для подпрограммы нужна версия исправления');
     const patch: Record<string, unknown> = { status: to };
-    if (to === 'IN_PROGRESS') patch.assigneeId = String(body.assigneeId || ctx.report.assigneeId || '');
+    if (to === 'IN_PROGRESS') {
+      const assignee = String(body.assigneeId || ctx.report.assigneeId || '');
+      if (ctx.developer && !(await moduleRecipients(ctx.prisma, ctx.report.moduleId, feedbackRoot(deps))).includes(assignee)) return fail(res, ERRORS.FORBIDDEN, 'Исполнитель должен разрабатывать эту подпрограмму');
+      patch.assigneeId = assignee;
+    }
     // Куда вернуться после ответа автора: работа возвращается туда, откуда её
     // увели, а не в начало разбора
     if (to === 'NEEDS_INFO') patch.resumeStatus = ctx.report.status;
@@ -113,6 +122,10 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
         where: { id: targetId }, select: { id: true },
       });
       if (!exists) return fail(res, ERRORS.NOT_FOUND, 'Карточка, на которую указывают, не найдена');
+      if (ctx.developer) {
+        const target = await ctx.prisma.feedbackReport.findUnique({ where: { id: targetId } });
+        if (target?.moduleId !== ctx.report.moduleId || !await moduleHandler(ctx.prisma, ctx.actor.id, target, feedbackRoot(deps))) return fail(res, ERRORS.NOT_FOUND, 'Карточка не найдена');
+      }
       const chain = new Map<string, string | null>();
       let at: string | null = targetId;
       for (let step = 0; step <= MAX_DUPLICATE_CHAIN && at; step++) {
@@ -131,7 +144,7 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
     else patch.closedAt = null;
 
     const notifyAuthor = ctx.report.authorId !== ctx.actor.id ? [ctx.report.authorId] : [];
-    const notifyTriage = ctx.mine ? await triageRecipients(deps.can) : [];
+    const notifyTriage = ctx.mine ? [...new Set([...(await triageRecipients(deps.can)), ...(ctx.report.moduleId ? await moduleRecipients(ctx.prisma, ctx.report.moduleId, feedbackRoot(deps)) : [])])] : [];
 
     try {
       const done = await applyMutation({
@@ -155,6 +168,7 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
     const keys = keyed(req, res);
     if (!keys) return;
     const assigneeId = String((req.body || {}).assigneeId || '') || null;
+    if (ctx.developer && assigneeId && !(await moduleRecipients(ctx.prisma, ctx.report.moduleId, feedbackRoot(deps))).includes(assigneeId)) return fail(res, ERRORS.FORBIDDEN, 'Исполнитель должен разрабатывать эту подпрограмму');
     try {
       const done = await applyMutation({
         actor: ctx.actor, reportId: ctx.report.id, ...keys,
@@ -201,7 +215,7 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
     if (!text.ok) return fail(res, ERRORS.VALIDATION, text.error || 'Пустое сообщение');
     const wantsInternal = body.visibility === 'INTERNAL';
     // Автор внутренних заметок не пишет: ему их и читать нечем
-    if (wantsInternal && !ctx.triage) return fail(res, ERRORS.FORBIDDEN, 'Внутренние заметки пишут те, кто разбирает');
+    if (wantsInternal && (!ctx.triage || ctx.developer)) return fail(res, ERRORS.FORBIDDEN, 'Внутренние заметки пишут те, кто разбирает');
     const visibility = wantsInternal ? 'INTERNAL' as const : 'PUBLIC' as const;
 
     const allowed = await reserveRate(ctx.prisma, ctx.actor.id, 'comment', LIMITS.commentsPerMinute);
@@ -238,7 +252,7 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
     if (!ctx) return;
     // Фильтр видимости — условием запроса: над готовым ответом его забудут
     const where: any = { reportId: ctx.report.id };
-    if (!ctx.triage) where.visibility = 'PUBLIC';
+    if (!ctx.triage || ctx.developer) where.visibility = 'PUBLIC';
     const rows = await ctx.prisma.feedbackComment.findMany({
       where, orderBy: { createdAt: 'asc' }, take: 500,
     });
@@ -252,13 +266,13 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
     const ctx = await card(req, res);
     if (!ctx) return;
     const where: any = { reportId: ctx.report.id };
-    if (!ctx.triage) where.visibility = 'PUBLIC';
+    if (!ctx.triage || ctx.developer) where.visibility = 'PUBLIC';
     const rows = await ctx.prisma.feedbackEvent.findMany({
       where, orderBy: { revision: 'asc' }, take: 500,
     });
     ok(res, rows.map((e: any) => ({
       id: e.id, kind: e.kind, actorId: e.actorId, revision: e.revision,
-      visibility: e.visibility, data: safeJson(e.dataJson), createdAt: e.createdAt,
+      visibility: e.visibility, data: ctx.developer && e.kind === 'created' ? { type: ctx.report.type } : safeJson(e.dataJson), createdAt: e.createdAt,
     })));
   });
 

@@ -173,8 +173,8 @@ async function reconcile(): Promise<void> {
     const [store, me] = await Promise.all([api.store(), api.me()]);
     state().set({ listings: store.listings, autoUpdate: store.autoUpdate, loaded: true, offline: false, error: '' });
     if (!host) return;
-    const [revocations, pins] = await Promise.all([api.revocations(), api.pins()]);
-    await local('modules:sync', { revocations, pins, channels: me.channels, releases: [] });
+    const [revocations, pins, promotions] = await Promise.all([api.revocations(), api.pins(), api.promotions()]);
+    await local('modules:sync', { revocations, pins, promotions, channels: me.channels, releases: [] });
     let now = await reloadLocal();
 
     // Изменения, сделанные без связи (например, возврат версии), уходят на сервер

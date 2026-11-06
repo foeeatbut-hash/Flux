@@ -163,7 +163,7 @@ export function registerInsightRoutes(app: Express, deps: InsightDeps): void {
     // Ищем среди недавних и того же вида: дубль приходит рядом по времени, а
     // «идея» и «ошибка» дублями друг друга не бывают
     const others = await prisma.feedbackReport.findMany({
-      where: { id: { not: id }, type: one.type, status: { notIn: ['DUPLICATE', 'WITHDRAWN'] } },
+      where: { id: { not: id }, type: one.type, moduleId: one.moduleId, moduleVersion: one.moduleVersion, status: { notIn: ['DUPLICATE', 'WITHDRAWN'] } },
       orderBy: { createdAt: 'desc' },
       take: 300,
     });
@@ -331,6 +331,7 @@ function fingerprintOf(report: any): string {
   return technicalFingerprint({
     appVersion: report.appVersion,
     sectionKey: report.sectionKey,
+    moduleId: report.moduleId, moduleVersion: report.moduleVersion,
     // Кода ошибки отдельным полем в карточке нет: берём первую строку
     // «что получилось» — её пишут как «вылетело NotFoundError»
     errorCode: String(report.actual || '').split('\n')[0].slice(0, 64),

@@ -6,6 +6,7 @@
 import { useEffect } from 'react';
 import { useRealTimeSync } from '../SocketProvider';
 import { useStore } from '../../store/store';
+import { flushModuleCrashes } from '../../services/moduleCrashQueue';
 import { refreshStore } from '../../services/moduleStoreActions';
 
 export default function StoreSync() {
@@ -13,15 +14,16 @@ export default function StoreSync() {
   const userId = (useStore((s) => s.user) as any)?.id;
   useEffect(() => {
     if (!userId) return;
-    const run = () => { void refreshStore(); };
+    const run = () => { void refreshStore(); void flushModuleCrashes(); };
     run();
     const timer = setInterval(run, 10 * 60 * 1000);
     window.addEventListener('focus', run);
-    return () => { clearInterval(timer); window.removeEventListener('focus', run); };
+    window.addEventListener('online', run);
+    return () => { clearInterval(timer); window.removeEventListener('focus', run); window.removeEventListener('online', run); };
   }, [userId]);
   useEffect(() => {
     if (!socket || !userId) return;
-    const run = () => { void refreshStore(); };
+    const run = () => { void refreshStore(); void flushModuleCrashes(); };
     const events = ['modules:released', 'modules:revoked', 'modules:installs', 'modules:channels'];
     events.forEach((e) => socket.on(e, run));
     return () => { events.forEach((e) => socket.off(e, run)); };

@@ -9,6 +9,7 @@
 import type { Express, Request, Response } from 'express';
 import { unpackBundle } from '../../modules/trust/bundle.js';
 import { compareVersions } from '../../shared/versionCompare.js';
+import { queueModuleFixNotices } from '../feedback/moduleSignals.js';
 import { buildListings, entryOf } from '../moduleListings.js';
 import { readBundle } from '../moduleStore.js';
 import { STORE_STATUSES, type StoreListing } from '../../modules/store/model.js';
@@ -42,7 +43,12 @@ export function registerModuleStoreRoutes(app: Express, deps: ModuleStoreDeps): 
   };
 
   app.get('/api/modules/store', async (req: Request, res: Response) => {
-    try { res.json(await buildListings(deps.getPrisma(), userOf(req), deps.rootHex())); }
+    try {
+      const db = deps.getPrisma(), user = userOf(req);
+      const built = await buildListings(db, user, deps.rootHex());
+      await queueModuleFixNotices(db, user.id, built.listings);
+      res.json(built);
+    }
     catch (e: any) { fail(res, 503, e?.message || 'Store недоступен'); }
   });
 

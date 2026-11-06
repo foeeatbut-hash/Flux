@@ -50,6 +50,7 @@ export interface ReadRequest {
   flux: 'module'; v: 1; session: string; id: string; type: 'read';
   resource: Resource; entityId?: string;
 }
+export type ModuleFailureKind = 'crash' | 'timeout' | 'memory' | 'bridge';
 export type BridgeError = 'READ_ONLY' | 'DENIED' | 'NO_PROJECT' | 'FAILED' | 'LIMIT';
 export type HostMessage =
   | { flux: 'module'; v: 1; session: string; type: 'event'; event: 'opened' | 'project-changed' | 'changed'; context: LaunchContext; theme: ThemeTokens }

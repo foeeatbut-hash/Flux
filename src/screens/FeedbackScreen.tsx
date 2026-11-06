@@ -19,7 +19,7 @@ import { useFeedbackStore } from '../store/feedbackStore';
 import { dataService } from '../services/dataService';
 import {
   addComment, exportReport, getActions, getComments, getDuplicates, getEvents, getMeta,
-  downloadPackage, getReport, listAssignees, listReports, markRead, openAttachment,
+  downloadPackage, getModulePackage, getReport, listAssignees, listReports, markRead, openAttachment,
   setPriority, transition, type Meta,
 } from '../feedback/feedbackApi';
 import FeedbackList, { type Row } from '../components/feedback/FeedbackList';
@@ -29,6 +29,7 @@ import FeedbackDiscussion, { type Comment, type Event } from '../components/feed
 import FeedbackDiagnostics from '../components/feedback/FeedbackDiagnostics';
 import FeedbackComposer from '../components/feedback/FeedbackComposer';
 import FeedbackSummary from '../components/feedback/FeedbackSummary';
+import ModuleFeedbackActions from '../components/feedback/ModuleFeedbackActions';
 import { reportNumber, type Status } from '../../feedback/contracts';
 
 /** Как часто перечитывать открытый список при видимом окне. */
@@ -40,7 +41,8 @@ export default function FeedbackScreen() {
   const touched = useFeedbackStore((s) => s.touched);
 
   const [meta, setMeta] = useState<Meta | null>(null);
-  const [scope, setScope] = useState<'mine' | 'queue' | 'summary'>('mine');
+  const [scope, setScope] = useState<'mine' | 'queue' | 'modules' | 'summary'>('mine');
+  const [moduleFilter, setModuleFilter] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
   const [activeId, setActiveId] = useState('');
   const [card, setCard] = useState<Card | null>(null);
@@ -55,6 +57,7 @@ export default function FeedbackScreen() {
   const [exported, setExported] = useState('');
 
   const triage = !!meta?.rights?.triage;
+  const cardTriage = triage || !!card?.capabilities?.triage;
 
   useEffect(() => {
     getMeta().then(setMeta).catch((e: any) => setFailure(e?.message || 'Сервер обращений не отвечает'));
@@ -80,13 +83,13 @@ export default function FeedbackScreen() {
   const loadList = useCallback(async () => {
     if (scope === 'summary') return;
     try {
-      const data = await listReports(scope === 'queue' ? 'scope=queue' : 'scope=mine');
+      const data = await listReports(scope === 'queue' ? `scope=queue${moduleFilter ? '&modules=1' : ''}` : `scope=${scope}`);
       setRows((data || []) as Row[]);
       setFailure('');
     } catch (error: any) {
       setFailure(error?.message || 'Список не загрузился');
     }
-  }, [scope]);
+  }, [scope, moduleFilter]);
 
   /**
    * Открыть карточку.
@@ -241,11 +244,12 @@ export default function FeedbackScreen() {
 
   const tabs = useMemo(() => ([
     { id: 'mine' as const, name: 'Мои обращения', icon: Inbox },
+    ...(meta?.rights?.modules ? [{ id: 'modules' as const, name: 'Подпрограммы', icon: ListChecks }] : []),
     ...(triage ? [
       { id: 'queue' as const, name: 'Очередь разбора', icon: ListChecks },
       { id: 'summary' as const, name: 'Сводка', icon: BarChart3 },
     ] : []),
-  ]), [triage]);
+  ]), [triage, meta?.rights?.modules]);
 
   return (
     <div className="h-full flex min-h-0">
@@ -256,7 +260,10 @@ export default function FeedbackScreen() {
                        cursor-pointer bg-emerald-600 text-white hover:bg-emerald-700">
             <Plus className="w-3.5 h-3.5" /> Новое обращение
           </button>
-          <div className="flex gap-1">
+          {scope === 'queue' && <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
+            <input type="checkbox" checked={moduleFilter} onChange={(e) => setModuleFilter(e.target.checked)} /> По подпрограммам
+          </label>}
+          <div className="flex gap-1 flex-wrap">
             {tabs.map((tab) => (
               <button key={tab.id} type="button" onClick={() => { setScope(tab.id); setActiveId(''); }}
                 className={`flex-1 px-2 py-1.5 rounded-lg flex items-center justify-center gap-1.5 text-xs font-semibold cursor-pointer
@@ -294,7 +301,7 @@ export default function FeedbackScreen() {
         )}
         {scope !== 'summary' && card && (
           <>
-            <FeedbackCard card={card} actions={actions} names={names} triage={triage} busy={busy}
+            <FeedbackCard card={card} actions={actions} names={names} triage={cardTriage} busy={busy}
               assignees={assignees} candidates={twins} failure={failure}
               onAct={(to, input, key) => void act(to, input, key)}
               onPriority={(value, key) => void priority(value, key)}
@@ -302,6 +309,7 @@ export default function FeedbackScreen() {
                 openAttachment(id, name, inline).catch((error: any) =>
                   setFailure(error?.message || 'Вложение не открылось'));
               }} />
+            {card.moduleId && cardTriage && <ModuleFeedbackActions card={card} onChanged={() => loadCard(card.id)} />}
             {/* Сводка по запискам — тем, у кого есть право: сервер и так её не
                 отдаёт остальным, но и рисовать пустое место незачем */}
             {!!(card as any).diagnostics?.length && (
@@ -325,6 +333,16 @@ export default function FeedbackScreen() {
                 <p className="text-2xs text-slate-500 dark:text-slate-400">
                   Это предложение, а не решение: карточки сами не объединяются.
                 </p>
+              </div>
+            )}
+
+            {scope === 'modules' && card.capabilities?.triage && (
+              <div className="space-y-2">
+                <button type="button" className="fx-btn" onClick={() => {
+                  getModulePackage(card.id).then((data) => setExported(JSON.stringify(data, null, 2)))
+                    .catch((error: any) => setFailure(error?.message || 'Данные подпрограммы не загрузились'));
+                }}>Данные подпрограммы</button>
+                {exported && <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-700 dark:text-slate-300">{exported}</pre>}
               </div>
             )}
 

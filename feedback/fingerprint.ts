@@ -56,6 +56,8 @@ export function frameKey(line: unknown): string {
 export interface FingerprintParts {
   appVersion?: string;
   sectionKey?: string;
+  moduleId?: string;
+  moduleVersion?: string;
   errorCode?: string;
   frames?: unknown[];
 }
@@ -74,6 +76,7 @@ export function technicalFingerprint(parts: FingerprintParts): string {
     FINGERPRINT_VERSION,
     majorMinor(parts.appVersion),
     String(parts.sectionKey ?? '').trim().slice(0, 64),
+    ...(parts.moduleId ? [parts.moduleId, parts.moduleVersion || ''] : []),
     code,
     ...frames,
   ].join('|');

@@ -8,8 +8,9 @@
 import type { Express, Request, Response } from 'express';
 import { requireOwnerMiddleware } from '../accessPolicy.js';
 import { openEnvelope } from '../../modules/trust/envelope.js';
-import { parsePinClaim } from '../../modules/trust/claims.js';
-import { channelsFor, saveTesters, testersOf } from '../moduleChannels.js';
+import { parsePinClaim, parseReleaseClaim } from '../../modules/trust/claims.js';
+import { channelsFor, promotionsOf, saveTesters, testersOf } from '../moduleChannels.js';
+import { parsePromotionClaim, readPromotions } from '../../modules/trust/promotion.js';
 import { signatureHash } from '../moduleStore.js';
 
 export interface ModuleChannelDeps {
@@ -39,6 +40,27 @@ export function registerModuleChannelRoutes(app: Express, deps: ModuleChannelDep
     const saved = await saveTesters(deps.getPrisma(), ids);
     deps.broadcast('modules:channels', {});
     res.json({ testers: saved });
+  });
+
+  app.get('/api/modules/promotions', async (_req: Request, res: Response) => {
+    res.json({ promotions: readPromotions(await promotionsOf(deps.getPrisma()), deps.rootHex()).valid });
+  });
+
+  app.post('/api/modules/promotions', requireOwnerMiddleware, async (req: Request, res: Response) => {
+    const db = deps.getPrisma(), signature = String(req.body?.signature || '').trim();
+    const claim = parsePromotionClaim(openEnvelope('promotion', signature, deps.rootHex()));
+    if (!claim) return res.status(400).json({ error: 'Нужна подпись назначения ключом владельца' });
+    const release = await db.moduleRelease.findUnique({ where: { moduleId_version: { moduleId: claim.moduleId, version: claim.version } } });
+    const signed = release && parseReleaseClaim(openEnvelope('release', release.signature, deps.rootHex()));
+    if (!signed || signed.channel !== 'test' || signed.moduleId !== claim.moduleId || signed.version !== claim.version
+      || signatureHash(release.signature) !== claim.releaseSignatureHash) return res.status(400).json({ error: 'Назначение не совпадает с подписанным выпуском' });
+    try {
+      await db.appSetting.create({ data: { id: `module-promotion-${signatureHash(signature)}`, key: 'modules.promotions', userId: null, value: signature } });
+    } catch (e: any) {
+      if (e?.code !== 'P2002') return res.status(503).json({ error: e?.message || 'Назначение не записано' });
+    }
+    deps.broadcast('modules:released', { moduleId: claim.moduleId, version: claim.version });
+    res.json({ ok: true });
   });
 
   app.get('/api/modules/pins', async (_req: Request, res: Response) => {

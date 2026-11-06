@@ -34,7 +34,33 @@
         "src/components/store/StoreLibrary.tsx",
         "src/components/store/StoreAdmin.tsx",
         "src/components/store/StoreDialogs.tsx",
-        "src/services/moduleStoreActions.ts"
+        "src/services/moduleStoreActions.ts",
+        "src/services/moduleCrashQueue.ts",
+        "src/services/moduleReleaseService.ts",
+        "src/services/moduleStoreService.ts",
+        "src/components/modules/ModuleTrustPanel.tsx",
+        "src/components/feedback/ModuleFeedbackActions.tsx",
+        "src/components/feedback/ProblemPanel.tsx",
+        "src/components/feedback/FeedbackCard.tsx",
+        "src/feedback/problemPanel.ts",
+        "src/feedback/useComposer.ts",
+        "feedback/moduleContext.ts",
+        "feedback/moduleCrashes.ts",
+        "modules/trust/promotion.ts",
+        "modules/trust/owner.ts",
+        "modules/trust/verify.ts",
+        "electron/moduleCache.ts",
+        "electron/moduleStoreIpc.ts",
+        "server/moduleChannels.ts",
+        "server/moduleListings.ts",
+        "server/routes/moduleChannels.ts",
+        "server/routes/modulePublishing.ts",
+        "server/routes/moduleStore.ts",
+        "server/feedback/modules.ts",
+        "server/feedback/moduleRoutes.ts",
+        "server/feedback/moduleSignals.ts",
+        "server/feedback/reports.ts",
+        "server/feedback/actions.ts"
       ]
     }
   ],
@@ -118,6 +144,96 @@
       "platform": "any",
       "resources": [],
       "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-trust",
+      "path": "scripts/test-modules-trust.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-publishing",
+      "path": "scripts/test-modules-publishing.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-channels",
+      "path": "scripts/test-modules-channels.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-store",
+      "path": "scripts/test-modules-store.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-promotion",
+      "path": "scripts/test-modules-promotion.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-feedback",
+      "path": "scripts/test-modules-feedback.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-restart-ui",
+      "path": "scripts/test-modules-restart-ui.ts",
+      "layer": "component",
+      "platform": "linux",
+      "resources": [],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_UI_URL"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_CHROME"
+        }
+      ],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "feedback-module-ui",
+      "path": "scripts/test-feedback-module-ui.ts",
+      "layer": "component",
+      "platform": "linux",
+      "resources": [],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_UI_URL"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_CHROME"
+        }
+      ],
       "timeoutMs": 900000
     }
   ],
@@ -339,6 +455,101 @@
           ]
         }
       ]
+    },
+    {
+      "id": "modules.promote",
+      "program": "modules",
+      "label": "Перевести выпуск в рабочий канал",
+      "risk": "critical",
+      "sources": [
+        "modules/trust/promotion.ts",
+        "server/routes/moduleChannels.ts",
+        "electron/moduleCache.ts"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "expected": [
+        "Подписанный перевод открывает тот же выпуск в рабочем канале с проверкой прав и отзыва"
+      ],
+      "checks": [
+        {
+          "suite": "modules-promotion",
+          "layer": "api-db",
+          "claims": [
+            "Подписи и права перевода, кэш, откат и отзыв проверяются на одноразовой базе"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "modules.restart",
+      "program": "modules",
+      "label": "Перезапустить обновлённую подпрограмму",
+      "risk": "normal",
+      "sources": [
+        "src/screens/ModuleHost.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "expected": [
+        "Текущий расчёт сохраняется до явного перезапуска и после него открывается новая версия"
+      ],
+      "checks": [
+        {
+          "suite": "modules-restart-ui",
+          "layer": "component",
+          "claims": [
+            "В компонентном стенде обновление не заменяет iframe до нажатия, затем открывает новую версию"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "modules.feedback",
+      "program": "modules",
+      "label": "Сообщить о проблеме подпрограммы",
+      "risk": "critical",
+      "sources": [
+        "src/components/modules/ModuleFrame.tsx",
+        "src/services/moduleCrashQueue.ts",
+        "server/feedback/modules.ts",
+        "server/feedback/moduleRoutes.ts"
+      ],
+      "triggers": [
+        "button",
+        "background"
+      ],
+      "expected": [
+        "Сбой учитывается обезличенно, а обращение разработчику открывается только по решению пользователя"
+      ],
+      "checks": [
+        {
+          "suite": "modules-contract",
+          "layer": "unit",
+          "claims": [
+            "Мост принимает ограниченный сигнал только от доверенного окна и не считает отсутствие проекта сбоем"
+          ]
+        },
+        {
+          "suite": "modules-feedback",
+          "layer": "api-db",
+          "claims": [
+            "Обращения и права разработчика проверяются через API на одноразовой базе"
+          ]
+        },
+        {
+          "suite": "feedback-module-ui",
+          "layer": "component",
+          "claims": [
+            "В стенде проверяются действия с обращением и геометрия в двух темах"
+          ]
+        }
+      ],
+      "manual": []
     }
   ],
   "connections": [

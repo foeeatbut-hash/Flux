@@ -50,17 +50,30 @@ async function main() {
   console.log('\n2. Проверка границы моста');
   const messages: any[] = [];
   const calls: Array<[Resource, string | undefined]> = [];
+  const failures: string[] = [];
   const frame = { postMessage: (message: unknown) => messages.push(message) } as unknown as Window;
   const bridge = createModuleBridge({ frame: () => frame, session: 'session', manifest: bundledModules[0],
     context: () => ({ projectId: 'p', entry: 'equipment', entityId: 'e' }), theme: () => theme,
+    onFailure: kind => failures.push(kind),
     read: async <R extends Resource>(resource: R, id?: string): Promise<ReadData[R]> => { calls.push([resource, id]); return data[resource]; },
   });
   const send = (value: unknown, source: unknown = frame, origin = 'null') => bridge.handle({ source: source as MessageEventSource, origin, data: value });
+  await send({ ...base, type: 'failure', kind: 'crash' });
+  ok('сообщение об ошибке до готовности игнорируется', failures.length === 0);
   await send({ ...base, type: 'ready' });
+  await send({ ...base, type: 'failure', kind: 'crash' }, {});
+  await send({ ...base, type: 'failure', kind: 'crash' }, frame, 'https://host.example');
+  await send({ ...base, session: 'other', type: 'failure', kind: 'crash' });
+  await send({ ...base, type: 'failure', kind: 'crash', secret: 'private' });
+  await send({ ...base, type: 'failure', kind: 'other' });
+  ok('чужие или содержащие лишние данные ошибки игнорируются', failures.length === 0);
+  await send({ ...base, type: 'failure', kind: 'timeout' });
+  ok('допустимый сбой от готового iframe доставляется', failures.join() === 'timeout');
   ok('готовый модуль получает контекст открытия', messages[0]?.event === 'opened' && messages[0]?.context.entityId === 'e');
   messages.length = 0;
   const before = JSON.stringify(data);
   await send({ ...base, type: 'write', id: 'w', resource: 'equipment', entityId: 'e', data: { name: 'Изменено' } });
+  ok('отказ моста учитывается', failures.at(-1) === 'bridge');
   ok('запись получает READ_ONLY', messages.length === 1 && messages[0].code === 'READ_ONLY' && messages[0].id === 'w');
   ok('запись не вызывает чтение и не меняет данные', calls.length === 0 && JSON.stringify(data) === before);
   messages.length = 0;
@@ -91,6 +104,16 @@ async function main() {
   await denied.handle({ source: deniedFrame, origin: 'null', data: { ...base, type: 'ready' } });
   await denied.handle({ source: deniedFrame, origin: 'null', data: request('denied') });
   ok('ресурс без разрешения получает DENIED без чтения', deniedMessages.at(-1)?.code === 'DENIED' && deniedCalls === 0);
+
+  const noProjectFailures: string[] = [];
+  const noProject = createModuleBridge({ frame: () => frame, session: 'session', manifest: bundledModules[0],
+    context: () => ({ projectId: null, entry: 'start', entityId: null }), theme: () => theme,
+    onFailure: kind => noProjectFailures.push(kind),
+    read: async <R extends Resource>(resource: R): Promise<ReadData[R]> => data[resource],
+  });
+  await noProject.handle({ source: frame, origin: 'null', data: { ...base, type: 'ready' } });
+  await noProject.handle({ source: frame, origin: 'null', data: request('no-project') });
+  ok('отсутствие проекта не считается сбоем моста', messages.at(-1)?.code === 'NO_PROJECT' && noProjectFailures.length === 0);
 
   console.log('\n3. Асинхронные границы');
   const pendingMessages: any[] = [];

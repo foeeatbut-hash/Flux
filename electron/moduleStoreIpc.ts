@@ -7,6 +7,7 @@
  * человек видел в окне, сверяются с разрешениями проверенного манифеста.
  */
 import { ipcMain } from 'electron';
+import { effectiveChannel, type PromotionClaim } from '../modules/trust/promotion';
 import { permissionsDigest } from '../modules/store/model';
 import type { RunnableRelease } from '../modules/trust/verify';
 import { trustedAuthSender } from './authStorage';
@@ -30,21 +31,24 @@ const refuse = { ok: false, error: 'Доступно только окну Flux.
 
 export function registerModuleStoreIpc(host: ModuleHost) {
   const { cache, selection } = host;
-  const describe = (r: RunnableRelease) => ({ manifest: r.manifest, version: r.claim.version, channel: r.claim.channel, author: r.claim.author });
+  const describe = (r: RunnableRelease, promotions: readonly PromotionClaim[]) => ({ manifest: r.manifest, version: r.claim.version, channel: effectiveChannel(r.claim, r.signature, promotions), author: r.claim.author });
 
   /** Всё, что окну нужно знать о этом компьютере: установленное, проверенные версии, что реально запущено */
   const stateOf = async () => {
     const channels = selection.channels;
     const cached = await cache.cached();
+    const { claims: promotions } = await cache.promotions();
+    const revoked = await cache.revoked();
+    const { caps } = await cache.pins();
     const available = [];
     for (const moduleId of new Set(cached.map(c => c.moduleId))) {
-      for (const r of await cache.available(moduleId, channels)) available.push({ moduleId, ...describe(r) });
+      for (const r of await cache.available(moduleId, channels)) available.push({ moduleId, ...describe(r, promotions) });
     }
     const runnable = host.runnable();
     const fallbacks = Object.fromEntries(Object.entries(selection.versions())
       .filter(([id, wanted]) => runnable.get(id)?.claim.version !== wanted).map(([id, wanted]) => [id, { wanted, running: runnable.get(id)?.claim.version || null }]));
-    return { ok: true, userId: selection.active, channels, installed: selection.installed, cached, available, fallbacks,
-      runnable: [...runnable.values()].map(describe) };
+    return { ok: true, userId: selection.active, channels, revoked: { releases: [...revoked.releases], keys: [...revoked.keys] }, channelCaps: Object.fromEntries(caps), installed: selection.installed, cached, available, fallbacks,
+      runnable: [...runnable.values()].map(r => describe(r, promotions)) };
   };
 
   ipcMain.handle('modules:state', async event => {
@@ -67,10 +71,12 @@ export function registerModuleStoreIpc(host: ModuleHost) {
     await host.ready;
     const revocations = Array.isArray(data?.revocations) ? data.revocations.filter((s: unknown) => typeof s === 'string').slice(0, 10000) : [];
     const pins = Array.isArray(data?.pins) ? data.pins.filter((s: unknown) => typeof s === 'string').slice(0, 5000) : [];
+    const promotions = Array.isArray(data?.promotions) ? data.promotions.filter((s: unknown) => typeof s === 'string').slice(0, 10000) : [];
     const releases = Array.isArray(data?.releases) ? data.releases.slice(0, SYNC_MAX_RELEASES) : [];
     if (Array.isArray(data?.channels) && selection.active) await selection.setChannels(data.channels);
     await cache.addRevocations(revocations);
     await cache.addPins(pins);
+    await cache.addPromotions(promotions);
     const installed: string[] = [], broken: Array<{ moduleId: string; version: string; why: string }> = [];
     for (const r of releases) {
       if (!r || !Array.isArray(r.chunks) || r.chunks.length > SYNC_MAX_CHUNKS) continue;
