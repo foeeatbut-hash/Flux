@@ -85,3 +85,13 @@
 
 Подготовка рабочей копии: клиенты Prisma после правки схемы генерировать в СВОИ `prisma-clients/*` (не симлинки на
 основную копию — генерация пишет через симлинк); перед коммитом вернуть `prisma-clients/*/package.json` (меняется только хеш).
+
+
+## Обновление (шаг 3 сделан, шаг 4 идёт)
+
+- [x] Шаг 3 (d38baaf): DocFileLink, /api/docflow/links (plan/create/unlink/track), назначения папок в привязке (purpose + locator),
+  набор test-docflow-links (54). Мутации: проверка имени, pathKey, назначение папки — набор падает.
+- [ ] Шаг 4 (в работе): готово — shared/docflow/reconcile.ts (+test-docflow-reconcile 17), docEntryInfo (+test-docflow-entry-info 13),
+  DocColumns, useProjectDocs, docflowFiles/docflowAssign (lib), AssignFileDialog, RowPicker, NameCheckView, мост pickDocumentFile.
+  Осталось: glue Проводника (useExplorerDocflow: меню «Документооборот ▸», фильтры, Сведения, перетаскивание, слежение),
+  столбцы «Файл»/«Возврат» и сверка в ДО (ReconcileTab), снимки.

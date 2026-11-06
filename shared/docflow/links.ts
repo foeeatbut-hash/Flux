@@ -57,6 +57,10 @@ export interface LinkedItemBrief {
   revision: string;
   status: string;
   registerId: string;
+  /** Срок следующей ревизии (ISO) и ответственный — для «Сведений» Проводника. */
+  dueDate: string | null;
+  assignee: string;
+  tags: string[];
 }
 
 const clean = (path: string) => String(path || '').replace(/\\/g, '/').split('/').filter(Boolean);

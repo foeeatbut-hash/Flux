@@ -22,6 +22,8 @@ export interface ContentsPaneProps {
   loadMore?: () => void;
   hasMore?: boolean;
   busy?: boolean;
+  /** Документооборот: значения своих столбцов и значок «имя не по маске» (docs/docflow-program.md, 3.2). */
+  doc?: { cell: (entry: WindowsFileEntry, column: FolderColumn) => React.ReactNode; badge: (entry: WindowsFileEntry) => React.ReactNode };
   editing?: { fileId: string; value: string; onChange: (name: string) => void; onCommit: () => void; onCancel: () => void };
 }
 
@@ -210,7 +212,7 @@ function rowsForView(entries: WindowsFileEntry[], view: FolderView, columns: num
 
 function displayWidth(view: FolderView, id: FolderColumn) { return Math.min(800, Math.max(60, view.widths[id] ?? 140)); }
 
-export default function ContentsPane({ entries, rootId, selection, view, onViewChange, onOpen, onContext, onDragStart, onDrop, scrollRef, loadMore, hasMore = false, busy = false, editing }: ContentsPaneProps) {
+export default function ContentsPane({ entries, rootId, selection, view, onViewChange, onOpen, onContext, onDragStart, onDrop, scrollRef, loadMore, hasMore = false, busy = false, editing, doc }: ContentsPaneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(800);
   const [containerHeight, setContainerHeight] = useState(500);
@@ -289,6 +291,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
   const renderName = (entry: WindowsFileEntry, large = false) => <span className={`flex min-w-0 items-center ${large ? 'flex-col justify-center gap-2 text-center' : 'gap-2'}`}>
     <Thumbnail entry={entry} rootId={rootId} size={large ? iconSize : explorerIconSize(view.layout)} />
     <span className={`min-w-0 truncate ${large ? 'max-w-full whitespace-normal line-clamp-2' : ''}`} title={entry.name}>{editing?.fileId === entry.fileId ? <input autoFocus aria-label="Новое имя" value={editing.value} onFocus={(e) => { const dot = editing.value.lastIndexOf('.'); e.currentTarget.setSelectionRange(0, dot > 0 ? dot : editing.value.length); }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onChange={(e) => editing.onChange(e.target.value)} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') editing.onCommit(); if (e.key === 'Escape') editing.onCancel(); }} className="h-6 max-w-full border border-[#0067c0] bg-white px-1 text-xs text-[#1b1b1b] outline-none dark:border-[#4cc2ff] dark:bg-[#383838] dark:text-white" /> : displayName(entry, view.extensions)}</span>
+    {!large && doc?.badge(entry)}
     {entry.storage === 'flux' && !large && <span className={`shrink-0 text-xs ${T.faint}`}>Только в Flux</span>}
   </span>;
 
@@ -306,6 +309,7 @@ export default function ContentsPane({ entries, rootId, selection, view, onViewC
       case 'project': return entry.projectNames?.join(', ') || entry.metadata?.projectIds?.join(', ') || metadata?.projectIds?.join(', ') || '—';
       case 'revision': return entry.metadata?.revision || metadata?.revision || '—';
       case 'responsible': return entry.metadata?.responsible || metadata?.responsible || '—';
+      case 'cipher': case 'docType': case 'docRev': case 'docStatus': case 'inRegistry': return doc?.cell(entry, column) ?? '—';
     }
   };
 

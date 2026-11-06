@@ -251,3 +251,11 @@ export function isIgnored(config: Pick<DocflowConfig, 'masks'>, name: string): b
     return re.test(name);
   });
 }
+
+/**
+ * Подпапка внутри назначенной папки проекта по маске структуры (раздел 5):
+ * куда ДО кладёт файл ревизии (`work`) или файл возврата (`returns`).
+ */
+export function placementFolder(config: DocflowConfig, kind: keyof DocflowConfig['folders'], row: RowForCheck, revision?: string): string {
+  return folderPath(config.folders[kind], rowFields(config, row, revision));
+}

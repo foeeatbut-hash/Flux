@@ -14,6 +14,7 @@ import { ExplorerBridge, EXPLORER_WRITE_ACTIONS, isExplorerAction, undoGroup } f
 import { ViewStateStore } from './viewState';
 import { ImportRefStore } from './importRefs';
 import { resolveEquipmentSourceFolder, resolveEquipmentSourceSelection } from './equipmentSourcePicker';
+import { resolveDocumentFile } from './documentPicker';
 
 export interface WindowsFilesIpcOptions {
   isTrusted: (event: IpcMainInvokeEvent) => boolean;
@@ -172,6 +173,14 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
           if (result.canceled || !result.filePaths[0]) { data = { canceled: true }; break; }
           const folder = await resolveEquipmentSourceFolder(service, result.filePaths[0]);
           data = { canceled: false, folder };
+          break;
+        }
+        // Документооборот: файл замечаний или документа выбирается по пути, где бы он ни лежал (раздел 4.1 docflow-program)
+        case 'pickDocumentFile': {
+          const window = BrowserWindow.fromWebContents(event.sender);
+          const config = { title: 'Выберите файл', buttonLabel: 'Выбрать', properties: ['openFile'] as ('openFile')[] };
+          const result = window ? await dialog.showOpenDialog(window, config) : await dialog.showOpenDialog(config);
+          data = result.canceled || !result.filePaths[0] ? { canceled: true } : { canceled: false, file: await resolveDocumentFile(service, result.filePaths[0]) };
           break;
         }
         case 'restoreDraft': data = await service.restoreDraft(request.ref); break;

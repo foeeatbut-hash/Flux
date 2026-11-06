@@ -56,13 +56,14 @@ export function rowForCheck(ctx: ItemContext): RowForCheck {
   };
 }
 
-export const briefOf = (item: any, config: DocflowConfig): LinkedItemBrief => ({
+export const briefOf = (item: any, config: DocflowConfig, assignee = ''): LinkedItemBrief => ({
   id: item.id, cipher: String(item[config.masks.cipherSource] || item.contractorNo || item.ownerNo || item.vendorNo || ''),
   title: item.titleRu || item.titleEn || '', vdrCode: item.vdrCode || '', revision: item.revision || '', status: item.status || '', registerId: item.registerId,
+  dueDate: iso(item.dueDate), assignee, tags: codesOfItem(item.equipmentTags),
 });
 
 /** Проверка имени без записи: окно «Связать со строкой…» показывает расхождения до нажатия кнопки. */
-export async function planLink(prisma: any, input: { itemId: string; fileName: string; revision?: string }): Promise<{ check: NameCheck; expectedName: string; blocked: boolean; reason: string; sameRevisionFile: DocLinkDto | null }> {
+export async function planLink(prisma: any, input: { itemId: string; fileName: string; revision?: string }): Promise<{ check: NameCheck; expectedName: string; blocked: boolean; reason: string; sameRevisionFile: DocLinkDto | null; row: RowForCheck }> {
   const ctx = await itemContext(prisma, input.itemId);
   const { config } = await readSettings(prisma, ctx.projectId);
   const row = rowForCheck(ctx);
@@ -73,7 +74,7 @@ export async function planLink(prisma: any, input: { itemId: string; fileName: s
   return {
     check, expectedName: buildFileName(config, row, ext), blocked: !check.ok,
     reason: check.ok ? '' : check.blocking.map((f) => f.text).join('; ') || 'Имя не по маске проекта',
-    sameRevisionFile: existing ? toDto(existing) : null,
+    sameRevisionFile: existing ? toDto(existing) : null, row,
   };
 }
 
@@ -223,8 +224,11 @@ export async function listLinks(prisma: any, input: { projectId?: string; itemId
   const itemIds = [...new Set(rows.map((r) => r.itemId))];
   const items: any[] = itemIds.length ? await prisma.docRegisterItem.findMany({ where: { id: { in: itemIds } } }) : [];
   const projectId = input.projectId || items[0]?.projectId || rows[0]?.projectId;
-  const { config } = projectId ? await readSettings(prisma, projectId) : { config: (await readSettings(prisma, '')).config };
+  const { config } = await readSettings(prisma, projectId || '');
   const registers: any[] = await prisma.docRegister.findMany({ where: { id: { in: [...new Set(items.map((i) => i.registerId))] } } });
+  const assigneeIds = [...new Set(items.map((i) => i.assigneeId).filter(Boolean))];
+  const users: any[] = assigneeIds.length ? await prisma.user.findMany({ where: { id: { in: assigneeIds } }, select: { id: true, name: true } }) : [];
+  const userName = new Map(users.map((u) => [u.id, u.name]));
   const byItem = new Map(items.map((i) => [i.id, i]));
   const byRegister = new Map(registers.map((r) => [r.id, r]));
   const links: DocLinkDto[] = [];
@@ -233,5 +237,5 @@ export async function listLinks(prisma: any, input: { projectId?: string; itemId
     const mismatch = item && !r.unlinkedAt ? await mismatchOf(config, { item, register: byRegister.get(item.registerId), projectId: item.projectId, tags: codesOfItem(item.equipmentTags) }, r) : undefined;
     links.push(toDto(r, mismatch));
   }
-  return { links, items: Object.fromEntries(items.map((i) => [i.id, briefOf(i, config)])) };
+  return { links, items: Object.fromEntries(items.map((i) => [i.id, briefOf(i, config, userName.get(i.assigneeId) || '')])) };
 }

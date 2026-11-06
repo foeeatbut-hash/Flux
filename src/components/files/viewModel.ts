@@ -3,7 +3,7 @@ import type { WindowsFileEntry } from '../../lib/windowsFiles';
 export type FolderLayout = 'extraLarge' | 'large' | 'medium' | 'small' | 'list' | 'details' | 'tiles' | 'content';
 export type FolderSort = 'name' | 'modified' | 'type' | 'size';
 export type FolderGroup = 'none' | 'name' | 'type' | 'date' | 'size' | 'project' | 'tags';
-export type FolderColumn = 'name' | 'created' | 'modified' | 'type' | 'size' | 'author' | 'tags' | 'project' | 'revision' | 'responsible' | 'storage';
+export type FolderColumn = 'name' | 'created' | 'modified' | 'type' | 'size' | 'author' | 'tags' | 'project' | 'revision' | 'responsible' | 'storage' | 'cipher' | 'docType' | 'docRev' | 'docStatus' | 'inRegistry';
 
 export interface FolderView {
   layout: FolderLayout;
@@ -26,6 +26,8 @@ export const FOLDER_COLUMNS: { id: FolderColumn; label: string }[] = [
   { id: 'name', label: 'Имя' }, { id: 'created', label: 'Дата создания' }, { id: 'modified', label: 'Дата изменения' }, { id: 'type', label: 'Тип' }, { id: 'size', label: 'Размер' }, { id: 'author', label: 'Автор' },
   { id: 'tags', label: 'Теги' }, { id: 'project', label: 'Проект' }, { id: 'revision', label: 'Ревизия' },
   { id: 'responsible', label: 'Ответственный' }, { id: 'storage', label: 'Хранение' },
+  // Документооборот (docs/docflow-program.md, 3.2): значения даёт строка ВДР и имя по маске проекта
+  { id: 'cipher', label: 'Шифр' }, { id: 'docType', label: 'Тип документа' }, { id: 'docRev', label: 'Ред.' }, { id: 'docStatus', label: 'Статус' }, { id: 'inRegistry', label: 'В реестре' },
 ];
 const COLUMN_IDS = new Set<FolderColumn>(FOLDER_COLUMNS.map((column) => column.id));
 const LAYOUTS = new Set<FolderLayout>(Object.keys(VIEW_LABELS) as FolderLayout[]);

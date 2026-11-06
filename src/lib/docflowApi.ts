@@ -6,6 +6,8 @@
  * 409 (перечитать и сказать «уже изменили»), а что — на 403 (нет права).
  */
 import type { DocflowConfig } from '../../shared/docflow/config';
+import type { DocLinkDto, LinkedItemBrief } from '../../shared/docflow/links';
+import type { NameCheck, RowForCheck } from '../../shared/docflow/nameMask';
 
 export interface ApiAnswer<T = any> { ok: boolean; status: number; data: T & { error?: string } }
 
@@ -49,3 +51,20 @@ export interface MigrationPlan {
 export const migrationPlan = () => docflowCall<MigrationPlan>('GET', '/api/docflow/migration');
 export const migrationApply = (projectIds: string[]) => docflowCall<MigrationPlan>('POST', '/api/docflow/migration/apply', { projectIds });
 export const migrationUndo = () => docflowCall<{ kept: string[]; plan: MigrationPlan }>('POST', '/api/docflow/migration/undo', {});
+
+// ── Связи файлов со строками ВДР (server/routes/docflowLinks.ts) ──
+export interface LinksView { links: DocLinkDto[]; items: Record<string, LinkedItemBrief> }
+export interface LinkPlan { check: NameCheck; expectedName: string; blocked: boolean; reason: string; sameRevisionFile: DocLinkDto | null; /** Строка так, как её видит проверка имени: из неё собираются имя файла и подпапка. */ row: RowForCheck }
+export interface LinkRequest {
+  itemId: string; role?: 'file' | 'remarks'; toLinkId?: string; folderKey: string; relativePath: string; fileName: string;
+  sha256?: string; size?: number; reviewCode?: string; receivedAt?: string | null; replace?: boolean;
+}
+export interface TrackUpdate { itemId: string; linkId: string; folderKey?: string; relativePath?: string; fileName?: string; sha256?: string; size?: number; lost?: boolean }
+
+export const getLinks = (projectId: string) => docflowCall<LinksView>('GET', `/api/docflow/links?projectId=${encodeURIComponent(projectId)}`);
+export const getItemLinks = (itemId: string) => docflowCall<LinksView>('GET', `/api/docflow/links?itemId=${encodeURIComponent(itemId)}&history=1`);
+export const planLink = (itemId: string, fileName: string) => docflowCall<LinkPlan>('POST', '/api/docflow/links/plan', { itemId, fileName });
+/** Отказ 422 несёт `check` с расхождениями по полям, 409 — `replaceable`, если у строки уже есть файл этой ревизии. */
+export const createLink = (body: LinkRequest) => docflowCall<{ link: DocLinkDto; replaced: DocLinkDto | null; check: NameCheck | null; replaceable?: boolean; linkId?: string }>('POST', '/api/docflow/links', body);
+export const unlinkLink = (itemId: string, linkId: string, reason?: string) => docflowCall<{ links: DocLinkDto[] }>('POST', '/api/docflow/links/unlink', { itemId, linkId, reason });
+export const trackLinks = (updates: TrackUpdate[]) => docflowCall<{ links: DocLinkDto[] }>('POST', '/api/docflow/links/track', { updates });

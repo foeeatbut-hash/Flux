@@ -696,7 +696,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       res.json({
         items: items.filter(match).slice(0, 25).map((i: any) => ({
           id: i.id, registerId: i.registerId, registerName: regName.get(i.registerId) || '',
-          contractorNo: i.contractorNo, titleRu: i.titleRu, titleEn: i.titleEn,
+          contractorNo: i.contractorNo, ownerNo: i.ownerNo, vendorNo: i.vendorNo, titleRu: i.titleRu, titleEn: i.titleEn,
           vdrCode: i.vdrCode, revision: i.revision, status: i.status, docId: i.docId,
         })),
       });

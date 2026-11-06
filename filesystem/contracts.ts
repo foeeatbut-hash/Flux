@@ -60,6 +60,8 @@ export type WindowsFilesRequest =
   | { action: 'releaseImportRefs'; tickets: string[] }
   | { action: 'pickEquipmentSource' }
   | { action: 'pickEquipmentSourceFolder' }
+  /** Окно выбора файла для документооборота: файл может лежать где угодно, корнем станет его папка. */
+  | { action: 'pickDocumentFile' }
   | { action: 'restoreDraft'; ref: WindowsFileRef }
   | { action: 'addRoot' }
   | { action: 'list'; ref: WindowsFileRef; offset?: number; limit?: number }
