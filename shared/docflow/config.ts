@@ -1,3 +1,4 @@
+import { normalizeKits, type DocflowKit } from './kits';
 import { normalizeClassMappings, type EquipmentClassMapping } from './classMapping';
 
 /**
@@ -40,8 +41,7 @@ export interface DocflowConfig {
   masks: DocflowMasks;
   folders: DocflowFolders;
   equipmentClasses: EquipmentClassMapping[];
-  /** Комплекты по классам оборудования — этап 2; хранится и переносится уже сейчас. */
-  kits: Array<{ classId: string; types: string[] }>;
+  kits: DocflowKit[];
   deadlines: { milestones: Array<{ code: string; label: string; date: string }>; byType: DocflowDeadline[] };
   signers: DocflowSigners;
   columns: Array<{ key: string; title: string }>;
@@ -143,7 +143,7 @@ export function normalizeDocflowConfig(raw: any): DocflowConfig {
       incoming: typeof folders.incoming === 'string' ? text(folders.incoming, 200) : d.folders.incoming,
     },
     equipmentClasses: normalizeClassMappings(r.equipmentClasses),
-    kits: list(r.kits, (k: any) => (k && text(k.classId, 100) ? { classId: text(k.classId, 100), types: list<string>(k.types, (t) => text(t, 20) || null, 200) } : null), 500),
+    kits: normalizeKits(r.kits),
     deadlines: {
       milestones: list(deadlines.milestones, (m: any) => (m && text(m.code, 40) ? { code: text(m.code, 40), label: text(m.label, 200), date: text(m.date, 30) } : null), 100),
       byType: list<DocflowDeadline>(deadlines.byType, (m: any) => (m && text(m.type, 20) ? { type: text(m.type, 20), from: text(m.from, 40), days: Math.max(0, Number(m.days) || 0), workdays: m.workdays !== false } : null), 500),

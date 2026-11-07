@@ -4,7 +4,7 @@
  * на запросы Проводника и ДО. Проверка имени — настоящая (shared/docflow/nameMask), чтобы
  * стенд не мог согласиться с тем, с чем не согласился бы сервер.
  */
-import { normalizeDocflowConfig } from '../../shared/docflow/config';
+import { diffSections, mergeSections, normalizeDocflowConfig } from '../../shared/docflow/config';
 import { buildFileName, checkName, type RowForCheck } from '../../shared/docflow/nameMask';
 import type { DocLinkDto, LinkedItemBrief } from '../../shared/docflow/links';
 import type { WindowsFileEntry } from '../../filesystem/contracts';
@@ -15,7 +15,8 @@ export const keyOfPath = (path: string) => Array.from(new TextEncoder().encode(`
 
 const WORK_KEY = keyOfPath('Проекты');
 const RETURNS_KEY = keyOfPath('Возвраты');
-let config = normalizeDocflowConfig({ vdrTypes: [{ code: 'E02', titleRu: 'Общий вид', titleEn: '' }, { code: 'C32', titleRu: 'Опросный лист', titleEn: '' }] });
+let config = normalizeDocflowConfig({ vdrTypes: [{ code: 'E02', titleRu: 'Общий вид', titleEn: '' }, { code: 'C32', titleRu: 'Опросный лист', titleEn: '' }], deadlines: { milestones: [{ code: 'START', label: 'Старт', date: '' }], byType: [] } });
+const sourceConfig = normalizeDocflowConfig({ kits: [{ classId: 'class-ahu', items: [{ docType: 'C32', stage: 'П', unit: 'project', necessity: 'optional', responsibleRole: 'ENGINEER', milestone: 'START', workdays: 7, condition: null }] }] });
 const file = (name: string, fileId: string, size: number): WindowsFileEntry => ({ name, relativePath: `Проекты/${name}`, storage: 'windows', kind: 'file', fileId, size, modifiedAt: '2026-11-04T09:00:00.000Z', linked: false });
 
 export const docflowFiles: WindowsFileEntry[] = DOCFLOW ? [
@@ -48,8 +49,10 @@ export const docflowBindings = DOCFLOW ? [
 
 export const posts: Array<{ url: string; body: any }> = [];
 export const classStand = { value: '', before: '', planned: '', lastId: '', sequence: 0, denied: '', events: [] as string[], pending: false, release: null as null | (() => void) };
+export const kitStand = { created: false, lastId: '', sequence: 0, denied: '', pending: false, release: null as null | (() => void), events: [] as string[], stages: [] as string[] };
 export async function waitClassStand(path: string) {
   if (classStand.pending && path.includes('/catalog-classes/plan')) await new Promise<void>(resolve => { classStand.release = resolve; });
+  if (kitStand.pending && path === '/api/docflow/kits/plan') await new Promise<void>(resolve => { kitStand.release = resolve; });
 }
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const brief = ({ row: _row, ...rest }: ReturnType<typeof item>): LinkedItemBrief => rest;
@@ -61,6 +64,23 @@ export function docflowFetch(path: string, init?: RequestInit): Response | undef
   const body = init?.body ? JSON.parse(String(init.body)) : undefined;
   if (method !== 'GET') posts.push({ url: path, body });
   if (path.startsWith('/api/catalog') && method === 'GET') return json({ classes: [{ id: 'class-fan', code: 'FAN', title: { ru: 'Вентилятор' } }, { id: 'class-ahu', code: 'AHU', title: { ru: 'Установка' } }], families: [], components: [], manufacturers: [], tagRules: [] });
+  if (path === '/api/roles' && method === 'GET') return json({ roles: [{ code: 'ENGINEER', name: 'Инженер' }] });
+  if (path.startsWith('/api/docflow/tags?') && method === 'GET') {
+    const stage = new URL(path, 'http://fixture').searchParams.get('stage') || '';
+    kitStand.stages.push(stage);
+    const document = (id: string, contractorNo: string, vdrCode: string) => ({ id, registerId: 'r1', contractorNo, ownerNo: '', vendorNo: '', titleRu: 'Общий вид', vdrCode, revision: 'A', status: 'DRAFT', dueDate: null });
+    const requirements = [
+      { key: 'manual', docType: 'C32', title: 'Опросный лист', unit: 'tag', scopeId: 'tag-1', needed: true, problem: '', state: 'Строка без файла', hasFile: false, item: document('i-manual', 'MANUAL-001', 'C32') },
+      { key: 'missing', docType: 'E02', title: 'Общий вид', unit: 'tag', scopeId: 'tag-1', needed: true, problem: '', state: kitStand.created ? 'Строка без файла' : 'Нет строки', hasFile: false, item: kitStand.created ? document('i-created', '3700-B01-E02-001', 'E02') : null },
+    ];
+    return json({ tags: [{ id: 'tag-1', identifier: 'П1', classId: 'class-fan', removed: false, items: [], requirements }], totals: { needed: 2, existing: requirements.filter(r => r.hasFile).length, issued: 0, overdue: 0 }, registers: [{ id: 'r1', name: 'ВДР' }], lastPlanId: kitStand.lastId || null });
+  }
+  if (path.startsWith('/api/docflow/kits/') && method === 'POST') {
+    if (kitStand.denied) return json({ error: kitStand.denied }, 403);
+    if (path.endsWith('/plan')) return json({ id: `kit-plan-${++kitStand.sequence}`, expiresAt: '2099-01-01T00:00:00.000Z', rows: [{ key: 'missing', tags: ['П1'], tagIds: ['tag-1'], docType: 'E02', unit: 'tag', scopeId: 'tag-1', necessity: 'required', cipher: '3700-B01-E02-001', fileName: '3700-B01-E02-001_A.pdf', titleRu: 'Общий вид', assignee: 'Инженер', dueDate: '2026-12-15', action: kitStand.created ? 'keep' : 'create', problem: '' }] });
+    if (path.endsWith('/apply')) { kitStand.created = true; kitStand.lastId = body.planId; kitStand.events.push('apply'); return json({ ok: true }); }
+    if (path.endsWith('/undo')) { kitStand.created = false; kitStand.lastId = ''; kitStand.events.push('undo'); return json({ ok: true }); }
+  }
   if (path.startsWith('/api/projects/project-1/tags')) return json([{ id: 'tag-1', identifier: 'П1', equipment: { type: 'AHU', catalogClassId: classStand.value } }]);
   if (path.includes('/catalog-classes/')) {
     if (classStand.denied) return json({ error: classStand.denied }, 403);
@@ -68,6 +88,13 @@ export function docflowFetch(path: string, init?: RequestInit): Response | undef
     if (path.endsWith('/plan')) { const choice = body?.overrides?.[0]?.classId || config.equipmentClasses.find(x => x.type === 'AHU')?.classId || ''; classStand.planned = choice; return json({ id: `plan-${++classStand.sequence}`, rows: [{ tagId: 'tag-1', tag: 'П1', type: 'AHU', before: classStand.value, classId: choice, classCode: choice === 'class-fan' ? 'FAN' : 'AHU', action: choice && choice !== classStand.value ? 'set' : 'keep', source: 'настройки проекта', problem: '' }] }); }
     if (path.endsWith('/apply')) { classStand.before = classStand.value; classStand.value = classStand.planned; classStand.lastId = body.planId; classStand.events.push('apply'); return json({ ok: true }); }
     if (path.endsWith('/undo')) { classStand.value = classStand.before; classStand.lastId = ''; classStand.events.push('undo'); return json({ ok: true }); }
+  }
+  if (path === '/api/docflow/settings/copy-plan' && method === 'POST') {
+    const next = mergeSections(config, sourceConfig, body.sections);
+    return json({ source: { kind: 'project', name: 'Проект 2', at: '' }, expected: '2026-11-01T00:00:00.000Z', sections: diffSections(config, next, body.sections) });
+  }
+  if (path === '/api/docflow/settings/copy-apply' && method === 'POST') {
+    config = mergeSections(config, sourceConfig, body.sections); classStand.events.push('copy');
   }
   if (path === '/api/docflow/settings' && method === 'PUT') { config = normalizeDocflowConfig(body.config); classStand.events.push('settings'); }
   if (path.startsWith('/api/docflow/settings')) return json({ projectId: 'project-1', config, source: { kind: 'default', name: 'по умолчанию', at: '' }, stored: true, updatedAt: '2026-11-01T00:00:00.000Z', canUndo: false, undoLabel: '' });

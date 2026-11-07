@@ -70,6 +70,15 @@
       "timeoutMs": 30000
     },
     {
+      "id": "docflow-kits",
+      "path": "scripts/test-docflow-kits.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
       "id": "docflow-class-mapping",
       "path": "scripts/test-docflow-class-mapping.ts",
       "layer": "unit",
@@ -155,6 +164,24 @@
       "timeoutMs": 120000
     },
     {
+      "id": "docflow-kits-ui",
+      "path": "scripts/test-docflow-kits-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": ["files-office-vite-fixture", "playwright"],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "docflow-kit-tags-ui",
+      "path": "scripts/test-docflow-kit-tags-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": ["files-office-vite-fixture", "playwright"],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
       "id": "docflow-equipment-classes",
       "path": "scripts/test-docflow-equipment-classes.ts",
       "layer": "api-db",
@@ -188,6 +215,15 @@
       ],
       "timeoutMs": 300000,
       "external": true
+    } ,
+    {
+      "id": "docflow-kit-rows",
+      "path": "scripts/test-docflow-kit-rows.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": ["sqlite-fixture"],
+      "prerequisites": [],
+      "timeoutMs": 90000
     }
   ],
   "actions": [
@@ -306,6 +342,20 @@
       "manual": []
     },
     {
+      "id": "docflow.kit-settings",
+      "program": "docflow",
+      "label": "Настроить комплекты документов проекта",
+      "sources": ["shared/docflow/kits.ts", "src/components/docflow/KitsEditor.tsx"],
+      "triggers": ["Настройки → Комплекты"],
+      "risk": "normal",
+      "expected": ["Комплекты проверяются и переносятся с настройками проекта"],
+      "checks": [
+        { "suite": "docflow-kits", "layer": "unit", "claims": ["Старый формат читается, ошибки отклоняются, состав переносится с различиями"] },
+        { "suite": "docflow-kits-ui", "layer": "component", "claims": ["Редактор блокирует некорректный черновик, сохраняет поля и отображает перенесённый комплект"] }
+      ],
+      "manual": []
+    },
+    {
       "id": "docflow.mask-folder-check",
       "program": "docflow",
       "label": "Проверить маску по рабочей папке",
@@ -377,6 +427,20 @@
             "Схема и проектный план с проверкой прав, устаревшего состояния и отмены проверяются на SQLite, MariaDB и PostgreSQL"
           ]
         }
+      ],
+      "manual": []
+    } ,
+    {
+      "id": "docflow.kit-rows",
+      "program": "docflow",
+      "label": "Заполнить недостающие строки комплектов",
+      "sources": ["server/docflowKitRows.ts", "server/docflowKitContext.ts", "server/docflowKitRefs.ts", "server/routes/docflowKits.ts"],
+      "triggers": ["GET /api/docflow/tags", "POST /api/docflow/kits/plan", "POST /api/docflow/kits/apply", "POST /api/docflow/kits/undo"],
+      "risk": "critical",
+      "expected": ["Строки создаются только по подтверждённому плану с правами проекта", "Повтор, конкурирующий план и отмена сохраняют чужие изменения и не создают дубликаты"],
+      "checks": [
+        { "suite": "docflow-kit-rows", "layer": "api-db", "claims": ["Права, предпросмотр, применение, повтор, конкуренция и безопасная отмена проверяются через HTTP и SQLite", "Стадии, общие документы, условия, сроки, ссылки и ограничения уникальности проверяются на fixture"] },
+        { "suite": "docflow-kit-tags-ui", "layer": "component", "claims": ["План не создаёт строки до подтверждения, повтор не предлагает дубликат, отмена и переход к связанной строке доступны"] }
       ],
       "manual": []
     }

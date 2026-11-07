@@ -1,5 +1,5 @@
 import React from 'react';
-import { Toolbar, Btn, Field, Input, Status, Empty } from '../ui';
+import { Toolbar, Btn, Field, Input, Status } from '../ui';
 import { useModalStore } from '../../store/modalStore';
 import type { DocflowConfig, DocflowStatus, DocflowReason, DocflowReviewCode, DocflowDocType, DocflowDeadline } from '../../../shared/docflow/config';
 import { DOCFLOW_SECTIONS } from '../../../shared/docflow/config';
@@ -7,6 +7,8 @@ import { folderPath, rowFields, maskErrors } from '../../../shared/docflow/nameM
 import { getSettings, putSettings, undoSettings, saveTemplate, type SettingsView } from '../../lib/docflowApi';
 import RowsEditor from './RowsEditor';
 import EquipmentClassesEditor from './EquipmentClassesEditor';
+import KitsEditor from './KitsEditor';
+import { kitErrors } from '../../../shared/docflow/kits';
 import EquipmentClassActions from './EquipmentClassActions';
 import { useAppContext } from '../../store/policyStore';
 import { can } from '../../lib/permissions';
@@ -61,6 +63,8 @@ export default function DocflowSettings({ projectId, canEdit, isAdmin, addToast 
     if (!draft || !view) return;
     const mappingErrors = classMappingErrors(draft.equipmentClasses);
     if (mappingErrors.length) { addToast(mappingErrors[0], 'error'); setSection('equipmentClasses'); return; }
+    const problems = kitErrors(draft.kits);
+    if (problems.length) { addToast(problems[0], 'error'); setSection('kits'); return; }
     setBusy(true);
     const answer = await putSettings(projectId, draft, view.updatedAt);
     setBusy(false);
@@ -93,6 +97,7 @@ export default function DocflowSettings({ projectId, canEdit, isAdmin, addToast 
   const sample = { contractorNo: '3700-B01-E02-001', vdrCode: 'E02', revision: 'B', language: 'RU', tags: ['П-1'] };
   const maskBad = maskErrors(draft.masks.file).length > 0;
   const mappingBad = classMappingErrors(draft.equipmentClasses).length > 0;
+  const kitsBad = kitErrors(draft.kits).length > 0;
 
   return (
     <div className="flex h-full min-h-0">
@@ -110,7 +115,7 @@ export default function DocflowSettings({ projectId, canEdit, isAdmin, addToast 
           {canEdit && <Btn tone="ghost" onClick={() => void asTemplate()} disabled={busy}>Сохранить как шаблон</Btn>}
           {canEdit && view.canUndo && <Btn tone="ghost" onClick={() => void undo()} disabled={busy || dirty} title={view.undoLabel}>Отменить {view.undoLabel || 'перенос'}</Btn>}
           {isAdmin && <Btn tone="ghost" onClick={() => setDialog('migration')} disabled={busy}>Стандарты → проекты…</Btn>}
-          {canEdit && <Btn tone="primary" onClick={() => void save()} disabled={busy || !dirty || maskBad || mappingBad}>{busy ? 'Сохраняю…' : 'Сохранить'}</Btn>}
+          {canEdit && <Btn tone="primary" onClick={() => void save()} disabled={busy || !dirty || maskBad || mappingBad || kitsBad}>{busy ? 'Сохраняю…' : 'Сохранить'}</Btn>}
         </Toolbar>
         <div className="flex-1 min-h-0 overflow-y-auto p-4">
           <div className="max-w-4xl flex flex-col gap-3">
@@ -152,7 +157,8 @@ export default function DocflowSettings({ projectId, canEdit, isAdmin, addToast 
               {can(user, 'equipment.manage') && <><p className="fx-note">Сохраните соответствия перед заполнением. Существующие теги меняются только после предпросмотра.</p>
                 <EquipmentClassActions projectId={projectId} disabled={dirty || busy} /></>}
             </div>}
-            {section === 'kits' && <Empty title={`Комплектов: ${draft.kits.length}`} text="Комплекты документов по классам оборудования настраиваются на следующем этапе; уже заданные переносятся между проектами вместе с остальными разделами." />}
+            {kitsBad && section !== 'kits' && <Status tone="rose">Исправьте комплекты перед сохранением.</Status>}
+            {section === 'kits' && <KitsEditor config={draft} disabled={ro} onChange={(v) => set('kits', v)} />}
             {section === 'deadlines' && <RowsEditor<DocflowDeadline> label="Сроки по типам документов" rows={draft.deadlines.byType} disabled={ro} addLabel="срок" onChange={(v) => set('deadlines', { ...draft.deadlines, byType: v })}
               blank={{ type: '', from: 'Старт', days: 10, workdays: true }}
               columns={[{ key: 'type', title: 'Тип', width: '90px', mono: true }, { key: 'from', title: 'От вехи' }, { key: 'days', title: 'Дней', width: '80px', kind: 'number' }, { key: 'workdays', title: 'Рабочих', width: '90px', kind: 'check' }]} />}

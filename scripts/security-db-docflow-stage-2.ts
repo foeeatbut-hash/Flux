@@ -10,6 +10,7 @@ import { bootstrapLocalDatabase } from '../server/databaseBootstrap.js';
 import { ensureRemoteSchema } from '../server/schema-sync.js';
 import { setPrisma, setBroadcaster } from '../server/context.js';
 import { registerEquipmentClassRoutes } from '../server/routes/equipmentClasses.js';
+import { registerDocflowKitRoutes } from '../server/routes/docflowKits.js';
 
 const require = createRequire(import.meta.url);
 assert.equal(process.env.FLUX_TEST_FIXTURE_DOCFLOW_STAGE2, '1', 'нужен marker одноразовой fixture');
@@ -34,8 +35,9 @@ const db = new PrismaClient({ adapter });
 async function main() {
   setDialect(provider as 'sqlite' | 'mysql' | 'postgresql');
   const app = express(); app.use(express.json());
-  app.use((req: any, _res, next) => { req.authUser = req.headers['x-denied'] ? { id: 'denied', role: 'USER' } : { id: 'admin', role: 'ADMIN' }; next(); });
+  app.use((req: any, _res, next) => { req.authUser = req.headers['x-denied'] ? { id: 'denied', role: 'USER' } : { id: String(req.headers['x-actor'] || 'admin'), role: 'ADMIN' }; next(); });
   registerEquipmentClassRoutes(app);
+  registerDocflowKitRoutes(app);
   const server = await new Promise<any>(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const base = `http://127.0.0.1:${server.address().port}/api/equipment/projects`;
   const call = async (project: string, action: string, body?: any, denied = false) => {
@@ -77,6 +79,39 @@ async function main() {
     assert.equal((await db.tag.findUnique({ where: { id: 'local' } })).equipmentId, 'shared');
     assert.equal((await db.docflowPlan.findUnique({ where: { id: first.body.id } })).state, 'undone');
     console.log(`✓ ${provider}: схема, права, план, CAS, общая запись и отмена`);
+    const kitBase = `http://127.0.0.1:${server.address().port}/api/docflow/kits`;
+    const kitCall = async (action: string, body: any, actor = 'admin') => {
+      const r = await fetch(`${kitBase}/${action}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-actor': actor }, body: JSON.stringify(body) });
+      return { status: r.status, body: await r.json() as any };
+    };
+    await db.docRegister.create({ data: { id: 'reg-a', projectId: 'a', name: 'Реестр', poNumber: 'PO' } });
+    await db.tag.create({ data: { id: 'local2', identifier: 'L2', projectId: 'a', equipmentId: 'shared' } });
+    await db.equipmentSystem.create({ data: { id: 'sys', projectId: 'a', name: 'S' } });
+    await db.monoblock.create({ data: { id: 'mono', systemId: 'sys', name: 'M' } });
+    for (const id of ['local', 'local2']) await db.componentElement.create({ data: { id: `element-${id}`, name: id, itemCode: id, monoblockId: 'mono', equipType: 'FAN', tags: { connect: { id } } } });
+    const kitItem = (docType: string, unit: string) => ({ docType, stage: 'Р', unit, necessity: 'required', responsibleRole: '', milestone: '', workdays: 0, condition: null });
+    await db.docflowSettings.update({ where: { projectId: 'a' }, data: { config: JSON.stringify({ equipmentClasses: [{ type: 'FAN', classId: 'class' }], vdrTypes: [{ code: 'E02', titleRu: 'Группа', titleEn: '' }, { code: 'C32', titleRu: 'Проект', titleEn: '' }], kits: [{ classId: 'class', items: [kitItem('E02', 'group'), kitItem('C32', 'project')] }] }) } });
+    const kitRequest = { projectId: 'a', registerId: 'reg-a', tagIds: ['local', 'local2'], stage: 'Р', fields: { установка: 'UNIT' } };
+    const kit1 = await kitCall('plan', kitRequest, 'admin');
+    const kit2 = await kitCall('plan', kitRequest, 'admin2');
+    assert.equal(kit1.status, 200); assert.equal(kit2.status, 200);
+    assert.equal(kit1.body.rows.length, 2); assert.ok(kit1.body.rows.every((row: any) => row.action === 'create' && row.tagIds.length === 2));
+    assert.equal(await db.docRegisterItem.count(), 0, 'предпросмотр строк не пишет');
+    const results = await Promise.all([kitCall('apply', { projectId: 'a', planId: kit1.body.id }, 'admin'), kitCall('apply', { projectId: 'a', planId: kit2.body.id }, 'admin2')]);
+    assert.deepEqual(results.map(result => result.status).sort(), [200, 409], 'конкуренция создаёт комплект один раз');
+    assert.equal(await db.docflowKitRow.count(), 2); assert.equal(await db.docRegisterItemTag.count(), 4);
+    const winning = results[0].status === 200 ? { plan: kit1, actor: 'admin' } : { plan: kit2, actor: 'admin2' };
+    assert.equal((await kitCall('apply', { projectId: 'a', planId: winning.plan.body.id }, winning.actor)).status, 200, 'повтор идемпотентен');
+    assert.equal(await db.docflowKitRow.count(), 2);
+    const reserve = await db.docflowKitRow.findFirst({ where: { unit: 'group' } });
+    await db.docRegisterItem.create({ data: { id: 'duplicate-probe', projectId: 'a', registerId: 'reg-a' } });
+    await assert.rejects(db.docflowKitRow.create({ data: { projectId: 'a', unit: reserve.unit, scopeId: reserve.scopeId, docType: reserve.docType, itemId: 'duplicate-probe', cipher: 'other' } }), 'уникальность scope/type');
+    await assert.rejects(db.docflowKitRow.create({ data: { projectId: 'a', unit: 'tag', scopeId: 'other', docType: 'other', itemId: 'duplicate-probe', cipher: reserve.cipher } }), 'уникальность шифра');
+    await db.docRegisterItem.delete({ where: { id: 'duplicate-probe' } });
+    assert.equal((await kitCall('undo', { projectId: 'a', planId: winning.plan.body.id }, winning.actor)).status, 200);
+    assert.equal(await db.docflowKitRow.count(), 0); assert.equal(await db.docRegisterItemTag.count(), 0);
+    console.log(`✓ ${provider}: строки группы и проекта, конкуренция, уникальность, повтор и отмена`);
+
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); await db.$disconnect(); if (local) fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

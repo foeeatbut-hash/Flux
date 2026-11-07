@@ -1,54 +1,22 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { can } from '../../lib/permissions';
+import { useAppContext } from '../../store/policyStore';
+import { useKitDocuments } from '../docflow/useKitDocuments';
+import TagKitDocuments from '../docflow/TagKitDocuments';
+import KitRowsDialog from '../docflow/KitRowsDialog';
 
-// ── Документы ВДР по тегу: тег — главный у строки реестра ──
-// Связь идёт по id тега (DocRegisterItemTag), поэтому переименование тега её не
-// рвёт: список находит строки по `tagId`, а не по коду. Показывается в карточке
-// тега и оборудования; клик — переход к строке в Менеджмент → ВДР. Свёрнут в
-// ничто, если документов нет.
-export default function TagVdrDocs({ tagId, identifier, projectId }: { tagId: string; identifier?: string; projectId: string }) {
-  const [docs, setDocs] = React.useState<any[] | null>(null);
-  const navigate = useNavigate();
-
-  // Тег переименовали или реестр изменился — список читается заново
-  const [stamp, setStamp] = React.useState(0);
-  React.useEffect(() => {
-    const bump = () => setStamp(n => n + 1);
-    window.addEventListener('socket:vdr:changed', bump);
-    return () => window.removeEventListener('socket:vdr:changed', bump);
-  }, []);
-
-  React.useEffect(() => {
-    let dead = false;
-    fetch(`/api/vdr/items/by-tag?projectId=${encodeURIComponent(projectId)}&tagId=${encodeURIComponent(tagId)}`)
-      .then(r => r.ok ? r.json() : { items: [] })
-      .then(d => { if (!dead) setDocs((d.items || []).filter((x: any) => !x.titleEn?.includes('Vendor Document Register'))); })
-      .catch(() => { if (!dead) setDocs([]); });
-    return () => { dead = true; };
-  }, [tagId, identifier, projectId, stamp]);
-
-  if (!docs || docs.length === 0) return null;
-  const stCls: Record<string, string> = {
-    DRAFT: 'text-slate-500', READY: 'text-emerald-600', REMARKS: 'text-amber-600', ACCEPTED: 'text-sky-600',
-  };
-  const stLabel: Record<string, string> = { DRAFT: 'в работе', READY: 'готово', REMARKS: 'замечания', ACCEPTED: 'принят' };
-  return (
-    <div className="px-4 pb-3">
-      <div className="text-xs font-medium text-emerald-500 mb-1.5">Документы (ВДР) — {docs.length}</div>
-      <div className="border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850 max-h-40 overflow-auto">
-        {docs.map((d: any) => (
-          <button type="button" key={d.id}
-            onClick={() => navigate(`/docflow?tab=registry&vdr=${d.registerId}&item=${d.id}`)}
-            className="w-full text-left px-3 py-1.5 flex items-center gap-2 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer">
-            <span className="font-semibold text-slate-700 dark:text-slate-300 truncate flex-1" title={`${d.contractorNo}\n${d.titleRu || d.titleEn}`}>
-              {d.contractorNo || d.titleRu || d.titleEn}
-            </span>
-            <span className="text-emerald-500 font-medium shrink-0">{d.vdrCode}</span>
-            <span className="text-slate-400 shrink-0">рев. {d.revision}</span>
-            <span className={`font-semibold shrink-0 ${stCls[d.status] || ''}`}>{stLabel[d.status] || d.status}</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
+/** Один комплект виден в карточке тега, оборудования и вкладке «По тегам». */
+export default function TagVdrDocs({ tagId, identifier: _identifier, projectId }: { tagId: string; identifier?: string; projectId: string }) {
+  const { user } = useAppContext();
+  const allowed = can(user, 'docflow.view');
+  const { view, error, reload } = useKitDocuments(projectId, tagId, undefined, allowed);
+  const [create, setCreate] = React.useState(false);
+  if (!allowed) return null;
+  return <div className="px-4 pb-3 space-y-2">
+    <h4 className="fx-label">Документы</h4>
+    {error ? <p role="alert" className="fx-note">{error}</p> : !view ? <p role="status" className="fx-note">Загрузка документов…</p> : view.tags[0] && <>
+      <TagKitDocuments tag={view.tags[0]} compact canEdit={can(user, 'docflow.edit')} onCreate={() => setCreate(true)} />
+      {create && <KitRowsDialog projectId={projectId} tagIds={[tagId]} registers={view.registers} onClose={() => setCreate(false)} onApplied={reload} />}
+    </>}
+  </div>;
 }

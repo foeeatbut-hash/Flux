@@ -133,7 +133,7 @@ jobs:
           FLUX_BINDING_LEDGER_PROVIDER=mysql node --import tsx scripts/security-db-equipment-binding-ledger.ts
           FLUX_ID_MIGRATION_PROVIDER=postgresql node --import tsx scripts/test-entity-id-migration-sqlite.ts
           FLUX_BINDING_LEDGER_PROVIDER=postgresql node --import tsx scripts/security-db-equipment-binding-ledger.ts
-      - name: Документооборот — классы оборудования на трёх СУБД
+      - name: Документооборот — классы и строки комплектов на трёх СУБД
         env:
           FLUX_TEST_FIXTURE_DOCFLOW_STAGE2: "1"
           FLUX_DOCFLOW_MARIA_URL: mysql://root:disposable-ci-fixture-password@127.0.0.1:${{ job.services.mariadb.ports[3306] }}/flux_docflow_stage2_fixture

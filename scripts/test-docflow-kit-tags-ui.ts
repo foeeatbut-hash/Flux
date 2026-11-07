@@ -1,0 +1,62 @@
+/** Документы тега: создание только по подтверждённому плану и переход к строке. */
+import { chromium } from 'playwright-core';
+const base = process.env.FLUX_UI_URL || 'http://127.0.0.1:5174';
+const check = (name: string, condition: unknown) => { if (!condition) throw new Error(`✗ ${name}`); console.log(`✓ ${name}`); };
+
+(async () => {
+  const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME || '/usr/bin/chromium', args: ['--no-sandbox'] });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+    await page.goto(`${base}/scripts/fixtures/windows-explorer-ui.html?docflow=1&screen=docflow&tab=tags`);
+    const documents = page.getByRole('region', { name: 'Документы тега П1' });
+    await documents.getByText('Нет строки').waitFor();
+    await page.getByText('Нужно 2 · есть 0 · выдано 0 · просрочено 0').waitFor();
+    await documents.getByRole('row', { name: /C32.*MANUAL-001.*Строка без файла/ }).waitFor();
+    await documents.getByRole('button', { name: 'Создать строки', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Создать недостающие строки — предпросмотр' });
+    check('Предложение открывает окно без автоматического создания', await dialog.getByRole('button', { name: 'Создать строки (0)' }).isDisabled() && await page.evaluate(() => (window as any).__kitStand.events.length === 0));
+    await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+    await documents.getByRole('button', { name: 'Позже' }).click();
+    check('Позже скрывает предложение без создания строк', await documents.getByRole('button', { name: 'Создать строки', exact: true }).count() === 0 && await page.evaluate(() => (window as any).__kitStand.events.length === 0));
+    await page.getByLabel('Стадия документов').selectOption('П');
+    await page.waitForFunction(() => (window as any).__kitStand.stages.includes('П'));
+    await page.getByRole('button', { name: 'Создать недостающие строки…' }).click();
+    check('Стадия передана в окно, применение до плана недоступно', await dialog.getByLabel('Стадия комплекта').inputValue() === 'П' && await dialog.getByRole('button', { name: 'Создать строки (0)' }).isDisabled());
+    await dialog.getByRole('button', { name: 'Показать план' }).click();
+    const row = dialog.getByRole('row', { name: /П1.*E02.*3700-B01-E02-001.*3700-B01-E02-001_A\.pdf.*Инженер.*2026-12-15.*Создать/ });
+    await row.waitFor();
+    check('Предпросмотр не изменяет документы и передаёт стадию', await page.evaluate(() => !(window as any).__kitStand.created && (window as any).__docflowPosts.find((p: any) => p.url === '/api/docflow/kits/plan').body.stage === 'П'));
+    await dialog.getByRole('button', { name: 'Создать строки (1)' }).click();
+    await dialog.getByText('Строки созданы по подтверждённому плану.').waitFor();
+    await documents.getByRole('button', { name: '3700-B01-E02-001' }).waitFor();
+    await documents.getByRole('row', { name: /E02.*3700-B01-E02-001.*Строка без файла/ }).waitFor();
+    await page.getByText('Нужно 2 · есть 0 · выдано 0 · просрочено 0').waitFor();
+    await dialog.getByRole('button', { name: 'Готово' }).click();
+    await page.getByRole('button', { name: 'Создать недостающие строки…' }).click();
+    await dialog.getByRole('button', { name: 'Показать план' }).click();
+    await dialog.getByRole('row', { name: /E02.*Уже есть/ }).waitFor();
+    check('Повторный план не предлагает дубликат', await dialog.getByRole('button', { name: 'Создать строки (0)' }).isDisabled() && await page.evaluate(() => (window as any).__kitStand.events.join(',') === 'apply'));
+    await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+    await page.getByRole('button', { name: 'Отменить последнее создание строк' }).click();
+    await documents.getByText('Нет строки').waitFor();
+    check('Отмена возвращает отсутствие строки', await page.evaluate(() => !(window as any).__kitStand.created && (window as any).__kitStand.events.join(',') === 'apply,undo'));
+    await page.evaluate(() => { (window as any).__kitStand.denied = 'Нет права создавать строки'; });
+    await page.getByRole('button', { name: 'Создать недостающие строки…' }).click();
+    await dialog.getByRole('button', { name: 'Показать план' }).click();
+    await dialog.getByText('Нет права создавать строки').waitFor();
+    check('Отказ 403 не позволяет применить план', await dialog.getByRole('button', { name: 'Создать строки (0)' }).isDisabled());
+    await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+    await page.evaluate(() => { (window as any).__kitStand.denied = ''; (window as any).__kitStand.pending = true; });
+    await page.getByRole('button', { name: 'Создать недостающие строки…' }).click();
+    await dialog.getByRole('button', { name: 'Показать план' }).click();
+    await dialog.getByRole('status').waitFor();
+    check('Во время запроса применение и закрытие недоступны', await dialog.getByRole('button', { name: 'Создать строки (0)' }).isDisabled() && await dialog.getByRole('button', { name: 'Закрыть', exact: true }).isDisabled());
+    await page.evaluate(() => { (window as any).__kitStand.pending = false; (window as any).__kitStand.release(); });
+    await dialog.getByRole('row', { name: /E02.*Создать/ }).waitFor();
+    await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click();
+    await documents.getByRole('button', { name: 'MANUAL-001' }).click();
+    await page.getByTestId('route').getByText('/docflow?tab=registry&vdr=r1&item=i-manual').waitFor();
+    check('Ошибок страницы нет', errors.length === 0);
+  } finally { await browser.close(); }
+})().catch(e => { console.error(e); process.exitCode = 1; });

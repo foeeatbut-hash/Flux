@@ -3,11 +3,11 @@ import { getPrisma, broadcast } from '../context.js';
 import { isAdminActor } from '../projectAccess.js';
 import { canSeeProject } from './members.js';
 import {
-  DocflowSettingsConflict, readSettings, writeSettings, copyPlan, applyCopy, undoLast, validSections,
+  DocflowSettingsConflict, readSettings, rawSettingsConfig, writeSettings, copyPlan, applyCopy, undoLast, validSections,
   listTemplates, saveTemplate, migrationPlan, applyMigration, undoMigration,
 } from '../docflowSettings.js';
 import { DocflowPlanError } from '../docflowPlans.js';
-import { validateClassMappings } from '../docflowClassRefs.js';
+import { validateDocflowReferences } from '../docflowConfigRefs.js';
 import { normalizeDocflowConfig } from '../../shared/docflow/config.js';
 import { maskErrors } from '../../shared/docflow/nameMask.js';
 
@@ -111,12 +111,7 @@ export function registerDocflowRoutes(app: Express): void {
       if (!projectId) return res.status(400).json({ error: 'Не указан проект' });
       const prisma = getPrisma();
       if (!await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })) throw new DocflowPlanError('Проект не найден', 404);
-      const stored = await prisma.docflowSettings.findUnique({ where: { projectId } });
-      if (stored?.config) {
-        let raw: unknown;
-        try { raw = JSON.parse(stored.config); } catch { throw new DocflowPlanError('Настройки проекта повреждены', 409); }
-        await validateClassMappings(prisma, raw);
-      }
+      await validateDocflowReferences(prisma, await rawSettingsConfig(prisma, projectId));
       const view = await readSettings(prisma, projectId);
       const template = await saveTemplate(prisma, String(req.body?.name || ''), view.config);
       announce(null);

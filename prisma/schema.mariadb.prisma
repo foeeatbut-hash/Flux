@@ -176,9 +176,24 @@ model DocRegisterItem {
   updatedAt      DateTime  @updatedAt
 
   register DocRegister @relation(fields: [registerId], references: [id], onDelete: Cascade)
+  kitRow   DocflowKitRow?
 
   @@index([registerId])
   @@index([projectId, status])
+}
+
+model DocflowKitRow {
+  id        String @id @default(uuid())
+  projectId String
+  unit      String
+  scopeId   String
+  docType   String
+  itemId    String @unique
+  cipher    String
+  item      DocRegisterItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, unit, scopeId, docType])
+  @@unique([projectId, cipher])
 }
 
 /// Связь строки ВДР с тегом по id (docs/docflow-integration.md, 2.3). Код тега в
