@@ -180,7 +180,20 @@ const MENU = '[data-context-menu]';
     ok('Удалённые фильтры не передаются мосту', !('tag' in f) && !('projectId' in f) && !('revision' in f) && !('responsible' in f), f);
     await page.keyboard.press('Escape');
     ok('Включённые фильтры видны на воронке', (await page.getByRole('button', { name: 'Фильтры поиска' }).getAttribute('title'))!.includes('Только черновики'));
-    await nav('Документы').click();
+    // Кадр, в котором место уже сменилось, обязан быть без результатов прежнего места: сбрасывать «потом»
+    // нельзя. Берём снимок в первой же задаче после смены места; обычный click + проверка успевает
+    // пройти мимо этого окна, поэтому раньше проверка то проходила, то нет.
+    const firstFrame = await page.evaluate(`new Promise(function(done){
+      var place = function(){ return document.querySelector('[data-testid=place]').textContent; };
+      var from = place();
+      var tick = function(){
+        if (place() === from) { setTimeout(tick, 0); return; }
+        done({ results: document.querySelector('[data-testid=results]') !== null, box: document.querySelector('[role=search] input').value, filters: document.querySelector('[aria-label="Фильтры поиска"]').title });
+      };
+      document.querySelector('[role=treeitem][title="Документы"]').click();
+      tick();
+    })`) as { results: boolean; box: string; filters: string };
+    ok('Первый кадр нового места без результатов, текста и фильтров прежнего', !firstFrame.results && firstFrame.box === '' && firstFrame.filters === 'Фильтры поиска', firstFrame);
     ok('Уход в другое место гасит поиск, результаты и фильтры', await page.getByTestId('results').count() === 0 && await searchBox.inputValue() === '' && (await page.getByRole('button', { name: 'Фильтры поиска' }).getAttribute('title')) === 'Фильтры поиска');
     await nav('Этот компьютер').click();
     await searchBox.fill('смета'); await searchBox.press('Enter');
