@@ -363,11 +363,31 @@ model FileNode {
   chunks     FileChunk[]
 }
 
+/// Ограниченный по сроку план ДО: сервер хранит снимок, а клиент подтверждает его id.
+model DocflowPlan {
+  id        String   @id @default(uuid())
+  projectId String
+  actorId   String
+  kind      String
+  state     String   @default("preview")
+  payload   String
+  result    String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime
+
+  @@index([projectId, actorId, kind, state])
+  @@index([expiresAt])
+}
+
 model Equipment {
   id          String  @id @default(uuid())
   type        String // "VALVE", "FAN", "AHU", "CONTROL_PANEL"
   description String?
+  catalogClassId String?
   tags        Tag[]
+
+  @@index([catalogClassId])
 }
 
 model Tag {

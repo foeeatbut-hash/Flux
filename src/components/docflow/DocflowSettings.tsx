@@ -6,6 +6,11 @@ import { DOCFLOW_SECTIONS } from '../../../shared/docflow/config';
 import { folderPath, rowFields, maskErrors } from '../../../shared/docflow/nameMask';
 import { getSettings, putSettings, undoSettings, saveTemplate, type SettingsView } from '../../lib/docflowApi';
 import RowsEditor from './RowsEditor';
+import EquipmentClassesEditor from './EquipmentClassesEditor';
+import EquipmentClassActions from './EquipmentClassActions';
+import { useAppContext } from '../../store/policyStore';
+import { can } from '../../lib/permissions';
+import { classMappingErrors } from '../../../shared/docflow/classMapping';
 import MaskBuilder from './MaskBuilder';
 import SettingsCopyDialog from './SettingsCopyDialog';
 import StandardsMigrationDialog from './StandardsMigrationDialog';
@@ -35,6 +40,7 @@ const sourceText = (v: SettingsView | null) => {
 export default function DocflowSettings({ projectId, canEdit, isAdmin, addToast }: {
   projectId: string; canEdit: boolean; isAdmin: boolean; addToast: (text: string, kind?: any) => void;
 }) {
+  const { user } = useAppContext();
   const [view, setView] = React.useState<SettingsView | null>(null);
   const [draft, setDraft] = React.useState<DocflowConfig | null>(null);
   const [section, setSection] = React.useState('statuses');
@@ -53,6 +59,8 @@ export default function DocflowSettings({ projectId, canEdit, isAdmin, addToast 
   const dirty = !!view && !!draft && JSON.stringify(view.config) !== JSON.stringify(draft);
   const save = async () => {
     if (!draft || !view) return;
+    const mappingErrors = classMappingErrors(draft.equipmentClasses);
+    if (mappingErrors.length) { addToast(mappingErrors[0], 'error'); setSection('equipmentClasses'); return; }
     setBusy(true);
     const answer = await putSettings(projectId, draft, view.updatedAt);
     setBusy(false);
@@ -84,6 +92,7 @@ export default function DocflowSettings({ projectId, canEdit, isAdmin, addToast 
   const set = <K extends keyof DocflowConfig>(key: K, value: DocflowConfig[K]) => setDraft((d) => (d ? { ...d, [key]: value } : d));
   const sample = { contractorNo: '3700-B01-E02-001', vdrCode: 'E02', revision: 'B', language: 'RU', tags: ['П-1'] };
   const maskBad = maskErrors(draft.masks.file).length > 0;
+  const mappingBad = classMappingErrors(draft.equipmentClasses).length > 0;
 
   return (
     <div className="flex h-full min-h-0">
@@ -101,7 +110,7 @@ export default function DocflowSettings({ projectId, canEdit, isAdmin, addToast 
           {canEdit && <Btn tone="ghost" onClick={() => void asTemplate()} disabled={busy}>Сохранить как шаблон</Btn>}
           {canEdit && view.canUndo && <Btn tone="ghost" onClick={() => void undo()} disabled={busy || dirty} title={view.undoLabel}>Отменить {view.undoLabel || 'перенос'}</Btn>}
           {isAdmin && <Btn tone="ghost" onClick={() => setDialog('migration')} disabled={busy}>Стандарты → проекты…</Btn>}
-          {canEdit && <Btn tone="primary" onClick={() => void save()} disabled={busy || !dirty || maskBad}>{busy ? 'Сохраняю…' : 'Сохранить'}</Btn>}
+          {canEdit && <Btn tone="primary" onClick={() => void save()} disabled={busy || !dirty || maskBad || mappingBad}>{busy ? 'Сохраняю…' : 'Сохранить'}</Btn>}
         </Toolbar>
         <div className="flex-1 min-h-0 overflow-y-auto p-4">
           <div className="max-w-4xl flex flex-col gap-3">
@@ -137,6 +146,11 @@ export default function DocflowSettings({ projectId, canEdit, isAdmin, addToast 
                   <Input value={draft.folders[key]} disabled={ro} className="font-mono" placeholder="{тип}/{шифр}" onChange={(e) => set('folders', { ...draft.folders, [key]: e.target.value })} />
                 </Field>
               ))}
+            </div>}
+            {mappingBad && section !== 'equipmentClasses' && <Status tone="rose">Исправьте соответствия классов оборудования перед сохранением.</Status>}
+            {section === 'equipmentClasses' && <div className="space-y-4"><EquipmentClassesEditor rows={draft.equipmentClasses} disabled={ro} onChange={(v) => set('equipmentClasses', v)} />
+              {can(user, 'equipment.manage') && <><p className="fx-note">Сохраните соответствия перед заполнением. Существующие теги меняются только после предпросмотра.</p>
+                <EquipmentClassActions projectId={projectId} disabled={dirty || busy} /></>}
             </div>}
             {section === 'kits' && <Empty title={`Комплектов: ${draft.kits.length}`} text="Комплекты документов по классам оборудования настраиваются на следующем этапе; уже заданные переносятся между проектами вместе с остальными разделами." />}
             {section === 'deadlines' && <RowsEditor<DocflowDeadline> label="Сроки по типам документов" rows={draft.deadlines.byType} disabled={ro} addLabel="срок" onChange={(v) => set('deadlines', { ...draft.deadlines, byType: v })}

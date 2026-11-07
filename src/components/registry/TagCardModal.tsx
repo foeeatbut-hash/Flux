@@ -18,6 +18,7 @@ import { Btn, Status, Dialog } from '../ui';
 import { useToastStore } from '../../store/toastStore';
 import TagComments from './TagComments';
 import TagVdrDocs from './TagVdrDocs';
+import TagCatalogClass from './TagCatalogClass';
 import { useTagNavigationStore } from '../../store/tagNavigationStore';
 import { openInProject } from '../../lib/projectScope';
 import {
@@ -261,6 +262,7 @@ export default function TagCardModal({
             />
 
             {/* Документы ВДР: связь по id тега, переименование её не рвёт */}
+            <TagCatalogClass tag={tag} projectId={projectId} onChanged={() => void loadTags()} />
             <TagVdrDocs tagId={tag.id} identifier={tag.identifier} projectId={tag.projectId} />
 
           </div>

@@ -8,6 +8,8 @@
  * прежних значений — до записи, отмена — одним действием и только если после
  * переноса никто ничего не менял.
  */
+import { validateClassMappings } from './docflowClassRefs.js';
+import { DocflowPlanError } from './docflowPlans.js';
 import { DOCFLOW_SECTIONS, diffSections, mergeSections, normalizeDocflowConfig, type DocflowConfig } from '../shared/docflow/config.js';
 
 export class DocflowSettingsConflict extends Error {
@@ -80,8 +82,11 @@ export async function writeSettings(prisma: any, input: {
   source?: SettingsSource | null; undoLabel?: string;
 }): Promise<SettingsView> {
   if (input.expected === undefined) throw new DocflowSettingsConflict('Не указана версия настроек: обновите окно и повторите', 400);
+  await validateClassMappings(prisma, input.config);
   const config = JSON.stringify(normalizeDocflowConfig(input.config));
   await prisma.$transaction(async (tx: any) => {
+    if (!await tx.project.findUnique({ where: { id: input.projectId }, select: { id: true } })) throw new DocflowPlanError('Проект не найден', 404);
+    await validateClassMappings(tx, input.config);
     const row = await tx.docflowSettings.findUnique({ where: { projectId: input.projectId } });
     if ((row ? iso(row.updatedAt) : null) !== input.expected) {
       throw new DocflowSettingsConflict(row ? 'Настройки проекта уже изменили. Данные обновлены — повторите правку.' : 'Настройки проекта уже удалили. Данные обновлены.');
@@ -135,9 +140,19 @@ export function validSections(raw: unknown): string[] {
 
 /** План переноса: что станет с каждым отмеченным разделом. Ничего не пишет. */
 export async function copyPlan(prisma: any, projectId: string, from: { projectId?: string; templateId?: string }, sections: string[]) {
+  if (!await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })) throw new DocflowPlanError('Проект не найден', 404);
+  const rawTarget = await prisma.docflowSettings.findUnique({ where: { projectId } });
+  if (rawTarget?.config) await validateClassMappings(prisma, parse(rawTarget.config, {}));
+  if (sections.includes('equipmentClasses')) {
+    const rawSource = from.templateId
+      ? await prisma.docStandard.findUnique({ where: { id: from.templateId } })
+      : from.projectId ? await prisma.docflowSettings.findUnique({ where: { projectId: from.projectId } }) : null;
+    if (rawSource?.config) await validateClassMappings(prisma, parse(rawSource.config, {}));
+  }
   const target = await readSettings(prisma, projectId);
   const src = await sourceConfig(prisma, from);
   const after = mergeSections(target.config, src.config, sections);
+  await validateClassMappings(prisma, after);
   return { source: src.source, expected: target.updatedAt, sections: diffSections(target.config, after, sections), after };
 }
 
@@ -161,6 +176,7 @@ export async function undoLast(prisma: any, projectId: string, actorId: string):
       const gone = await tx.docflowSettings.deleteMany({ where: { id: row.id, updatedAt: row.updatedAt } });
       if (gone.count !== 1) throw new DocflowSettingsConflict('Настройки проекта уже изменили');
     } else {
+      await validateClassMappings(tx, parse(undo.config, {}));
       const now = new Date(Math.max(Date.now(), new Date(row.updatedAt).getTime() + 1));
       const done = await tx.docflowSettings.updateMany({ where: { id: row.id, updatedAt: row.updatedAt }, data: { config: undo.config, source: undo.source, undo: '', updatedById: actorId, updatedAt: now } });
       if (done.count !== 1) throw new DocflowSettingsConflict('Настройки проекта уже изменили');
@@ -179,6 +195,7 @@ export async function listTemplates(prisma: any) {
 export async function saveTemplate(prisma: any, name: string, config: DocflowConfig) {
   const title = String(name || '').trim().slice(0, 200);
   if (!title) throw new DocflowSettingsConflict('Укажите название шаблона', 400);
+  await validateClassMappings(prisma, config);
   const row = await prisma.docStandard.create({ data: { name: title, config: JSON.stringify(normalizeDocflowConfig(config)) } });
   return { id: row.id, name: row.name };
 }

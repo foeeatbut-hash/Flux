@@ -61,6 +61,7 @@ import { startImportJobs } from './server/importJobs.js';
 import { registerEquipmentEditRoutes } from './server/routes/equipmentEdit.js';
 import { registerVdrRoutes } from './server/routes/vdr.js';
 import { registerDocflowRoutes } from './server/routes/docflow.js';
+import { registerEquipmentClassRoutes } from './server/routes/equipmentClasses.js';
 import { registerDocflowLinkRoutes } from './server/routes/docflowLinks.js';
 import { registerLogRoutes } from './server/routes/logs.js';
 import { registerSettingsRoutes } from './server/routes/settings.js';
@@ -1170,6 +1171,7 @@ startImportJobs();
 registerEquipmentEditRoutes(app);
 registerVdrRoutes(app, { chunkBytes: limits.chunkBytes });
 registerDocflowRoutes(app);
+registerEquipmentClassRoutes(app);
 registerDocflowLinkRoutes(app);
 
 // Резервные копии: суточный «Архив» (БД + файлы Проводника в родных форматах

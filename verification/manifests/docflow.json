@@ -61,6 +61,24 @@
       "timeoutMs": 30000
     },
     {
+      "id": "docflow-class-settings",
+      "path": "scripts/test-docflow-class-settings.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-class-mapping",
+      "path": "scripts/test-docflow-class-mapping.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
       "id": "docflow-settings",
       "path": "scripts/test-docflow-settings.ts",
       "layer": "api-db",
@@ -123,6 +141,53 @@
       ],
       "prerequisites": [],
       "timeoutMs": 120000
+    },
+    {
+      "id": "docflow-classes-ui",
+      "path": "scripts/test-docflow-classes-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "docflow-equipment-classes",
+      "path": "scripts/test-docflow-equipment-classes.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
+      "id": "docflow-stage2-security-db",
+      "path": "scripts/security-db-docflow-stage-2.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture",
+        "mariadb-fixture",
+        "postgresql-fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_DOCFLOW_STAGE2_PROVIDER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE_DOCFLOW_STAGE2",
+          "value": "1"
+        }
+      ],
+      "timeoutMs": 300000,
+      "external": true
     }
   ],
   "actions": [
@@ -200,6 +265,47 @@
       "manual": []
     },
     {
+      "id": "docflow.equipment-classes",
+      "program": "docflow",
+      "label": "Настроить классы оборудования проекта",
+      "sources": [
+        "shared/docflow/classMapping.ts",
+        "shared/docflow/config.ts",
+        "src/components/docflow/EquipmentClassesEditor.tsx"
+      ],
+      "triggers": [
+        "Настройки → Классы оборудования"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Соответствия типов и классов проекта проверяются и переносятся с настройками"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-class-mapping",
+          "layer": "unit",
+          "claims": [
+            "Нормализация, ошибки и перенос соответствий сохраняют различия по типам"
+          ]
+        },
+        {
+          "suite": "docflow-classes-ui",
+          "layer": "component",
+          "claims": [
+            "Сохранение настроек и подтверждённый план назначают класс; отказ и отмена видны"
+          ]
+        },
+        {
+          "suite": "docflow-class-settings",
+          "layer": "unit",
+          "claims": [
+            "Неизвестные классы и некорректные строки блокируют запись, перенос, шаблон и отмену"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
       "id": "docflow.mask-folder-check",
       "program": "docflow",
       "label": "Проверить маску по рабочей папке",
@@ -234,6 +340,45 @@
           ]
         }
       ]
+    },
+    {
+      "id": "docflow.equipment-class-plan",
+      "program": "docflow",
+      "label": "Заполнить классы оборудования проекта",
+      "sources": [
+        "server/equipmentClasses.ts",
+        "server/routes/equipmentClasses.ts",
+        "server/docflowPlans.ts"
+      ],
+      "triggers": [
+        "POST /api/equipment/projects/:projectId/catalog-classes/plan",
+        "POST /api/equipment/projects/:projectId/catalog-classes/apply",
+        "POST /api/equipment/projects/:projectId/catalog-classes/undo",
+        "GET /api/equipment/projects/:projectId/catalog-classes/last"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Классы назначаются только подтверждённым тегам доступного проекта; общие записи и чужие теги сохраняются",
+        "Устаревший план и отмена после новой правки не перезаписывают данные"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-equipment-classes",
+          "layer": "api-db",
+          "claims": [
+            "HTTP проверяет право и доступ к проекту, неизвестные ссылки отклоняются",
+            "Предпросмотр, применение, повтор, отмена и сроки проверяются на SQLite"
+          ]
+        },
+        {
+          "suite": "docflow-stage2-security-db",
+          "layer": "api-db",
+          "claims": [
+            "Схема и проектный план с проверкой прав, устаревшего состояния и отмены проверяются на SQLite, MariaDB и PostgreSQL"
+          ]
+        }
+      ],
+      "manual": []
     }
   ],
   "connections": []

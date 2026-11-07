@@ -6,6 +6,8 @@ import {
   DocflowSettingsConflict, readSettings, writeSettings, copyPlan, applyCopy, undoLast, validSections,
   listTemplates, saveTemplate, migrationPlan, applyMigration, undoMigration,
 } from '../docflowSettings.js';
+import { DocflowPlanError } from '../docflowPlans.js';
+import { validateClassMappings } from '../docflowClassRefs.js';
 import { normalizeDocflowConfig } from '../../shared/docflow/config.js';
 import { maskErrors } from '../../shared/docflow/nameMask.js';
 
@@ -16,7 +18,7 @@ import { maskErrors } from '../../shared/docflow/nameMask.js';
 
 const actorOf = (req: Request) => (req as any).authUser || null;
 const fail = (res: Response, err: any) => {
-  if (err instanceof DocflowSettingsConflict) return res.status(err.status).json({ error: err.message, conflict: err.status === 409 });
+  if (err instanceof DocflowSettingsConflict || err instanceof DocflowPlanError) return res.status(err.status).json({ error: err.message, conflict: err.status === 409 });
   res.status(500).json({ error: err?.message || 'Ошибка настроек документооборота' });
 };
 const expectedOf = (raw: unknown): string | null | undefined => (raw === null ? null : typeof raw === 'string' && raw ? raw : undefined);
@@ -107,8 +109,16 @@ export function registerDocflowRoutes(app: Express): void {
     try {
       const projectId = String(req.body?.projectId || '');
       if (!projectId) return res.status(400).json({ error: 'Не указан проект' });
-      const view = await readSettings(getPrisma(), projectId);
-      const template = await saveTemplate(getPrisma(), String(req.body?.name || ''), view.config);
+      const prisma = getPrisma();
+      if (!await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })) throw new DocflowPlanError('Проект не найден', 404);
+      const stored = await prisma.docflowSettings.findUnique({ where: { projectId } });
+      if (stored?.config) {
+        let raw: unknown;
+        try { raw = JSON.parse(stored.config); } catch { throw new DocflowPlanError('Настройки проекта повреждены', 409); }
+        await validateClassMappings(prisma, raw);
+      }
+      const view = await readSettings(prisma, projectId);
+      const template = await saveTemplate(prisma, String(req.body?.name || ''), view.config);
       announce(null);
       res.json({ template });
     } catch (err) { fail(res, err); }

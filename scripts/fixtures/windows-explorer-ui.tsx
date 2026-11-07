@@ -10,7 +10,8 @@ import { useDisplayStore } from '../../src/store/displayStore';
 import { useDesktopStore } from '../../src/store/desktopStore';
 import { ENV_CONFIG } from '../../src/config/env';
 import DocflowScreen from '../../src/screens/DocflowScreen';
-import { DOCFLOW, docflowBindings, docflowFetch, docflowFiles, posts as docflowPosts } from './docflow-stand';
+import TagCatalogClass from '../../src/components/registry/TagCatalogClass';
+import { DOCFLOW, docflowBindings, docflowFetch, docflowFiles, posts as docflowPosts, classStand, waitClassStand } from './docflow-stand';
 import type { WindowsFileEntry, WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse, WindowsRoot, WindowsVolume } from '../../filesystem/contracts';
 
 const root: WindowsRoot = { id: 'desktop-id', name: 'Рабочий стол', kind: 'desktop', available: true };
@@ -254,9 +255,11 @@ useDisplayStore.setState({ workspace: { enabled: true, displays: [
 useDesktopStore.getState().pinApp('/registry');
 (window as any).__bindings = (window as any).__bindings || docflowBindings;
 (window as any).__docflowPosts = docflowPosts;
+(window as any).__classStand = classStand;
 if (DOCFLOW) useStore.setState({ user: { id: 'admin', role: 'ADMIN', name: 'Администратор' } as any });
 (window as any).fetch = async (url: string, init?: RequestInit) => {
   const path = String(url);
+  await waitClassStand(path);
   const docflow = docflowFetch(path, init);
   if (docflow) return docflow;
   // Общий журнал привязок: стенд управляется флагами страницы (__canManageBindings, __bindings).
@@ -281,7 +284,7 @@ function Fixture() {
   return <div style={{ position: 'absolute', inset: 0, width: '100vw', height: '100vh' }}>
     {/* Переход между программами должен менять экран: оставшийся Проводник
         иначе прочтёт параметры ДО как своё пустое место и перепишет адрес. */}
-    {desktop ? <WindowsDesktop key={desktop} screenOrigin={{ x: -1280, y: -200 }} /> : <div className="h-full"><LocationDebug />{route.pathname === '/docflow' ? <DocflowScreen /> : <Explorer />}</div>}
+    {desktop ? <WindowsDesktop key={desktop} screenOrigin={{ x: -1280, y: -200 }} /> : <div className="h-full"><LocationDebug />{new URLSearchParams(location.search).get('screen') === 'tagclass' ? <TagCatalogClass tag={{ id: 'tag-1', equipment: { type: 'AHU', catalogClassId: classStand.value } }} projectId="project-1" onChanged={() => undefined} /> : route.pathname === '/docflow' ? <DocflowScreen /> : <Explorer />}</div>}
     <ToastProvider />
   </div>;
 }

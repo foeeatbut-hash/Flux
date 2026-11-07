@@ -15,7 +15,7 @@ export const keyOfPath = (path: string) => Array.from(new TextEncoder().encode(`
 
 const WORK_KEY = keyOfPath('Проекты');
 const RETURNS_KEY = keyOfPath('Возвраты');
-const config = normalizeDocflowConfig({ vdrTypes: [{ code: 'E02', titleRu: 'Общий вид', titleEn: '' }, { code: 'C32', titleRu: 'Опросный лист', titleEn: '' }] });
+let config = normalizeDocflowConfig({ vdrTypes: [{ code: 'E02', titleRu: 'Общий вид', titleEn: '' }, { code: 'C32', titleRu: 'Опросный лист', titleEn: '' }] });
 const file = (name: string, fileId: string, size: number): WindowsFileEntry => ({ name, relativePath: `Проекты/${name}`, storage: 'windows', kind: 'file', fileId, size, modifiedAt: '2026-11-04T09:00:00.000Z', linked: false });
 
 export const docflowFiles: WindowsFileEntry[] = DOCFLOW ? [
@@ -47,6 +47,10 @@ export const docflowBindings = DOCFLOW ? [
 ] : [];
 
 export const posts: Array<{ url: string; body: any }> = [];
+export const classStand = { value: '', before: '', planned: '', lastId: '', sequence: 0, denied: '', events: [] as string[], pending: false, release: null as null | (() => void) };
+export async function waitClassStand(path: string) {
+  if (classStand.pending && path.includes('/catalog-classes/plan')) await new Promise<void>(resolve => { classStand.release = resolve; });
+}
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const brief = ({ row: _row, ...rest }: ReturnType<typeof item>): LinkedItemBrief => rest;
 
@@ -56,6 +60,16 @@ export function docflowFetch(path: string, init?: RequestInit): Response | undef
   const method = (init?.method || 'GET').toUpperCase();
   const body = init?.body ? JSON.parse(String(init.body)) : undefined;
   if (method !== 'GET') posts.push({ url: path, body });
+  if (path.startsWith('/api/catalog') && method === 'GET') return json({ classes: [{ id: 'class-fan', code: 'FAN', title: { ru: 'Вентилятор' } }, { id: 'class-ahu', code: 'AHU', title: { ru: 'Установка' } }], families: [], components: [], manufacturers: [], tagRules: [] });
+  if (path.startsWith('/api/projects/project-1/tags')) return json([{ id: 'tag-1', identifier: 'П1', equipment: { type: 'AHU', catalogClassId: classStand.value } }]);
+  if (path.includes('/catalog-classes/')) {
+    if (classStand.denied) return json({ error: classStand.denied }, 403);
+    if (path.endsWith('/last')) return json({ id: classStand.lastId || null });
+    if (path.endsWith('/plan')) { const choice = body?.overrides?.[0]?.classId || config.equipmentClasses.find(x => x.type === 'AHU')?.classId || ''; classStand.planned = choice; return json({ id: `plan-${++classStand.sequence}`, rows: [{ tagId: 'tag-1', tag: 'П1', type: 'AHU', before: classStand.value, classId: choice, classCode: choice === 'class-fan' ? 'FAN' : 'AHU', action: choice && choice !== classStand.value ? 'set' : 'keep', source: 'настройки проекта', problem: '' }] }); }
+    if (path.endsWith('/apply')) { classStand.before = classStand.value; classStand.value = classStand.planned; classStand.lastId = body.planId; classStand.events.push('apply'); return json({ ok: true }); }
+    if (path.endsWith('/undo')) { classStand.value = classStand.before; classStand.lastId = ''; classStand.events.push('undo'); return json({ ok: true }); }
+  }
+  if (path === '/api/docflow/settings' && method === 'PUT') { config = normalizeDocflowConfig(body.config); classStand.events.push('settings'); }
   if (path.startsWith('/api/docflow/settings')) return json({ projectId: 'project-1', config, source: { kind: 'default', name: 'по умолчанию', at: '' }, stored: true, updatedAt: '2026-11-01T00:00:00.000Z', canUndo: false, undoLabel: '' });
   if (path.startsWith('/api/docflow/links/plan')) {
     const found = items.find((i) => i.id === body.itemId)!;
