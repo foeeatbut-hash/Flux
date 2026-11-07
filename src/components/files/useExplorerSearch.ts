@@ -46,6 +46,11 @@ export function useExplorerSearch(scopes: WindowsFileRef[], scopeKey: string) {
   const open = useRef(new Set<string>());
   const reasons = useRef<WindowsSearchStop[]>([]);
   const scopesRef = useRef(scopes); scopesRef.current = scopes;
+  // Смена места гасит состояние поиска прямо при отрисовке (приём «подстроить состояние во время рендера»):
+  // сброс из эффекта рисуется отдельным, более поздним проходом, и кадр с новым местом выходил бы
+  // с результатами, текстом и фильтрами прежнего. Запросы и ссылки гасит эффект ниже.
+  const [shownScope, setShownScope] = useState(scopeKey);
+  if (shownScope !== scopeKey) { setShownScope(scopeKey); setResults(IDLE); setQuery(''); setUi(NO_FILTERS); }
 
   const cancel = useCallback(() => {
     const ids = [...open.current];
