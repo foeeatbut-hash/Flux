@@ -313,7 +313,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
       className="relative shrink-0 flex items-center gap-1 pl-2
                  bg-slate-50 dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border"
     >
-      {startOpen && <StartMenu onClose={() => setStartOpen(false)} />}
+      {startOpen && <StartMenu displayId={displayId} onClose={() => setStartOpen(false)} />}
       {showUpdateDialog && <UpdateDialog onClose={() => setShowUpdateDialog(false)} />}
 
       {/* Пуск — единственный цветной значок на панели, чтобы его находили не
