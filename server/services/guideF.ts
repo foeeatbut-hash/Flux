@@ -246,7 +246,7 @@ async function answerProjectIntent(intent: string, question: string, projectId: 
       select: { name: true, revision: true }, take: 5,
     });
     if (!files.length) return { status: 'no-match', text: `Файлов по тегу «${p.codes[0]}» в проекте нет.` };
-    return { status: 'ok', text: `Файлов по тегу «${p.codes[0]}»: ${files.length}.\n${files.map((f: any) => `· ${f.name} (ред. ${f.revision})`).join('\n')}\nИсточник: Проводник проекта · ${at}` };
+    return { status: 'ok', text: `Файлов по тегу «${p.codes[0]}»: ${files.length}.\n${files.map((f: any) => `· ${f.name} (ред. ${f.revision})`).join('\n')}\nИсточник: папка проекта в Проводнике · ${at}` };
   }
 
   return { status: 'no-match', text: 'Такой проектный запрос Guide в разговоре пока не обрабатывает.' };

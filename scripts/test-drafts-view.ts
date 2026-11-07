@@ -14,15 +14,16 @@ const NOW = new Date(2026, 10, 5, 12, 0).getTime();
 const at = (daysAgo: number, hour = 9) => { const d = new Date(NOW); d.setDate(d.getDate() - daysAgo); d.setHours(hour, 30, 0, 0); return d.toISOString(); };
 const draft = (id: string, name: string, daysAgo: number, extra: Partial<WindowsDraftEntry> = {}): WindowsDraftEntry => ({
   name, relativePath: name, storage: 'flux', draftId: id, kind: 'file', fileId: id, size: 1000, modifiedAt: at(daysAgo), linked: false,
-  parent: { rootId: 'r', relativePath: '' }, metadata: { fileId: id, tags: [], projectIds: [], revision: '', responsible: '', history: [] }, ...extra,
+  parent: { rootId: 'r', relativePath: '' }, ...extra,
 });
 const sheet = draft('a', 'Опросный лист.xlsx', 0, { size: 5000 });
-const letter = draft('b', 'Письмо.docx', 1, { metadata: { fileId: 'b', tags: ['AHU-2'], projectIds: ['p1'], revision: '', responsible: '', history: [] } });
+const letter = draft('b', 'Письмо.docx', 1, { parent: { rootId: 'r', relativePath: 'Проект/Вложенная' } });
 const scheme = draft('c', 'Схема.pdf', 3);
 const folder = draft('d', 'Бланки', 20, { kind: 'directory', size: 0 });
 const node = draft('e', 'Узел.dwg', 40);
 const all = [sheet, letter, scheme, folder, node];
 const none = new Set<string>();
+const projectOf = (entry: WindowsDraftEntry) => entry.parent.relativePath.startsWith('Проект') ? 'p1' : null;
 const base = { kind: 'all' as const, state: null, text: '', folders: true, scope: 'all' as const, openDrafts: none, now: NOW };
 
 ok('Тип по расширению и метка значка', () => {
@@ -32,15 +33,15 @@ ok('Тип по расширению и метка значка', () => {
 ok('Состояние: открыт — «правится», без проекта — «не в проекте»', () => {
   assert.equal(draftState(sheet, new Set(['a'])), 'editing');
   assert.equal(draftState(sheet, none), 'unsent');
-  assert.equal(draftState(letter, none), 'draft');
+  assert.equal(draftState(letter, none, projectOf), 'draft');
 });
-ok('Фильтры типа, состояния, поиска (по имени и тегу) и папок', () => {
+ok('Фильтры типа, состояния, поиска (по имени) и папок', () => {
   assert.deepEqual(filterDrafts(all, { ...base, kind: 'drawing' }).map((e) => e.draftId), ['c', 'e']);
-  assert.deepEqual(filterDrafts(all, { ...base, state: 'draft' }).map((e) => e.draftId), ['b']);
-  assert.deepEqual(filterDrafts(all, { ...base, text: 'ahu' }).map((e) => e.draftId), ['b']);
+  assert.deepEqual(filterDrafts(all, { ...base, state: 'draft' }, projectOf).map((e) => e.draftId), ['b']);
+  assert.deepEqual(filterDrafts(all, { ...base, text: 'ahu' }, projectOf).map((e) => e.draftId), []);
   assert.deepEqual(filterDrafts(all, { ...base, text: 'схем' }).map((e) => e.draftId), ['c']);
   assert.ok(!filterDrafts(all, { ...base, folders: false }).includes(folder));
-  assert.deepEqual(filterDrafts(all, { ...base, scope: 'current', projectId: 'p1' }).map((e) => e.draftId), ['b']);
+  assert.deepEqual(filterDrafts(all, { ...base, scope: 'current', projectId: 'p1' }, projectOf).map((e) => e.draftId), ['b']);
   assert.deepEqual(filterDrafts(all, { ...base, olderThanDays: 14 }).map((e) => e.draftId), ['d', 'e']);
 });
 ok('Сортировка по ключам и порядку, закреплённые первыми', () => {
@@ -71,8 +72,10 @@ ok('Короткое время под плиткой', () => {
   assert.equal(shortWhen('', NOW), '—');
 });
 ok('Счётчик кнопки, открытые окна и свободное имя', () => {
-  assert.equal(badgeCount(all, 'unsent', none), 4);
+  assert.equal(badgeCount(all, 'unsent', none, projectOf), 4);
   assert.equal(badgeCount(all, 'all', none), 5);
+  assert.deepEqual(groupDrafts(all, 'project', { openDrafts: none, projectOf, projectName: () => 'Проект П-1' }).map((s) => s.label), ['Без проекта', 'Проект П-1']);
+  assert.equal(sortDrafts(all, 'project', 'desc', [], projectOf)[0].draftId, 'b');
   assert.equal(badgeCount(all, 'off', none), 0);
   assert.deepEqual([...openDraftIds(['/windows-file?root=r&path=a&draft=a', '/explorer?root=r&draft=x', '/registry'])], ['a']);
   assert.equal(numberedName('Документ.docx', 2, false), 'Документ (2).docx');

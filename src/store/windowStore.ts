@@ -115,7 +115,11 @@ function restored(key = layoutKey): WinState[] {
         // открытое до обновления, показало бы Главную вместо документа
         // Старые виртуальные столы сводим к одному, сохраняя сам экземпляр
         // окна: в нём остаются документ, черновики редактора и геометрия.
-        id: w.id, path: resolveSectionPath(w.path), desk: 0,
+        // Путь — из переведённого адреса: окно ВДР, открытое до переезда в
+        // Документооборот, должно стать окном Документооборота, а не пустым
+        // «Менеджментом» с чужим адресом. pathOf объявлен ниже модуля и при
+        // разборе раскладки ещё недоступен — поэтому разбор на месте
+        id: w.id, path: resolveSectionHref(typeof w.href === 'string' && w.href ? w.href : resolveSectionPath(w.path)).split(/[?#]/)[0] || '/', desk: 0,
         // Окна прошлых версий записаны без адреса: считаем адресом сам раздел.
         // Человек увидит привычные окна, просто без открытого документа
         href: resolveSectionHref(typeof w.href === 'string' && w.href ? w.href : w.path),
@@ -195,7 +199,9 @@ export const useWindowStore = create<WindowState>((set, get) => {
       set({ area, windows: get().displays.length ? get().windows.map(w => recoverRect(w, get().displays)) : refit(get().windows, area) });
     },
 
-    open: (href) => {
+    open: (requested) => {
+      // Старый адрес переехавшего раздела открывает его новое окно
+      const href = resolveSectionHref(requested);
       const { windows } = get();
       const path = pathOf(href);
       // Окно — единственный способ показать раздел, и потому единственное
@@ -224,7 +230,8 @@ export const useWindowStore = create<WindowState>((set, get) => {
       get().openAnother(href);
     },
 
-    openAnother: (href) => {
+    openAnother: (requested) => {
+      const href = resolveSectionHref(requested);
       const { windows, area } = get();
       if (sectionAccess(sectionForPath(pathOf(href)), appContext()) === 'hide') return;
       const z = windows.reduce((m, w) => Math.max(m, w.z), 0) + 1;

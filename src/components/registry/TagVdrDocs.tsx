@@ -38,7 +38,7 @@ export default function TagVdrDocs({ tagId, identifier, projectId }: { tagId: st
       <div className="border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-100 dark:divide-slate-850 max-h-40 overflow-auto">
         {docs.map((d: any) => (
           <button type="button" key={d.id}
-            onClick={() => navigate(`/management?vdr=${d.registerId}&item=${d.id}`)}
+            onClick={() => navigate(`/docflow?tab=registry&vdr=${d.registerId}&item=${d.id}`)}
             className="w-full text-left px-3 py-1.5 flex items-center gap-2 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer">
             <span className="font-semibold text-slate-700 dark:text-slate-300 truncate flex-1" title={`${d.contractorNo}\n${d.titleRu || d.titleEn}`}>
               {d.contractorNo || d.titleRu || d.titleEn}

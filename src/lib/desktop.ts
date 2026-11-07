@@ -41,10 +41,6 @@ export interface DeskItem {
   path?: string;
   /** Папка стола, в которой лежит файл, — по ней его находит Проводник */
   folderId?: string | null;
-  /** Статус документооборота: D черновик, C на проверке, B согласован, A выдан */
-  status?: string;
-  /** Ревизия документа — «1», «2»… */
-  revision?: string;
   /** Основной тег: по нему документ и ищут в проекте */
   tag?: string;
   /** Кто менял последним */
@@ -139,15 +135,8 @@ export const withApps = (items: DeskItem[], apps: string[]): DeskItem[] => [
   ...items,
 ];
 
-export type SortBy = 'name' | 'kind' | 'date' | 'status';
+export type SortBy = 'name' | 'kind' | 'date';
 
-/**
- * Порядок статусов на столе: сначала то, что дальше от готового.
- *
- * Черновик наверху не потому, что он важнее выданного, а потому, что
- * выданный документ уже никого не ждёт, а черновик ждёт именно вас.
- */
-export const STATUS_RANK: Record<string, number> = { D: 0, C: 1, B: 2, A: 3 };
 
 /** Программы всегда впереди файлов: они системные и с места не уходят */
 const KIND_ORDER: Record<DeskKind, number> = {
@@ -175,11 +164,6 @@ export function sortItems(items: DeskItem[], by: SortBy): DeskItem[] {
     }
     if (by === 'date') {
       const d = stamp(b) - stamp(a);
-      if (d) return d;
-      return byName(a, b);
-    }
-    if (by === 'status') {
-      const d = (STATUS_RANK[a.status || 'D'] ?? 0) - (STATUS_RANK[b.status || 'D'] ?? 0);
       if (d) return d;
       return byName(a, b);
     }

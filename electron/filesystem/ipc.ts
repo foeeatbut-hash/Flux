@@ -21,7 +21,7 @@ export interface WindowsFilesIpcOptions {
   mayRead: (event: IpcMainInvokeEvent) => boolean | Promise<boolean>;
   mayWrite: (event: IpcMainInvokeEvent) => boolean | Promise<boolean>;
 }
-const WRITE_ACTIONS = new Set(['write', 'publish', 'createDraft', 'createDraftFolder', 'publishDraft', 'publishDraftTree', 'restoreDraft', 'mkdir', 'rename', 'copy', 'move', 'trash', 'permanentDelete', 'replaceCopy', 'archive', 'purgeDraft', 'setMetadata', ...EXPLORER_WRITE_ACTIONS]);
+const WRITE_ACTIONS = new Set(['write', 'publish', 'createDraft', 'createDraftFolder', 'publishDraft', 'publishDraftTree', 'restoreDraft', 'mkdir', 'rename', 'copy', 'move', 'trash', 'permanentDelete', 'replaceCopy', 'archive', 'purgeDraft', ...EXPLORER_WRITE_ACTIONS]);
 const ERROR_MESSAGES: Record<string, string> = {
   EACCES: 'Windows не разрешает доступ к файлу. Проверьте права папки.',
   EPERM: 'Windows защищает этот системный файл. Flux не будет автоматически повторять запрос; откройте другой объект или проверьте права доступа.',
@@ -221,13 +221,11 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
         case 'publishDraftTree': data = await service.publishDraftTree(request.ref, request.choices); break;
         case 'mkdir': data = await service.mkdir(request.parent, request.name, { group: undoGroup(request.group) }); break;
         case 'rename': data = await service.rename(request.ref, request.name, { group: undoGroup(request.group) }); break;
-        case 'copy': data = await service.copy(request.ref, request.parent, request.name, { group: undoGroup(request.group), carryMeta: request.carryMeta === true }); break;
+        case 'copy': data = await service.copy(request.ref, request.parent, request.name, { group: undoGroup(request.group) }); break;
         case 'move': data = await service.move(request.ref, request.parent, request.name, request.baseSha256, { group: undoGroup(request.group) }); break;
         case 'trash': data = await service.trash(request.ref, request.baseSha256, { group: undoGroup(request.group) }); break;
         case 'reveal': data = await service.reveal(request.ref); break;
         case 'open': data = await service.open(request.ref); break;
-        case 'metadata': data = await service.metadata(request.ref); break;
-        case 'setMetadata': data = await service.setMetadata(request.ref, request.metadata); break;
         case 'watch': data = await service.watch(request.ref, event.sender.id); break;
         case 'unwatch': data = await service.unwatch(request.ref, event.sender.id); break;
         default:

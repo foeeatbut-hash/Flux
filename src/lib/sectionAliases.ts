@@ -15,6 +15,8 @@
  * обязаны читаться без интерфейса, потянули бы за собой все экраны программы.
  */
 
+import { docflowRedirect } from './docflowNavigation';
+
 const ALIASES: Record<string, string> = {
   // Конструктор разделён на две программы семьи Flux Office: «Таблица» и
   // «Документ». Книга — то, ради чего его открывали чаще всего
@@ -49,6 +51,14 @@ export function resolveSectionHref(href: string): string {
     const params = new URLSearchParams(rest.startsWith('?') ? rest.slice(1) : '');
     params.set('view', 'shared');
     return `/explorer?${params.toString()}`;
+  }
+  // ВДР и настройки документооборота переехали из «Менеджмента» в свою
+  // программу. Переводим адрес до открытия окна: иначе окно «Менеджмента»
+  // открывалось бы пустым и при каждом выходе на передний план снова уводило
+  // бы в Документооборот
+  if (path === '/management') {
+    const moved = docflowRedirect(new URLSearchParams(rest.startsWith('?') ? rest.slice(1).split('#')[0] : ''));
+    if (moved) return moved;
   }
   return resolveSectionPath(path) + rest;
 }

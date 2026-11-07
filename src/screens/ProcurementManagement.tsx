@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { docflowRedirect } from '../lib/docflowNavigation';
 import { saveNewFile, editorHref } from '../lib/officeFiles';
-import VdrPanel from './VdrPanel';
-import DocflowSettings from '../components/management/DocflowSettings';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { dataService } from '../services/dataService';
@@ -17,7 +16,7 @@ import {
 } from '../lib/procurementStages';
 import { countOf } from '../lib/plural';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { SectionHead, Tabs, Toolbar, Input, Seg, Btn, IconBtn, FilterSeg, Badge, Status, type Tone } from '../components/ui';
+import { SectionHead, Toolbar, Input, Seg, Btn, IconBtn, FilterSeg, Badge, Status, type Tone } from '../components/ui';
 import NoProject from '../components/NoProject';
 import { saveProcurement, rememberVersions } from '../components/registry/tagWrite';
 
@@ -103,32 +102,18 @@ interface Row {
   qtyNum: number;
 }
 
-// Раздел «Менеджмент»: вкладки Закупки | ВДР (реестр документации)
 export default function ProcurementManagement() {
-  const user = useStore((s: any) => s.user);
-  const { addToast } = useToastStore();
-  const [searchParams, setSearchParams] = useSearchParams();
-  // deep-link: /management?vdr=… или ?tab=vdr открывает вкладку ВДР
-  // ?tab=docflow — «Настройки документооборота» (бывший лист Настроек)
-  const tab: 'procurement' | 'vdr' | 'docflow' = searchParams.get('tab') === 'docflow' ? 'docflow'
-    : searchParams.get('tab') === 'vdr' || searchParams.get('vdr') ? 'vdr' : 'procurement';
-  const setTab = (t: 'procurement' | 'vdr' | 'docflow') => {
-    const next = new URLSearchParams(searchParams);
-    if (t === 'vdr' || t === 'docflow') next.set('tab', t);
-    else { next.delete('tab'); next.delete('vdr'); next.delete('item'); }
-    setSearchParams(next, { replace: true });
-  };
-  // Одна шапка раздела с вкладками. Раньше над каждой вкладкой стояла своя
-  // шапка, а вкладки — залитыми кнопками ещё выше: два уровня заголовков
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirect = docflowRedirect(searchParams);
+  useEffect(() => {
+    if (redirect) navigate(redirect, { replace: true });
+  }, [navigate, redirect]);
+  if (redirect) return null;
   return (
     <div className="fx-page @container">
-      <SectionHead title="Менеджмент">
-        <Tabs label="Вкладки Менеджмента" value={tab} onChange={setTab}
-          tabs={[{ value: 'procurement', label: 'Закупки' }, { value: 'vdr', label: 'ВДР' }, { value: 'docflow', label: 'Настройки документооборота' }]} />
-      </SectionHead>
-      {tab === 'vdr' ? <div className="flex-1 min-h-0 overflow-y-auto"><VdrPanel /></div>
-        : tab === 'docflow' ? <div className="flex-1 min-h-0 overflow-y-auto"><DocflowSettings isAdmin={user?.role === 'OWNER'} addToast={addToast} /></div>
-        : <ProcurementTab />}
+      <SectionHead title="Менеджмент" />
+      <ProcurementTab />
     </div>
   );
 }

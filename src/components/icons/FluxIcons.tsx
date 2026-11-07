@@ -11,7 +11,7 @@ export { FileIcon, type FileIconKind } from './SystemIcons';
 export {
   AppIcon, APP_ICON_BY_PATH, type FluxAppIconProps,
   HomeAppIcon, ProjectsAppIcon, RegistryAppIcon, EquipmentAppIcon, DirectoryAppIcon,
-  ManagementAppIcon, BuilderAppIcon, CatalogAppIcon, E3FluxAppIcon, ArchivesAppIcon,
+  ManagementAppIcon, DocflowAppIcon, BuilderAppIcon, CatalogAppIcon, E3FluxAppIcon, ArchivesAppIcon,
   ExplorerAppIcon, GuideAppIcon, TranslateAppIcon, BrowserAppIcon, CalendarAppIcon,
   ChatAppIcon, MailAppIcon, FeedbackAppIcon, SettingsAppIcon, LogsAppIcon, UsersAppIcon,
 } from './AppIcons';

@@ -17,13 +17,13 @@ async function main() {
     const canonicalKey = hashWindowsBytes(Buffer.from(`${service.state.data.deviceId}:${identity}`));
     const canonicalId = 'legacy-file-id-with-project-history';
     service.state.data.identity[canonicalKey] = canonicalId;
-    service.state.data.metadata[canonicalId] = { fileId: canonicalId, tags: ['AHU-01'], projectIds: ['project-42'], revision: 'B', responsible: 'Иванов', history: [{ at: '2026-01-02T00:00:00.000Z', action: 'save', relativePath: 'alpha.txt' }] };
+    service.state.data.metadata[canonicalId] = { fileId: canonicalId, history: [{ at: '2026-01-02T00:00:00.000Z', action: 'save', relativePath: 'alpha.txt' }] };
     await service.state.save();
     const root = (await service.roots())[0], before = Date.now();
     const listing = await service.list({ rootId: root.id, relativePath: '' });
     assert.ok(Date.now() - before < 250, 'names return without waiting for slow file properties');
     assert.equal(listing.entries.length, 3); assert.ok(listing.entries.every(entry => entry.detailsPending));
-    assert.equal(listing.entries.find(entry => entry.name === 'alpha.txt')?.metadata, undefined, 'unverified path aliases do not expose metadata for a different canonical file');
+    assert.ok(listing.entries.every(entry => !('metadata' in entry)), 'listing rows carry no local file properties');
     assert.equal(detailsFinished, false); assert.equal(detailsStarted, false);
     const initial = new Map(listing.entries.map(entry => [entry.relativePath, entry.uiKey]));
     assert.deepEqual(contentsRows(listing.entries, DEFAULT_VIEW).filter(row => row.kind === 'entry').map(row => row.key).sort(), listing.entries.map(entry => entry.uiKey).sort(), 'list row keys use the stable per-path UI key');
@@ -39,9 +39,8 @@ async function main() {
     const selectedBeforeHydration = applyClick(EMPTY_SELECTION, listing.entries, listing.entries.find(entry => entry.name === 'alpha.txt')!, {});
     const selectedAfterHydration = reconcileSelection(selectedBeforeHydration, [...hydrated.values()]);
     assert.deepEqual(selectedAfterHydration.ids, [hydrated.get('alpha.txt').uiKey], 'selection follows the stable UI key across canonical identity hydration');
-    const metadata = await service.metadata({ rootId: root.id, relativePath: 'alpha.txt' });
-    assert.deepEqual(metadata.tags, ['AHU-01']); assert.deepEqual(metadata.projectIds, ['project-42']); assert.equal(metadata.history[0].relativePath, 'alpha.txt');
-    console.log('✓ hydration preserves canonical metadata and hard-link identity while the row key stays stable');
+    assert.equal(service.state.metadata(canonicalId).history[0].relativePath, 'alpha.txt', 'the action history stays with the canonical identity');
+    console.log('✓ hydration preserves canonical history and hard-link identity while the row key stays stable');
     const refreshed = await service.list({ rootId: root.id, relativePath: '' });
     assert.ok(refreshed.entries.every(entry => !entry.detailsPending), 'cached hydrated entries are reused');
     assert.equal(refreshed.entries.find(entry => entry.name === 'alpha.txt')?.fileId, canonicalId);

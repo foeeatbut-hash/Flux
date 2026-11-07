@@ -1,23 +1,30 @@
-import { Toolbar, Btn, IconBtn, FilterSeg, Status, type Tone } from '../components/ui';
-import { WindowDialog } from '../components/ui/WindowDialog';
+import { Toolbar, Btn, IconBtn, FilterSeg, Status, type Tone } from '../ui';
+import { WindowDialog } from '../ui/WindowDialog';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useStore } from '../store/store';
-import { useToastStore } from '../store/toastStore';
+import { useStore } from '../../store/store';
+import { useToastStore } from '../../store/toastStore';
 import {
   FileSpreadsheet, Plus, Download, RefreshCw, Trash2, FileText, ArrowUpCircle,
   CheckCircle2, AlertTriangle, Send, Loader2, X, Search, Settings2, Tag as TagIcon, History, Languages,
 } from 'lucide-react';
-import { countOf } from '../lib/plural';
-import ImportFileChooser from '../components/ImportFileChooser';
-import { editorHref } from '../lib/officeFiles';
-import { appsFor, openHref } from '../lib/fileTypes';
-import { openInWindowsSaid } from '../lib/saveToWindows';
-import { useModalStore } from '../store/modalStore';
-import { useTranslateStore } from '../store/translateStore';
-import { hasAdminRole } from '../lib/permissions';
-import { hasPosition } from '../../shared/positions';
-import TagLinkPlanDialog, { unlinkedCount, type TagLinkPlan } from '../components/vdr/TagLinkPlanDialog';
+import { countOf } from '../../lib/plural';
+import ImportFileChooser from '../ImportFileChooser';
+import { editorHref } from '../../lib/officeFiles';
+import { appsFor, openHref } from '../../lib/fileTypes';
+import { openInWindowsSaid } from '../../lib/saveToWindows';
+import { useModalStore } from '../../store/modalStore';
+import { useTranslateStore } from '../../store/translateStore';
+import { can } from '../../lib/permissions';
+import TagLinkPlanDialog, { unlinkedCount, type TagLinkPlan } from './TagLinkPlanDialog';
+import { DEFAULT_STATUSES } from '../../../shared/docflow/config';
+import { getSettings } from '../../lib/docflowApi';
+import FileCell from './RowFileCells';
+import AssignFileDialog from '../docflow/AssignFileDialog';
+import { useProjectDocs } from '../docflow/useProjectDocs';
+import { useBindingLedger } from '../explorer/useProjectFolderBindings';
+import type { PickRow } from '../docflow/RowPicker';
+import type { WindowsFileRef } from '../../lib/windowsFiles';
 
 /**
  * Ответ сервера «запись уже изменили» (409): показать его текст и отдать
@@ -55,7 +62,7 @@ interface Item {
   id: string; registerId: string; contractorNo: string; ownerNo: string; vendorNo: string;
   titleEn: string; titleRu: string; vdrCode: string; revision: string;
   issueDate?: string | null; reasonForIssue: string; language: string;
-  equipmentTags: string; status: string; docId?: string | null; fileNodeId?: string | null;
+  equipmentTags: string; status: string; docId?: string | null;
   assigneeId?: string | null; remarks: string; reviewCode: string; dueDate?: string | null;
   extra: Record<string, string>;
   updatedAt?: string;
@@ -66,13 +73,12 @@ interface Item {
 interface UserLite { id: string; name: string; role?: string; hasSignature?: boolean }
 interface Standard { id: string; name: string; config: any }
 
-// Статус — точка и слово (01-design.md): тон несёт смысл, а не заливка ячейки
-const STATUS_META: Record<string, { label: string; tone: Tone }> = {
-  DRAFT: { label: 'В работе', tone: 'slate' },
-  READY: { label: 'Готово', tone: 'emerald' },
-  REMARKS: { label: 'Замечания', tone: 'amber' },
-  ACCEPTED: { label: 'Принят', tone: 'sky' },
-};
+// Статус — точка и слово (01-design.md): тон несёт смысл, а не заливка ячейки.
+// Список статусов — из настроек ДО проекта (раздел 5); без них — по умолчанию
+function statusMetaOf(standard: Standard | null): Record<string, { label: string; tone: Tone }> {
+  const list: Array<{ code: string; label: string; tone: string }> = standard?.config?.statuses?.length ? standard.config.statuses : DEFAULT_STATUSES;
+  return Object.fromEntries(list.map((s) => [s.code, { label: s.label, tone: (s.tone === 'violet' ? 'sky' : s.tone) as Tone }]));
+}
 
 const fmtD = (s?: string | null) => { try { return s ? new Date(s).toLocaleDateString('ru-RU') : ''; } catch { return ''; } };
 const overdue = (s?: string | null) => !!s && new Date(s).getTime() < Date.now();
@@ -85,13 +91,31 @@ export default function VdrPanel() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const projectId = activeProject?.id || 'default';
-  const canManage = hasAdminRole(user as any) || hasPosition(user as any, 'MANAGER');
+  const canManage = can(user, 'docflow.edit');
+  const canIssue = can(user, 'docflow.issue');
+  const canAssign = can(user, 'docflow.files');
+  // Файлы и возвраты строк: ссылки в столбцах «Файл» и «Возврат» (docs/docflow-program.md, 7.4)
+  const { docs: projectDocs, reload: reloadDocs } = useProjectDocs([projectId], projectId !== 'default' && can(user, 'docflow.view'));
+  const docsOfProject = projectDocs[projectId];
+  const { bindings: folderBindings } = useBindingLedger(user?.id);
+  const [assign, setAssign] = useState<{ role: 'file' | 'remarks'; item: Item; file?: WindowsFileRef } | null>(null);
+  const linksOfItem = useMemo(() => {
+    const map = new Map<string, import('../../../shared/docflow/links').DocLinkDto[]>();
+    for (const l of docsOfProject?.links || []) if (!l.unlinkedAt) map.set(l.itemId, [...(map.get(l.itemId) || []), l]);
+    for (const list of map.values()) list.sort((a, b) => a.revision.localeCompare(b.revision) || a.createdAt.localeCompare(b.createdAt));
+    return map;
+  }, [docsOfProject]);
 
   const [registers, setRegisters] = useState<Register[]>([]);
   const [regId, setRegId] = useState<string>(searchParams.get('vdr') || '');
   const [items, setItems] = useState<Item[]>([]);
   const [users, setUsers] = useState<UserLite[]>([]);
   const [standards, setStandards] = useState<Standard[]>([]);
+  // Своя копия настроек проекта сильнее стандарта реестра (стандарты стали шаблонами)
+  const [projectStandard, setProjectStandard] = useState<Standard | null>(null);
+  const loadProjectSettings = () => {
+    void getSettings(projectId).then((a) => setProjectStandard(a.ok && a.data.stored ? { id: `project:${projectId}`, name: 'настройки проекта', config: a.data.config } : null));
+  };
   const [projectTags, setProjectTags] = useState<{ id: string; identifier: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -115,7 +139,8 @@ export default function VdrPanel() {
   }
 
   const register = registers.find(r => r.id === regId) || null;
-  const standard = standards.find(s => s.id === register?.standardId) || standards[0] || null;
+  const standard = projectStandard || standards.find(s => s.id === register?.standardId) || standards[0] || null;
+  const STATUS_META = statusMetaOf(standard);
 
   const loadRegisters = async (): Promise<Register[]> => {
     try {
@@ -164,6 +189,7 @@ export default function VdrPanel() {
       setLoading(false);
       fetch('/api/users').then(r => r.ok ? r.json() : { users: [] }).then(d => setUsers((d.users || []).filter((u: any) => u.isActive !== false))).catch(() => {});
       fetch('/api/vdr/standards').then(r => r.ok ? r.json() : { standards: [] }).then(d => setStandards(d.standards || [])).catch(() => {});
+      loadProjectSettings();
       void loadProjectTags(projectId);
       void loadTagPlan();
     })();
@@ -182,6 +208,7 @@ export default function VdrPanel() {
         .then(r => r.ok ? r.json() : { standards: [] })
         .then(d => setStandards(d.standards || []))
         .catch(() => {});
+      loadProjectSettings();
     };
     // Тег заведён, переименован или удалён — счётчик «не сопоставлено» меняется вместе с ним
     const onTagsChanged = () => { void loadProjectTags(projectId); void loadTagPlan(); };
@@ -340,11 +367,11 @@ export default function VdrPanel() {
   }, [items, search, statusFilter, codeFilter, onlyMine, onlyOverdue, user?.id]);
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { DRAFT: 0, READY: 0, REMARKS: 0, ACCEPTED: 0 };
+    const c: Record<string, number> = Object.fromEntries(Object.keys(STATUS_META).map((k) => [k, 0]));
     let od = 0;
     for (const i of items) { c[i.status] = (c[i.status] || 0) + 1; if (overdue(i.dueDate)) od++; }
     return { ...c, OVERDUE: od };
-  }, [items]);
+  }, [items, standard]);
 
   if (loading) return <div className="flex items-center justify-center py-20 text-slate-400"><Loader2 className="w-6 h-6 animate-spin" /></div>;
 
@@ -364,11 +391,11 @@ export default function VdrPanel() {
           <span className="text-slate-400">Реестров нет — создайте или импортируйте Excel-ВДР</span>
         )}
         <span className="ml-auto" />
-        <ImportFileChooser accept=".xlsx,.xls,.xlsm" disabled={importing} className={`fx-btn fx-btn-quiet ${importing ? 'opacity-60' : ''}`} label={importing ? 'Импорт…' : 'Импорт'} onFiles={files => { if (files[0]) void importXlsx(files[0]); }} />
+        <ImportFileChooser accept=".xlsx,.xls,.xlsm" disabled={importing || !canManage} className={`fx-btn fx-btn-quiet ${importing ? 'opacity-60' : ''}`} label={importing ? 'Импорт…' : 'Импорт'} onFiles={files => { if (files[0]) void importXlsx(files[0]); }} />
         {register && (
           <>
-            <Btn tone="ghost" onClick={registerRevisionUp} title="Новая ревизия самого ВДР (запись в Учёт ревизий)"><ArrowUpCircle />Рев. ВДР</Btn>
-            <Btn tone="ghost" onClick={fillEnglishTitles} title="Заполнить пустые английские названия по памяти и словарю проекта"><Languages />Англ. названия</Btn>
+            <Btn tone="ghost" onClick={registerRevisionUp} disabled={!canIssue} title="Новая ревизия самого ВДР (запись в Учёт ревизий)"><ArrowUpCircle />Рев. ВДР</Btn>
+            <Btn tone="ghost" onClick={fillEnglishTitles} disabled={!canManage} title="Заполнить пустые английские названия по памяти и словарю проекта"><Languages />Англ. названия</Btn>
             {tagPlan && (tagPlan.toLink.length > 0 || unlinkedCount(tagPlan) > 0) && (
               <Btn tone="ghost" onClick={() => setTagPlanOpen(true)}
                 title="Строки знают тег по коду; связь по номеру тега переживает его переименование. Откроется план — ничего не пишется, пока вы не подтвердите">
@@ -376,10 +403,10 @@ export default function VdrPanel() {
               </Btn>
             )}
             <IconBtn label="Реквизиты реестра, стандарт, свои колонки" onClick={() => setRegSettingsOpen(true)}><Settings2 /></IconBtn>
-            <Btn tone="ghost" onClick={() => setCardItem({ id: '', registerId: register.id, contractorNo: '', ownerNo: '', vendorNo: '', titleEn: '', titleRu: '', vdrCode: '', revision: 'A', reasonForIssue: '', language: '', equipmentTags: '[]', status: 'DRAFT', remarks: '', reviewCode: '', extra: {} })}><Plus />Строка</Btn>
+            <Btn tone="ghost" disabled={!canManage} onClick={() => setCardItem({ id: '', registerId: register.id, contractorNo: '', ownerNo: '', vendorNo: '', titleEn: '', titleRu: '', vdrCode: '', revision: 'A', reasonForIssue: '', language: '', equipmentTags: '[]', status: 'DRAFT', remarks: '', reviewCode: '', extra: {} })}><Plus />Строка</Btn>
           </>
         )}
-        <Btn tone="ghost" onClick={createRegister}><Plus />Реестр</Btn>
+        <Btn tone="ghost" onClick={createRegister} disabled={!canManage}><Plus />Реестр</Btn>
         <IconBtn label="Обновить список" onClick={refresh}><RefreshCw /></IconBtn>
         {register && <Btn tone="primary" onClick={exportXlsx} title="Выгрузить ВДР в Excel (формат заказчика: титул + ревизии + реестр)"><Download />Выгрузить</Btn>}
       </Toolbar>
@@ -435,6 +462,8 @@ export default function VdrPanel() {
                     <th>Статус</th>
                     <th>Теги</th>
                     <th>Исполнитель</th>
+                    <th>Файл</th>
+                    <th>Возврат</th>
                     <th className="w-20"><span className="sr-only">Действия</span></th>
                   </tr>
                 </thead>
@@ -442,6 +471,14 @@ export default function VdrPanel() {
                   {filtered.map(it => (
                     <tr key={it.id}
                       onClick={() => setCardItem(it)}
+                      onDragOver={e => { if (canAssign && e.dataTransfer.types.includes('application/x-flux-entries')) e.preventDefault(); }}
+                      onDrop={e => {
+                        // Файл из Проводника на строку: «Привязать к строке» с той же проверкой имени (3.4)
+                        const raw = e.dataTransfer.getData('application/x-flux-entries');
+                        if (!raw || !canAssign) return;
+                        e.preventDefault();
+                        try { const first = JSON.parse(raw)?.[0]; if (first?.kind === 'file' && first.ref) setAssign({ role: 'file', item: it, file: first.ref }); } catch { /* чужой перенос */ }
+                      }}
                       aria-selected={focusItemId === it.id}
                       className="cursor-pointer">
                       <td onClick={e => e.stopPropagation()}>
@@ -459,6 +496,12 @@ export default function VdrPanel() {
                       <td className="max-w-36"><div className="truncate text-slate-500" title={tagsOf(it).join('; ')}>{tagsOf(it).slice(0, 2).join('; ')}{tagsOf(it).length > 2 ? '…' : ''}</div></td>
                       <td className="whitespace-nowrap text-slate-500">{users.find(u => u.id === it.assigneeId)?.name?.split(' ')[0] || '—'}</td>
                       <td onClick={e => e.stopPropagation()}>
+                        {docsOfProject && <FileCell itemId={it.id} links={linksOfItem.get(it.id) || []} role="file" bindings={folderBindings} canAssign={canAssign} onAssign={() => setAssign({ role: 'file', item: it })} onChanged={() => void reloadDocs(projectId)} />}
+                      </td>
+                      <td onClick={e => e.stopPropagation()}>
+                        {docsOfProject && <FileCell itemId={it.id} links={linksOfItem.get(it.id) || []} role="remarks" bindings={folderBindings} canAssign={canAssign} onAssign={() => setAssign({ role: 'remarks', item: it })} onChanged={() => void reloadDocs(projectId)} />}
+                      </td>
+                      <td onClick={e => e.stopPropagation()}>
                         <div className="fx-row-acts">
                           {it.status !== 'READY' && it.status !== 'ACCEPTED' && (
                             <button type="button" title="Готово — уведомить менеджера" onClick={() => patchItem(it.id, { status: 'READY' }, 'Менеджер уведомлён')}
@@ -469,7 +512,7 @@ export default function VdrPanel() {
                     </tr>
                   ))}
                   {filtered.length === 0 && (
-                    <tr><td colSpan={11} className="py-6 text-slate-500 dark:text-slate-400">Строк нет{onlyMine ? ' (фильтр «Мои» включён)' : ''}.</td></tr>
+                    <tr><td colSpan={13} className="py-6 text-slate-500 dark:text-slate-400">Строк нет{onlyMine ? ' (фильтр «Мои» включён)' : ''}.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -492,6 +535,11 @@ export default function VdrPanel() {
           onChanged={refresh}
         />
       )}
+      {assign && register && docsOfProject && (
+        <AssignFileDialog role={assign.role} projectId={projectId} docs={docsOfProject} bindings={folderBindings} file={assign.file}
+          row={{ id: assign.item.id, registerId: assign.item.registerId, registerName: register.name, contractorNo: assign.item.contractorNo, ownerNo: assign.item.ownerNo, vendorNo: assign.item.vendorNo, titleRu: assign.item.titleRu, titleEn: assign.item.titleEn, vdrCode: assign.item.vdrCode, revision: assign.item.revision, status: assign.item.status } satisfies PickRow}
+          onClose={() => setAssign(null)} onDone={() => { void reloadDocs(projectId); refresh(); }} />
+      )}
       {tagPlanOpen && (
         <TagLinkPlanDialog projectId={projectId} initial={tagPlan} onClose={() => setTagPlanOpen(false)} onChanged={refresh} />
       )}
@@ -509,6 +557,10 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
   projectTags: { id: string; identifier: string }[];
   onClose: () => void; onChanged: () => void;
 }) {
+  const STATUS_META = statusMetaOf(standard);
+  const user = useStore(s => s.user);
+  const canEdit = can(user, 'docflow.edit');
+  const canIssue = can(user, 'docflow.issue');
   const { addToast } = useToastStore();
   const navigate = useNavigate();
   const isNew = !item.id;
@@ -569,19 +621,6 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
     } finally { setBusy(false); }
   };
 
-  // Прикреплённый файл лежит в архиве Flux, а Проводника с архивом больше нет:
-  // Word, Excel и PDF открываются своими редакторами, остальное — программой Windows
-  const openAttached = async (fileId: string) => {
-    try {
-      const r = await fetch(`/api/files/${encodeURIComponent(fileId)}?meta=1`);
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d.file) { addToast(d.error || 'Файл не найден', 'error'); return; }
-      const file = { id: fileId, name: String(d.file.name || ''), type: d.file.type, folderId: d.file.folderId };
-      if (appsFor(file)[0]?.id === 'windows') void openInWindowsSaid(fileId, file.name, addToast);
-      else navigate(openHref(file));
-    } catch (e: any) { addToast(e?.message || 'Не удалось открыть файл', 'error'); }
-  };
-
   const setReviewCode = async (code: string) => {
     if (isNew) { setF(s => ({ ...s, reviewCode: code })); return; }
     const r = await fetch(`/api/vdr/items/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewCode: code, expectedUpdatedAt: seen.current.updatedAt }) });
@@ -636,7 +675,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           {/* Ревизия */}
           {!isNew && (
             <div className="flex items-center gap-2">
-              <button type="button" onClick={() => setRevDialog('next')} className="fx-btn fx-btn-primary" title="Выпустить новую ревизию">
+              <button type="button" disabled={!canIssue} onClick={() => setRevDialog('next')} className="fx-btn fx-btn-primary" title="Выпустить новую ревизию">
                 <ArrowUpCircle className="w-3.5 h-3.5" /> Рев. {f.revision} ↑
               </button>
             </div>
@@ -701,12 +740,6 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
             <label className="fx-label block">Замечания</label>
             <textarea value={f.remarks} onChange={e => setF(s => ({ ...s, remarks: e.target.value }))} rows={2} className={inputCls} />
           </div>
-          {f.fileNodeId && (
-            <button type="button" onClick={() => void openAttached(f.fileNodeId!)}
-              className="fx-btn fx-btn-sm w-full justify-center">
-              <FileText className="w-3.5 h-3.5" /> Прикреплённый файл — открыть
-            </button>
-          )}
 
           <Sect title="Главные теги (оборудование документа)" />
           <div className="flex flex-wrap gap-1.5">
@@ -769,8 +802,8 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
                 </div>
               )}
               <div className="flex gap-2">
-                <button type="button" onClick={() => setRevDialog('void')} className="fx-btn fx-btn-danger fx-btn-sm">Аннулировать (V)</button>
-                <button type="button" onClick={() => setRevDialog('superseded')} className="fx-btn fx-btn-sm">Заменён (S)</button>
+                <button type="button" disabled={!canIssue} onClick={() => setRevDialog('void')} className="fx-btn fx-btn-danger fx-btn-sm">Аннулировать (V)</button>
+                <button type="button" disabled={!canIssue} onClick={() => setRevDialog('superseded')} className="fx-btn fx-btn-sm">Заменён (S)</button>
               </div>
             </>
           )}
@@ -778,7 +811,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
           <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Закрыть</button>
-          <button type="button" onClick={save} disabled={busy} className="fx-btn fx-btn-primary">
+          <button type="button" onClick={save} disabled={busy || !canEdit} className="fx-btn fx-btn-primary">
             {busy ? 'Сохраняю…' : 'Сохранить'}
           </button>
         </div>
@@ -798,7 +831,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
                   <button type="button" onClick={() => { setRevDialog('certify'); setTimeout(issueRevision, 0); }} disabled={busy}
                     className="fx-btn fx-btn-sm">Утвердить (→0)</button>
                 )}
-                <button type="button" onClick={issueRevision} disabled={busy} className="fx-btn fx-btn-primary fx-btn-sm">Выпустить</button>
+                <button type="button" onClick={issueRevision} disabled={busy || !canIssue} className="fx-btn fx-btn-primary fx-btn-sm">Выпустить</button>
               </div>
             </div>
           </div>
@@ -903,7 +936,7 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
         <div className="grid grid-cols-2 gap-2.5">
           <F label="Название реестра" k="name" />
           <div>
-            <label className="fx-label block">Стандарт документооборота</label>
+            <label className="fx-label block" title="Действует, пока у проекта нет своих настроек документооборота">Шаблон (без настроек проекта)</label>
             <select value={f.standardId || ''} onChange={e => setF((s: any) => ({ ...s, standardId: e.target.value || null }))} className={inputCls + ' cursor-pointer'}>
               <option value="">— по умолчанию —</option>
               {standards.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}

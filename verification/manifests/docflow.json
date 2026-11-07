@@ -1,0 +1,240 @@
+{
+  "version": 1,
+  "group": "docflow",
+  "programs": [
+    {
+      "id": "docflow",
+      "label": "Документооборот",
+      "routes": [
+        "/docflow"
+      ],
+      "sources": [
+        "src/screens/DocflowScreen.tsx",
+        "src/components/vdr/VdrPanel.tsx",
+        "src/components/docflow/DocflowSettings.tsx",
+        "src/components/docflow/ReconcileTab.tsx",
+        "src/components/docflow/AssignFileDialog.tsx",
+        "src/components/vdr/RowFileCells.tsx",
+        "src/components/docflow/MaskBuilder.tsx"
+      ]
+    }
+  ],
+  "suites": [
+    {
+      "id": "docflow-navigation",
+      "path": "scripts/test-docflow-navigation.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-permissions",
+      "path": "scripts/test-docflow-permissions.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 60000
+    },
+    {
+      "id": "docflow-vdr-permissions",
+      "path": "scripts/test-vdr-permissions.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 60000
+    },
+    {
+      "id": "docflow-name",
+      "path": "scripts/test-docflow-name.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-settings",
+      "path": "scripts/test-docflow-settings.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
+      "id": "docflow-links",
+      "path": "scripts/test-docflow-links.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
+      "id": "docflow-reconcile",
+      "path": "scripts/test-docflow-reconcile.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-entry-info",
+      "path": "scripts/test-docflow-entry-info.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-explorer-ui",
+      "path": "scripts/test-docflow-explorer-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "docflow-mask-ui",
+      "path": "scripts/test-docflow-mask-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    }
+  ],
+  "actions": [
+    {
+      "id": "docflow.open-legacy",
+      "program": "docflow",
+      "label": "Открыть ДО по старой ссылке ВДР",
+      "sources": [
+        "src/lib/docflowNavigation.ts",
+        "src/screens/ProcurementManagement.tsx"
+      ],
+      "triggers": [
+        "/management?tab=vdr",
+        "/management?tab=docflow",
+        "/management?vdr=…&item=…"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Сохраняются реестр, строка и остальные параметры"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-navigation",
+          "layer": "unit",
+          "claims": [
+            "Старые параметры переводятся без потерь, обычные закупки не перенаправляются"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Открыть ссылку уведомления в оконной оболочке",
+          "expected": [
+            "Открыто ДО и выбрана нужная строка"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "docflow.permissions-migrate",
+      "program": "docflow",
+      "label": "Перенести права ВДР в ДО",
+      "sources": [
+        "shared/docflowPermissions.ts",
+        "server/docflowPermissionMigration.ts",
+        "server/vdrPermissions.ts"
+      ],
+      "triggers": [
+        "Запуск после обновления",
+        "Обращение к API ВДР"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Запреты и сроки сохранены",
+        "docflow.files не выдаётся автоматически"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-permissions",
+          "layer": "api-db",
+          "claims": [
+            "Перенос в SQLite атомарен и повторяем без возврата снятых прав",
+            "Перевод сохраняет запреты и сроки, новое право файлов закрыто"
+          ]
+        },
+        {
+          "suite": "docflow-vdr-permissions",
+          "layer": "api-db",
+          "claims": [
+            "Маршруты защищены правами и доступом к проекту"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "docflow.mask-folder-check",
+      "program": "docflow",
+      "label": "Проверить маску по рабочей папке",
+      "sources": [
+        "src/components/docflow/MaskBuilder.tsx",
+        "src/lib/docflowAssign.ts"
+      ],
+      "triggers": [
+        "Проверить на файлах рабочей папки"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Имена из рабочей папки и подпапок разбираются текущей маской без сохранения и изменения файлов",
+        "Ошибка чтения видна и не выдаётся за успешный результат"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-mask-ui",
+          "layer": "component",
+          "claims": [
+            "Рабочая папка читается через мост, изменение маски и исключений сразу меняет разбор",
+            "Проверка не пишет файлы и настройки, отказ чтения показывает ошибку"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "browser-live",
+          "scenario": "Проверить маску в назначенной сетевой папке на Windows",
+          "expected": [
+            "Доступные файлы разобраны, ошибки доступа показаны"
+          ]
+        }
+      ]
+    }
+  ],
+  "connections": []
+}

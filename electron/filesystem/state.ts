@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { WindowsFileMetadata, WindowsKnownFolder } from '../../filesystem/contracts';
+import type { WindowsFileHistory, WindowsKnownFolder } from '../../filesystem/contracts';
 import { WindowsFilesError } from './paths';
 
 export interface StoredRoot { id: string; path: string; name: string; kind: WindowsKnownFolder }
@@ -9,7 +9,7 @@ export interface StoredPublication { ref: { rootId: string; relativePath: string
 export interface StoredDraft { id: string; createdAt?: string; parent: { rootId: string; relativePath: string; draftId?: string }; name: string; kind?: 'file' | 'directory'; parentFileId?: string; publishedRef?: { rootId: string; relativePath: string }; trashed?: boolean }
 interface StoredState {
   version: 1; deviceId: string; roots: StoredRoot[];
-  metadata: Record<string, WindowsFileMetadata>; identity: Record<string, string>;
+  metadata: Record<string, WindowsFileHistory>; identity: Record<string, string>;
   publications: Record<string, StoredPublication>; drafts: Record<string, StoredDraft>;
 }
 export class WindowsFilesState {
@@ -24,6 +24,8 @@ export class WindowsFilesState {
       data = JSON.parse(await fs.readFile(filename, 'utf8'));
       data.drafts ||= {};
       for (const draft of Object.values(data.drafts)) draft.kind ||= 'file';
+      // Прежние локальные свойства (теги, проекты, ревизия, ответственный) не читаются и не хранятся: остаётся только история действий
+      for (const [id, record] of Object.entries(data.metadata || {})) data.metadata[id] = { fileId: record.fileId || id, history: Array.isArray(record.history) ? record.history : [] };
       if (data.version !== 1 || !data.deviceId || !Array.isArray(data.roots) || !data.metadata || !data.identity || !data.publications) throw new Error('format');
     } catch (error: any) {
       if (error.code !== 'ENOENT') throw new WindowsFilesError('STATE_UNREADABLE', 'Не удалось открыть свойства файлов Flux. Существующий файл свойств сохранён.');
@@ -59,8 +61,8 @@ export class WindowsFilesState {
     const root = { id: randomUUID(), path: actual, name: name || path.basename(actual), kind };
     this.data.roots.push(root); await this.save(); return root;
   }
-  metadata(fileId: string): WindowsFileMetadata {
-    return this.data.metadata[fileId] ||= { fileId, tags: [], projectIds: [], revision: '', responsible: '', history: [] };
+  metadata(fileId: string): WindowsFileHistory {
+    return this.data.metadata[fileId] ||= { fileId, history: [] };
   }
   async history(fileId: string, action: string, relativePath: string, sha256?: string): Promise<void> {
     const metadata = this.metadata(fileId);

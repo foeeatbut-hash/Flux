@@ -6,13 +6,12 @@
  * какая ревизия, чей тег и видят ли его коллеги. Всё это на значке и стоит,
  * иначе за каждым ответом придётся открывать документ.
  *
- * Картинки те же, что в Проводнике (FileBadge, FILE_STATUSES оттуда же): один
+ * Картинки те же, что в Проводнике (FileBadge): один
  * документ обязан выглядеть одинаково там и там, иначе его примут за разные файлы.
  */
 import React from 'react';
 import { SECTIONS } from '../../workspace/sections';
 import FileBadge from '../ui/FileBadge';
-import { FILE_STATUSES, statusOf } from '../explorer/FileItems';
 import { isSystemKind, type DeskItem } from '../../lib/desktop';
 import { DESK, deskMetric, type DeskMetric } from '../../lib/metrics';
 import { AppIcon, FileIcon, IconBadges } from '../icons/FluxIcons';
@@ -53,7 +52,6 @@ export function hintOf(item: DeskItem): string {
   if (isSystemKind(item.kind)) return t;
   const parts = [t];
   if (item.tag) parts.push(`тег ${item.tag}`);
-  if (item.kind !== 'folder') parts.push(`${statusOf(item.status).label}, ревизия ${item.revision || '1'}`);
   if (item.shared) parts.push('на общем столе');
   if (item.updatedBy) parts.push(`менял: ${item.updatedBy}`);
   return parts.join(' · ');
@@ -79,11 +77,6 @@ export default function DeskIcon({
   React.HTMLAttributes<HTMLDivElement>,
   'onPointerDown' | 'onDoubleClick' | 'onContextMenu' | 'onDragStart' | 'onDragEnd' | 'draggable'
 >) {
-  const st = statusOf(item.status);
-  const showStatus = !isSystemKind(item.kind) && item.kind !== 'folder';
-  // Мелкие значки живут без строки ревизии: в клетку 64×76 она не встаёт, а
-  // подпись важнее — без неё значок перестаёт быть значком документа
-  const showRevision = showStatus && metric.icon > DESK.small.icon;
   /**
    * Поле переименования само решает, чем кончилось: Enter — сохранить, Escape —
    * отменить. Без этой отметки уход фокуса, который случается сразу после
@@ -106,14 +99,6 @@ export default function DeskIcon({
           <Glyph item={item} size={metric.icon} />
         </IconBadges>
 
-        {/* Стадия документа — точкой того же цвета, что чип в Проводнике */}
-        {showStatus && (
-          <span
-            aria-label={st.label}
-            className={`absolute -top-0.5 -left-0.5 w-2.5 h-2.5 rounded-full ${st.dot}
-                        border-2 border-slate-100 dark:border-dark-bg`}
-          />
-        )}
 
         {badge !== undefined && badge > 0 && (
           <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-slate-600 text-white text-xs font-medium tabular-nums flex items-center justify-center">
@@ -153,16 +138,7 @@ export default function DeskIcon({
         </span>
       )}
 
-      {/* Ревизия под подписью: инженер спрашивает «какая версия» чаще, чем
-          «как называется». Место под неё занято всегда, чтобы подписи соседних
-          значков стояли на одной линии */}
-      {showRevision && renaming === null && (
-        <span className="text-2xs tabular-nums leading-none text-slate-400 dark:text-slate-500">
-          {item.tag ? `${item.tag} · ` : ''}ред. {item.revision || '1'}
-        </span>
-      )}
     </div>
   );
 }
 
-export { FILE_STATUSES };

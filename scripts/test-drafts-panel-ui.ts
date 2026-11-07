@@ -86,7 +86,7 @@ process.on('exit', () => { if (!completed) process.exitCode = 1; });
     await page.evaluate((stamps) => {
       const f = (window as any).__drafts;
       f.setEntries([
-        f.make('c1', 'Опросный лист.xlsx', stamps[0], { metadata: { fileId: 'c1', tags: [], projectIds: ['p1'], revision: '', responsible: '', history: [] } }),
+        f.make('c1', 'Опросный лист.xlsx', stamps[0], { parent: { rootId: 'root', relativePath: 'Проект/Вложенная' } }),
         f.make('c2', 'Письмо.docx', stamps[1]), f.make('c3', 'Схема.pdf', stamps[3]), f.make('c4', 'Бланки', stamps[20], { kind: 'directory', size: 0 }), f.make('c5', 'Узел.dwg', stamps[40]),
         ...Array.from({ length: 8 }, (_, i) => f.make(`d${i}`, `Таблица ${i}.xlsx`, stamps[0])),
       ]);
@@ -170,7 +170,7 @@ process.on('exit', () => { if (!completed) process.exitCode = 1; });
       f.windows.setState({ windows: [] });
       f.settings.getState().set({ view: 'compact', compactMode: 'grid', columns: 4, kind: 'all', state: null, group: 'date', sort: 'modified', dir: 'desc', pinned: [], kept: [], snoozeUntil: 0, remindDays: 14, dropPublish: true, closeOutside: true, openOn: 'click', badge: 'unsent', groupLabels: true });
       f.setEntries([
-        f.make('a1', 'Письмо.docx', st[0], { metadata: { fileId: 'a1', tags: ['AHU-2'], projectIds: ['p1'], revision: '', responsible: '', history: [] } }),
+        f.make('a1', 'Письмо.docx', st[0], { parent: { rootId: 'root', relativePath: 'Проект/Вложенная' } }),
         f.make('a2', 'Схема.pdf', st[1]), f.make('a3', 'Бланки', st[2], { kind: 'directory', size: 0 }), f.make('a4', 'Узел.dwg', st[3]),
       ]);
       f.store.setState({ projectNames: { p1: 'Проект П-1' }, review: false, sheet: false });
@@ -232,7 +232,7 @@ process.on('exit', () => { if (!completed) process.exitCode = 1; });
     assert.equal(await page.locator('[data-draft-details]').count(), 0, 'сведения не раньше 500 мс');
     await page.locator('[data-draft-details]', { hasText: 'Письмо.docx' }).waitFor();
     const details = await page.locator('[data-draft-details]').innerText();
-    assert.ok(details.includes('Письмо.docx') && details.includes('Проект П-1') && details.includes('AHU-2') && details.includes('черновик'), `сведения: имя, проект, тег, состояние (${details.replace(/\n/g, ' | ')})`);
+    assert.ok(details.includes('Письмо.docx') && details.includes('Проект П-1') && details.includes('черновик'), `сведения: имя, проект, состояние (${details.replace(/\n/g, ' | ')})`);
     await page.mouse.move(letter.x + 200, 5);
     await page.waitForTimeout(100);
     assert.equal(await page.locator('[data-draft-details]').count(), 0, 'сведения исчезают, когда курсор ушёл');
@@ -279,7 +279,7 @@ process.on('exit', () => { if (!completed) process.exitCode = 1; });
     await dialog.getByRole('checkbox').check();
     await dialog.getByRole('button', { name: 'Опубликовать', exact: true }).click();
     await page.waitForFunction(() => (window as any).__drafts.published.length === 2);
-    assert.ok(await page.evaluate(() => (window as any).__drafts.calls.some((c: any) => c.action === 'copy' && c.carryMeta === true && c.parent.relativePath === 'Архив')), 'с галочкой — копия с метаданными');
+    assert.ok(await page.evaluate(() => (window as any).__drafts.calls.some((c: any) => c.action === 'copy' && !('carryMeta' in c) && c.parent.relativePath === 'Архив')), 'с галочкой — копия без локальных свойств');
     assert.equal(await tile('a4').count(), 1, 'исходный черновик остался в панели');
     // Ctrl при отпускании отмечает «Оставить копию» заранее.
     await drag('a4', 'Проект', true, ['Control']);

@@ -1,7 +1,6 @@
 import React from 'react';
 import { ListFilter, Search, Square, X } from 'lucide-react';
 import Popover from '../Popover';
-import { dataService } from '../../services/dataService';
 import { FONT_STACK, SIZE, X as T } from './explorerTheme';
 import {
   DATE_LABELS, NO_FILTERS, SIZE_LABELS, TYPE_LABELS, activeFilters,
@@ -15,7 +14,7 @@ import type { ExplorerSearch } from './useExplorerSearch';
  * Запрос уходит сам, когда человек перестал печатать (Enter — сразу). Esc
  * сначала останавливает идущий поиск, вторым нажатием очищает поле и
  * закрывает результаты — как в Проводнике. Фильтры лежат за воронкой: тип,
- * дата и размер — как в Windows, ниже свойства Flux (тег, проект, черновики).
+ * дата и размер — как в Windows, ниже свойство Flux (черновики).
  */
 const TYPE_ORDER = Object.keys(TYPE_LABELS) as TypeFilter[];
 const DATE_ORDER = Object.keys(DATE_LABELS) as DateFilter[];
@@ -28,13 +27,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 const selectClass = `h-7 w-44 rounded border px-2 text-xs outline-none ${T.field} ${T.text} border-[#d6d6d6] dark:border-[#4a4a4a]`;
 
 function FilterPanel({ ui, onChange }: { ui: SearchUi; onChange: (next: SearchUi) => void }) {
-  const [projects, setProjects] = React.useState<{ id: string; name: string }[]>([]);
-  // Список проектов нужен только панели, и только когда её открыли
-  React.useEffect(() => {
-    let active = true;
-    dataService.getProjects().then((list) => { if (active) setProjects(list.map((item: any) => ({ id: String(item.id), name: String(item.name) }))); }).catch(() => undefined);
-    return () => { active = false; };
-  }, []);
   const set = (patch: Partial<SearchUi>) => onChange({ ...ui, ...patch });
   return (
     <div className={`w-[340px] py-1 ${T.text}`} style={{ fontFamily: FONT_STACK }}>
@@ -46,9 +38,6 @@ function FilterPanel({ ui, onChange }: { ui: SearchUi; onChange: (next: SearchUi
         {SIZE_ORDER.map((key) => <option key={key} value={key}>{SIZE_LABELS[key]}</option>)}</select></Row>
       <div className={`mx-3 my-1.5 border-t ${T.line}`} />
       <div className={`px-3 pb-1 pt-0.5 text-xs ${T.faint}`}>Flux</div>
-      <Row label="Тег"><input aria-label="Тег" className={selectClass} value={ui.tag} placeholder="например, AHU-01" onChange={(e) => set({ tag: e.target.value })} /></Row>
-      <Row label="Проект"><select aria-label="Проект" className={selectClass} value={ui.projectId} onChange={(e) => set({ projectId: e.target.value })}>
-        <option value="">Любой</option>{projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Row>
       <label className="flex items-center gap-2 px-3 py-1.5 text-xs"><input type="checkbox" checked={ui.onlyDrafts} onChange={(e) => set({ onlyDrafts: e.target.checked })} /><span>Только черновики</span></label>
       <div className="flex justify-end px-3 pt-1">
         <button type="button" disabled={!activeFilters(ui).length} onClick={() => onChange(NO_FILTERS)}

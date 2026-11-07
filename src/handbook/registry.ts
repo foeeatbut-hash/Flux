@@ -4,6 +4,7 @@ import { TOPIC_ARTICLES } from './topicArticles';
 import { BUILDER_ARTICLES } from './builderArticles';
 import { NATIVE_ARTICLES } from './nativeArticles';
 import { E3_ARTICLES } from './e3Articles';
+import { DOCFLOW_ARTICLES } from './docflowArticles';
 import { indexOf, searchHandbook, articleForRoute, type HandbookArticle, type HandbookHit } from './model';
 import { resolveSectionPath } from '../lib/sectionAliases';
 
@@ -17,6 +18,7 @@ import { resolveSectionPath } from '../lib/sectionAliases';
 export const ARTICLES: HandbookArticle[] = [
   ...CORE_ARTICLES,
   ...WORK_ARTICLES,
+  ...DOCFLOW_ARTICLES,
   ...BUILDER_ARTICLES,
   ...E3_ARTICLES,
   ...NATIVE_ARTICLES,

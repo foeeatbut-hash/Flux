@@ -1425,7 +1425,7 @@
           "suite": "files-windows-files-service",
           "layer": "unit",
           "claims": [
-            "Rename preserves stable identity, metadata, and path-following draft ref"
+            "Rename preserves stable identity and path-following draft ref"
           ]
         },
         {
@@ -1502,7 +1502,7 @@
           "suite": "files-windows-files-service",
           "layer": "unit",
           "claims": [
-            "Move operation retains source data/metadata and refuses target overwrite"
+            "Move operation retains source data and refuses target overwrite"
           ]
         }
       ],
@@ -1646,7 +1646,7 @@
           "suite": "files-windows-files-service",
           "layer": "unit",
           "claims": [
-            "Draft publication is idempotent, keeps metadata/identity, and survives interrupted publication"
+            "Draft publication is idempotent, keeps identity, and survives interrupted publication"
           ]
         },
         {
@@ -3633,14 +3633,14 @@
       ],
       "risk": "normal",
       "expected": [
-        "Показываются metadata выбранного пути; сохранение применяет только явно изменённые свойства."
+        "Показываются только свойства Windows выбранного пути (тип, размер, даты, автор); тегов, проектов, ревизии и ответственного у файла нет."
       ],
       "checks": [
         {
           "suite": "files-windows-explorer-ui",
           "layer": "component",
           "claims": [
-            "Properties dialog displays metadata, accepts save, and sends setMetadata through bridge only"
+            "Properties dialog shows only Windows properties and never calls metadata/setMetadata through the bridge"
           ]
         }
       ],
@@ -3649,7 +3649,7 @@
           "layer": "windows-native",
           "scenario": "Проверить отдельно в synthetic fixture: Открыть и сохранить свойства Windows файла",
           "expected": [
-            "Показываются metadata выбранного пути; сохранение применяет только явно изменённые свойства."
+            "Показываются только свойства Windows выбранного пути (тип, размер, даты, автор); тегов, проектов, ревизии и ответственного у файла нет."
           ],
           "status": "NOT_RUN"
         }

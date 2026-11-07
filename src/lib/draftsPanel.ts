@@ -45,9 +45,12 @@ export function draftKind(entry: Pick<WindowsDraftEntry, 'name' | 'kind'>): Draf
 /** Метка на значке: XLSX, DOCX, PDF… Длинные расширения обрезаются, чтобы метка не вылезала за лист. */
 export const extLabel = (entry: Pick<WindowsDraftEntry, 'name' | 'kind'>) => draftExt(entry).slice(0, 4).toUpperCase();
 
-export function draftState(entry: WindowsDraftEntry, openDrafts: ReadonlySet<string>): DraftState {
+export type DraftProjectOf = (entry: WindowsDraftEntry) => string | null;
+const noProject: DraftProjectOf = () => null;
+
+export function draftState(entry: WindowsDraftEntry, openDrafts: ReadonlySet<string>, projectOf: DraftProjectOf = noProject): DraftState {
   if (entry.draftId && openDrafts.has(entry.draftId)) return 'editing';
-  return entry.metadata?.projectIds?.length ? 'draft' : 'unsent';
+  return projectOf(entry) ? 'draft' : 'unsent';
 }
 
 export interface DraftsQuery {
@@ -63,23 +66,23 @@ const time = (iso: string | undefined) => { const t = iso ? Date.parse(iso) : Na
 export const isOld = (entry: WindowsDraftEntry, days: number, now: number) => days > 0 && time(entry.modifiedAt) > 0 && now - time(entry.modifiedAt) > days * DAY;
 
 /** Черновики, которые видит панель до фильтров типа и состояния: настройки «Что показывать». */
-export function scopedDrafts(entries: readonly WindowsDraftEntry[], q: Pick<DraftsQuery, 'folders' | 'scope' | 'projectId'>): WindowsDraftEntry[] {
+export function scopedDrafts(entries: readonly WindowsDraftEntry[], q: Pick<DraftsQuery, 'folders' | 'scope' | 'projectId'>, projectOf: DraftProjectOf = noProject): WindowsDraftEntry[] {
   return entries.filter((entry) => (q.folders || entry.kind !== 'directory')
-    && (q.scope === 'all' || !q.projectId || (entry.metadata?.projectIds || []).includes(q.projectId)));
+    && (q.scope === 'all' || !q.projectId || projectOf(entry) === q.projectId));
 }
 
-export function filterDrafts(entries: readonly WindowsDraftEntry[], q: DraftsQuery): WindowsDraftEntry[] {
+export function filterDrafts(entries: readonly WindowsDraftEntry[], q: DraftsQuery, projectOf: DraftProjectOf = noProject): WindowsDraftEntry[] {
   const text = q.text.trim().toLocaleLowerCase('ru');
   const now = q.now ?? Date.now();
-  return scopedDrafts(entries, q).filter((entry) => (q.kind === 'all' || draftKind(entry) === q.kind)
-    && (!q.state || draftState(entry, q.openDrafts) === q.state)
-    && (!text || entry.name.toLocaleLowerCase('ru').includes(text) || (entry.metadata?.tags || []).some((tag) => tag.toLocaleLowerCase('ru').includes(text)))
+  return scopedDrafts(entries, q, projectOf).filter((entry) => (q.kind === 'all' || draftKind(entry) === q.kind)
+    && (!q.state || draftState(entry, q.openDrafts, projectOf) === q.state)
+    && (!text || entry.name.toLocaleLowerCase('ru').includes(text))
     && (!q.olderThanDays || isOld(entry, q.olderThanDays, now)));
 }
 
-const projectKey = (entry: WindowsDraftEntry) => entry.metadata?.projectIds?.[0] || '';
+const projectKey = (entry: WindowsDraftEntry, projectOf: DraftProjectOf) => projectOf(entry) || '';
 
-export function sortDrafts(entries: readonly WindowsDraftEntry[], sort: DraftSort, dir: 'asc' | 'desc', pinned: readonly string[] = []): WindowsDraftEntry[] {
+export function sortDrafts(entries: readonly WindowsDraftEntry[], sort: DraftSort, dir: 'asc' | 'desc', pinned: readonly string[] = [], projectOf: DraftProjectOf = noProject): WindowsDraftEntry[] {
   const sign = dir === 'desc' ? -1 : 1;
   const name = (a: WindowsDraftEntry, b: WindowsDraftEntry) => a.name.localeCompare(b.name, 'ru', { numeric: true });
   const by: Record<DraftSort, (a: WindowsDraftEntry, b: WindowsDraftEntry) => number> = {
@@ -88,7 +91,7 @@ export function sortDrafts(entries: readonly WindowsDraftEntry[], sort: DraftSor
     name,
     size: (a, b) => (a.size || 0) - (b.size || 0),
     type: (a, b) => draftKind(a).localeCompare(draftKind(b)) || draftExt(a).localeCompare(draftExt(b)),
-    project: (a, b) => projectKey(a).localeCompare(projectKey(b), 'ru'),
+    project: (a, b) => projectKey(a, projectOf).localeCompare(projectKey(b, projectOf), 'ru'),
   };
   const pin = (entry: WindowsDraftEntry) => { const index = entry.draftId ? pinned.indexOf(entry.draftId) : -1; return index < 0 ? Infinity : index; };
   // Закреплённые всегда впереди и в порядке закрепления; при равенстве ключа — по имени, чтобы порядок не прыгал между обновлениями.
@@ -134,7 +137,7 @@ export interface DraftsSection { key: string; label: string; items: WindowsDraft
  * что дала сортировка; сами группы — в порядке первого появления, а у дат —
  * всегда от свежих к старым, иначе «Раньше» оказывалась бы впереди «Сегодня».
  */
-export function groupDrafts(sorted: readonly WindowsDraftEntry[], group: DraftGroup, opts: { now?: number; openDrafts: ReadonlySet<string>; projectName?: (id: string) => string; pinned?: readonly string[] }): DraftsSection[] {
+export function groupDrafts(sorted: readonly WindowsDraftEntry[], group: DraftGroup, opts: { now?: number; openDrafts: ReadonlySet<string>; projectName?: (id: string) => string; pinned?: readonly string[]; projectOf?: DraftProjectOf }): DraftsSection[] {
   if (group === 'none') return [{ key: 'all', label: '', items: [...sorted] }];
   // Закреплённые — своя первая группа: иначе «первым» было бы только внутри «Раньше» или «Проект».
   const pinnedIds = new Set(opts.pinned || []);
@@ -145,9 +148,9 @@ export function groupDrafts(sorted: readonly WindowsDraftEntry[], group: DraftGr
   }
   const keyOf = (entry: WindowsDraftEntry): [string, string] => {
     if (group === 'date') { const g = dateGroup(entry.modifiedAt, opts.now); return [g, g]; }
-    if (group === 'project') { const id = projectKey(entry); return [id || '-', id ? opts.projectName?.(id) || 'Проект' : 'Без проекта']; }
+    if (group === 'project') { const id = projectKey(entry, opts.projectOf || noProject); return [id || '-', id ? opts.projectName?.(id) || 'Проект' : 'Без проекта']; }
     if (group === 'type') { const kind = draftKind(entry); return [kind, KIND_FILTERS.find((k) => k.id === kind)?.short || 'Другое']; }
-    const state = draftState(entry, opts.openDrafts); return [state, STATE_LABEL[state]];
+    const state = draftState(entry, opts.openDrafts, opts.projectOf); return [state, STATE_LABEL[state]];
   };
   const map = new Map<string, DraftsSection>();
   for (const entry of sorted) {
@@ -161,9 +164,9 @@ export function groupDrafts(sorted: readonly WindowsDraftEntry[], group: DraftGr
 }
 
 /** Число на кнопке панели задач: «не в проекте» по умолчанию, все или ничего — настройка. */
-export function badgeCount(entries: readonly WindowsDraftEntry[], mode: 'all' | 'unsent' | 'off', openDrafts: ReadonlySet<string>): number {
+export function badgeCount(entries: readonly WindowsDraftEntry[], mode: 'all' | 'unsent' | 'off', openDrafts: ReadonlySet<string>, projectOf: DraftProjectOf = noProject): number {
   if (mode === 'off') return 0;
-  return mode === 'all' ? entries.length : entries.filter((entry) => draftState(entry, openDrafts) === 'unsent').length;
+  return mode === 'all' ? entries.length : entries.filter((entry) => draftState(entry, openDrafts, projectOf) === 'unsent').length;
 }
 
 /** Открытые в окнах черновики: «правится» — открыт у вас (адрес окна несёт draft=…). */

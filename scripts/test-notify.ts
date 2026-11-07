@@ -134,7 +134,7 @@ console.log('Чья это программа');
 {
   check('по адресу перехода', appOf(n('a')) === '/chat');
   check('без адреса — по категории', appOf(n('b', { targetRoute: '', category: 'ЧАТ' })) === '/chat');
-  check('документы ведут в Менеджмент', appOf(n('c', { targetRoute: '', category: 'ДОКУМЕНТЫ' })) === '/management');
+  check('документы ведут в Документооборот', appOf(n('c', { targetRoute: '', category: 'ДОКУМЕНТЫ' })) === '/docflow');
   check('решётка адресом не считается', appOf(n('d', { targetRoute: '#', category: 'СИСТЕМА' })) === '/');
 }
 

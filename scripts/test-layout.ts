@@ -36,6 +36,7 @@ const SECTIONS: [string, string][] = [
   ['Оборудование', '/equipment'],
   ['Справочник', '/directory'],
   ['Менеджмент', '/management'],
+  ['Документооборот', '/docflow'],
   ['Конструктор', '/builder'],
   ['Каталог', '/catalog'],
   ['E3Flux', '/e3flux'],

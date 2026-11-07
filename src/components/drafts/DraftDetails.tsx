@@ -1,6 +1,6 @@
 /**
  * Сведения о черновике при наведении (лист «States»): предпросмотр, состояние,
- * проект и тег, даты, размер. Появляются через 500 мс — быстрая прогулка мыши
+ * проект по папке, даты, размер. Появляются через 500 мс — быстрая прогулка мыши
  * по плиткам не должна мигать карточками.
  */
 import React from 'react';
@@ -39,7 +39,6 @@ export default function DraftDetails({ entry, rect, state, projects }: { entry: 
     setTop(rect.top - height - 6 >= 4 ? rect.top - height - 6 : Math.min(window.innerHeight - height - 4, rect.bottom + 6));
   }, [rect, preview]);
   const left = Math.max(4, Math.min(rect.left + rect.width / 2 - CARD_W / 2, window.innerWidth - CARD_W - 4));
-  const tags = entry.metadata?.tags || [];
   return <div ref={ref} role="tooltip" data-draft-details className="fx-pop pointer-events-none fixed rounded-lg border border-[var(--flux-line)] p-2.5 text-xs text-[var(--flux-text)]"
     style={{ left, top, width: CARD_W, zIndex: Z.tray + 1 }}>
     <div className="flex items-center gap-2">
@@ -51,7 +50,6 @@ export default function DraftDetails({ entry, rect, state, projects }: { entry: 
     </div>
     <dl className="mt-2 grid grid-cols-[64px_minmax(0,1fr)] gap-x-2 gap-y-0.5">
       <dt className="text-[var(--flux-text-muted)]">Проект</dt><dd className="truncate">{projects.join(', ') || 'Не в проекте'}</dd>
-      {tags.length > 0 && <><dt className="text-[var(--flux-text-muted)]">Тег</dt><dd className="truncate">{tags.join(', ')}</dd></>}
       <dt className="text-[var(--flux-text-muted)]">Изменён</dt><dd className="tabular-nums">{when(entry.modifiedAt)}</dd>
       {entry.createdAt && <><dt className="text-[var(--flux-text-muted)]">Создан</dt><dd className="tabular-nums">{when(entry.createdAt)}</dd></>}
       {entry.kind !== 'directory' && <><dt className="text-[var(--flux-text-muted)]">Размер</dt><dd className="tabular-nums">{formatSize(entry.size)}</dd></>}

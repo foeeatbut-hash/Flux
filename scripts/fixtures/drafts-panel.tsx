@@ -23,7 +23,7 @@ import '../../src/index.css';
 
 const rect = (x: number) => ({ x, y: 0, w: 640, h: 800 });
 const displays: WorkspaceDisplay[] = [1, 2].map((id) => ({ id, label: `Монитор ${id}`, primary: id === 1, scaleFactor: 1, bounds: rect((id - 1) * 640), workArea: rect((id - 1) * 640) }));
-const draft = (id: string, projects: string[] = []): WindowsDraftEntry => ({ name: `Черновик ${id}`, relativePath: id, storage: 'flux', draftId: id, kind: 'file', fileId: id, size: 0, modifiedAt: '', linked: false, parent: { rootId: 'root', relativePath: '' }, metadata: { fileId: id, tags: [], projectIds: projects, revision: '', responsible: '', history: [] } });
+const draft = (id: string, projects: string[] = []): WindowsDraftEntry => ({ name: `Черновик ${id}`, relativePath: id, storage: 'flux', draftId: id, kind: 'file', fileId: id, size: 0, modifiedAt: '', linked: false, parent: { rootId: 'root', relativePath: projects.length ? 'Проект' : '' } });
 /** Черновик с именем, давностью и размером — для проверок отбора и порядка */
 const make = (id: string, name: string, modifiedAt: string, extra: Partial<WindowsDraftEntry> = {}): WindowsDraftEntry => ({ ...draft(id), name, relativePath: name, size: 1000 * (id.length + 1), modifiedAt, ...extra });
 let entries = [draft('1'), draft('2'), draft('3', ['project'])];
@@ -46,6 +46,10 @@ const invoke = async (request: any) => {
   const fail = (code: string, message: string) => ({ ok: false, error: { code, message } });
   const find = (ref: any) => entries.find((e) => e.draftId === ref?.draftId);
   switch (request.action) {
+    case 'locationKeys': {
+      const key = 'a'.repeat(64);
+      return ok({ keys: [key], chains: request.refs.map((ref: any) => ref.relativePath === 'Проект' || ref.relativePath.startsWith('Проект/') ? [0] : null) });
+    }
     case 'draftsList': return ok({ entries, total: entries.length, nextOffset: null, unreadableCount: 0 });
     case 'roots': return ok([{ id: 'root', name: 'Рабочий стол', kind: 'desktop', available: true }]);
     case 'move': {
@@ -61,8 +65,7 @@ const invoke = async (request: any) => {
       if (!item) return fail('NOT_FOUND', 'Черновик не найден');
       if (taken(request.parent.relativePath, request.name)) return fail('EEXIST', 'Файл с таким именем уже есть в папке Windows или среди черновиков Flux.');
       const id = `${item.draftId}-copy${++copies}`;
-      const copy = { ...item, draftId: id, fileId: id, name: request.name, parent: { rootId: request.parent.rootId, relativePath: request.parent.relativePath }, relativePath: join(request.parent.relativePath, request.name),
-        metadata: request.carryMeta ? item.metadata : { fileId: id, tags: [], projectIds: [], revision: '', responsible: '', history: [] } };
+      const copy = { ...item, draftId: id, fileId: id, name: request.name, parent: { rootId: request.parent.rootId, relativePath: request.parent.relativePath }, relativePath: join(request.parent.relativePath, request.name) };
       entries = [...entries, copy];
       notify();
       return ok({ ref: { rootId: copy.parent.rootId, relativePath: copy.relativePath, draftId: id } });
@@ -100,6 +103,10 @@ const invoke = async (request: any) => {
     default: return fail('UNSUPPORTED', 'Unsupported');
   }
 };
+const originalFetch = window.fetch.bind(window);
+window.fetch = (input, init) => String(input).includes('/api/explorer/project-bindings')
+  ? Promise.resolve(new Response(JSON.stringify({ bindings: [{ id: 'b1', locationKey: 'a'.repeat(64), projectId: 'p1', label: 'Проект', actorId: 'fixture', at: '' }], canManage: true }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+  : originalFetch(input, init);
 (window as any).electron = { windowsFiles: {
   invoke,
   onChanged: (callback: typeof changed) => { changed = callback; return () => { changed = undefined; }; },

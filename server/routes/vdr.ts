@@ -4,6 +4,8 @@ import { getPrisma, resolveProjectId, sendError, notifyUser, broadcast } from '.
 import { createFileFromBytes, exportsHome } from '../officeStore.js';
 import { syncItemTags, linksOfItems, unmatchedCodesOf, planTagLinks, applyTagLinks, undoTagLinks, codesOfItem, isGenericTagCode } from '../vdrTags.js';
 import { tagCodeKey } from '../tagWrite.js';
+import { projectConfig } from '../docflowSettings.js';
+import { DEFAULT_STATUSES } from '../../shared/docflow/config.js';
 import { VdrConflict, expectedStamp, expectedRevisionOf, guardedUpdate, guardedIssue, whenText, inTransaction } from '../vdrWrite.js';
 
 // ── ВДР (Vendor Document Register) — реестр документации поставщика ──
@@ -53,7 +55,7 @@ async function ensureTables(): Promise<void> {
         "revision" TEXT NOT NULL DEFAULT 'A', "issueDate" TIMESTAMP(3),
         "reasonForIssue" TEXT NOT NULL DEFAULT '', "language" TEXT NOT NULL DEFAULT '',
         "equipmentTags" TEXT NOT NULL DEFAULT '[]', "status" TEXT NOT NULL DEFAULT 'DRAFT',
-        "docId" TEXT, "fileNodeId" TEXT, "assigneeId" TEXT, "remarks" TEXT NOT NULL DEFAULT '',
+        "docId" TEXT, "assigneeId" TEXT, "remarks" TEXT NOT NULL DEFAULT '',
         "reviewCode" TEXT NOT NULL DEFAULT '', "dueDate" TIMESTAMP(3),
         "extra" TEXT NOT NULL DEFAULT '{}', "meta" TEXT NOT NULL DEFAULT '{}',
         "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -122,6 +124,12 @@ async function ensureDefaultStandard(): Promise<void> {
 
 async function standardOfRegister(register: any): Promise<any> {
   const prisma = getPrisma();
+  // Своя копия настроек проекта сильнее стандарта реестра: стандарты стали
+  // шаблонами, из которых проект только копирует (docs/docflow-program.md, 5)
+  if (register?.projectId) {
+    const own = await projectConfig(prisma, register.projectId);
+    if (own) return { id: `project:${register.projectId}`, name: 'Настройки проекта', ...own };
+  }
   if (register?.standardId) {
     const std = await prisma.docStandard.findUnique({ where: { id: register.standardId } }).catch(() => null);
     if (std) { try { return { id: std.id, name: std.name, ...JSON.parse(std.config || '{}') }; } catch (_) {} }
@@ -262,7 +270,8 @@ function isDataRow(row: any[], map: Record<number, string>): boolean {
   return /[A-Za-zА-Яа-я]{2,}/.test(title) && rev.length <= 4 && !/ревизия|revision/i.test(rev);
 }
 
-const STATUSES = ['DRAFT', 'READY', 'REMARKS', 'ACCEPTED'];
+// Статусы строки — из настроек ДО проекта; без них — статусы по умолчанию (раздел 13)
+const STATUSES = DEFAULT_STATUSES.map((s) => s.code);
 
 export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promise<number> }): void {
   const authUserOf = (req: Request): any => (req as any).authUser || null;
@@ -531,7 +540,6 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
           }
           if ('assigneeId' in (req.body || {})) data.assigneeId = req.body.assigneeId || null;
           if ('docId' in (req.body || {})) data.docId = req.body.docId || null;
-          if ('fileNodeId' in (req.body || {})) data.fileNodeId = req.body.fileNodeId || null;
           if (typeof req.body?.equipmentTags === 'string') data.equipmentTags = req.body.equipmentTags;
           if (req.body?.issueDate !== undefined) data.issueDate = req.body.issueDate ? new Date(req.body.issueDate) : null;
           if (req.body?.dueDate !== undefined) data.dueDate = req.body.dueDate ? new Date(req.body.dueDate) : null;
@@ -543,7 +551,8 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
           if (typeof data.reviewCode === 'string' && data.reviewCode && data.reviewCode !== item.reviewCode) {
             const rc = (std.reviewCodes || []).find((x: any) => x.code === data.reviewCode);
             if (rc) {
-              if (!req.body?.status) data.status = rc.action === 'accept' ? 'ACCEPTED' : 'REMARKS';
+              // Статус после кода задаётся в настройках проекта; «для сведения» статус не меняет
+              if (!req.body?.status && rc.action !== 'info') data.status = rc.status || (rc.action === 'accept' ? 'ACCEPTED' : 'REMARKS');
               if (req.body?.dueDate === undefined && rc.deadlineDays) {
                 data.dueDate = new Date(Date.now() + Number(rc.deadlineDays) * 86400000);
               }
@@ -551,7 +560,8 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
           }
 
           const newStatus = String(req.body?.status || '');
-          if (newStatus && STATUSES.includes(newStatus) && newStatus !== item.status) data.status = newStatus;
+          const allowed = Array.isArray(std.statuses) && std.statuses.length ? std.statuses.map((x: any) => x.code) : STATUSES;
+          if (newStatus && allowed.includes(newStatus) && newStatus !== item.status) data.status = newStatus;
           return { data };
         },
         // Коды тегов изменились — связи по id приводятся к ним в той же транзакции
@@ -568,7 +578,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       const statusChanged = updated.status !== item.status;
       if (statusChanged) {
         const docName = updated.contractorNo || updated.titleRu || updated.titleEn || 'документ';
-        const route = `/management?vdr=${item.registerId}&item=${item.id}`;
+        const route = `/docflow?tab=registry&vdr=${item.registerId}&item=${item.id}`;
         if (updated.status === 'READY' && register?.managerId) {
           await notifyUser(register.managerId, 'ДОКУМЕНТЫ', `Документ готов: ${docName}`,
             `${updated.titleRu || updated.titleEn || ''} · рев. ${updated.revision}${me?.name ? ` · ${me.name}` : ''}`, route);
@@ -685,7 +695,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       res.json({
         items: items.filter(match).slice(0, 25).map((i: any) => ({
           id: i.id, registerId: i.registerId, registerName: regName.get(i.registerId) || '',
-          contractorNo: i.contractorNo, titleRu: i.titleRu, titleEn: i.titleEn,
+          contractorNo: i.contractorNo, ownerNo: i.ownerNo, vendorNo: i.vendorNo, titleRu: i.titleRu, titleEn: i.titleEn,
           vdrCode: i.vdrCode, revision: i.revision, status: i.status, docId: i.docId,
         })),
       });
