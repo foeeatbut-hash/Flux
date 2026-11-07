@@ -30,7 +30,7 @@ export function createModuleWorker(source: string, options: WorkerOptions) {
     active = null;
     if (operation) { clearTimeout(operation.timer); operation.reject(new Error(reason)); }
     worker?.terminate(); worker = null;
-    if (notify) options.onRestart?.(reason);
+    if (notify && !operation) options.onRestart?.(reason);
   }
   function watchIdle() {
     clearIdle();

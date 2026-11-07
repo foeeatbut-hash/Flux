@@ -2,27 +2,30 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createModuleBridge } from '../../../modules/bridge';
 import { useRealTimeSync } from '../SocketProvider';
 import { subscribeModuleRefresh } from '../../services/moduleRefresh';
+import { recordModuleCrash } from '../../services/moduleCrashQueue';
 import { MODULE_SANDBOX } from '../../../modules/protocol';
 import {
-  themeKeys, type LaunchContext, type ModuleManifest, type ModuleReader, type ThemeTokens,
+  themeKeys, type LaunchContext, type ModuleManifest, type ModuleReader, type ThemeTokens, type ModuleFailureKind,
 } from '../../../modules/contract';
 
 export interface ModuleFrameProps {
   manifest: ModuleManifest;
   context: LaunchContext;
   theme: string;
+  channel?: 'test' | 'production';
   createReadCycle: () => ModuleReader;
 }
 function themeTokens(): ThemeTokens {
   const style = getComputedStyle(document.documentElement);
   return Object.fromEntries(themeKeys.map(key => [key, style.getPropertyValue(key).trim()])) as ThemeTokens;
 }
-export default function ModuleFrame({ manifest, context, theme, createReadCycle }: ModuleFrameProps) {
+export default function ModuleFrame({ manifest, context, theme, createReadCycle, channel = 'production' }: ModuleFrameProps) {
   const { isConnected } = useRealTimeSync();
   const connected = useRef(isConnected);
   connected.current = isConnected;
   const frame = useRef<HTMLIFrameElement>(null);
   const [session] = useState(() => crypto.randomUUID());
+  const [failure, setFailure] = useState<ModuleFailureKind | null>(null);
   const latest = useRef({ context, createReadCycle });
   latest.current = { context, createReadCycle };
   const bridgeRef = useRef<ReturnType<typeof createModuleBridge> | null>(null);
@@ -34,6 +37,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle 
       context: () => latest.current.context, theme: themeTokens,
       beginReadCycle: () => { reader = latest.current.createReadCycle(); },
       read: (resource, entityId) => reader(resource, entityId),
+      onFailure: kind => { recordModuleCrash(manifest.id, manifest.version, kind); setFailure(kind); },
     });
     bridgeRef.current = bridge;
     const listener = (event: MessageEvent) => { void bridge.handle(event); };
@@ -50,8 +54,18 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle 
   useEffect(() => { refreshRef.current?.connectionChanged(); }, [isConnected]);
   useEffect(() => { bridgeRef.current?.notify('project-changed'); }, [context.projectId, context.entry, context.entityId]);
   useEffect(() => { bridgeRef.current?.notify('changed'); }, [theme]);
-  return <iframe ref={frame} title={manifest.name} data-testid="flux-module-frame" sandbox={MODULE_SANDBOX}
+  return <div className="flex h-full min-h-0 flex-1 flex-col">
+    {failure && <div role="alert" className="flex items-center gap-3 border-b border-[var(--flux-line)] bg-[var(--flux-surface)] p-3 text-sm text-[var(--flux-text)]">
+      <span>Подпрограмма {manifest.name} остановилась — отправить отчёт разработчику?</span>
+      <button type="button" className="text-[var(--flux-accent)] underline" onClick={() => {
+        window.dispatchEvent(new CustomEvent('flux:report-module', { detail: { source: 'running', moduleId: manifest.id, name: manifest.name, version: manifest.version, channel, moduleDiagnostics: { code: failure } } }));
+        setFailure(null);
+      }}>Отправить отчёт</button>
+      <button type="button" onClick={() => setFailure(null)}>Закрыть</button>
+    </div>}
+    <iframe ref={frame} title={manifest.name} data-testid="flux-module-frame" sandbox={MODULE_SANDBOX}
     referrerPolicy="no-referrer" allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"
     src={`flux-module://${manifest.id}/index.html#${session}`}
-    className="h-full w-full min-h-0 flex-1 border-0" />;
+    className="h-full w-full min-h-0 flex-1 border-0" />
+  </div>;
 }

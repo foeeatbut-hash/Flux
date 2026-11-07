@@ -58,7 +58,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 export interface Meta {
   deploymentId: string;
   chunkSize: number;
-  rights: { create: boolean; triage: boolean; diagnostics: boolean; manage: boolean };
+  rights: { create: boolean; triage: boolean; diagnostics: boolean; manage: boolean; modules?: boolean };
   limits: Record<string, any>;
   dictionary: Record<string, any>;
 }
@@ -67,6 +67,12 @@ export const getMeta = () => call<Meta>('GET', '/meta');
 export const getUnread = () => call<{ mine: number; queue: number; total: number }>('GET', '/unread');
 
 export const listReports = (query = '') => call<any[]>('GET', `/reports${query ? `?${query}` : ''}`);
+export interface SimilarModuleReport { id: string; number: number; title: string; workaround?: string }
+export const getSimilarModuleReports = (id: string) => call<SimilarModuleReport[]>('GET', `/modules/${encodeURIComponent(id)}/similar`);
+export const markAffected = (id: string) => call<{ count: number }>('POST', `/reports/${encodeURIComponent(id)}/affected`, {});
+export const routeModuleReport = (id: string, body: object) => call('POST', `/reports/${encodeURIComponent(id)}/module-routing`, body);
+export const setModuleKnown = (id: string, body: object) => call('POST', `/reports/${encodeURIComponent(id)}/module-known`, body);
+export const getModulePackage = (id: string) => call<any>('GET', `/reports/${encodeURIComponent(id)}/module-package`);
 export const getReport = (id: string) => call<any>('GET', `/reports/${id}`);
 export const getComments = (id: string) => call<any[]>('GET', `/reports/${id}/comments`);
 export const getEvents = (id: string) => call<any[]>('GET', `/reports/${id}/events`);

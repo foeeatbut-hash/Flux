@@ -13,6 +13,8 @@ import {
   PRIORITIES, PRIORITY_NAMES, STATUS_NAMES, TYPE_NAMES, FREQUENCY_NAMES, IMPACT_NAMES,
   reportNumber, newRequestId, type Status,
 } from '../../../feedback/contracts';
+import { useModuleStore } from '../../store/moduleStoreState';
+import { compareVersions } from '../../../shared/versionCompare';
 import type { CatalogDataIssue } from '../../../feedback/catalogDataIssue';
 
 export interface Card {
@@ -29,6 +31,15 @@ export interface Card {
   createdAt: string;
   appVersion?: string;
   sectionKey?: string;
+  moduleId?: string;
+  moduleVersion?: string;
+  moduleDeveloper?: string;
+  capabilities?: { triage?: boolean };
+  moduleKnown?: boolean;
+  moduleWorkaround?: string;
+  moduleForwarded?: boolean;
+  moduleFixAvailable?: boolean;
+  moduleFixVersion?: string;
   frequency?: any;
   impact?: any;
   reproduction?: string;
@@ -42,7 +53,7 @@ export interface Card {
 export interface Action {
   to: Status;
   action: string;
-  needs: { reason: boolean; assignee: boolean; release: boolean; target: boolean };
+  needs: { reason: boolean; assignee: boolean; release: boolean; moduleRelease?: boolean; target: boolean };
 }
 
 const ACTION_NAMES: Record<string, string> = {
@@ -94,6 +105,9 @@ export default function FeedbackCard({
    * уходило на сервер без исполнителя, а «Отдать на проверку» — без версии.
    * Сервер отвечал отказом, и человек не понимал, чем провинился.
    */
+  const local = useModuleStore((s) => s.local);
+  const installed = local?.runnable.find((m) => m.manifest.id === card.moduleId);
+  const updated = !!(installed && card.moduleFixVersion && compareVersions(installed.version, card.moduleFixVersion) >= 0);
   const [picked, setPicked] = useState<Action | null>(null);
   const [input, setInput] = useState<ActionInput>(emptyInput);
   const steps = (() => {
@@ -130,6 +144,20 @@ export default function FeedbackCard({
         <Line name="Исполнитель" value={card.assigneeId ? (names[card.assigneeId] || 'Сотрудник') : ''} />
       </div>
 
+      {card.moduleId && <Line name="Подпрограмма" value={[card.moduleId, card.moduleVersion, card.moduleDeveloper].filter(Boolean).join(' · ')} />}
+      {card.moduleId && card.moduleFixAvailable && card.moduleFixVersion && !updated && (
+        <p className="text-xs text-slate-700 dark:text-slate-300">Исправлено в {card.moduleFixVersion} — <a className="text-emerald-700 dark:text-emerald-400 underline" href={`#/store?module=${encodeURIComponent(card.moduleId)}`}>Обновить</a></p>
+      )}
+      {card.moduleId && card.moduleFixAvailable && updated && actions.some((a) => a.to === 'DONE' || a.to === 'TRIAGE') && (
+        <div className="text-xs text-slate-700 dark:text-slate-300 space-y-2">
+          <p>Проблема ушла?</p>
+          {actions.filter((a) => a.to === 'DONE' || a.to === 'TRIAGE').map((action) => (
+            <button key={action.to} type="button" className="fx-btn mr-2" onClick={() => { setPicked(action); setInput(emptyInput()); }}>
+              {action.to === 'DONE' ? 'Да' : 'Нет'}
+            </button>
+          ))}
+        </div>
+      )}
       {card.dataIssue?.namespace === 'catalogDataIssue' && (() => {
         const issue = card.dataIssue;
         const context = issue.context;

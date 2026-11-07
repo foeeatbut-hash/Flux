@@ -21,11 +21,15 @@ import { Bug, Check, FileDown, X } from 'lucide-react';
 import { Z } from '../../lib/layers';
 import { useEscapeClose } from '../../lib/useDismiss';
 import { LIMITS, titleFrom } from '../../../feedback/contracts';
+import { getSimilarModuleReports, markAffected, type SimilarModuleReport } from '../../feedback/feedbackApi';
 import { useComposer } from '../../feedback/useComposer';
 import { draftToFile, QUICK_DRAFT } from '../../feedback/draftDb';
 import { submissionQueue, type QueueItem } from '../../feedback/submissionQueue';
 import { useProblemPanel, closeProblemPanel } from '../../feedback/problemPanel';
 import { useStore } from '../../store/store';
+import { useModuleStore } from '../../store/moduleStoreState';
+import { useWindowStore } from '../../store/windowStore';
+import { topWindow } from '../../lib/windows';
 import { reportSaveError, saveBlob } from '../../lib/saveToWindows';
 
 /** Что мешает отправить. Пустая строка — ничего. */
@@ -78,6 +82,22 @@ export default function ProblemPanel() {
   // Личность берётся из состояния программы, а не из свойств: панель висит в
   // корне и не должна требовать, чтобы её кто-то снабжал данными
   const me = useStore((s) => s.user);
+  const windows = useWindowStore((s) => s.windows);
+  const desk = useWindowStore((s) => s.desk);
+  const local = useModuleStore((s) => s.local);
+  const top = topWindow(windows.filter((w) => w.desk === desk));
+  const activePath = top?.path || '';
+  // Метаданные читаются только внутри верхнего окна: в другом окне может
+  // продолжать работать другая версия той же подпрограммы.
+  const frame = top && Array.from(document.querySelectorAll<HTMLElement>('[data-win]')).find((el) => el.dataset.win === top.id);
+  const running = frame?.querySelector<HTMLElement>('[data-running-module]')?.dataset;
+  const runningModule = running?.runningModule && running.runningVersion && (running.runningChannel === 'test' || running.runningChannel === 'production')
+    ? { id: running.runningModule, name: running.runningName || running.runningModule, version: running.runningVersion,
+      channel: running.runningChannel as 'test' | 'production', apiVersion: running.runningApi, developer: running.runningDeveloper } : undefined;
+  const activeId = context.moduleId || /^\/module\/([^/?]+)/.exec(activePath)?.[1] || '';
+  const modules = local?.runnable || [];
+  const actual = context.moduleSource === 'running' ? context.module : (!context.moduleId ? runningModule : undefined);
+  const storeModule = actual || (context.module && !modules.some((m) => m.manifest.id === context.module!.id) ? context.module : undefined);
 
   if (!open) return null;
   // До входа отправлять некому и не от кого: черновик уехал бы в контур без
@@ -89,7 +109,7 @@ export default function ProblemPanel() {
   }
   return (
     <PanelBody userId={me.id} appVersion={__APP_VERSION__} anchor={anchor}
-      sectionKey={context.sectionKey || ''} />
+      sectionKey={context.sectionKey || ''} modules={modules} activeId={activeId} storeModule={storeModule} moduleDiagnostics={context.moduleDiagnostics} />
   );
 }
 
@@ -121,14 +141,34 @@ function SignInFirst({ anchor }: { anchor: { top: number; right: number } | null
  * открытым; а так форма поднимается при открытии панели и уходит при
  * закрытии — вместе со своими подписками и таймерами.
  */
-function PanelBody({ userId, appVersion, anchor, sectionKey }: {
+function PanelBody({ userId, appVersion, anchor, sectionKey, modules, activeId, storeModule, moduleDiagnostics }: {
   userId: string;
   appVersion: string;
   anchor: { top: number; right: number } | null;
   sectionKey: string;
+  modules: NonNullable<ReturnType<typeof useModuleStore.getState>['local']>['runnable'];
+  activeId: string;
+  storeModule?: import('../../feedback/problemPanel').ProblemContext['module'];
+  moduleDiagnostics?: import('../../feedback/problemPanel').ProblemContext['moduleDiagnostics'];
 }) {
   const composer = useComposer(QUICK_DRAFT, userId, appVersion, sectionKey, 'BUG');
   const { fields, setFields } = composer;
+  const [recipient, setRecipient] = useState(() => (modules.some((m) => m.manifest.id === activeId) || storeModule?.id === activeId) ? activeId : '');
+  const selected = storeModule?.id === recipient ? undefined : modules.find((m) => m.manifest.id === recipient);
+  const fallback = storeModule?.id === recipient ? storeModule : undefined;
+  useEffect(() => {
+    if (activeId && (modules.some((m) => m.manifest.id === activeId) || storeModule?.id === activeId)) setRecipient(activeId);
+  }, [activeId]);
+  const [similar, setSimilar] = useState<SimilarModuleReport[]>([]);
+  const [affected, setAffected] = useState('');
+  const [similarError, setSimilarError] = useState('');
+  useEffect(() => {
+    let current = true;
+    setSimilar([]); setAffected(''); setSimilarError('');
+    if (recipient) getSimilarModuleReports(recipient).then((rows) => { if (current) setSimilar(rows); })
+      .catch(() => { if (current) setSimilarError('Похожие обращения не загрузились'); });
+    return () => { current = false; };
+  }, [recipient]);
   const text = fields.description;
   const [queued, setQueued] = useState<QueueItem | null>(null);
   const [complaint, setComplaint] = useState('');
@@ -189,6 +229,9 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
     try {
       const refused = await composer.send({
         title: titleFrom(clean), description: clean, technicalEvents: true, appContext: true,
+        moduleId: selected?.manifest.id || fallback?.id, moduleVersion: selected?.version || fallback?.version, moduleChannel: selected?.channel || fallback?.channel,
+        moduleApiVersion: selected ? String(selected.manifest.contractVersion) : fallback?.apiVersion,
+        moduleDeveloper: selected?.author || fallback?.developer, moduleDiagnostics: recipient === activeId ? moduleDiagnostics : undefined,
       });
       if (refused) setComplaint(refused); else setSentText(clean);
     } finally { setSubmitting(false); }
@@ -270,6 +313,16 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
           </div>
         ) : (
           <>
+            {(modules.length > 0 || storeModule) && <label className="block text-xs text-slate-600 dark:text-slate-300">
+              Адресат
+              <select aria-label="Адресат" value={recipient} disabled={busy} onChange={(e) => setRecipient(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-2 py-1.5 text-sm text-slate-800 dark:text-slate-100">
+                <option value="">Flux</option>
+                {storeModule && <option value={storeModule.id}>{storeModule.name} · {storeModule.version} · {storeModule.developer}</option>}
+                {modules.filter((m) => m.manifest.id !== storeModule?.id).map((m) => <option key={m.manifest.id} value={m.manifest.id}>{m.manifest.name} · {m.version} · {m.author}</option>)}
+              </select>
+              {recipient && <span className="block mt-1 text-xs text-slate-600 dark:text-slate-300">Заголовок и описание увидит разработчик подпрограммы. Данные проектов не передаются.</span>}
+            </label>}
             <label className="block">
               <span className="sr-only">Что случилось</span>
               <textarea autoFocus value={busy && !text ? sentText : text} rows={4} maxLength={LIMITS.description.max}
@@ -284,6 +337,20 @@ function PanelBody({ userId, appVersion, anchor, sectionKey }: {
                            px-3 py-2 text-sm text-slate-800 dark:text-slate-150 outline-none
                            focus:border-emerald-400 resize-none disabled:opacity-60" />
             </label>
+            {similarError && <p className="text-xs text-rose-600 dark:text-rose-400">{similarError}</p>}
+            {similar.length > 0 && <div className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
+              <p>Похожие известные проблемы</p>
+              {similar.map((one) => <div key={one.id} className="border-t border-slate-200 dark:border-slate-800 pt-2">
+                <p>ОШ-{one.number} · {one.title}</p>
+                {one.workaround && <p className="mt-1">Обход: {one.workaround}</p>}
+                <button type="button" disabled={busy || !!affected} className="fx-btn mt-1" onClick={async () => {
+                  setSubmitting(true); setComplaint('');
+                  try { await markAffected(one.id); setAffected(one.id); }
+                  catch (error: any) { setComplaint(error?.message || 'Не удалось отметить проблему'); }
+                  finally { setSubmitting(false); }
+                }}>{affected === one.id ? 'Отмечено' : 'У меня тоже'}</button>
+              </div>)}
+            </div>}
             {(complaint || composer.error) && <p className="text-xs text-rose-600 dark:text-rose-400">{complaint || composer.error}</p>}
           </>
         )}

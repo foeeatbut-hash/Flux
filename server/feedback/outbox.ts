@@ -40,6 +40,7 @@ const TITLES: Record<string, string> = {
   statusChanged: 'Обращение изменилось',
   assigned: 'Вам назначено обращение',
   commented: 'Ответ по обращению',
+  moduleFix: 'Доступно исправление подпрограммы',
 };
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -89,8 +90,11 @@ export async function drainOutbox(): Promise<number> {
         // Идентификатор известен заранее: повторная обработка не заведёт
         // второе уведомление об одном событии
         const notificationId = `fb-${row.id}`;
-        const title = TITLES[row.kind] || 'Обращение';
+        const title = row.kind === 'moduleFix' ? `Исправлено в ${String(payload.version || '')} — Обновить` : TITLES[row.kind] || 'Обращение';
         const number = Number(payload.number) || 0;
+        const moduleId = String(payload.moduleId || '');
+        const targetRoute = row.kind === 'moduleFix' && /^[a-z][a-z0-9-]{0,63}$/.test(moduleId)
+          ? `/store?module=${encodeURIComponent(moduleId)}` : `/feedback?report=${row.reportId}`;
         const body = [number ? reportNumber(number) : '', String(payload.title || '')]
           .filter(Boolean).join(' · ').slice(0, 300);
 
@@ -100,7 +104,7 @@ export async function drainOutbox(): Promise<number> {
             await tx.notification.create({
               data: {
                 id: notificationId, userId: row.recipientId, category: 'ОБРАЩЕНИЯ',
-                title, body, targetRoute: `/feedback?report=${row.reportId}`,
+                title, body, targetRoute,
               },
             });
           }
@@ -113,7 +117,7 @@ export async function drainOutbox(): Promise<number> {
         pushToUser(row.recipientId, 'feedback:changed', { reportId: row.reportId, revision: row.publicRevision });
         pushToUser(row.recipientId, 'notify:new', {
           id: notificationId, userId: row.recipientId, category: 'ОБРАЩЕНИЯ',
-          title, body, targetRoute: `/feedback?report=${row.reportId}`, isRead: false, createdAt: new Date(),
+          title, body, targetRoute, isRead: false, createdAt: new Date(),
         });
         // Счётчик пересчитывается сервером, а не прибавляется в окне: окно не
         // знает, сколько ему видно, и прибавление быстро расходится с правдой

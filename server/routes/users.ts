@@ -132,18 +132,26 @@ const ENGINEER_GRANTS = grant(
   'tags.manage', 'dictionaries.manage', 'equipment.import', 'equipment.manage',
   'files.upload', 'procurement.manage', 'vdr.manage',
 );
+// Разработчик подпрограмм Flux Studio: обычная инженерная работа плюс право
+// присылать код владельцу. Рабочий канал (module.publish) не выдаётся —
+// владелец включает его осознанно.
+const DEVELOPER_GRANTS = grant(
+  'tags.manage', 'dictionaries.manage', 'equipment.import', 'equipment.manage',
+  'files.upload', 'procurement.manage', 'vdr.manage', 'module.develop',
+);
 const MANAGER_GRANTS = grant(
   'project.manage', 'tags.manage', 'dictionaries.manage', 'equipment.import',
   'equipment.manage', 'files.upload', 'files.delete', 'procurement.manage',
   'procurement.setup', 'vdr.manage', 'vdr.delete', 'vdr.standards',
 );
 
-const BUILTIN_ROLES = [
+export const BUILTIN_ROLES = [
   { code: 'OWNER', name: 'Владелец Flux', color: 'slate', icon: 'key-round', level: 0, sortOrder: 0, description: 'Вход только по ключу; доверие, лицензии и обновления', permissions: '{}' },
   { code: 'ADMIN',          name: 'Администратор',     color: 'rose',    icon: 'shield-check', level: 1,  sortOrder: 10, description: 'Работа компании; административные полномочия выдает владелец', permissions: '{}' },
   { code: 'MANAGER',        name: 'Менеджер проектов', color: 'amber',   icon: 'briefcase',    level: 20, sortOrder: 20, description: 'Проекты, закупки, документооборот', permissions: MANAGER_GRANTS },
   { code: 'ENGINEER_VENT',  name: 'Инженер ОВиК',      color: 'sky',     icon: 'airplay',      level: 50, sortOrder: 30, description: 'Вентиляция и кондиционирование', permissions: ENGINEER_GRANTS },
   { code: 'ENGINEER_AUTO',  name: 'Инженер КИПиА',     color: 'emerald', icon: 'cpu',          level: 50, sortOrder: 40, description: 'Автоматика и приборы', permissions: ENGINEER_GRANTS },
+  { code: 'MODULE_DEVELOPER', name: 'Разработчик',      color: 'violet',  icon: 'code',         level: 50, sortOrder: 50, description: 'Пишет подпрограммы для Flux Studio; код выпускает владелец', permissions: DEVELOPER_GRANTS },
 ];
 
 export async function seedRoles() {

@@ -6,6 +6,21 @@ export interface LaunchContext {
   entry: 'start' | 'equipment' | 'tag';
   entityId: string | null;
 }
+/** Витрина Flux Store (modules/store/model.ts): необязательна, без неё подпрограмма попадает в «Прочее» */
+export interface ModuleStoreBlock {
+  category: 'calc' | 'link' | 'docs' | 'reports' | 'other';
+  summary: string;
+  description?: string;
+  /** Цвет значка и подложки, #rrggbb */
+  color?: string;
+  requires?: { flux?: string; platform?: 'any' | 'windows'; external?: string[] };
+  /** Идентификаторы подпрограмм, без которых эта не работает */
+  dependsOn?: string[];
+  /** Для каких должностей (коды Role) */
+  roles?: string[];
+  /** Снимки экрана внутри пакета: store/имя.png */
+  screenshots?: string[];
+}
 export interface ModuleManifest {
   id: string;
   name: string;
@@ -15,6 +30,7 @@ export interface ModuleManifest {
   entries: Array<'start' | 'equipment' | 'tag'>;
   reads: Resource[];
   logic: string;
+  store?: ModuleStoreBlock;
 }
 export interface Parameter { group: string; key: string; value: string; unit: string }
 export interface TagData { id: string; identifier: string; name: string; parentId: string | null }
@@ -34,6 +50,7 @@ export interface ReadRequest {
   flux: 'module'; v: 1; session: string; id: string; type: 'read';
   resource: Resource; entityId?: string;
 }
+export type ModuleFailureKind = 'crash' | 'timeout' | 'memory' | 'bridge';
 export type BridgeError = 'READ_ONLY' | 'DENIED' | 'NO_PROJECT' | 'FAILED' | 'LIMIT';
 export type HostMessage =
   | { flux: 'module'; v: 1; session: string; type: 'event'; event: 'opened' | 'project-changed' | 'changed'; context: LaunchContext; theme: ThemeTokens }

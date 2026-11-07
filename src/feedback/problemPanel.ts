@@ -13,6 +13,7 @@
  */
 
 import { create } from 'zustand';
+import { safeModuleDiagnostics, type ModuleDiagnostics } from '../../feedback/moduleContext';
 
 /**
  * Что известно о происшествии в момент открытия.
@@ -23,6 +24,10 @@ import { create } from 'zustand';
 export interface ProblemContext {
   /** Где человек был, когда открыл панель. */
   sectionKey?: string;
+  moduleId?: string;
+  moduleSource?: 'running';
+  moduleDiagnostics?: ModuleDiagnostics;
+  module?: { id: string; name: string; version: string; channel: 'test' | 'production'; apiVersion?: string; developer?: string };
   /** Когда сломалось, если это известно точнее, чем «сейчас». */
   incidentAt?: string;
   /**
@@ -69,4 +74,16 @@ export function openProblemPanel(context: ProblemContext = {}, anchor?: { top: n
 
 export function closeProblemPanel(): void {
   useProblemPanel.getState().hide();
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('flux:report-module', (event) => {
+    const detail = (event as CustomEvent).detail;
+    if (!detail?.moduleId) return;
+    const valid = detail.version && (detail.channel === 'test' || detail.channel === 'production');
+    openProblemPanel({ moduleId: detail.moduleId, ...(detail.source === 'running' ? { moduleSource: 'running' as const } : {}), ...(detail.moduleDiagnostics ? { moduleDiagnostics: safeModuleDiagnostics(detail.moduleDiagnostics) } : {}), ...(valid ? { module: {
+      id: detail.moduleId, name: detail.name || detail.moduleId, version: detail.version,
+      channel: detail.channel, apiVersion: detail.apiVersion, developer: detail.developer,
+    } } : {}) });
+  });
 }

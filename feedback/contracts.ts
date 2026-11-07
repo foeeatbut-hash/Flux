@@ -14,6 +14,7 @@
  * Модуль чистый: ни React, ни node:, ни express.
  */
 
+import { validateModuleContext, type ModuleFeedbackContext } from './moduleContext';
 import { validateCatalogDataIssue, type CatalogDataIssue } from './catalogDataIssue';
 
 export const SCHEMA_VERSION = 1;
@@ -199,7 +200,7 @@ export type ErrorCode = (typeof ERRORS)[keyof typeof ERRORS];
 
 // ── Договор отправки ────────────────────────────────────────────────────────
 
-export interface SubmitFeedbackV1 {
+export interface SubmitFeedbackV1 extends ModuleFeedbackContext {
   schemaVersion: 1;
   /** Один ключ на подтверждённую отправку: повтор вернёт ту же карточку. */
   clientRequestId: string;
@@ -299,6 +300,9 @@ export function validateSubmit(raw: unknown, now = Date.now()): Checked<SubmitFe
   const benefit = optionalText(r.benefit, 'Польза', LIMITS.benefit);
   if (!benefit.ok) return { ok: false, error: benefit.error };
 
+  const module = validateModuleContext(r);
+  if (!module.ok) return { ok: false, error: module.error };
+
   let dataIssue: CatalogDataIssue | undefined;
   if (r.dataIssue !== undefined) {
     const checkedIssue = validateCatalogDataIssue(r.dataIssue);
@@ -367,6 +371,7 @@ export function validateSubmit(raw: unknown, now = Date.now()): Checked<SubmitFe
         reviewedAt: isString(consent.reviewedAt) ? consent.reviewedAt : new Date(now).toISOString(),
       },
       ...(dataIssue ? { dataIssue } : {}),
+      ...module.value,
     },
   };
 }

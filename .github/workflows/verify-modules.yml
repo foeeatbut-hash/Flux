@@ -6,6 +6,16 @@ on:
   pull_request:
     paths:
       - modules/**
+      - electron/module*.ts
+      - feedback/**
+      - server/feedback/**
+      - server/module*.ts
+      - server/routes/module*.ts
+      - prisma/**
+      - src/feedback/**
+      - src/components/feedback/**
+      - src/services/module*.ts
+      - verification/manifests/modules.json
       - electron/modules.ts
       - electron/main.ts
       - src/components/modules/**
@@ -44,6 +54,13 @@ jobs:
           node_modules/.bin/tsc --noEmit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           foreach ($suite in @('modules-contract', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'architecture')) {
+            node --import tsx "scripts/test-$suite.ts"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Подписи, публикация, каналы и обращения на SQLite
+        shell: pwsh
+        run: |
+          foreach ($suite in @('modules-trust', 'modules-publishing', 'modules-channels', 'modules-store', 'modules-promotion', 'modules-feedback')) {
             node --import tsx "scripts/test-$suite.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }

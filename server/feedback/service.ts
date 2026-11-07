@@ -37,7 +37,7 @@ export const windowStartOf = (now = Date.now()): Date => new Date(Math.floor(now
  * чтением: между чтением и записью проходят другие запросы, и полсотни
  * одновременных отправок прошли бы все.
  */
-export async function reserveRate(prisma: any, actorId: string, kind: 'report' | 'comment', limit: number): Promise<boolean> {
+export async function reserveRate(prisma: any, actorId: string, kind: 'report' | 'comment' | 'moduleCrash', limit: number): Promise<boolean> {
   const windowStart = windowStartOf();
   try {
     await prisma.feedbackRateWindow.create({ data: { actorId, kind, windowStart, count: 0 } });
@@ -50,7 +50,7 @@ export async function reserveRate(prisma: any, actorId: string, kind: 'report' |
 }
 
 /** Вернуть занятое место: запись не удалась, и предел тратить не за что. */
-export async function refundRate(prisma: any, actorId: string, kind: 'report' | 'comment'): Promise<void> {
+export async function refundRate(prisma: any, actorId: string, kind: 'report' | 'comment' | 'moduleCrash'): Promise<void> {
   try {
     await prisma.feedbackRateWindow.updateMany({
       where: { actorId, kind, windowStart: windowStartOf(), count: { gt: 0 } },
@@ -109,6 +109,8 @@ export function submitHashOf(v: SubmitFeedbackV1): string {
     // Контекст входит в отпечаток: повтор с тем же ключом, но иной привязкой
     // к каталогу — другое обращение, а не повтор уже принятого.
     v.dataIssue || null,
+    v.moduleId || null, v.moduleVersion || null, v.moduleChannel || null,
+    v.moduleApiVersion || null, v.moduleDeveloper || null, v.moduleDiagnostics || null,
   ]);
   return createHash('sha256').update(canonical).digest('hex');
 }
@@ -192,6 +194,9 @@ export async function createReport(
         impact: submit.impact,
         sectionKey: submit.sectionKey,
         projectId: submit.projectId || null,
+        moduleId: submit.moduleId || null, moduleVersion: submit.moduleVersion || null,
+        moduleChannel: submit.moduleChannel || null, moduleApiVersion: submit.moduleApiVersion || null,
+        moduleDeveloper: submit.moduleDeveloper || null, moduleDiagnosticsJson: JSON.stringify(submit.moduleDiagnostics || {}),
         incidentAt: new Date(submit.incidentAt),
         // Когда приняли — отдельно от того, когда сломалось. У обращения,
         // пролежавшего в очереди выходные, это единственный способ понять,

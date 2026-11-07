@@ -46,7 +46,7 @@ const SERVER_NAME = 'диагностика-сервер.jsonl';
  * лежат в полях события уже очищенными — путь установки и номера строк из них
  * убраны при записи.
  */
-export function fingerprintOfEvents(events: any[], appVersion: string, sectionKey: string): string {
+export function fingerprintOfEvents(events: any[], appVersion: string, sectionKey: string, module?: { moduleId?: string; moduleVersion?: string }): string {
   const failure = events.find((e) => e?.event === 'log.error' || e?.data?.outcome === 'fail'
     || e?.fields?.outcome === 'fail');
   if (!failure) return '';
@@ -55,6 +55,7 @@ export function fingerprintOfEvents(events: any[], appVersion: string, sectionKe
   return technicalFingerprint({
     appVersion,
     sectionKey,
+    moduleId: module?.moduleId, moduleVersion: module?.moduleVersion,
     errorCode: String(fields.code || fields.error || failure.event || ''),
     frames,
   });
@@ -156,7 +157,7 @@ async function assemble(prisma: any, row: any): Promise<void> {
   const report = await prisma.feedbackReport.findUnique({
     where: { id: row.reportId },
     select: {
-      id: true, authorId: true, appVersion: true, sectionKey: true,
+      id: true, authorId: true, appVersion: true, sectionKey: true, moduleId: true, moduleVersion: true,
       incidentAt: true, snapshotId: true, buildId: true,
     },
   });
@@ -208,7 +209,7 @@ async function assemble(prisma: any, row: any): Promise<void> {
 
   const { events, broken } = parseJsonl(clientText + serverText);
   const summary = { ...summarize(events), incidents: groupIncidents(events) };
-  const fingerprint = fingerprintOfEvents(events, report.appVersion || '', report.sectionKey || '');
+  const fingerprint = fingerprintOfEvents(events, report.appVersion || '', report.sectionKey || '', report);
 
   const manifest: BundleManifest = {
     bundleSchemaVersion: BUNDLE_SCHEMA_VERSION,

@@ -36,6 +36,12 @@ export interface Fields {
   projectId: string;
   technicalEvents: boolean;
   appContext: boolean;
+  moduleId?: string;
+  moduleVersion?: string;
+  moduleChannel?: 'test' | 'production';
+  moduleApiVersion?: string;
+  moduleDeveloper?: string;
+  moduleDiagnostics?: { code?: string; frames?: string[] };
 }
 
 export const emptyFields = (sectionKey = '', type: ReportType = 'BUG'): Fields => ({
@@ -87,6 +93,12 @@ export function buildBody(
     ...(fields.projectId ? { projectId: fields.projectId } : {}),
     incidentAt: fields.incidentAt,
     appVersion,
+    ...(fields.moduleId && fields.moduleVersion && fields.moduleChannel ? {
+      moduleId: fields.moduleId, moduleVersion: fields.moduleVersion, moduleChannel: fields.moduleChannel,
+      ...(fields.moduleApiVersion ? { moduleApiVersion: fields.moduleApiVersion } : {}),
+      ...(fields.moduleDeveloper ? { moduleDeveloper: fields.moduleDeveloper } : {}),
+      ...(fields.moduleDiagnostics ? { moduleDiagnostics: fields.moduleDiagnostics } : {}),
+    } : {}),
     reproduction: fields.steps.filter((s) => s.trim()),
     expected: fields.expected,
     actual: fields.actual,

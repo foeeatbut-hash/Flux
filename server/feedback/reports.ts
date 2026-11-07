@@ -8,6 +8,10 @@
  */
 
 import type { Express, Request, Response } from 'express';
+import { developerModules, moduleHandler, moduleFix, moduleRecipients, developerPackage, feedbackRoot, type ModuleFeedbackDeps } from './modules.js';
+import { openEnvelope } from '../../modules/trust/envelope.js';
+import { parseReleaseClaim } from '../../modules/trust/claims.js';
+import { safeModuleDiagnostics } from '../../feedback/moduleContext.js';
 import { getPrisma } from '../context.js';
 import { ensureFeedbackTables } from './tables.js';
 import { actorOf, fail, ok, settings, triageRecipients, type Actor } from './policy.js';
@@ -15,7 +19,7 @@ import { createReport, reserveRate, refundRate, rateResetAt } from './service.js
 import { scheduleBundle } from './bundle.js';
 import { ERRORS, LIMITS, STATUSES, validateSubmit, isUuid, type Status } from '../../feedback/contracts.js';
 
-export interface ReportDeps {
+export interface ReportDeps extends ModuleFeedbackDeps {
   can: (user: any, feature: string) => boolean;
   appVersion: () => string;
 }
@@ -36,6 +40,10 @@ function visible(report: any, actor: Actor, triage: boolean, dataIssue?: unknown
     frequency: report.frequency,
     impact: report.impact,
     sectionKey: report.sectionKey,
+    moduleId: report.moduleId, moduleVersion: report.moduleVersion, moduleChannel: report.moduleChannel,
+    moduleApiVersion: report.moduleApiVersion, moduleDeveloper: report.moduleDeveloper,
+    moduleDiagnostics: safeModuleDiagnostics(safeParse(report.moduleDiagnosticsJson)),
+    moduleKnown: report.moduleKnown, moduleWorkaround: report.moduleWorkaround, moduleForwarded: report.moduleForwarded,
     appVersion: report.appVersion,
     status: report.status,
     priority: report.priority,
@@ -56,6 +64,18 @@ function visible(report: any, actor: Actor, triage: boolean, dataIssue?: unknown
     // каталога видны автору собственного обращения и сотруднику триажа.
     ...(dataIssue ? { dataIssue } : {}),
     capabilities: { mine, triage },
+  };
+}
+
+/** Автоматические сведения Flux не становятся частью карточки разработчика. */
+function moduleView(report: any) {
+  return {
+    ...developerPackage(report), id: report.id, number: report.number, type: report.type,
+    status: report.status, priority: report.priority, revision: report.revision,
+    assigneeId: report.assigneeId, resolvedVersion: report.resolvedVersion,
+    moduleKnown: report.moduleKnown, moduleWorkaround: report.moduleWorkaround, moduleForwarded: report.moduleForwarded,
+    createdAt: report.createdAt, updatedAt: report.updatedAt,
+    projectId: null, capabilities: { mine: false, triage: true },
   };
 }
 
@@ -111,6 +131,12 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
     if (!checked.ok) return fail(res, ERRORS.VALIDATION, checked.error || 'Обращение не принято');
     const submit = checked.value!;
 
+    if (submit.moduleId) {
+      const release = await prisma.moduleRelease.findUnique({ where: { moduleId_version: { moduleId: submit.moduleId, version: submit.moduleVersion } } });
+      const claim = release && parseReleaseClaim(openEnvelope('release', release.signature, feedbackRoot(deps)));
+      if (!claim || claim.moduleId !== submit.moduleId || claim.version !== submit.moduleVersion) return fail(res, ERRORS.VALIDATION, 'Подпрограмма или подписанный выпуск не найдены');
+    }
+
     const conf = await settings();
     if (submit.deploymentId !== conf.deploymentId) {
       // Черновик, начатый в другом контуре, сюда попасть не должен: у него
@@ -129,7 +155,7 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
     }
 
     try {
-      const recipients = await triageRecipients(deps.can);
+      const recipients = [...new Set([...(await triageRecipients(deps.can)), ...(submit.moduleId ? await moduleRecipients(prisma, submit.moduleId, feedbackRoot(deps)) : [])])];
       const made = await createReport(actor, submit, deps.appVersion(), recipients);
       if (made.repeat) await refundRate(prisma, actor.id, 'report');
       // Сборка пакета ставится в очередь, а не делается здесь: обращение
@@ -176,7 +202,8 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
     const { actor, prisma, triage } = base;
 
     const scope = String(req.query.scope || 'mine');
-    if (scope !== 'mine' && !triage) {
+    const ownModules = scope === 'modules' ? await developerModules(prisma, actor.id, feedbackRoot(deps)) : [];
+    if (scope !== 'mine' && scope !== 'modules' && !triage) {
       return fail(res, ERRORS.FORBIDDEN, 'Очередь обращений доступна тем, кто их разбирает');
     }
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
@@ -185,7 +212,8 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
 
     // Право — условием запроса, а не фильтром после выборки: забыть условие
     // внутри запроса нельзя, оно и есть запрос
-    const where: any = scope === 'mine' ? { authorId: actor.id } : {};
+    const where: any = scope === 'mine' ? { authorId: actor.id } : scope === 'modules' ? { moduleId: { in: ownModules }, moduleForwarded: false } : {};
+    if (String(req.query.modules || '') === '1') where.moduleId = { ...(where.moduleId || {}), not: null };
     if (status && (STATUSES as readonly string[]).includes(status)) where.status = status as Status;
     if (type) where.type = type;
     if (String(req.query.assignee || '') === 'me') where.assigneeId = actor.id;
@@ -201,7 +229,20 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
       take: limit,
     });
     const contexts = await issueContexts(prisma, rows.map((r: any) => r.id));
-    ok(res, rows.map((r: any) => visible(r, actor, triage, contexts.get(r.id))), { count: rows.length, scope });
+    ok(res, await Promise.all(rows.map(async (r: any) => ({ ...(scope === 'modules' && !triage && r.authorId !== actor.id ? moduleView(r) : visible(r, actor, triage, contexts.get(r.id))),
+      capabilities: { mine: r.authorId === actor.id, triage: triage || (scope === 'modules' && !r.moduleForwarded) },
+      ...(r.authorId === actor.id ? await moduleFix(prisma, (req as any).authUser, r, feedbackRoot(deps)) : {}),
+    }))), { count: rows.length, scope });
+  });
+
+  app.get('/api/feedback/reports/:id/module-package', async (req: Request, res: Response) => {
+    const base = await ready(req, res);
+    if (!base) return;
+    const found = await base.prisma.feedbackReport.findUnique({ where: { id: String(req.params.id) } });
+    if (!found?.moduleId || !(base.triage || found.authorId === base.actor.id || await moduleHandler(base.prisma, base.actor.id, found, feedbackRoot(deps)))) {
+      return fail(res, ERRORS.NOT_FOUND, 'Обращение не найдено');
+    }
+    ok(res, developerPackage(found));
   });
 
   // ── Одна карточка ─────────────────────────────────────────────────────────
@@ -214,10 +255,11 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
     const found = await prisma.feedbackReport.findUnique({ where: { id } });
     // Чужая карточка без права разбора отвечает «не найдено», а не «нельзя»:
     // иначе по ответу перебирается, какие обращения существуют
-    if (!found || (found.authorId !== actor.id && !triage)) {
+    const developer = !triage && found?.authorId !== actor.id && await moduleHandler(prisma, actor.id, found, feedbackRoot(deps));
+    if (!found || (found.authorId !== actor.id && !triage && !developer)) {
       return fail(res, ERRORS.NOT_FOUND, 'Обращение не найдено');
     }
-    const attachments = await prisma.feedbackAttachment.findMany({
+    const attachments = developer ? [] : await prisma.feedbackAttachment.findMany({
       where: { reportId: id },
       select: { id: true, kind: true, displayName: true, mime: true, byteLength: true, createdAt: true, expiredAt: true },
     });
@@ -229,7 +271,7 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
      * `feedback.diagnostics` и по умолчанию не выдано.
      */
     let diagnostics: any[] = [];
-    if (deps.can((req as any).authUser, 'feedback.diagnostics')) {
+    if (!developer && deps.can((req as any).authUser, 'feedback.diagnostics')) {
       const bundles = await prisma.feedbackDiagnosticBundle.findMany({
         where: { reportId: id },
         select: {
@@ -266,7 +308,9 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
 
     const contexts = await issueContexts(prisma, [found.id]);
     ok(res, {
-      ...visible(found, actor, triage, contexts.get(found.id)),
+      ...(developer ? moduleView(found) : visible(found, actor, triage, contexts.get(found.id))),
+      capabilities: { mine: found.authorId === actor.id, triage: triage || developer },
+      ...(found.authorId === actor.id ? await moduleFix(prisma, (req as any).authUser, found, feedbackRoot(deps)) : {}),
       attachments, diagnostics, publicRevision, internalRevision,
     });
   });

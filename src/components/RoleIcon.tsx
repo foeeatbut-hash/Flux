@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   ShieldCheck, Briefcase, Airplay, Cpu, User, Users,
-  HardHat, Wrench, Ruler, ClipboardList, Calculator, Flame,
+  HardHat, Wrench, Ruler, ClipboardList, Calculator, Flame, Code,
 } from 'lucide-react';
 
 // Значок роли по её имени из настроек. Список закрытый: роль заводит человек,
@@ -19,6 +19,7 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   'clipboard-list': ClipboardList,
   'calculator': Calculator,
   'flame': Flame,
+  'code': Code,
 };
 
 export default function RoleIcon({ name, className }: { name?: string; className?: string }) {

@@ -347,6 +347,19 @@ export function UsersAppIcon(props: FluxAppIconProps) {
   );
 }
 
+/** 22. Flux Store (`/store`): сумка с зелёным «+» — поставить подпрограмму */
+export function StoreAppIcon(props: FluxAppIconProps) {
+  return (
+    <SvgBox {...props}>
+      <path d="M11 11V9.2a5 5 0 0 1 10 0V11" stroke="#475569" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M5.6 11h20.8l-1.2 15.2a1.8 1.8 0 0 1-1.8 1.6H8.6a1.8 1.8 0 0 1-1.8-1.6z" fill="#e9f1f7" stroke="#475569" strokeWidth="1.25" strokeLinejoin="round" />
+      <path d="M16 11h10.4l-1.2 15.2a1.8 1.8 0 0 1-1.8 1.6H16z" fill="#d8e3ee" />
+      <circle cx="16" cy="19.4" r="4.6" fill="#10b981" stroke="#475569" strokeWidth="1.15" />
+      <path d="M16 17v4.8M13.6 19.4h4.8" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" />
+    </SvgBox>
+  );
+}
+
 export const APP_ICON_BY_PATH: Record<string, React.ComponentType<FluxAppIconProps>> = {
   '/': HomeAppIcon,
   '/projects': ProjectsAppIcon,
@@ -360,6 +373,7 @@ export const APP_ICON_BY_PATH: Record<string, React.ComponentType<FluxAppIconPro
   '/e3flux': E3FluxAppIcon,
   '/archives': ArchivesAppIcon,
   '/explorer': ExplorerAppIcon,
+  '/store': StoreAppIcon,
   '/sheet': SheetAppIcon,
   '/office/sheet': SheetAppIcon,
   '/office-sheet': SheetAppIcon,
