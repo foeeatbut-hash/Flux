@@ -961,6 +961,7 @@ registerUpdateRoutes(app, {
   dataDir: ventAppDataPath,
   notifyAll: (category, title, body, route, by) => notifyAll(category, title, body, route, by),
   broadcast: (event, payload) => { try { io.emit(event, payload); } catch (_) {} },
+  can: userCan,
 });
 
 // Насколько большой файл примет эта база — server/limits.ts. Окно спрашивает

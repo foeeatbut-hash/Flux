@@ -31,6 +31,7 @@ import { useWindowStore } from './store/windowStore';
 import { useDisplayStore } from './store/displayStore';
 import { mayClose } from './lib/closeGuard';
 import OwnedFileShareSync from './components/explorer/OwnedFileShareSync';
+import StoreSync from './components/store/StoreSync';
 import { ENV_CONFIG } from './config/env';
 import { syncEntityIdMigrationHistory } from './lib/entityIdLocalMigration';
 
@@ -398,6 +399,7 @@ export default function App() {
                 <TagNavigationPanel />
                 <AutomaticIncidentWatcher />
                 <OwnedFileShareSync />
+                <StoreSync />
               </LicenseGate>
             </ServerGate>
           </div>

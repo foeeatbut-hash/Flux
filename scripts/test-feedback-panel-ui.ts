@@ -106,6 +106,21 @@ const check = (name: string, cond: boolean, detail?: unknown) => {
     const doubled = (await mine()).filter((r) => r.title.includes('двойное') && r.title.includes(stamp));
     check('карточка одна', doubled.length === 1, doubled.length);
 
+    console.log('\n5. Обращение из Store сохраняет адресата');
+    await panel.getByRole('button', { name: 'Закрыть' }).click();
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('flux:report-module', { detail: {
+      moduleId: 'test-feedback-module', name: 'Пробная подпрограмма', version: '1.2.3',
+      channel: 'test', apiVersion: '1', developer: 'Разработчик',
+    } })));
+    await box.waitFor();
+    check('выбрана подпрограмма из Store', await panel.getByLabel('Адресат').inputValue() === 'test-feedback-module');
+    await box.fill(`__проба ${stamp} подпрограмма`);
+    const request = page.waitForRequest((r) => r.method() === 'POST' && /\/feedback\/reports$/.test(new URL(r.url()).pathname));
+    await panel.getByRole('button', { name: 'Отправить' }).click();
+    const body = (await request).postDataJSON();
+    check('в запросе версия и канал подпрограммы', body.moduleId === 'test-feedback-module' && body.moduleVersion === '1.2.3' && body.moduleChannel === 'test', body);
+    check('данные Flux не попадают в диагностику разработчика', !body.moduleDiagnostics);
+
     check('ошибок страницы нет', errors.length === 0, errors);
   } finally { await browser.close(); }
   console.log(failed === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${failed}`);

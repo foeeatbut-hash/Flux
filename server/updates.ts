@@ -9,6 +9,7 @@ import { newestFirst } from './updateOrder.js';
 import { ensureTables as ensureDbTables, getDialect } from './ddl.js';
 import { clientDialect, resetSchemaPreparations } from './schemaRuntime.js';
 import { registerUpdateCampaignRoutes } from './routes/updateCampaigns.js';
+import { registerModulePublishingRoutes } from './routes/modulePublishing.js';
 
 export function pickRelease<T extends { version: string }>(list: T[], ok: (r: T) => { ok: boolean; why: string }) {
   const broken: { version: string; why: string }[] = [];
@@ -30,6 +31,8 @@ export interface UpdateDeps {
   dataDir: string;
   notifyAll: (category: string, title: string, body: string, route: string, by: string) => Promise<void>;
   broadcast: (event: string, payload: unknown) => void;
+  /** Права человека (module.develop, module.publish); без него модульные маршруты разработчика закрыты */
+  can?: (user: any, feature: string) => boolean;
   /** Internal dependency for isolated fixtures. HTTP requests never select a verification key. */
   updatePublicKeyHex?: string;
 }
@@ -54,6 +57,8 @@ export async function ensureUpdatePublicationSchema(db: any): Promise<void> {
 
 export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
   registerUpdateCampaignRoutes(app, deps);
+  // Выпуски модулей Flux Studio раздаются тем же путём — через общую базу, с подписью владельца
+  registerModulePublishingRoutes(app, deps);
   app.use('/api/updates', async (_req, res, next) => {
     try { await ensureUpdatePublicationSchema(deps.getPrisma()); next(); }
     catch (e: any) { res.status(503).json({ error: e?.message || 'Схема обновлений недоступна' }); }

@@ -15,6 +15,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
+import { MODULE_VERSION } from '../../../modules/trust/claims';
 import type { Action } from './FeedbackCard';
 
 export interface Assignee { id: string; name: string }
@@ -36,6 +37,7 @@ export const emptyInput = (): ActionInput => ({
 export function whatIsMissing(action: Action, input: ActionInput): string {
   if (action.needs.reason && !input.reason.trim()) return 'Напишите причину — её увидит автор';
   if (action.needs.assignee && !input.assigneeId) return 'Выберите, кто берётся за это';
+  if (action.needs.moduleRelease && !MODULE_VERSION.test(input.resolvedVersion.trim())) return 'Укажите версию подпрограммы с исправлением';
   if (action.needs.release && !input.resolvedVersion.trim() && !input.noReleaseReason.trim()) {
     return 'Укажите версию с исправлением или объясните, почему выпуска не будет';
   }
@@ -112,13 +114,13 @@ export default function ActionForm({ action, assignees, candidates, busy, failur
             <input value={value.resolvedVersion} onChange={(e) => set({ resolvedVersion: e.target.value })}
               placeholder="1.3.0" className={field} />
           </label>
-          <label className="block">
+          {!action.needs.moduleRelease && <label className="block">
             <span className="block text-2xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
               …или почему выпуска не будет
             </span>
             <input value={value.noReleaseReason} onChange={(e) => set({ noReleaseReason: e.target.value })}
               placeholder="Настройка на стороне сервера, обновление не нужно" className={field} />
-          </label>
+          </label>}
         </>
       )}
 

@@ -47,7 +47,7 @@ export const roleColorClass = (color?: string): string =>
 /** Значки на выбор — из тех, что уже есть в программе. */
 export const ROLE_ICONS = [
   'shield-check', 'briefcase', 'airplay', 'cpu', 'user', 'users',
-  'hard-hat', 'wrench', 'ruler', 'clipboard-list', 'calculator', 'flame',
+  'hard-hat', 'wrench', 'ruler', 'clipboard-list', 'calculator', 'flame', 'code',
 ] as const;
 
 // Роли меняются редко, а показываются на каждом экране со списком людей —
@@ -95,6 +95,7 @@ export const FALLBACK_ROLES: Role[] = [
   { id: 'sys-manager', code: 'MANAGER', name: 'Менеджер проектов', description: '', color: 'amber', icon: 'briefcase', level: 20, isSystem: true, sortOrder: 20 },
   { id: 'sys-vent', code: 'ENGINEER_VENT', name: 'Инженер ОВиК', description: '', color: 'sky', icon: 'airplay', level: 50, isSystem: true, sortOrder: 30 },
   { id: 'sys-auto', code: 'ENGINEER_AUTO', name: 'Инженер КИПиА', description: '', color: 'emerald', icon: 'cpu', level: 50, isSystem: true, sortOrder: 40 },
+  { id: 'sys-developer', code: 'MODULE_DEVELOPER', name: 'Разработчик', description: '', color: 'violet', icon: 'code', level: 50, isSystem: true, sortOrder: 50 },
 ];
 
 /** Роль по коду — с запасным вариантом, чтобы список не «терял» сотрудника. */

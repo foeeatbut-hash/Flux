@@ -1342,6 +1342,15 @@ model FeedbackReport {
   impact                    String    @default("NORMAL")
   /// Раздел программы, где случилось
   sectionKey                String    @default("")
+  moduleId                  String?
+  moduleVersion             String?
+  moduleChannel             String?
+  moduleApiVersion          String?
+  moduleDeveloper           String?
+  moduleDiagnosticsJson     String    @default("{}") @db.LongText
+  moduleForwarded           Boolean   @default(false)
+  moduleKnown               Boolean   @default(false)
+  moduleWorkaround          String    @default("") @db.LongText
   projectId                 String?
   /// Когда возникло — по словам автора, а не когда отправлено
   incidentAt                DateTime
@@ -2142,4 +2151,187 @@ model E3Binding {
 
   @@unique([e3ProjectId, elementId])
   @@index([e3ProjectId])
+}
+
+/// Flux Studio: запрос на публикацию модуля. Неизменяем: новая правка —
+/// новый запрос, прежний остаётся в истории. Пакет лежит в ModuleChunk
+/// (blobId = id запроса). Подпись разработчика (или владельца — «изменения
+/// владельца») стоит на описании пакета, сервер сверяет её при приёме.
+model ModuleRequest {
+  id            String    @id @default(uuid())
+  moduleId      String
+  version       String
+  /// Подписанная запись запроса FLUXMODREQ1 (modules/trust/envelope.ts)
+  signature     String @db.LongText
+  /// SHA-256 подписи: повтор той же отправки не плодит строк
+  signatureHash String    @unique
+  authorKey     String
+  authorId      String    @default("")
+  byOwner       Boolean   @default(false)
+  parentId      String?
+  baseRelease   String?
+  size          Int
+  sha256        String
+  chunkCount    Int
+  /// pending → returned | rejected | edited | superseded | released
+  state         String    @default("pending")
+  /// Замечания и причина решения владельца (JSON)
+  review        String    @default("") @db.LongText
+  decidedBy     String    @default("")
+  decidedAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([moduleId])
+  @@index([state])
+}
+
+/// Выпуск модуля. Flux верит не строке, а подписи владельца в signature:
+/// у любого сотрудника есть реквизиты базы, и строку может вписать кто угодно.
+model ModuleRelease {
+  id         String   @id @default(uuid())
+  moduleId   String
+  version    String
+  channel    String   @default("production")
+  /// Подписанная запись выпуска FLUXMOD1 — ключом владельца
+  signature  String @db.LongText
+  requestId  String
+  /// Куски пакета (ModuleChunk.blobId): тот же пакет, что пришёл в запросе
+  blobId     String
+  size       Int
+  sha256     String
+  chunkCount Int
+  /// published | revoked — для списка; запуск решает подписанный отзыв
+  state      String   @default("published")
+  createdAt  DateTime @default(now())
+
+  @@unique([moduleId, version])
+  @@index([moduleId])
+}
+
+/// Кусок пакета модуля — по 256 КиБ, как у обновлений: большой пакет одним
+/// полем не проходит предел размера пакета MariaDB.
+model ModuleChunk {
+  id     String @id @default(uuid())
+  blobId String
+  idx    Int
+  data   Bytes  @db.LongBlob
+
+  @@unique([blobId, idx])
+  @@index([blobId])
+}
+
+/// Сертификат разработчика: «ключ X может присылать запросы», подписан владельцем
+model ModuleCertificate {
+  id        String   @id @default(uuid())
+  keyHex    String   @unique
+  userId    String
+  name      String   @default("")
+  signature String @db.LongText
+  createdAt DateTime @default(now())
+}
+
+/// Отзыв выпуска или ключа разработчика, подписан владельцем. Flux помнит
+/// увиденные отзывы у себя: удалить строку отсюда — не значит отменить отзыв.
+model ModuleRevocation {
+  id            String   @id @default(uuid())
+  kind          String
+  target        String
+  reason        String   @default("") @db.LongText
+  signature     String @db.LongText
+  signatureHash String   @unique
+  createdAt     DateTime @default(now())
+
+  @@index([target])
+}
+
+/// Назначение канала (откат), подписано владельцем: выпуски канала выше
+/// версии не запускаются. Flux помнит увиденные назначения у себя, а из двух
+/// по паре «модуль, канал» действует позднее (modules/trust/claims.ts, PinClaim).
+model ModuleChannelPin {
+  id            String   @id @default(uuid())
+  moduleId      String
+  channel       String
+  /// Пусто — ограничение снято
+  version       String   @default("")
+  reason        String   @default("") @db.LongText
+  signature     String @db.LongText
+  signatureHash String   @unique
+  createdAt     DateTime @default(now())
+
+  @@index([moduleId, channel])
+}
+
+/// Решения администратора по подпрограмме в Flux Store: допуск, устаревшая,
+/// закрепление версии, обязательность для должностей. Это политика, а не
+/// защита: что можно запустить, решает подпись владельца на выпуске.
+model ModuleStoreEntry {
+  id              String   @id @default(uuid())
+  moduleId        String   @unique
+  /// pending | admitted | delisted | banned
+  status          String   @default("pending")
+  /// Устаревшая: новым не ставится, у установивших работает
+  deprecated      Boolean  @default(false)
+  /// Пользователи не обновят выше этой версии; пусто — без закрепления
+  pinVersion      String   @default("")
+  /// JSON-список кодов должностей, для которых действует закрепление; пусто — для всех
+  pinRoles        String   @default("[]") @db.LongText
+  /// JSON-список кодов должностей, которым подпрограмма ставится сама
+  requiredRoles   String   @default("[]") @db.LongText
+  requiredVersion String   @default("")
+  note            String   @default("") @db.LongText
+  updatedBy       String   @default("")
+  updatedAt       DateTime @default(now()) @updatedAt
+}
+
+/// Что установлено у человека (не у компьютера): на другом его компьютере те же
+/// подпрограммы ставятся одной кнопкой. Запускает Flux только то, что
+/// установлено в локальном выборе главного процесса и подписано владельцем.
+model ModuleInstall {
+  id          String   @id @default(uuid())
+  userId      String
+  moduleId    String
+  version     String
+  /// user | required | dependency
+  source      String   @default("user")
+  /// "" — как общий переключатель, on | off — свой у подпрограммы
+  autoUpdate  String   @default("")
+  installedAt DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@unique([userId, moduleId])
+  @@index([moduleId])
+}
+
+/// Журнал Store: кто что поставил, обновил, вернул, удалил, решил
+model ModuleStoreLog {
+  id          String   @id @default(uuid())
+  userId      String
+  userName    String   @default("")
+  moduleId    String
+  action      String
+  fromVersion String   @default("")
+  toVersion   String   @default("")
+  detail      String   @default("") @db.LongText
+  createdAt   DateTime @default(now())
+
+  @@index([moduleId, createdAt])
+  @@index([userId, createdAt])
+}
+
+/// Отзыв и оценка: внутренние, видны сотрудникам; одна запись на человека
+model ModuleReview {
+  id        String   @id @default(uuid())
+  moduleId  String
+  userId    String
+  userName  String   @default("")
+  rating    Int
+  text      String   @default("") @db.LongText
+  version   String   @default("")
+  reports   Int      @default(0)
+  hidden    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([moduleId, userId])
+  @@index([moduleId])
 }
