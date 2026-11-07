@@ -313,7 +313,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
       className="relative shrink-0 flex items-center gap-1 pl-2
                  bg-slate-50 dark:bg-dark-surface border-t border-slate-200 dark:border-dark-border"
     >
-      {startOpen && <StartMenu onClose={() => setStartOpen(false)} />}
+      {startOpen && <StartMenu displayId={displayId} onClose={() => setStartOpen(false)} />}
       {showUpdateDialog && <UpdateDialog onClose={() => setShowUpdateDialog(false)} />}
 
       {/* Пуск — единственный цветной значок на панели, чтобы его находили не
@@ -328,6 +328,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
         onClick={() => setStartOpen((v) => !v)}
         aria-expanded={startOpen}
         aria-label="Пуск"
+        data-start-button={displayId ?? 'main'}
         title="Пуск — все программы и поиск"
         style={{ width: BAR_BTN + 8, height: BAR_BTN }}
         className={`flex items-center justify-center rounded-lg shrink-0 cursor-pointer transition-colors

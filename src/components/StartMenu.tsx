@@ -29,12 +29,13 @@ import { useRecentStore } from '../store/recentStore';
 import { visibleRecentDocs, whenLabel, kindName } from '../lib/recentDocs';
 import { BAR_H, START_W, START_COLS, TILE_BOX, TILE_ICON, FOOT_BTN, ICON_SIZE } from '../lib/metrics';
 import { Z } from '../lib/layers';
+import { startMenuFrame } from '../lib/startMenuFrame';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import { can } from '../lib/permissions';
 import { useToastStore } from '../store/toastStore';
 import { AppIcon } from './icons/FluxIcons';
 
-export default function StartMenu({ onClose: closeNow }: { onClose: () => void }) {
+export default function StartMenu({ onClose: closeNow, displayId }: { onClose: () => void; displayId?: number }) {
   // Закрывается сразу, без анимации ухода: отложенное закрытие оставляло
   // окно в 100 мс, когда нажатие «Пуск» переключало ещё не снятое меню и
   // вместо открытия закрывало его. Движение остаётся у появления
@@ -80,6 +81,11 @@ export default function StartMenu({ onClose: closeNow }: { onClose: () => void }
       // меню исчезало вместе с ним, и ни «Закрепить на рабочем столе», ни
       // «Закрепить на панели задач» не срабатывали никогда
       if ((e.target as Element)?.closest?.('[data-context-menu]')) return;
+      // Своя кнопка «Пуск» закрывает меню сама по click (переключатель). Закрыв его
+      // здесь по mousedown, мы получали закрытие и тут же открытие заново.
+      // Кнопка ДРУГОГО монитора сюда не относится: меню закрывается, а её click
+      // открывает его уже на её мониторе
+      if ((e.target as Element)?.closest?.(`[data-start-button="${displayId ?? 'main'}"]`)) return;
       if (!boxRef.current?.contains(e.target as Node)) closeNow();
     };
     window.addEventListener('keydown', onKey);
@@ -245,6 +251,15 @@ export default function StartMenu({ onClose: closeNow }: { onClose: () => void }
     );
   };
 
+  // Положение считает чистая функция: меню встаёт над панелью задач того
+  // монитора, где нажали «Пуск». Портал лежит в body, поэтому из координат
+  // стола переходим в координаты окна по рамке стола
+  const monitor = useWindowStore((s) => s.displays).find((d) => d.id === displayId)?.workArea;
+  const deskBox = document.querySelector('[data-desk]')?.getBoundingClientRect();
+  const frame = startMenuFrame({ work: monitor ?? { x: 0, y: 0, w: deskBox?.width ?? window.innerWidth, h: deskBox?.height ?? window.innerHeight - BAR_H },
+    barInside: !!monitor, width: START_W });
+  const place = { left: (deskBox?.left ?? 0) + frame.left, bottom: window.innerHeight - ((deskBox?.top ?? 0) + frame.bottom), width: frame.width };
+
   return createPortal(
     <div
       ref={boxRef}
@@ -255,7 +270,7 @@ export default function StartMenu({ onClose: closeNow }: { onClose: () => void }
          панели задач и потому оказывалось ПОД окнами программ — Пуск,
          перекрытый окном, читается как «это не система» вернее всего
          остального */
-      style={{ left: 8, bottom: BAR_H + 6, zIndex: Z.start, width: START_W }}
+      style={{ ...place, zIndex: Z.start }}
       /* Стекло (.fx-glass): Пуск — крупная поверхность оболочки, ей просвечивать
          положено; радиус 12 и тень слоя — как у окна и диалога */
       className={`fixed max-w-[calc(100vw-1rem)] fx-rise-in fx-glass
