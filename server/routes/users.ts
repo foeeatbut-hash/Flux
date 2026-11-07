@@ -138,7 +138,7 @@ const ENGINEER_GRANTS = grant(
 // владелец включает его осознанно.
 const DEVELOPER_GRANTS = grant(
   'tags.manage', 'dictionaries.manage', 'equipment.import', 'equipment.manage',
-  'files.upload', 'procurement.manage', 'vdr.manage', 'module.develop',
+  'files.upload', 'procurement.manage', 'docflow.view', 'docflow.edit', 'docflow.issue', 'module.develop',
 );
 const MANAGER_GRANTS = grant(
   'project.manage', 'tags.manage', 'dictionaries.manage', 'equipment.import',
