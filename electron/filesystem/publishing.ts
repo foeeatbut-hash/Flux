@@ -49,17 +49,6 @@ export async function freeNameIn(service: WindowsFilesService, parent: { rootId:
   return freeWindowsName(name, candidate => used.some(item => sameWindowsName(item, candidate)), isDirectory);
 }
 
-/** Переносит теги и проекты черновика на файл, который он заменил: свойства существующего файла не затираются. */
-export function mergeDraftMetadata(state: WindowsFilesState, fromFileId: string, toFileId: string): void {
-  const source = state.data.metadata[fromFileId];
-  if (!source || fromFileId === toFileId) return;
-  const target = state.metadata(toFileId);
-  target.tags = [...new Set([...target.tags, ...source.tags])];
-  target.projectIds = [...new Set([...target.projectIds, ...source.projectIds])];
-  if (!target.revision) target.revision = source.revision;
-  if (!target.responsible) target.responsible = source.responsible;
-}
-
 function childrenOf(service: WindowsFilesService, draft: StoredDraft): StoredDraft[] {
   return Object.values(service.state.data.drafts)
     .filter(item => !item.trashed && item.parent.draftId === draft.id && (item.kind === 'directory' || !item.publishedRef))

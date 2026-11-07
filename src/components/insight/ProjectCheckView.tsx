@@ -137,7 +137,7 @@ export default function ProjectCheckView() {
                 {g.findings.slice(0, 200).map(fi => (
                   <Row
                     key={fi.id}
-                    icon={<KindIcon kind={fi.route.startsWith('/equipment') ? 'element' : fi.route.startsWith('/management') ? 'vdr' : 'tag'} />}
+                    icon={<KindIcon kind={fi.route.startsWith('/equipment') ? 'element' : fi.route.startsWith('/docflow') ? 'vdr' : 'tag'} />}
                     title={fi.title}
                     subtitle={fi.subtitle}
                     onClick={() => go(fi.route)}
@@ -145,7 +145,7 @@ export default function ProjectCheckView() {
                       ? () => openWhere('element' as UsageKind, fi.id, true)
                       : fi.route.startsWith('/registry?focus=')
                         ? () => openWhere('tag' as UsageKind, fi.id, true)
-                        : fi.route.startsWith('/management?vdr=')
+                        : fi.route.startsWith('/docflow?')
                           ? () => openWhere('vdr' as UsageKind, fi.id, true) : undefined}
                   />
                 ))}

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { getPrisma } from '../context.js';
 import { isAdminActor } from '../projectAccess.js';
 import { canSeeProject } from './members.js';
+import { purposeLabel } from '../../shared/docflow/links.js';
 import { validateBinding, type ProjectFolderBinding, type ProjectFolderBindingLedger, type ProjectFolderBindingView } from '../../src/lib/projectFolderBindings.js';
 
 // Один общий журнал на весь Flux. Папки проектов сетевые и у всех одни и те же, поэтому привязку,
@@ -42,6 +43,12 @@ export async function cleanupProjectFolderBindingLedger(prisma: any, projectId: 
     if (changed.count === 1) return;
   }
   throw new Error('Привязки папок изменились параллельно; повторите удаление проекта.');
+}
+
+/** Привязки папок одного проекта: по ним документооборот проверяет, куда можно связывать файлы. */
+export async function projectBindingsOf(prisma: any, projectId: string): Promise<ProjectFolderBinding[]> {
+  const stored = await prisma.appSetting.findFirst({ where: { key: LEDGER_KEY, userId: LEDGER_OWNER } });
+  try { return parseLedger(stored?.value).bindings.filter((b) => b.projectId === projectId); } catch { return []; }
 }
 
 export interface ProjectFolderBindingDeps {
@@ -111,8 +118,12 @@ export function registerProjectFolderBindingRoutes(app: Express, deps: ProjectFo
       let nextBindings = current.bindings.slice();
       if (operation.kind === 'upsert') {
         const given = operation.binding || {};
-        const binding = { id: given.id || randomUUID(), locationKey: given.locationKey, projectId: given.projectId, label: typeof given.label === 'string' ? given.label.trim() : given.label, actorId, at: new Date().toISOString() } as ProjectFolderBinding;
+        const binding = { id: given.id || randomUUID(), locationKey: given.locationKey, projectId: given.projectId, label: typeof given.label === 'string' ? given.label.trim() : given.label, actorId, at: new Date().toISOString(),
+          ...(given.purpose ? { purpose: given.purpose } : {}), ...(given.locator ? { locator: given.locator } : {}) } as ProjectFolderBinding;
         validateBinding(binding);
+        // У проекта одна папка на назначение: иначе «перенести в рабочую папку» не знало бы, в какую из двух
+        const sameRole = binding.purpose ? nextBindings.find(item => item.projectId === binding.projectId && item.purpose === binding.purpose && item.id !== binding.id && item.locationKey !== binding.locationKey) : undefined;
+        if (sameRole) return res.status(409).json({ error: `У проекта уже есть папка «${purposeLabel(binding.purpose)}»: ${sameRole.label}. Снимите её назначение или выберите другое.` });
         const project = await prisma.project.findUnique({ where: { id: binding.projectId }, select: { id: true } });
         if (!project || !(await canSeeProject(actorId, binding.projectId, admin))) return res.status(403).json({ error: 'Нет доступа к выбранному проекту' });
         const sameKey = nextBindings.findIndex(item => item.locationKey === binding.locationKey);

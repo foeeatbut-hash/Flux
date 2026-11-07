@@ -8,16 +8,16 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight, LayoutGrid, Settings } from 'lucide-react';
 import type { WindowsDraftEntry } from '../../../filesystem/contracts';
-import { draftState, shortWhen, formatSize, type DraftsSection, type DraftState } from '../../lib/draftsPanel';
+import { draftState, shortWhen, formatSize, type DraftProjectOf, type DraftsSection, type DraftState } from '../../lib/draftsPanel';
 import { useDraftsSettings } from '../../store/draftsSettingsStore';
 import { DraftTile, TILE_W, type DraftItemHandlers } from './DraftTile';
 import { IconButton, KindChips, SearchField, SortControl } from './DraftsControls';
 
 export const STRIP_H = { 1: 150, 2: 260 } as const;
 
-export default function DraftsStrip({ sections, shown, total, query, setQuery, openDrafts, selected, handlers, now, status, onSettings, review }: {
+export default function DraftsStrip({ sections, shown, total, query, setQuery, openDrafts, projectOf, selected, handlers, now, status, onSettings, review }: {
   sections: DraftsSection[]; shown: number; total: number; query: string; setQuery: (value: string) => void;
-  openDrafts: ReadonlySet<string>; selected: string | null; handlers: DraftItemHandlers; now: number; status?: React.ReactNode; onSettings: () => void;
+  openDrafts: ReadonlySet<string>; projectOf: DraftProjectOf; selected: string | null; handlers: DraftItemHandlers; now: number; status?: React.ReactNode; onSettings: () => void;
   /** Напоминание о старых: в полосе места для строки нет, поэтому это кнопка в шапке */
   review?: { label: string; open: () => void };
 }) {
@@ -81,7 +81,7 @@ export default function DraftsStrip({ sections, shown, total, query, setQuery, o
             <span className="text-xs text-[var(--flux-text-muted)] [transform:rotate(180deg)] [writing-mode:vertical-rl]">{section.label}</span>
           </div>}
           {section.items.map((entry) => {
-            const state: DraftState = draftState(entry, openDrafts);
+            const state: DraftState = draftState(entry, openDrafts, projectOf);
             return <DraftTile key={entry.draftId} entry={entry} state={state} dot={s.dots} meta={meta(entry)} size={s.icons}
               selected={selected === entry.draftId} handlers={handlers} />;
           })}

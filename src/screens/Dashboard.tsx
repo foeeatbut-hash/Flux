@@ -458,17 +458,17 @@ export default function Dashboard() {
         if (attention?.overdue) rows.push({
           key: 'overdue', tone: 'crit', icon: AlertTriangle,
           text: `Просрочен срок: ${countOf(attention.overdue, 'документ')}`,
-          action: 'Открыть ВДР', go: () => open('/management'),
+          action: 'Открыть ВДР', go: () => open('/docflow'),
         });
         if (attention?.remarks) rows.push({
           key: 'remarks', tone: 'crit', icon: MessageSquareWarning,
           text: `Замечания на вас: ${countOf(attention.remarks, 'документ')}`,
-          action: 'Посмотреть', go: () => open('/management'),
+          action: 'Посмотреть', go: () => open('/docflow'),
         });
         if (attention?.soon) rows.push({
           key: 'soon', tone: 'warn', icon: CalendarClock,
           text: `Срок в ближайшую неделю: ${countOf(attention.soon, 'документ')}`,
-          action: 'Открыть ВДР', go: () => open('/management'),
+          action: 'Открыть ВДР', go: () => open('/docflow'),
         });
         if (chatUnread) rows.push({
           key: 'chat', tone: 'info', icon: MessageSquareWarning,
@@ -512,7 +512,7 @@ export default function Dashboard() {
                 <ul className="mt-0.5 flex flex-col gap-0.5 pl-1">
                   {attention.items.slice(0, 4).map((it) => (
                     <li key={it.id}>
-                      <button type="button" onClick={() => open('/management')}
+                      <button type="button" onClick={() => open('/docflow')}
                         className="w-full text-left text-xs text-slate-500 dark:text-dark-text-muted hover:text-slate-800 dark:hover:text-white cursor-pointer truncate">
                         <span className="code">{it.code || '—'}</span>
                         <span className="mx-1.5">·</span>

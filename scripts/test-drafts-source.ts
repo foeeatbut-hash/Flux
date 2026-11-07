@@ -64,17 +64,15 @@ async function main() {
     console.log('✓ Страницы покрывают все записи без повторов');
 
     const renamed = await service.rename(first.ref, 'Переименованный.txt');
-    await service.setMetadata(renamed.ref, { tags: ['новый тег'], projectIds: ['проект'], revision: 'B', responsible: 'Автор' });
     const fresh = await listDrafts(service);
     const changed = fresh.entries.find(item => item.draftId === first.ref.draftId)!;
     assert.equal(changed.name, 'Переименованный.txt');
     assert.equal(changed.relativePath, 'Проект/Переименованный.txt');
-    assert.deepEqual(changed.metadata.tags, ['новый тег']);
-    assert.equal(changed.metadata.revision, 'B');
-    console.log('✓ Переименование и свойства видны при следующем запросе');
+    assert.equal('metadata' in changed, false, 'удалённые свойства не возвращаются в источник черновиков');
+    console.log('✓ Переименование видно при следующем запросе без локальных свойств');
 
-    assert.ok((await service.metadata(renamed.ref)).history.length > 0);
-    assert.deepEqual(changed.metadata.history, []);
+    assert.ok(service.state.data.metadata[changed.fileId].history.length > 0);
+    assert.equal('history' in changed, false);
     console.log('✓ История не передаётся в списке');
 
     const folder = await service.createDraftFolder(parent, 'Папка');

@@ -30,7 +30,7 @@ console.log('ВДР — «Выгрузить»');
   check('маршрут экспорта отвечает {id,name}, а не байтами книги', /res\.json\(\{\s*id:\s*file\.id,\s*name:\s*file\.name\s*\}\)/.test(server));
   check('старой отдачи buf браузеру не осталось', !/res\.send\(buf\)/.test(server));
 
-  const panel = src('src/screens/VdrPanel.tsx');
+  const panel = src('src/components/vdr/VdrPanel.tsx');
   check('окно открывает получившийся файл (editorHref)', /editorHref\(/.test(panel) && /navigate\(editorHref/.test(panel));
   check('скачивания через <a download> не осталось', !/a\.download\s*=/.test(panel.slice(panel.indexOf('exportXlsx'), panel.indexOf('exportXlsx') + 700)));
 }

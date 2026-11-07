@@ -62,12 +62,12 @@ function bridge(opts: { taken?: string[]; publishFails?: boolean } = {}) {
     assert.equal(calls.at(-1).choices, undefined, 'у дерева выбор по конфликтам не передаётся');
   });
 
-  await ok('«Оставить копию»: копия с метаданными, исходный черновик не переносится', async () => {
+  await ok('«Оставить копию»: копия без локальных свойств, исходный черновик не переносится', async () => {
     const { calls, request } = bridge();
     const outcome = await publishDraftInto(request, file, target, { keepCopy: true });
     assert.equal(outcome.ok, true);
     assert.deepEqual(calls.map((call) => call.action), ['copy', 'publishDraft']);
-    assert.equal(calls[0].carryMeta, true);
+    assert.equal('carryMeta' in calls[0], false);
     assert.equal(calls[1].ref.draftId, 'copy-1', 'публикуется копия, а не исходник');
     assert.match(outcome.message, /Копия осталась в черновиках/);
   });

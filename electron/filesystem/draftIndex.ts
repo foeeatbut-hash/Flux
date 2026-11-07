@@ -25,12 +25,14 @@ export async function listDrafts(service: WindowsFilesService, offset = 0, limit
       relativePath: [draft.parent.relativePath, draft.name].filter(Boolean).join('/'), draftId: draft.id };
     try {
       const entry = await service.entry(ref);
-      const metadata = await service.metadata(ref);
+      // История действий остаётся внутренней: удалённые свойства файла не
+      // нужны ни списку, ни датам виртуальной папки.
+      const history = service.state.data.metadata[entry.fileId]?.history || [];
       // Для старой виртуальной папки неизвестная дата честнее сегодняшней.
-      const createdAt = entry.kind === 'directory' ? draft.createdAt || metadata.history[0]?.at || '' : entry.createdAt;
-      const modifiedAt = entry.kind === 'directory' ? metadata.history.at(-1)?.at || createdAt || '' : entry.modifiedAt;
+      const createdAt = entry.kind === 'directory' ? draft.createdAt || history[0]?.at || '' : entry.createdAt;
+      const modifiedAt = entry.kind === 'directory' ? history.at(-1)?.at || createdAt || '' : entry.modifiedAt;
       entries.push({ ...entry, rootId: ref.rootId, createdAt, modifiedAt,
-        parent: { ...draft.parent }, metadata: { ...metadata, history: [] } });
+        parent: { ...draft.parent } });
     } catch { unreadableCount++; }
   }
   return { entries, total: drafts.length, unreadableCount, nextOffset: offset + limit < drafts.length ? offset + limit : null };

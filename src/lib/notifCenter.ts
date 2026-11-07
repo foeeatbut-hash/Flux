@@ -233,7 +233,7 @@ export function appOf(n: NotifLike): string {
   const route = (n.targetRoute || '').split('?')[0];
   if (route && route !== '#') return route;
   if (n.category === 'ЧАТ') return '/chat';
-  if (n.category === 'ДОКУМЕНТЫ') return '/management';
+  if (n.category === 'ДОКУМЕНТЫ') return '/docflow';
   return '/';
 }
 

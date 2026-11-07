@@ -11,7 +11,6 @@
  */
 import React from 'react';
 import { Users } from 'lucide-react';
-import { StatusChip } from '../explorer/FileItems';
 import { isSystemKind, sortItems, type DeskItem, type SortBy } from '../../lib/desktop';
 import { titleOf } from './DeskIcon';
 
@@ -24,8 +23,6 @@ const when = (v: DeskItem['updatedAt']): string => {
 const COLS: { key: SortBy | null; title: string; cls: string }[] = [
   { key: 'name', title: 'Имя', cls: 'text-left' },
   { key: null, title: 'Тег', cls: 'text-left' },
-  { key: 'status', title: 'Стадия', cls: 'text-left' },
-  { key: null, title: 'Ред.', cls: 'text-right' },
   { key: null, title: 'Менял', cls: 'text-left' },
   { key: 'date', title: 'Изменён', cls: 'text-right' },
 ];
@@ -86,12 +83,6 @@ export default function DeskList({
                 </td>
                 <td className="px-2.5 py-1.5 border-b border-slate-200/70 dark:border-dark-border/70 font-mono text-2xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
                   {sys ? '' : (item.tag || '—')}
-                </td>
-                <td className="px-2.5 py-1.5 border-b border-slate-200/70 dark:border-dark-border/70 whitespace-nowrap">
-                  {sys || item.kind === 'folder' ? <span className="text-slate-400">—</span> : <StatusChip code={item.status} />}
-                </td>
-                <td className="px-2.5 py-1.5 border-b border-slate-200/70 dark:border-dark-border/70 text-right font-mono tabular-nums text-2xs text-slate-500 dark:text-slate-400">
-                  {sys || item.kind === 'folder' ? '' : item.revision || '1'}
                 </td>
                 <td className="px-2.5 py-1.5 border-b border-slate-200/70 dark:border-dark-border/70 text-2xs text-slate-500 dark:text-slate-400 truncate max-w-[180px]">
                   {item.updatedBy || (sys ? '' : '—')}

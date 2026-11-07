@@ -421,7 +421,7 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
         links: snap.vdr.filter(v => v.tagIds.includes(tag.id)).map(v => ({
           kind: 'vdr' as const, id: v.id, title: `${v.contractorNo || v.vdrCode || '—'} · ${v.titleRu}`,
           subtitle: `${v.registerName} · рев. ${v.revision}`,
-          route: `/management?vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
+          route: `/docflow?tab=registry&vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
         })),
       },
       {
@@ -522,7 +522,7 @@ export function whereUsed(snap: ProjectSnapshot, kind: UsageKind, id: string): U
         links: snap.vdr.filter(v => mentions(v.titleRu, file.name)).map(v => ({
           kind: 'vdr' as const, id: v.id, title: `${v.contractorNo || v.vdrCode || '—'} · ${v.titleRu}`,
           subtitle: v.registerName,
-          route: `/management?vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
+          route: `/docflow?tab=registry&vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
         })),
       },
     ];
@@ -622,7 +622,7 @@ export function searchAll(snap: ProjectSnapshot, query: string, limit = 30): Sea
     push({
       kind: 'vdr', id: v.id, title: `${v.contractorNo || v.vdrCode || '—'} · ${v.titleRu}`,
       subtitle: `${v.registerName} · рев. ${v.revision}`,
-      route: `/management?vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
+      route: `/docflow?tab=registry&vdr=${encodeURIComponent(v.registerId)}&item=${encodeURIComponent(v.id)}`,
       score: Math.max(scoreOf(v.contractorNo, q), scoreOf(v.titleRu, q) - 5, scoreOf(v.vdrCode, q) - 10),
     });
   }

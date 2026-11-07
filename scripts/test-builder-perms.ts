@@ -34,7 +34,7 @@ console.log('1. Кому что открыто, пока в записи нич�
   ok('старый сохранённый ключ не разрешает настройку общей почты', !can(user({}, { 'mail.shared': { enabled: true, until: null } }), 'mail.shared.manage'));
   ok('явная выдача нового ключа разрешает настройку общей почты', can(user({}, { 'mail.shared.manage': { enabled: true, until: null } }), 'mail.shared.manage'));
   ok('явный запрет нового ключа сильнее роли', !can(user({ 'mail.shared.manage': { enabled: true, until: null } }, { 'mail.shared.manage': { enabled: false, until: null } }), 'mail.shared.manage'));
-  ok('открыты по умолчанию ровно ведомости и выпуск', JSON.stringify(OPEN_BY_DEFAULT) === JSON.stringify(['builder.edit', 'builder.issue']));
+  ok('открыты по умолчанию ведомости, выпуск и просмотр документооборота (docflow.view заменил vdr.view)', JSON.stringify(OPEN_BY_DEFAULT) === JSON.stringify(['builder.edit', 'builder.issue', 'docflow.view']));
 }
 
 console.log('2. Запрет из карточки сотрудника сохраняется');

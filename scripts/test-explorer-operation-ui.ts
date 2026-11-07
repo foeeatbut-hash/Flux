@@ -2,7 +2,7 @@ import { checks, launch, openStand } from './fixtures/explorer-shell/harness';
 
 const { ok, done } = checks();
 const focusedScenario = Number(process.env.EXPLORER_UI_SCENARIO || 0);
-const selectedScenarios = (process.env.EXPLORER_UI_SCENARIOS || '').split(',').map(Number).filter(Number.isInteger);
+const selectedScenarios = (process.env.EXPLORER_UI_SCENARIOS || '').split(',').filter(Boolean).map(Number).filter(Number.isInteger);
 const shouldRun = (scenario: number) => selectedScenarios.length ? selectedScenarios.includes(scenario) : !focusedScenario || scenario >= focusedScenario;
 (async () => {
   const browser = await launch();
@@ -22,7 +22,7 @@ const shouldRun = (scenario: number) => selectedScenarios.length ? selectedScena
       await page.getByRole('status').filter({ hasText: /копирование collision-replace/u }).waitFor();
       await page.getByRole('button', { name: 'Вставить буфер' }).click();
       const dialog = page.getByRole('dialog', { name: 'Совпадающие имена' }); await dialog.waitFor();
-      await dialog.getByRole('checkbox', { name: /Перенести теги, проекты/ }).check();
+      ok('Перенос удалённых локальных свойств не предлагается', await dialog.getByRole('checkbox', { name: /Перенести теги, проекты/ }).count() === 0);
       await dialog.getByRole('combobox', { name: 'Решение для collision-replace.txt' }).selectOption('replace');
       await dialog.getByRole('combobox', { name: 'Решение для collision-keep.txt' }).selectOption('keepBoth');
       await dialog.getByRole('combobox', { name: 'Решение для collision-skip.txt' }).selectOption('skip');
@@ -30,9 +30,10 @@ const shouldRun = (scenario: number) => selectedScenarios.length ? selectedScena
       await page.waitForFunction(() => (window as any).__fixture.state.files.get('root/collision-replace.txt')?.text === 'bytes:collision-replace.txt' && (window as any).__fixture.state.files.has('root/collision-keep - копия.txt'));
       const results = await page.evaluate(() => {
         const s = (window as any).__fixture.state;
-        return { replace: s.files.get('root/collision-replace.txt')?.text, replaceMeta: s.files.get('root/collision-replace.txt')?.meta, keepBoth: s.files.get('root/collision-keep - копия.txt')?.text, keepMeta: s.files.get('root/collision-keep - копия.txt')?.meta, skip: s.files.get('root/collision-skip.txt')?.text, writes: s.calls.filter((c: any) => ['replaceCopy', 'copy'].includes(c.action)), groups: [...new Set(s.groups)] };
+        return { replace: s.files.get('root/collision-replace.txt')?.text, keepBoth: s.files.get('root/collision-keep - копия.txt')?.text, skip: s.files.get('root/collision-skip.txt')?.text, writes: s.calls.filter((c: any) => ['replaceCopy', 'copy'].includes(c.action)), groups: [...new Set(s.groups)] };
       });
-      ok('Публикация буфера применяет replace / keepBoth / skip поштучно и переносит метаданные по флажку', results.replace === 'bytes:collision-replace.txt' && results.replaceMeta === true && results.keepBoth === 'bytes:collision-keep.txt' && results.keepMeta === true && results.skip === 'target:collision-skip.txt', results);
+      ok('Вставка применяет replace / keepBoth / skip поштучно и сохраняет содержимое', results.replace === 'bytes:collision-replace.txt' && results.keepBoth === 'bytes:collision-keep.txt' && results.skip === 'target:collision-skip.txt', results);
+      ok('Записи не передают удалённый параметр переноса свойств', results.writes.every((item: any) => !('carryMeta' in item)), results.writes);
       ok('Одна вставка группирует все записи одним group id', results.writes.length === 2 && results.writes.every((item: any) => item.group) && results.groups.length === 1, results);
       await page.evaluate(() => (window as any).__ops.undoLast());
       await page.waitForFunction(() => (window as any).__fixture.state.calls.some((call: any) => call.action === 'undo'));

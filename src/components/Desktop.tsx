@@ -62,7 +62,7 @@ function ProjectDesktop() {
   const navigate = useNavigate();
   const {
     items, cells, sortBy, scale, selected, error, personalFolderId, groups,
-    load, select, setCell, arrangeBy, setScale, createFolder, rename, remove, share, setStatus,
+    load, select, setCell, arrangeBy, setScale, createFolder, rename, remove, share,
     acceptDrop, foldIcons, unfoldIcon, renameGroup,
   } = useDesktopStore();
   // Клетка и значок — одного размера у всех, кто их рисует: сетка, значок и
@@ -391,7 +391,6 @@ function ProjectDesktop() {
         { label: 'По имени', checked: sortBy === 'name', icon: <ArrowDownAZ className="w-3.5 h-3.5" />, onClick: () => arrangeBy('name', area) },
         { label: 'По дате', checked: sortBy === 'date', icon: <Clock className="w-3.5 h-3.5" />, onClick: () => arrangeBy('date', area) },
         { label: 'По типу', checked: sortBy === 'kind', icon: <Shapes className="w-3.5 h-3.5" />, onClick: () => arrangeBy('kind', area) },
-        { label: 'По стадии', checked: sortBy === 'status', icon: <Shapes className="w-3.5 h-3.5" />, onClick: () => arrangeBy('status', area) },
       ],
     },
     { label: 'Обновить', separated: true, icon: <RefreshCw className="w-3.5 h-3.5" />, onClick: () => load(projectId) },
@@ -666,10 +665,6 @@ function ProjectDesktop() {
         <DeskProperties
           item={propsItem}
           onClose={() => setProps(null)}
-          onStatus={async (code) => {
-            try { await setStatus(propsItem.id, code, projectId); }
-            catch (e: any) { addToast(e?.message || 'Не удалось сменить стадию', 'error'); }
-          }}
           onOpenPlace={() => {
             setProps(null);
             if (propsItem.folderId) {

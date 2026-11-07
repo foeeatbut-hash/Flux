@@ -82,7 +82,6 @@ export function ensureSchemaColumns(dbPath: string, logInit: (message: string) =
         "equipmentTags" TEXT NOT NULL DEFAULT '[]',
         "status" TEXT NOT NULL DEFAULT 'DRAFT',
         "docId" TEXT,
-        "fileNodeId" TEXT,
         "assigneeId" TEXT,
         "remarks" TEXT NOT NULL DEFAULT '',
         "meta" TEXT NOT NULL DEFAULT '{}',

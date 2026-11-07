@@ -49,16 +49,11 @@ async function main() {
     const write = (name: string, text: string) => fs.writeFile(path.join(root, name), text);
     const read = (name: string) => fs.readFile(path.join(root, name), 'utf8');
     await write('source.txt', 'новое содержимое'); await write('target.txt', 'старое содержимое');
-    await service.setMetadata(ref('source.txt'), { tags: ['AHU-01'], projectIds: ['project'], revision: '2', responsible: 'Автор' });
-    await service.setMetadata(ref('target.txt'), { tags: ['OLD'], projectIds: [], revision: '1', responsible: 'Редактор' });
     const old = await service.fileHash(ref('target.txt'));
-    await replaceCopy(service, { action: 'replaceCopy', ref: ref('source.txt'), parent, name: 'target.txt', targetSha256: old.sha256, carryMeta: true }, 'copy-group');
+    await replaceCopy(service, { action: 'replaceCopy', ref: ref('source.txt'), parent, name: 'target.txt', targetSha256: old.sha256 }, 'copy-group');
     check('Замена записывает выбранную версию и сохраняет источник', await read('target.txt') === 'новое содержимое' && await read('source.txt') === 'новое содержимое');
-    const copiedMeta = await service.metadata(ref('target.txt'));
-    check('На копию переходят теги и проект, ревизия начинается заново', copiedMeta.tags.join() === 'AHU-01' && copiedMeta.projectIds.join() === 'project' && copiedMeta.revision === '');
     await undoLast(service);
     check('Отмена замены возвращает реальные прежние байты', await read('target.txt') === 'старое содержимое');
-    check('Отмена замены возвращает прежние свойства', (await service.metadata(ref('target.txt'))).revision === '1');
     await redoLast(service);
     check('Повтор после отмены заново записывает выбранные байты', await read('target.txt') === 'новое содержимое');
     await write('target.txt', 'внешняя правка');

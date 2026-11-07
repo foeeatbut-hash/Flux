@@ -81,11 +81,9 @@ try {
   await fs.writeFile(path.join(desktop, 'Проект', 'Исходный.md'), 'правки Word');
   await rejects(() => service.write(original, update, fresh.sha256), 'CONFLICT', 'Внешние изменения Word не перезаписываются');
   check(await fs.readFile(path.join(desktop, 'Проект', 'Исходный.md'), 'utf8') === 'правки Word', 'После конфликта внешний оригинал сохранён');
-  const properties = await service.setMetadata(original, { tags: ['AHU1', 'AHU1'], projectIds: ['project1'], revision: 'B', responsible: 'Инженер' });
-  check(properties.tags.length === 1, 'Свойства Flux хранятся отдельно и удаляют дубли тегов');
-  const moved = await service.rename(original, 'Переименованный.md'); check((await service.metadata(moved.ref)).revision === 'B', 'Переименование сохраняет ревизию и историю');
+  const moved = await service.rename(original, 'Переименованный.md');
   check(moved.file.fileId === read.fileId, 'Переименование сохраняет идентичность');
-  const copy = await service.copy(moved.ref, project, 'Копия.md'); check(copy.file.fileId !== moved.file.fileId && !(await service.metadata(copy.ref)).tags.length, 'Копия получает отдельную идентичность без молчаливого переноса тегов');
+  const copy = await service.copy(moved.ref, project, 'Копия.md'); check(copy.file.fileId !== moved.file.fileId, 'Копия получает отдельную идентичность');
   await rejects(() => service.copy(moved.ref, project, 'Копия.md'), 'EEXIST', 'Копирование не перезаписывает существующую цель');
   await rejects(() => service.move(moved.ref, project, 'Копия.md'), 'EEXIST', 'Перенос не заменяет существующий файл');
   const content = Buffer.from('содержимое черновика').toString('base64');
@@ -99,22 +97,17 @@ try {
   check(!(await fs.readdir(path.join(desktop, 'Проект'))).includes('Личный черновик.md'), 'Черновик не создаёт файл в Windows до публикации');
   check((await service.list(project)).entries.some(item => item.storage === 'flux' && item.draftId === draft.ref.draftId), 'Черновик виден рядом с настоящими файлами');
   const fluxTree = await service.createDraftFolder(project, 'Локальное дерево');
-  await service.setMetadata(fluxTree.ref, { tags: ['TREE'], projectIds: ['project-tree'], revision: 'T', responsible: 'Автор дерева' });
   const fluxSubfolder = await service.createDraftFolder(fluxTree.ref, 'Вложенные документы');
-  await service.setMetadata(fluxSubfolder.ref, { tags: ['FOLDER'], projectIds: [], revision: 'F', responsible: '' });
   const fluxDoc = await service.createDraft(fluxSubfolder.ref, 'Расчёт.txt', Buffer.from('данные Flux').toString('base64'));
-  await service.setMetadata(fluxDoc.ref, { tags: ['DOC'], projectIds: ['project-doc'], revision: 'D', responsible: 'Автор файла' });
   check((await service.list(fluxTree.ref)).entries.some(item => item.name === 'Вложенные документы' && item.storage === 'flux'), 'Виртуальная папка показывает вложенный черновик');
   check((await service.list(fluxSubfolder.ref)).entries.some(item => item.name === 'Расчёт.txt' && item.storage === 'flux'), 'Вложенный документ остаётся локальным черновиком');
   const treePublished = await service.publishDraftTree(fluxTree.ref);
   check(treePublished.complete && treePublished.published === 2 && !treePublished.failed.length, 'Публикация рекурсивно создаёт папки и документы без повторного буфера дерева');
   check(await fs.readFile(path.join(desktop, 'Проект', 'Локальное дерево', 'Вложенные документы', 'Расчёт.txt'), 'utf8') === 'данные Flux', 'Вложенные байты опубликованы с исходным относительным путём');
-  const publishedRootMeta = await service.metadata(treePublished.ref);
-  const publishedFolderMeta = await service.metadata({ rootId, relativePath: 'Проект/Локальное дерево/Вложенные документы' });
-  const publishedFileMeta = await service.metadata({ rootId, relativePath: 'Проект/Локальное дерево/Вложенные документы/Расчёт.txt' });
-  check(publishedRootMeta.fileId === fluxTree.file.fileId && publishedRootMeta.revision === 'T' && publishedRootMeta.tags.includes('TREE')
-    && publishedFolderMeta.fileId === fluxSubfolder.file.fileId && publishedFolderMeta.revision === 'F' && publishedFolderMeta.tags.includes('FOLDER')
-    && publishedFileMeta.fileId === fluxDoc.file.fileId && publishedFileMeta.revision === 'D' && publishedFileMeta.tags.includes('DOC'), 'Рекурсивная публикация сохраняет идентичность, теги и ревизии корня, папок и файлов');
+  const publishedRoot = await service.entry(treePublished.ref);
+  const publishedFolder = await service.entry({ rootId, relativePath: 'Проект/Локальное дерево/Вложенные документы' });
+  const publishedFile = await service.entry({ rootId, relativePath: 'Проект/Локальное дерево/Вложенные документы/Расчёт.txt' });
+  check(publishedRoot.fileId === fluxTree.file.fileId && publishedFolder.fileId === fluxSubfolder.file.fileId && publishedFile.fileId === fluxDoc.file.fileId, 'Рекурсивная публикация сохраняет идентичность корня, папок и файлов');
   check(!!service.state.data.drafts[fluxDoc.ref.draftId!], 'Исходные локальные данные остаются восстановимыми после публикации');
   const copySource = await service.createDraftFolder(project, 'Локальный источник');
   const copyNested = await service.createDraftFolder(copySource.ref, 'Вложенная');
@@ -140,14 +133,13 @@ try {
   await rejects(() => service.open(draft.ref), 'DRAFT_NOT_PUBLISHED', 'Системная программа не получает внутренний файл черновика');
   const draftEdited = await service.write(draft.ref, Buffer.from('правки черновика').toString('base64'), draft.file.sha256);
   check(draftEdited.fileId === draft.file.fileId, 'CAS-сохранение черновика сохраняет идентичность');
-  await service.setMetadata(draft.ref, { tags: ['AHU-2'], projectIds: ['project2'], revision: 'C', responsible: 'Автор' });
   const draftRenamed = await service.rename(draft.ref, 'Финальный черновик.md');
   check((await service.read(draft.ref)).name === 'Финальный черновик.md', 'Старая ссылка черновика следует за его переименованием');
   service.close(); service = await WindowsFilesService.create(deps);
   check(Buffer.from((await service.read(draft.ref)).base64, 'base64').toString() === 'правки черновика', 'Локальный черновик и его правки переживают перезапуск');
   const draftPublication = await service.publishDraft(draft.ref);
   check(draftPublication.ref.relativePath === 'Проект/Финальный черновик.md' && draftPublication.file.storage === 'windows', 'Публикация создаёт настоящий файл в сохранённом родителе');
-  check(draftPublication.file.fileId === draft.file.fileId && (await service.metadata(draftPublication.ref)).revision === 'C', 'Публикация переносит идентичность, теги и ревизию черновика');
+  check(draftPublication.file.fileId === draft.file.fileId, 'Публикация переносит идентичность черновика');
   check(!(await service.list(project)).entries.some(item => item.draftId === draft.ref.draftId), 'После публикации остаётся одна карточка файла');
   check((await service.publishDraft(draft.ref)).alreadyPublished, 'Повторная публикация существующего черновика идемпотентна');
   const afterPublish = await service.read(draft.ref);
@@ -164,7 +156,7 @@ try {
   await service.mkdir({ rootId, relativePath: 'Дерево' }, 'Вложенная');
   await fs.writeFile(path.join(desktop, 'Дерево', 'Вложенная', 'Данные.txt'), 'дерево данных');
   const nestedRef = { rootId, relativePath: 'Дерево/Вложенная/Данные.txt' };
-  await service.setMetadata(nestedRef, { tags: ['CHILD'], projectIds: [], revision: 'D', responsible: '' });
+  const nestedFileId = (await service.entry(nestedRef)).fileId;
   const treeDraft = await service.createDraft({ rootId, relativePath: 'Дерево/Вложенная' }, 'Черновик дерева.md', Buffer.from('дочерний черновик').toString('base64'));
   const folderCopy = await service.copy({ rootId, relativePath: 'Дерево' }, { rootId, relativePath: '' }, 'Копия дерева');
   check(await fs.readFile(path.join(desktop, 'Копия дерева', 'Вложенная', 'Данные.txt'), 'utf8') === 'дерево данных', 'Копирование папки проверяет байты всего дерева');
@@ -172,7 +164,7 @@ try {
   await rejects(() => service.copy({ rootId, relativePath: 'Дерево' }, { rootId, relativePath: 'Дерево/Вложенная' }, 'Рекурсия'), 'RECURSIVE_TARGET', 'Папка не копируется внутрь себя');
   await rejects(() => service.copy({ rootId, relativePath: 'Дерево' }, { rootId, relativePath: '' }, 'Копия дерева'), 'EEXIST', 'Копирование дерева не заменяет существующую папку');
   const folderMove = await service.rename({ rootId, relativePath: 'Дерево' }, 'Перенесённое дерево');
-  check((await service.metadata({ rootId, relativePath: 'Перенесённое дерево/Вложенная/Данные.txt' })).revision === 'D', 'Перенос папки сохраняет свойства вложенных файлов');
+  check((await service.entry({ rootId, relativePath: 'Перенесённое дерево/Вложенная/Данные.txt' })).fileId === nestedFileId, 'Перенос папки сохраняет идентичность вложенных файлов');
   const remappedDraft = service.resolveRef(treeDraft.ref);
   check(remappedDraft.relativePath === 'Перенесённое дерево/Вложенная/Черновик дерева.md', 'Перенос папки меняет родителя локального черновика');
   check((await service.publishDraft(treeDraft.ref)).ref.relativePath === remappedDraft.relativePath, 'Черновик публикуется в папку после её переноса');
@@ -206,9 +198,9 @@ try {
   service.closeOwner(8); service.close();
   service = await WindowsFilesService.create(deps);
   check((await service.roots())[0].id === rootId, 'Capability корня сохраняется после перезапуска');
-  check((await service.metadata(moved.ref)).revision === 'B', 'Ревизия сохраняется после перезапуска');
+  check((await service.entry(moved.ref)).fileId === read.fileId, 'Идентичность файла сохраняется после перезапуска');
   check((await service.publish(project, 'Черновик.md', content, 'draft-1')).alreadyPublished, 'Журнал публикации сохраняется после перезапуска');
-  await service.trash(copy.ref); check(trashed.length >= 1 && (await service.metadata(moved.ref)).revision === 'B', 'Удаление использует корзину и не удаляет чужую историю');
+  await service.trash(copy.ref); check(trashed.length >= 1 && (await service.entry(moved.ref)).fileId === read.fileId, 'Удаление использует корзину и не трогает другой файл');
   await rejects(() => service.trash({ rootId, relativePath: '' }), 'ROOT_OPERATION', 'Корень подключённой папки нельзя удалить');
   check((await fs.readdir(path.join(userData, 'windows-files-recovery'))).length > 0, 'Перед заменой сохранён восстановимый снимок');
   const cleanupSource = path.join(sandbox, 'cleanup-source'); const cleanupTarget = path.join(sandbox, 'cleanup-target');
@@ -291,8 +283,7 @@ async function explorerScenarios() {
     check((await run({ query: '', filters: { sizeMin: 20, kind: 'file' } })).hits.map(hit => hit.name).join() === 'Схема.pdf', 'Фильтр по размеру оставляет файлы не меньше заданного');
     const future = new Date(Date.now() + 86_400_000).toISOString();
     check((await run({ query: 'отчёт', filters: { modifiedFrom: future } })).hits.length === 0 && (await run({ query: 'отчёт', filters: { modifiedTo: future } })).hits.length === 3, 'Фильтр по дате изменения отсекает по обе стороны');
-    await svc.setMetadata({ rootId, relativePath: 'Проект/Отчёт 2026.docx' }, { tags: ['Рабочий'], projectIds: ['p1'], revision: 'C', responsible: '' });
-    check((await run({ query: '', filters: { tag: 'рабочий' } })).hits.map(hit => hit.name).join() === 'Отчёт 2026.docx' && (await run({ query: '', filters: { revision: 'c', projectId: 'P1' } })).hits.length === 1, 'Свойства Flux (тег, проект, ревизия) участвуют в поиске');
+    check(await run({ query: '', filters: { tag: 'рабочий', projectId: 'p1', revision: 'c' } as any }).then(() => false, (error) => error?.code === 'INVALID_REQUEST'), 'Условий по тегу, проекту и ревизии больше нет: поиск без текста и без настоящих условий отказывает');
     check((await run({ query: 'отчёт', filters: { onlyDrafts: true } })).hits.map(hit => hit.name).join() === 'Отчёт черновик.md', '«Только черновики» ищет лишь среди неопубликованного');
     const shallow = await run({ query: 'итог', limits: { depth: 1 } });
     check(shallow.hits.length === 0 && (shallow.last.depthSkipped ?? 0) > 0, 'Предел глубины: глубокие папки не просматриваются и это сообщается');
@@ -346,25 +337,17 @@ async function explorerScenarios() {
     await fs.writeFile(path.join(userData, 'windows-files-view-state.json'), '{повреждён');
     check(Object.keys((await ViewStateStore.load(userData)).get(['k89-49'])).length === 0 && (await fs.readdir(userData)).some(name => name.includes('view-state.json.broken-')), 'Повреждённый файл вида не мешает запуску и откладывается для разбора');
 
-    // ---- copy: перенос тегов и проекта
+    // ---- copy: копия — отдельный файл, свойства Flux не переносятся (их больше нет)
     const tagged = { rootId, relativePath: 'Проект/Отчёт 2026.docx' };
-    await svc.setMetadata(tagged, { tags: ['Рабочий', 'AHU1'], projectIds: ['p1', 'p2'], revision: 'C', responsible: 'Автор' });
     const plainCopy = await svc.copy(tagged, project, 'Копия без тегов.docx');
-    const carried = await svc.copy(tagged, project, 'Копия с тегами.docx', { carryMeta: true });
-    const carriedMeta = await svc.metadata(carried.ref);
-    check((await svc.metadata(plainCopy.ref)).tags.length === 0, 'Без carryMeta копия не получает теги, как и раньше');
-    check(carriedMeta.tags.join() === 'Рабочий,AHU1' && carriedMeta.projectIds.join() === 'p1,p2' && carriedMeta.revision === '' && carriedMeta.responsible === '' && carriedMeta.fileId !== (await svc.metadata(tagged)).fileId, 'С carryMeta копия получает теги и проекты, но не ревизию и ответственного, и остаётся отдельным файлом');
-    check((await svc.metadata(tagged)).tags.join() === 'Рабочий,AHU1' && (await svc.metadata(tagged)).revision === 'C', 'Свойства оригинала при копировании не меняются');
+    check(plainCopy.file.fileId !== (await svc.entry(tagged)).fileId, 'Копия остаётся отдельным файлом с собственной идентичностью');
     await fs.mkdir(path.join(desktop, 'Папка с тегами', 'Вложенная'), { recursive: true }); await put('Папка с тегами/a.txt', 'a'); await put('Папка с тегами/Вложенная/b.txt', 'b');
-    await svc.setMetadata({ rootId, relativePath: 'Папка с тегами/Вложенная/b.txt' }, { tags: ['Вложенный'], projectIds: ['p3'], revision: '', responsible: '' });
-    await svc.setMetadata({ rootId, relativePath: 'Папка с тегами' }, { tags: ['Папка'], projectIds: [], revision: '', responsible: '' });
-    const folderCopy = await svc.copy({ rootId, relativePath: 'Папка с тегами' }, root, 'Копия папки', { carryMeta: true });
-    check((await svc.metadata(folderCopy.ref)).tags.join() === 'Папка' && (await svc.metadata({ rootId, relativePath: 'Копия папки/Вложенная/b.txt' })).projectIds.join() === 'p3' && (await svc.metadata({ rootId, relativePath: 'Копия папки/a.txt' })).tags.length === 0, 'Копия папки переносит теги на неё и на вложенные файлы, а у файлов без тегов ничего не заводит');
+    const folderCopy = await svc.copy({ rootId, relativePath: 'Папка с тегами' }, root, 'Копия папки');
+    check((await svc.list(folderCopy.ref)).entries.length === 2 && (await svc.entry({ rootId, relativePath: 'Копия папки/Вложенная/b.txt' })).kind === 'file', 'Копия папки переносит вложенные файлы');
     const taggedDraft = await svc.createDraft(project, 'Тегированный.md', text('д'));
-    await svc.setMetadata(taggedDraft.ref, { tags: ['Д'], projectIds: ['pd'], revision: 'R', responsible: '' });
-    const draftCopy = await svc.copy(taggedDraft.ref, project, 'Копия черновика.md', { carryMeta: true });
-    check((await svc.metadata(draftCopy.ref)).tags.join() === 'Д' && (await svc.metadata(draftCopy.ref)).revision === '', 'Копия черновика переносит теги и проект, ревизию — нет');
-    for (const name of ['Копия без тегов.docx', 'Копия с тегами.docx']) await fs.rm(path.join(desktop, 'Проект', name));
+    const draftCopy = await svc.copy(taggedDraft.ref, project, 'Копия черновика.md');
+    check(draftCopy.file.fileId !== taggedDraft.file.fileId && draftCopy.file.storage === 'flux', 'Копия черновика — отдельный черновик');
+    for (const name of ['Копия без тегов.docx']) await fs.rm(path.join(desktop, 'Проект', name));
     await fs.rm(path.join(desktop, 'Копия папки'), { recursive: true }); await fs.rm(path.join(desktop, 'Папка с тегами'), { recursive: true });
     await svc.journal.save();
 
@@ -473,7 +456,6 @@ async function explorerScenarios() {
     const liveRoot = (await live.roots())[0].id; const lProject = L('Проект');
     // Имя занимается в Windows уже после создания черновика: так совпадение и бывает на деле.
     const doc = await live.createDraft(lProject, 'Док.docx', text('из черновика'));
-    await live.setMetadata(doc.ref, { tags: ['Черновой тег'], projectIds: [], revision: '', responsible: '' });
     await put('Проект/Док.docx', 'существующий'); await put('Проект/Док (2).docx', 'вторая занята');
     const before = (await fs.readdir(path.join(desktop, 'Проект'))).sort().join('|');
     const plan = await planPublication(live, doc.ref);
@@ -487,12 +469,10 @@ async function explorerScenarios() {
     check((await live.list(lProject)).entries.filter(item => item.name.startsWith('Док')).every(item => item.storage === 'windows'), 'После «оставить оба» в списке нет дубля-черновика');
     const rep = await live.createDraft(lProject, 'Заменяемый.docx', text('новое содержимое'));
     await put('Проект/Заменяемый.docx', 'старое содержимое');
-    const oldMeta = await live.setMetadata({ rootId: liveRoot, relativePath: 'Проект/Заменяемый.docx' }, { tags: ['старый тег'], projectIds: [], revision: 'Старая', responsible: '' });
-    await live.setMetadata(rep.ref, { tags: ['новый тег'], projectIds: ['pz'], revision: 'Новая', responsible: '' });
+    const oldFile = await live.entry({ rootId: liveRoot, relativePath: 'Проект/Заменяемый.docx' });
     const replaced = await live.publishDraft(rep.ref, { [rep.ref.draftId!]: 'replace' }) as any;
-    const mergedMeta = await live.metadata({ rootId: liveRoot, relativePath: 'Проект/Заменяемый.docx' });
     check(replaced.replaced === true && await read('Проект/Заменяемый.docx') === 'новое содержимое', '«Заменить» записывает содержимое черновика поверх существующего файла');
-    check(mergedMeta.fileId === oldMeta.fileId && mergedMeta.tags.includes('старый тег') && mergedMeta.tags.includes('новый тег') && mergedMeta.projectIds.includes('pz') && mergedMeta.revision === 'Старая', 'При замене файл остаётся тем же: теги объединяются, ревизия существующего сохраняется');
+    check((await live.entry({ rootId: liveRoot, relativePath: 'Проект/Заменяемый.docx' })).fileId === oldFile.fileId, 'При замене файл остаётся тем же');
     check((await fs.readdir(path.join(undoData, 'windows-files-recovery'))).length > 0 && (await live.list(lProject)).entries.find(item => item.name === 'Заменяемый.docx')?.storage === 'windows', 'Прежнее содержимое сохранено в снимке восстановления; черновик стал опубликованным файлом');
     const kind = await live.createDraft(lProject, 'Папка-б.txt', text('x')); await fs.mkdir(path.join(desktop, 'Проект', 'Папка-б.txt'));
     await rejects(() => live.publishDraft(kind.ref, { [kind.ref.draftId!]: 'replace' }), 'KIND_MISMATCH', 'Файл нельзя «заменить» на месте папки');

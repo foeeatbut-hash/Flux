@@ -361,7 +361,7 @@ function Letter({
                         почте, откуда её потом не найдут */}
                     <button
                       type="button"
-                      title="Сохранить в Проводник проекта"
+                      title="Сохранить в папку проекта в Проводнике"
                       aria-label={`Сохранить ${f.fileName} в Проводник`}
                       onClick={() => onToExplorer(f)}
                       className="shrink-0 p-1 rounded text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"

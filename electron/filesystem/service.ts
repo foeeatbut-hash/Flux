@@ -2,14 +2,14 @@ import fs from 'node:fs/promises';
 import { watch as watchFolder, type FSWatcher, constants } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import type { WindowsFileRef, WindowsFileEntry, WindowsFileMetadata, WindowsFilesChanged, WindowsKnownFolder } from '../../filesystem/contracts';
+import type { WindowsFileRef, WindowsFileEntry, WindowsFilesChanged, WindowsKnownFolder } from '../../filesystem/contracts';
 import { WindowsFilesError, resolveSafePath, validateWindowsName, joinRelative, isContained } from './paths';
 import { inspectWindowsTree, copyWindowsTree, cleanCreatedWindowsTree } from './tree';
 import { WindowsFilesState, type StoredDraft } from './state';
 import { snapshotFile } from './fileSnapshot';
 import { replaceWindowsFile } from './replace';
 import { isNetworkFolder } from './network';
-import { existingAt, freeNameIn, mergeDraftMetadata, parseChoices } from './publishing';
+import { existingAt, freeNameIn, parseChoices } from './publishing';
 import type { WindowsPublishChoices } from '../../filesystem/contracts';
 import { UndoJournal, fingerprint, type TrashInfo, type UndoOp, type Place } from './undo';
 
@@ -96,13 +96,6 @@ export class WindowsFilesService {
   async restoreFromTrash(info: TrashInfo & { deletedAfter: number } | { path: string; deletedAfter: number; size: number | null; name: string }) {
     if (!this.deps.restoreFromTrash) throw new WindowsFilesError('UNDO_UNAVAILABLE', 'Возврат из корзины Windows недоступен на этом компьютере.');
     await this.deps.restoreFromTrash(info);
-  }
-  /** Теги и проекты переносятся копии как есть; ревизия и история остаются за оригиналом — у копии они начинаются заново. */
-  private carryMetadata(fromId: string, toId: string) {
-    const source = this.state.data.metadata[fromId];
-    if (!source || fromId === toId || (!source.tags.length && !source.projectIds.length)) return;
-    const target = this.state.metadata(toId);
-    target.tags = [...new Set([...target.tags, ...source.tags])]; target.projectIds = [...new Set([...target.projectIds, ...source.projectIds])];
   }
   /** Блокировка по ключу — и для соседних модулей моста, которые правят те же файлы. */
   async locked<T>(key: string, work: () => Promise<T>): Promise<T> {
@@ -271,10 +264,6 @@ export class WindowsFilesService {
         void this.hydrateNetworkBatch(ref, pending, cached).finally(() => keys.forEach(key => this.hydrating.delete(key)));
       }
     }
-    for (const entry of entries) {
-      if (entry.detailsPending) continue;
-      const metadata = this.state.data.metadata[entry.fileId]; if (metadata) entry.metadata = { ...metadata, history: [] };
-    }
     if (!network && this.deps.fileDetails && filename) {
       const physical = entries.filter(entry => !entry.draftId);
       const details = await this.deps.fileDetails(physical.map(entry => path.join(filename, entry.name))).catch(() => []);
@@ -300,8 +289,7 @@ export class WindowsFilesService {
           const canonicalId = this.identityFromStat(filename, stat);
           const uiKey = provisional.uiKey || provisional.fileId;
           this.state.data.identity[uiKey] = canonicalId;
-          const metadata = this.state.data.metadata[canonicalId];
-          return { filename, transient: false, entry: { ...provisional, fileId: canonicalId, uiKey, ...(metadata ? { metadata: { ...metadata, history: [] } } : {}), kind: stat.isSymbolicLink() ? 'link' as const : stat.isDirectory() ? 'directory' as const : stat.isFile() ? 'file' as const : 'other' as const, size: Number(stat.size), modifiedAt: stat.mtime.toISOString(), createdAt: stat.birthtime.toISOString(), linked: stat.isSymbolicLink(), hidden: process.platform !== 'win32' && path.basename(filename).startsWith('.'), detailsPending: false } };
+          return { filename, transient: false, entry: { ...provisional, fileId: canonicalId, uiKey, kind: stat.isSymbolicLink() ? 'link' as const : stat.isDirectory() ? 'directory' as const : stat.isFile() ? 'file' as const : 'other' as const, size: Number(stat.size), modifiedAt: stat.mtime.toISOString(), createdAt: stat.birthtime.toISOString(), linked: stat.isSymbolicLink(), hidden: process.platform !== 'win32' && path.basename(filename).startsWith('.'), detailsPending: false } };
         } catch (error: any) {
           // Любая ошибка (в том числе таймаут и сетевые коды) закрывает строку без сведений: иначе она вечно «ожидает».
           return { filename: '', transient: !['ENOENT', 'EACCES', 'EPERM'].includes(error?.code), entry: { ...provisional, detailsPending: false } };
@@ -577,7 +565,6 @@ export class WindowsFilesService {
         const current = await this.read(target);
         const written = await this.write(target, content.base64, current.sha256);
         this.state.data.publications[draft.id] = { ref: target, sha256: content.sha256, fileId: current.fileId, status: 'complete' };
-        mergeDraftMetadata(this.state, this.draftFileId(draft.id), current.fileId);
         draft.publishedRef = target;
         await this.state.history(current.fileId, 'publish-replace', target.relativePath, content.sha256);
         return { ref: target, file: written, alreadyPublished: false, replaced: true };
@@ -625,7 +612,6 @@ export class WindowsFilesService {
     try {
       if (mergeRoot) {
         rootDraft.publishedRef = destination;
-        mergeDraftMetadata(this.state, this.draftFileId(rootDraft.id), await this.identity(rootFilename));
         await this.state.save();
       } else {
         await fs.mkdir(rootFilename);
@@ -669,8 +655,7 @@ export class WindowsFilesService {
             const childTarget = child.publishedRef || target;
             if (!child.publishedRef) {
               const childFilename = await this.filename(target, true);
-              if (mode === 'merge') mergeDraftMetadata(this.state, this.draftFileId(child.id), await this.identity(childFilename));
-              else { await fs.mkdir(childFilename); await this.preserveIdentity(childFilename, this.draftFileId(child.id), false); }
+              if (mode !== 'merge') { await fs.mkdir(childFilename); await this.preserveIdentity(childFilename, this.draftFileId(child.id), false); }
               child.publishedRef = target;
               await this.state.save(); published++;
             }
@@ -685,7 +670,6 @@ export class WindowsFilesService {
               // Содержимое заменяется обычным сохранением: снимок прежней версии и ReplaceFile с правами исходника.
               const current = await this.read(target); const draftContent = await this.read(childRef);
               await this.write(target, draftContent.base64, current.sha256);
-              mergeDraftMetadata(this.state, this.draftFileId(child.id), current.fileId);
               child.publishedRef = target; await this.state.history(current.fileId, 'publish-replace', target.relativePath, draftContent.sha256); await this.state.save();
               published++; continue;
             }
@@ -740,18 +724,17 @@ export class WindowsFilesService {
     const filename = await this.filename(ref, true);
     return { ref, filename };
   }
-  async copy(ref: WindowsFileRef, parent: WindowsFileRef, name: string, opts: OpOptions & { carryMeta?: boolean } = {}) {
-    const result = await this.copyCore(ref, parent, name, opts.carryMeta === true);
+  async copy(ref: WindowsFileRef, parent: WindowsFileRef, name: string, opts: OpOptions = {}) {
+    const result = await this.copyCore(ref, parent, name);
     await this.record(`Копирование «${name}»`, { kind: 'create', at: result.ref, fingerprint: await fingerprint(this, result.ref) }, opts);
     return result;
   }
-  private async copyCore(ref: WindowsFileRef, parent: WindowsFileRef, name: string, carry: boolean) {
+  private async copyCore(ref: WindowsFileRef, parent: WindowsFileRef, name: string) {
     ref = this.resolveRef(ref);
     if (ref.draftId) {
       const draft = this.draft(ref);
       if (draft.kind !== 'directory') {
         const copiedFile = await this.createDraft(parent, name, (await this.read(ref)).base64, { silent: true });
-        if (carry) { this.carryMetadata(this.draftFileId(draft.id), this.draftFileId(copiedFile.ref.draftId!)); await this.state.save(); }
         return copiedFile;
       }
       let ancestor = parent.draftId; const seen = new Set<string>();
@@ -761,7 +744,6 @@ export class WindowsFilesService {
         seen.add(ancestor); ancestor = this.state.data.drafts[ancestor]?.parent.draftId;
       }
       const copied = await this.createDraftFolder(parent, name, { silent: true }); let count = 1; let bytesTotal = 0;
-      if (carry) this.carryMetadata(this.draftFileId(draft.id), this.draftFileId(copied.ref.draftId!));
       const clone = async (sourceId: string, target: WindowsFileRef, depth: number): Promise<void> => {
         if (depth > 64) throw new WindowsFilesError('TREE_TOO_LARGE', 'Вложенность черновиков превышает 64 папки.');
         const children = Object.values(this.state.data.drafts).filter(item => !item.trashed && !item.publishedRef && item.parent.draftId === sourceId);
@@ -769,19 +751,16 @@ export class WindowsFilesService {
           if (++count > 5000) throw new WindowsFilesError('TREE_TOO_LARGE', 'Копирование ограничено 5000 объектами.');
           if (child.kind === 'directory') {
             const folder = await this.createDraftFolder(target, child.name, { silent: true });
-            if (carry) this.carryMetadata(this.draftFileId(child.id), this.draftFileId(folder.ref.draftId!));
             await clone(child.id, folder.ref, depth + 1);
           } else {
             const ref = { rootId: child.parent.rootId, relativePath: joinRelative(child.parent.relativePath, child.name), draftId: child.id };
             const content = await this.read(ref); bytesTotal += content.size;
             if (bytesTotal > 512 * 1024 * 1024) throw new WindowsFilesError('TREE_TOO_LARGE', 'Копирование ограничено 512 МБ.');
             const copiedChild = await this.createDraft(target, child.name, content.base64, { silent: true });
-            if (carry) this.carryMetadata(this.draftFileId(child.id), this.draftFileId(copiedChild.ref.draftId!));
           }
         }
       };
       await clone(draft.id, copied.ref, 1);
-      if (carry) await this.state.save();
       return copied;
     }
     const source = await this.filename(ref); const stat = await fs.stat(source);
@@ -789,14 +768,9 @@ export class WindowsFilesService {
     if (stat.isDirectory()) {
       if (isContained(source, target.filename)) throw new WindowsFilesError('RECURSIVE_TARGET', 'Нельзя скопировать папку внутрь неё самой.');
       const plan = await inspectWindowsTree(source);
-      // Идентичность исходных файлов снимается до копирования: потом они остаются на месте, но это дешевле, чем гадать.
-      const sourceIds = carry ? await Promise.all(plan.map(async item => ({ relative: item.relative, fileId: await this.identity(item.relative ? path.join(source, ...item.relative.split('/')) : source) }))) : [];
       await copyWindowsTree(source, target.filename, plan);
-      for (const item of sourceIds) this.carryMetadata(item.fileId, await this.identity(item.relative ? path.join(target.filename, ...item.relative.split('/')) : target.filename));
     } else if (stat.isFile()) {
-      const sourceId = carry ? await this.identity(source) : '';
       await fs.copyFile(source, target.filename, constants.COPYFILE_EXCL);
-      if (carry) this.carryMetadata(sourceId, await this.identity(target.filename));
     }
     else throw new WindowsFilesError('UNSUPPORTED_ENTRY', 'Этот тип файла копируется средствами Windows.');
     const originals = stat.isDirectory() ? Object.values(this.state.data.drafts).filter(draft => !draft.trashed && !draft.publishedRef && draft.parent.rootId === ref.rootId && (draft.parent.relativePath === ref.relativePath || draft.parent.relativePath.startsWith(`${ref.relativePath}/`))) : [];
@@ -804,7 +778,6 @@ export class WindowsFilesService {
       const copiedParent = { rootId: parent.rootId, relativePath: `${target.ref.relativePath}${draft.parent.relativePath.slice(ref.relativePath.length)}` };
       const content = await this.read({ rootId: draft.parent.rootId, relativePath: joinRelative(draft.parent.relativePath, draft.name), draftId: draft.id });
       const copiedDraft = await this.createDraft(copiedParent, draft.name, content.base64, { silent: true });
-      if (carry) this.carryMetadata(this.draftFileId(draft.id), this.draftFileId(copiedDraft.ref.draftId!));
     }
     const result = await this.entry(target.ref); await this.state.history(result.fileId, 'copy', target.ref.relativePath); this.changed(target.ref); return { ref: target.ref, file: result };
   }
@@ -905,7 +878,7 @@ export class WindowsFilesService {
   async draftTrash() {
     return Object.values(this.state.data.drafts).filter(draft => draft.trashed && !draft.publishedRef).map(draft => ({
       ref: { rootId: draft.parent.rootId, relativePath: joinRelative(draft.parent.relativePath, draft.name), draftId: draft.id },
-      name: draft.name, storage: 'flux' as const, fileId: this.draftFileId(draft.id), metadata: this.state.metadata(this.draftFileId(draft.id)),
+      name: draft.name, storage: 'flux' as const, fileId: this.draftFileId(draft.id),
     }));
   }
   async restoreDraft(ref: WindowsFileRef) {
@@ -995,14 +968,6 @@ export class WindowsFilesService {
   }
   async reveal(ref: WindowsFileRef) { ref = this.resolveRef(ref); if (ref.draftId) throw new WindowsFilesError('DRAFT_NOT_PUBLISHED', 'Черновик находится только в Flux. Сначала выберите «Отобразить в Windows».'); this.deps.showItemInFolder(await this.filename(ref)); return { opened: true }; }
   async open(ref: WindowsFileRef) { ref = this.resolveRef(ref); if (ref.draftId) throw new WindowsFilesError('DRAFT_NOT_PUBLISHED', 'Черновик находится только в Flux. Откройте его редактором Flux или опубликуйте в Windows.'); const error = await this.deps.openPath(await this.filename(ref)); if (error) throw new WindowsFilesError('OPEN_FAILED', error); return { opened: true }; }
-  async metadata(ref: WindowsFileRef) { const entry = await this.entry(ref); return this.state.metadata(entry.fileId); }
-  async setMetadata(ref: WindowsFileRef, data: Pick<WindowsFileMetadata, 'tags' | 'projectIds' | 'revision' | 'responsible'>) {
-    if (!data || !Array.isArray(data.tags) || !Array.isArray(data.projectIds) || data.tags.length > 100 || data.projectIds.length > 100
-      || [...data.tags, ...data.projectIds, data.revision, data.responsible].some(value => typeof value !== 'string' || value.length > 200)) throw new WindowsFilesError('INVALID_METADATA', 'Некорректные свойства файла.');
-    const entry = await this.entry(ref); const metadata = this.state.metadata(entry.fileId);
-    metadata.tags = [...new Set(data.tags)]; metadata.projectIds = [...new Set(data.projectIds)]; metadata.revision = data.revision; metadata.responsible = data.responsible;
-    await this.state.history(entry.fileId, 'metadata', ref.relativePath); return metadata;
-  }
   /** Путь файла для нативного помощника Windows (миниатюры, «Открыть с помощью», меню). Остаётся в main; у черновика его нет. */
   async nativePath(ref: WindowsFileRef): Promise<string> {
     const resolved = this.resolveRef(ref);

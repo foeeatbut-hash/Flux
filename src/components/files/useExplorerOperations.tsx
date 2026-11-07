@@ -12,7 +12,7 @@ type Progress = { done: number; total: number; label: string };
 type PublishDialogState = { plan: WindowsPublishPlan; choices: Record<string, WindowsFileChoice>; applyChoice: WindowsFileChoice };
 type ImportDialogState = { ticket: string; parent: WindowsFileRef; result: WindowsImportResult; names: string[]; choices: Record<string, WindowsFileChoice>; applyChoice: WindowsFileChoice; group: string; imported: number; skipped: number; failed: number };
 type ClipConflict = { item: ClipItem; action: 'copy' | 'move'; existing: WindowsFileEntry };
-type ClipDialogState = { items: ClipItem[]; parent: WindowsFileRef; conflicts: ClipConflict[]; choices: Record<string, WindowsFileChoice>; applyChoice: WindowsFileChoice; copyModifier: boolean; cut?: boolean; sourceClip: boolean; carryMeta: boolean };
+type ClipDialogState = { items: ClipItem[]; parent: WindowsFileRef; conflicts: ClipConflict[]; choices: Record<string, WindowsFileChoice>; applyChoice: WindowsFileChoice; copyModifier: boolean; cut?: boolean; sourceClip: boolean };
 type Listing = { entries: WindowsFileEntry[]; nextOffset: number | null; truncated: boolean };
 const EMPTY_UNDO: WindowsUndoState = { undo: null, redo: null };
 const CHOICES = [
@@ -49,8 +49,6 @@ export function useExplorerOperations({ folder, reload, selected: _selected, roo
   const [busy, setBusy] = useState(false);
   const [canCancel, setCanCancel] = useState(false);
   const [cancelRequested, setCancelRequested] = useState(false);
-  const [carryMetaState, setCarryMetaState] = useState(false);
-  const [carryMeta, setCarryMeta] = useState(false);
   const [undo, setUndo] = useState<WindowsUndoState>(EMPTY_UNDO);
   const [progress, setProgress] = useState<Progress>();
   const [error, setError] = useState('');
@@ -135,7 +133,7 @@ export function useExplorerOperations({ folder, reload, selected: _selected, roo
     }, state.group);
   }, [addToast, response, run]);
 
-  const executeClip = useCallback(async (items: ClipItem[], parent: WindowsFileRef, choices: Record<string, WindowsFileChoice>, copyModifier: boolean, listed?: WindowsFileEntry[], clipOptions?: { cut: boolean; sourceClip: boolean; carryMeta: boolean }) => {
+  const executeClip = useCallback(async (items: ClipItem[], parent: WindowsFileRef, choices: Record<string, WindowsFileChoice>, copyModifier: boolean, listed?: WindowsFileEntry[], clipOptions?: { cut: boolean; sourceClip: boolean }) => {
     const entries = listed || await listDestination(parent, request);
     const existing = new Map(entries.map((entry) => [entry.name.toLocaleLowerCase(), entry]));
     const successful: string[] = [];
@@ -156,9 +154,9 @@ export function useExplorerOperations({ folder, reload, selected: _selected, roo
               response<{ sha256: string; size: number }>({ action: 'fileHash', ref: item.ref }),
               response<{ sha256: string; size: number }>({ action: 'fileHash', ref: { rootId: parent.rootId, relativePath: conflict.relativePath, ...(conflict.draftId ? { draftId: conflict.draftId } : {}) } }),
             ]);
-            await response({ action: 'replaceCopy', ref: item.ref, parent, name, targetSha256: target.sha256, baseSha256: item.sha256 || source.sha256, ...(action === 'move' ? { move: true } : {}), ...(clipOptions?.carryMeta ? { carryMeta: true } : {}), group });
+            await response({ action: 'replaceCopy', ref: item.ref, parent, name, targetSha256: target.sha256, baseSha256: item.sha256 || source.sha256, ...(action === 'move' ? { move: true } : {}), group });
           } else {
-            await response({ action, ref: item.ref, parent, name, ...(action === 'move' && item.sha256 ? { baseSha256: item.sha256 } : {}), ...(action === 'copy' && clipOptions?.carryMeta ? { carryMeta: true } : {}), group });
+            await response({ action, ref: item.ref, parent, name, ...(action === 'move' && item.sha256 ? { baseSha256: item.sha256 } : {}), group });
           }
           existing.set(name.toLocaleLowerCase(), { name, relativePath: parent.relativePath ? `${parent.relativePath}/${name}` : name, storage: 'windows', kind: item.kind, fileId: item.ref.draftId || clipKey(item), size: 0, modifiedAt: '', linked: false });
           successful.push(clipKey(item));
@@ -181,10 +179,9 @@ export function useExplorerOperations({ folder, reload, selected: _selected, roo
     catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : 'Не удалось подготовить буфер обмена.'); }
   }, [request, rootId]);
 
-  const paste = useCallback(async (copyMetadata?: boolean) => {
+  const paste = useCallback(async () => {
     const current = getClip();
     if (!current?.items.length || !folder || busyRef.current) return;
-    const carry = copyMetadata ?? carryMetaState;
     try {
       const entries = await listDestination(folder, request);
       const present = new Map(entries.map((entry) => [entry.name.toLocaleLowerCase(), entry]));
@@ -198,10 +195,10 @@ export function useExplorerOperations({ folder, reload, selected: _selected, roo
         else if (!existing && !inPlaceCopy) present.set(item.name.toLocaleLowerCase(), { name: item.name, relativePath: folder.relativePath ? `${folder.relativePath}/${item.name}` : item.name, storage: 'windows', kind: item.kind, fileId: clipKey(item), size: 0, modifiedAt: '', linked: false });
       }
       if (!mounted.current) return;
-      if (conflicts.length) setClipDialog({ items: current.items, parent: folder, conflicts, choices: Object.fromEntries(conflicts.map(({ item }) => [clipKey(item), 'keepBoth'])), applyChoice: 'keepBoth', copyModifier: false, cut: current.cut, sourceClip: true, carryMeta: carry });
-      else await executeClip(current.items, folder, {}, false, entries, { cut: current.cut, sourceClip: true, carryMeta: carry });
+      if (conflicts.length) setClipDialog({ items: current.items, parent: folder, conflicts, choices: Object.fromEntries(conflicts.map(({ item }) => [clipKey(item), 'keepBoth'])), applyChoice: 'keepBoth', copyModifier: false, cut: current.cut, sourceClip: true });
+      else await executeClip(current.items, folder, {}, false, entries, { cut: current.cut, sourceClip: true });
     } catch (cause) { if (mounted.current) setError(cause instanceof Error ? cause.message : 'Не удалось проверить папку назначения.'); }
-  }, [carryMetaState, executeClip, folder, request]);
+  }, [executeClip, folder, request]);
 
   const trash = useCallback(async (entries: WindowsFileEntry[], permanent = false) => {
     if (!entries.length || busyRef.current) return;
@@ -255,7 +252,7 @@ export function useExplorerOperations({ folder, reload, selected: _selected, roo
             else present.set(item.name.toLocaleLowerCase(), { name: item.name, relativePath: parent.relativePath ? `${parent.relativePath}/${item.name}` : item.name, storage: 'windows', kind: item.kind, fileId: clipKey(item), size: 0, modifiedAt: '', linked: false });
           }
           if (!mounted.current) return;
-          if (entries.length && conflicts.length) setClipDialog({ items, parent, conflicts, choices: Object.fromEntries(conflicts.map(({ item }) => [clipKey(item), 'keepBoth'])), applyChoice: 'keepBoth', copyModifier, sourceClip: false, carryMeta: false });
+          if (entries.length && conflicts.length) setClipDialog({ items, parent, conflicts, choices: Object.fromEntries(conflicts.map(({ item }) => [clipKey(item), 'keepBoth'])), applyChoice: 'keepBoth', copyModifier, sourceClip: false });
           else if (conflicts.length) throw new Error('Не удалось подтвердить свободное имя в папке назначения.');
           else await executeClip(items, parent, {}, copyModifier, entries);
         })().catch((cause) => { if (mounted.current) setError(cause instanceof Error ? cause.message : 'Не удалось проверить папку назначения.'); });
@@ -283,7 +280,7 @@ export function useExplorerOperations({ folder, reload, selected: _selected, roo
   }, [addToast, executeClip, folder, request, response, run]);
 
   const resolveImport = useCallback(async () => { if (!importDialog) return; const state = importDialog; setImportDialog(null); await finishImport(state); }, [finishImport, importDialog]);
-  const resolveClip = useCallback(async () => { if (!clipDialog) return; const state = clipDialog; setClipDialog(null); await executeClip(state.items, state.parent, state.choices, state.copyModifier, undefined, { cut: !!state.cut, sourceClip: state.sourceClip, carryMeta: state.carryMeta }); }, [clipDialog, executeClip]);
+  const resolveClip = useCallback(async () => { if (!clipDialog) return; const state = clipDialog; setClipDialog(null); await executeClip(state.items, state.parent, state.choices, state.copyModifier, undefined, { cut: !!state.cut, sourceClip: state.sourceClip }); }, [clipDialog, executeClip]);
 
   const cancel = useCallback(() => { if (canCancel) { cancelRef.current = true; setCancelRequested(true); } }, [canCancel]);
 
@@ -294,7 +291,7 @@ export function useExplorerOperations({ folder, reload, selected: _selected, roo
     {importDialog && <ImportReview state={importDialog} busy={busy} onChange={setImportDialog} onClose={() => { setImportDialog(null); void reload(); }} onSubmit={() => void resolveImport()} />}
     {clipDialog && <ClipReview state={clipDialog} busy={busy} onChange={setClipDialog} onClose={() => setClipDialog(null)} onSubmit={() => void resolveClip()} />}
   </>;
-  return { busy, undo, progress, clip, carryMeta: carryMetaState, setCarryMeta: setCarryMetaState, refreshUndo,
+  return { busy, undo, progress, clip, refreshUndo,
     copy: (entries: WindowsFileEntry[]) => void take(entries, false), cut: (entries: WindowsFileEntry[]) => void take(entries, true),
     paste, trash, clearClip: () => setClip(null), cancel, undoLast: () => void undoAction('undo'), redoLast: () => void undoAction('redo'), publish, drop, element };
 }
@@ -330,7 +327,6 @@ function ClipReview({ state, busy, onChange, onClose, onSubmit }: { state: ClipD
   const applyAll = () => onChange({ ...state, choices: Object.fromEntries(state.conflicts.map(({ item, existing }) => [clipKey(item), state.applyChoice === 'replace' && !(item.kind === 'file' && existing.kind === 'file') ? 'keepBoth' : state.applyChoice])) });
   return <Dialog title="Совпадающие имена" onClose={onClose} busy={busy} scrollBody footer={<><Btn onClick={onClose} disabled={busy}>Отмена</Btn><Btn tone="primary" onClick={onSubmit} disabled={busy}>Продолжить</Btn></>}>
     <p>Папка назначения проверена полностью. Выберите решение для каждого совпадения; файл можно заменить копированием или переносом.</p>
-    {state.conflicts.some((conflict) => conflict.action === 'copy') && <label className="mt-3 flex items-center gap-2"><input type="checkbox" checked={state.carryMeta} onChange={(event) => onChange({ ...state, carryMeta: event.target.checked })} />Перенести теги, проекты, ревизию и ответственного</label>}
     <div className="mt-3 flex items-end gap-2"><label className="min-w-0 flex-1 text-sm font-medium">Решение для всех совпадений<Select value={state.applyChoice} onChange={(value) => onChange({ ...state, applyChoice: value as WindowsFileChoice })} options={CHOICES} /></label><Btn onClick={applyAll}>Применить ко всем</Btn></div>
     <ul className="my-3 space-y-2">{state.conflicts.map(({ item, action, existing }) => {
       const canReplace = item.kind === 'file' && existing.kind === 'file';

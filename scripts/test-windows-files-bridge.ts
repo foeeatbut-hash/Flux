@@ -313,7 +313,7 @@ process.stdin.on('end', () => process.exit(0));
     const ipcSource = await read(path.join(__dirname, '../electron/filesystem/ipc.ts'));
     check(/WRITE_ACTIONS = new Set\(\[[^\]]*\.\.\.EXPLORER_WRITE_ACTIONS\]\)/u.test(ipcSource), 'ipc подмешивает права на запись команд Проводника в общий список');
     for (const action of ['createDraft', 'createDraftFolder', 'publishDraft', 'publishDraftTree', 'mkdir', 'rename', 'copy', 'move', 'trash']) check(new RegExp(`WRITE_ACTIONS = new Set\\(\\[[^\\]]*'${action}'`, 'u').test(ipcSource), `Прежняя команда ${action} по-прежнему требует права на запись`);
-    check(/carryMeta: request\.carryMeta === true/u.test(ipcSource) && /service\.publishDraft\(request\.ref, request\.choices\)/u.test(ipcSource) && /service\.publishDraftTree\(request\.ref, request\.choices\)/u.test(ipcSource), 'ipc передаёт carryMeta и выбор по объектам до службы');
+    check(!/carryMeta|setMetadata/u.test(ipcSource) && /service\.publishDraft\(request\.ref, request\.choices\)/u.test(ipcSource) && /service\.publishDraftTree\(request\.ref, request\.choices\)/u.test(ipcSource), 'ipc не знает о переносе свойств и передаёт выбор по объектам до службы');
     const preloadSource = await read(path.join(__dirname, '../electron/preload.ts'));
     check(!INVOKE_CHANNELS.has('windows-files:drop-paths') && !SEND_CHANNELS.has('windows-files:drop-paths') && !/pathOfFile[^}]*drop-paths/u.test(preloadSource), 'Канал с путями брошенных файлов не открыт странице через общий мост');
     check(/addEventListener\('drop'[\s\S]{0,200}isTrusted/u.test(preloadSource) && /takeDrop/u.test(preloadSource), 'Билет выдаётся только на настоящее событие drop, а страница получает имена, но не пути');
