@@ -81,6 +81,11 @@ export default function StartMenu({ onClose: closeNow, displayId }: { onClose: (
       // меню исчезало вместе с ним, и ни «Закрепить на рабочем столе», ни
       // «Закрепить на панели задач» не срабатывали никогда
       if ((e.target as Element)?.closest?.('[data-context-menu]')) return;
+      // Своя кнопка «Пуск» закрывает меню сама по click (переключатель). Закрыв его
+      // здесь по mousedown, мы получали закрытие и тут же открытие заново.
+      // Кнопка ДРУГОГО монитора сюда не относится: меню закрывается, а её click
+      // открывает его уже на её мониторе
+      if ((e.target as Element)?.closest?.(`[data-start-button="${displayId ?? 'main'}"]`)) return;
       if (!boxRef.current?.contains(e.target as Node)) closeNow();
     };
     window.addEventListener('keydown', onKey);

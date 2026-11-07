@@ -26,6 +26,18 @@ const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1243/chrome
     const bar1 = await btn(1).boundingBox();
     assert.ok(first && first.x >= 0 && first.x + first.width <= 700, `меню первого монитора внутри него (x=${first?.x})`);
     assert.ok(first && bar1 && first.y + first.height <= bar1.y, 'меню над панелью первого монитора');
+    await btn(1).click();
+    await page.waitForTimeout(150);
+    assert.equal(await menu.count(), 0, 'повторный щелчок по «Пуску» закрывает меню, а не открывает заново');
+    await btn(1).click();
+    await box();
+    await btn(2).click();
+    const moved = await box();
+    assert.equal(await menu.count(), 1, 'меню одно');
+    assert.ok(moved && moved.x >= 700, `щелчок по «Пуску» другого монитора переносит меню туда (x=${moved?.x})`);
+    await btn(1).click();
+    await box();
+    assert.ok((await menu.boundingBox())!.x < 700, 'и обратно');
     await page.keyboard.press('Escape');
     assert.equal(await menu.count(), 0, 'Escape закрывает');
 
