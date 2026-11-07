@@ -48,6 +48,24 @@ const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1243/chrome
     assert.ok(second && bar2 && second.y + second.height <= bar2.y && bar2.y - (second.y + second.height) < 20, `меню прижато к панели второго монитора (низ ${second && second.y + second.height}, панель ${bar2?.y})`);
     assert.ok(second && bar2 && Math.abs(second.x - bar2.x) < 12, 'левый край меню у кнопки «Пуск» второго монитора');
 
+    // Центр уведомлений и помощник: открываются на мониторе, где нажали их кнопку
+    const dock = page.locator('[data-right-dock]');
+    const tray = (id: number, which: 'assist' | 'notif') => page.locator(`[data-display-taskbar="${id}"] [data-tray-toggle]`).nth(which === 'assist' ? 0 : -1);
+    for (const which of ['notif', 'assist'] as const) {
+      for (const id of [2, 1]) {
+        await page.evaluate(() => { (window as any).__fx.closePanels(); });
+        await page.waitForTimeout(300);
+        await tray(id, which).click();
+        await dock.waitFor();
+        await page.waitForTimeout(350);
+        const d = await dock.boundingBox();
+        const t = await tray(id, which).boundingBox();
+        const [lo, hi] = id === 2 ? [700, 1600] : [0, 700];
+        assert.ok(d && t && d.x >= lo - 1 && d.x + d.width <= hi + 1 && d.y + d.height <= t.y + 1, `${which}: на мониторе ${id}, над его панелью (x=${d?.x}, ширина ${d?.width})`);
+      }
+    }
+    await page.evaluate(() => { (window as any).__fx.closePanels(); });
+
     // Обычное окно (один монитор) — как раньше: у левого края, над панелью
     const solo = await browser.newPage({ viewport: { width: 1600, height: 700 } });
     await solo.goto(`${BASE}/scripts/fixtures/start-monitor.html?single=1`);
@@ -57,6 +75,11 @@ const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1243/chrome
     const one = await solo.locator('[role="dialog"][aria-label="Пуск"]').boundingBox();
     const oneBar = await solo.locator('[data-taskbar]').boundingBox();
     assert.ok(one && oneBar && Math.abs(one.x - 8) < 1 && Math.abs(oneBar.y - (one.y + one.height) - 6) < 1.5, `в обычном окне как прежде (x=${one?.x}, зазор ${oneBar && one && oneBar.y - one.y - one.height})`);
+    await solo.locator('[data-tray-toggle]').last().click();
+    await solo.locator('[data-right-dock]').waitFor();
+    await solo.waitForTimeout(350);
+    const sd = await solo.locator('[data-right-dock]').boundingBox();
+    assert.ok(sd && sd.x + sd.width >= 1590 && sd.y + sd.height <= oneBar!.y + 1, `один монитор: панели у правого края над панелью задач (правый край ${sd && sd.x + sd.width})`);
     assert.deepEqual(errors, []);
     console.log('start-monitor-ui: ok');
   } finally { await browser.close(); }
