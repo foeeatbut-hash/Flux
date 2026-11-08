@@ -23,6 +23,8 @@ import { validManifest } from '../schemas';
 import { CONTRACT_VERSION, type ModuleManifest } from '../contract';
 import { effectiveChannel, type PromotionClaim } from './promotion';
 import { compareVersions } from '../../shared/versionCompare';
+import { executionProblem } from './execution';
+import { languageOf, platformOf } from '../engine/types';
 
 export interface RevokedSet { releases: Set<string>; keys: Set<string> }
 // why есть у обоих вариантов: проект собирается без strictNullChecks, и сужение по ok не работает
@@ -97,6 +99,8 @@ export function verifyRelease(input: {
   /** Откат владельца: выпуски канала выше потолка не запускаются */
   caps?: ChannelCaps;
   promotions?: readonly PromotionClaim[];
+  /** ОС этого компьютера (process.platform): выпуск `platform: windows` на другой ОС не запускается. Не указана — не проверяется */
+  hostPlatform?: string;
 }): Verified<RunnableRelease> {
   if (!input.rootHex) return { ok: false, why: 'В этой сборке нет ключа владельца: модули из базы не запускаются' };
   if (!String(input.signature || '').trim()) return { ok: false, why: 'У выпуска нет подписи владельца' };
@@ -122,6 +126,16 @@ export function verifyRelease(input: {
   if (typeof manifest === 'string') return { ok: false, why: manifest };
   if (manifest.contractVersion !== claim.contractVersion) return { ok: false, why: 'Версия договора в подписи и в manifest.json разная' };
   if (!files[RUNTIME_FILE]?.length) return { ok: false, why: `В пакете нет ${RUNTIME_FILE}` };
+  // Язык и платформа подписаны вместе с пакетом: манифест внутри пакета обязан говорить то же,
+  // иначе подпись покрывала бы одну логику, а оболочка запускала бы другую
+  if (languageOf(claim) !== languageOf(manifest) || platformOf(claim) !== platformOf(manifest)) {
+    return { ok: false, why: 'Язык или платформа в подписи и в manifest.json разные' };
+  }
+  if (input.hostPlatform && platformOf(manifest) === 'windows' && input.hostPlatform !== 'win32') {
+    return { ok: false, why: 'Выпуск только для Windows и на этой системе не запускается' };
+  }
+  const execution = executionProblem(manifest, files);
+  if (execution) return { ok: false, why: execution };
   return { ok: true, claim, manifest, files, signature: input.signature };
 }
 
@@ -156,5 +170,7 @@ export function verifyRequest(input: {
   if (typeof manifest === 'string') return { ok: false, why: manifest };
   if (manifest.contractVersion !== claim.meta.contractVersion) return { ok: false, why: 'Версия договора в запросе и в manifest.json разная' };
   if (!files[RUNTIME_FILE]?.length) return { ok: false, why: `В пакете нет ${RUNTIME_FILE}` };
+  const execution = executionProblem(manifest, files);
+  if (execution) return { ok: false, why: execution };
   return { ok: true, claim, files, manifest, byOwner };
 }

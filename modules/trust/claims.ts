@@ -9,6 +9,7 @@
 export const MODULE_CHUNK_BYTES = 256 * 1024;
 /** Модуль — исходники, форма и собранный runtime.js: десятков мегабайт ему не нужно */
 export const MODULE_BUNDLE_MAX = 32 * 1024 * 1024;
+import { LANGUAGES, PLATFORMS, type ModuleLanguage, type ModulePlatform } from '../engine/types';
 export const MODULE_CHANNELS = ['test', 'production'] as const;
 export type ModuleChannel = typeof MODULE_CHANNELS[number];
 
@@ -58,6 +59,13 @@ export interface ReleaseClaim extends BundleDigest {
   /** Ключ разработчика — отзыв его сертификата останавливает и этот выпуск */
   author: string;
   iat: number;
+  /**
+   * Язык логики и платформа (modules/engine). Подписаны вместе с пакетом: подменить
+   * язык у подписанного выпуска нельзя. Поля идут парой; у выпусков, подписанных
+   * до этапа 3а, их нет — это TypeScript на любой ОС.
+   */
+  language?: ModuleLanguage;
+  platform?: ModulePlatform;
 }
 /** Сертификат: «ключ разработчика X может присылать запросы», подписан владельцем */
 export interface CertificateClaim { v: 1; key: string; userId: string; name: string; iat: number }
@@ -105,7 +113,9 @@ export function parseRequestClaim(v: unknown): RequestClaim | null {
 }
 
 export function parseReleaseClaim(v: unknown): ReleaseClaim | null {
-  if (!isObject(v) || !exactKeys(v, ['v', 'moduleId', 'version', 'contractVersion', 'channel', 'notBefore', 'request', 'author', 'iat', 'size', 'sha256', 'chunks'])) return null;
+  const base = ['v', 'moduleId', 'version', 'contractVersion', 'channel', 'notBefore', 'request', 'author', 'iat', 'size', 'sha256', 'chunks'];
+  if (!isObject(v) || !(exactKeys(v, base) || exactKeys(v, [...base, 'language', 'platform']))) return null;
+  if ('language' in v && (!LANGUAGES.includes(v.language as ModuleLanguage) || !PLATFORMS.includes(v.platform as ModulePlatform))) return null;
   if (v.v !== 1 || typeof v.moduleId !== 'string' || !MODULE_ID.test(v.moduleId) || typeof v.version !== 'string' || !MODULE_VERSION.test(v.version)
     || !Number.isSafeInteger(v.contractVersion) || !MODULE_CHANNELS.includes(v.channel as ModuleChannel) || !time(v.notBefore)
     || typeof v.request !== 'string' || !REF.test(v.request) || typeof v.author !== 'string' || !HEX64.test(v.author) || !time(v.iat) || !digest(v)) return null;

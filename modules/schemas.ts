@@ -1,5 +1,6 @@
 import Ajv from 'ajv';
 import { resources, themeKeys } from './contract';
+import { COMPUTE_ERROR_CODES, LANGUAGES, PLATFORMS, SOURCE_LANGUAGES, LOGIC_FILES } from './engine/types';
 
 const text = { type: 'string', maxLength: 8192 };
 const id = { type: 'string', minLength: 1, maxLength: 160 };
@@ -24,7 +25,7 @@ const envelope = { flux: { const: 'module' }, v: { const: 1 }, session: id };
 // Эти JSON Schema — источник проверки сообщений и будущих типов редактора Studio.
 export const messageSchemas = {
   ready: object({ ...envelope, type: { const: 'ready' } }),
-  failure: object({ ...envelope, type: { const: 'failure' }, kind: { enum: ['crash', 'timeout', 'memory', 'bridge'] } }),
+  failure: object({ ...envelope, type: { const: 'failure' }, kind: { enum: ['crash', 'timeout', 'memory', 'bridge', 'controls'] } }),
   read: object({ ...envelope, id, type: { const: 'read' }, resource: { enum: resources }, entityId: id }, ['flux', 'v', 'session', 'id', 'type', 'resource']),
   write: object(
     { ...envelope, id, type: { const: 'write' }, resource: { enum: resources }, entityId: id, data: {} },
@@ -33,6 +34,14 @@ export const messageSchemas = {
   result: { anyOf: resources.map(resource => object({
     ...envelope, id, type: { const: 'result' }, resource: { const: resource }, data: dataSchemas[resource],
   })) },
+  // Расчёт на любом языке: модуль присылает вход, Flux выбирает механизм по подписанному манифесту,
+  // проверяет выход по схеме и возвращает его (modules/engine). Какой язык — модуль не указывает.
+  compute: object({ ...envelope, id, type: { const: 'compute' }, input: { type: 'object' } }),
+  'compute-result': object({
+    ...envelope, id, type: { const: 'compute-result' },
+    output: object({ state: { type: 'object' }, calc: object({ out: { type: 'object' } }) }),
+  }),
+  'compute-error': object({ ...envelope, id, type: { const: 'compute-error' }, code: { enum: [...COMPUTE_ERROR_CODES] } }),
   error: object({ ...envelope, id, type: { const: 'error' }, code: { enum: ['READ_ONLY', 'DENIED', 'NO_PROJECT', 'FAILED', 'LIMIT'] } }),
   event: object({
     ...envelope, type: { const: 'event' }, event: { enum: ['opened', 'project-changed', 'changed'] },
@@ -61,7 +70,16 @@ export const manifestSchema = object({
   id: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,63}$' }, name: text, author: text,
   version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' }, contractVersion: { const: 1 },
   entries: { type: 'array', uniqueItems: true, items: { enum: ['start', 'equipment', 'tag'] } },
-  reads: { type: 'array', uniqueItems: true, items: { enum: resources } }, logic: { const: 'logic/main.ts' },
+  reads: { type: 'array', uniqueItems: true, items: { enum: resources } }, logic: { enum: Object.values(LOGIC_FILES) },
+  language: { enum: [...LANGUAGES] }, sourceLanguage: { enum: [...SOURCE_LANGUAGES] }, platform: { enum: [...PLATFORMS] },
   store: storeBlock,
 }, ['id', 'name', 'author', 'version', 'contractVersion', 'entries', 'reads', 'logic']);
+// Файл логики обязан соответствовать языку: иначе подпись покрывала бы один файл, а запускался другой
+const languageIs = (language: string) => ({ required: ['language'], properties: { language: { const: language } } });
+(manifestSchema as any).allOf = [
+  { if: languageIs('python'), then: { properties: { logic: { const: LOGIC_FILES.python } }, not: { required: ['sourceLanguage'] } } },
+  { if: languageIs('wasm'), then: { properties: { logic: { const: LOGIC_FILES.wasm } }, required: ['sourceLanguage'] } },
+  { if: { not: { required: ['language'], properties: { language: { enum: ['python', 'wasm'] } } } },
+    then: { properties: { logic: { const: LOGIC_FILES.typescript } }, not: { required: ['sourceLanguage'] } } },
+];
 export const validManifest = ajv.compile(manifestSchema);

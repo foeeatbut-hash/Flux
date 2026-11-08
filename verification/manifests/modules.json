@@ -60,7 +60,12 @@
         "server/feedback/moduleRoutes.ts",
         "server/feedback/moduleSignals.ts",
         "server/feedback/reports.ts",
-        "server/feedback/actions.ts"
+        "server/feedback/actions.ts",
+        "modules/engine/types.ts",
+        "modules/engine/json.ts",
+        "modules/engine/controls.ts",
+        "modules/engine/wasmInspect.ts",
+        "modules/trust/execution.ts"
       ]
     }
   ],
@@ -234,6 +239,15 @@
           "name": "FLUX_CHROME"
         }
       ],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-languages",
+      "path": "scripts/test-modules-languages.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
       "timeoutMs": 900000
     }
   ],
