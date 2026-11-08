@@ -48,6 +48,22 @@ export interface DocLinkDto {
   mismatch?: string[];
 }
 
+/** Выпущенная ревизия строки: файл, отпечаток на момент выпуска и признак правки после него. */
+export interface IssueDto {
+  id: string;
+  itemId: string;
+  revision: string;
+  reason: string;
+  /** Календарный день выпуска «ГГГГ-ММ-ДД». */
+  date: string;
+  linkId: string | null;
+  sha256: string;
+  authorId: string | null;
+  createdAt: string;
+  /** Отпечаток файла изменился после выпуска. */
+  changed: boolean;
+}
+
 /** Короткие сведения о строке для столбцов Проводника и ДО, чтобы не запрашивать каждую строку отдельно. */
 export interface LinkedItemBrief {
   id: string;

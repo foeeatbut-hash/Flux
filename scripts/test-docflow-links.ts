@@ -156,12 +156,17 @@ async function main() {
 
     // ── Замечания (возврат) ──
     const file = (await send('GET', '/api/docflow/links?itemId=i1')).body.links.find((l: any) => l.revision === 'B' && l.role === 'file');
-    const remarks = (over: any = {}) => ({ itemId: 'i1', role: 'remarks', toLinkId: file.id, folderKey: RETURNS, relativePath: 'E02/3700-B01-E02-001/B/Замечания.pdf', fileName: 'Замечания.pdf', reviewCode: '2', receivedAt: '2026-11-05', ...over });
+    const remarks = (over: any = {}) => ({ itemId: 'i1', role: 'remarks', toLinkId: file.id, folderKey: RETURNS, relativePath: 'E02/3700-B01-E02-001/B/Замечания.pdf', fileName: 'Замечания.pdf', reviewCode: '2', receivedAt: '2026-11-05', timeZone: 'Europe/Moscow', ...over });
+    check('возврат к невыпущенной ревизии — 422 (выпуск проверяет scripts/test-docflow-issue.ts)', (await send('POST', '/api/docflow/links', remarks())).status === 422);
+    await prisma.docRegisterItemRevision.create({ data: { itemId: 'i1', revision: 'B', reason: 'IFR', linkId: file.id, issuedKey: 'seed-i1-B', sha256: 'a'.repeat(64) } });
     check('замечания без файла ревизии — 422', (await send('POST', '/api/docflow/links', remarks({ toLinkId: undefined }))).status === 422);
     check('замечания вне папки возвратов — 422', (await send('POST', '/api/docflow/links', remarks({ folderKey: INCOMING }))).status === 422);
     check('замечания к файлу чужой строки — 422', (await send('POST', '/api/docflow/links', remarks({ itemId: 'i2' }))).status === 422);
     const rem = await send('POST', '/api/docflow/links', remarks());
     check('замечания привязаны к файлу ревизии, имя не проверяется по маске', rem.status === 200 && rem.body.link.toLinkId === file.id && rem.body.link.revision === 'B' && rem.body.link.reviewCode === '2' && rem.body.check === null, rem.body);
+    check('выпущенный файл не отвязывается и не заменяется', (await send('POST', '/api/docflow/links/unlink', { itemId: 'i1', linkId: file.id })).status === 409
+      && (await send('POST', '/api/docflow/links', body({ relativePath: 'E02/Copy2/3700-B01-E02-001_B.pdf', replace: true }))).status === 409);
+    await prisma.docRegisterItemRevision.update({ where: { issuedKey: 'seed-i1-B' }, data: { issuedKey: null, undoneAt: new Date() } });
     const unl = await send('POST', '/api/docflow/links/unlink', { itemId: 'i1', linkId: file.id, reason: 'файл заменит новая версия' });
     check('отвязка файла уводит в историю и его замечания', unl.status === 200 && unl.body.links.length === 2 && unl.body.links.every((l: any) => !!l.unlinkedAt), unl.body);
     const after = (await send('GET', '/api/docflow/links?itemId=i1&history=1')).body.links;

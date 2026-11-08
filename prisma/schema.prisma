@@ -292,8 +292,18 @@ model DocRegisterItemRevision {
   description String   @default("") // описание изменения
   authorId    String?
   createdAt   DateTime @default(now())
+  /// Выпуск ДО (этап 2б): связь с файлом ревизии, его отпечаток на момент выпуска и
+  /// ключ «строка + ревизия». Ключ уникален только у действующих выпусков (NULL у
+  /// старых записей и у отменённых индексу не мешает): два одновременных выпуска
+  /// одной ревизии не пройдут оба. Отпечаток не меняется слежением за файлом.
+  linkId      String?
+  sha256      String   @default("")
+  issuedKey   String?  @unique
+  planId      String?
+  undoneAt    DateTime?
 
   @@index([itemId])
+  @@index([planId])
 }
 
 model Dictionary {

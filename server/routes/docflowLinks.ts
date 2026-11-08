@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from 'express';
-import { getPrisma, broadcast } from '../context.js';
+import { getPrisma, broadcast, notifyUser } from '../context.js';
 import { isAdminActor } from '../projectAccess.js';
 import { canSeeProject } from './members.js';
 import { LinkError, createLink, itemContext, listLinks, planLink, trackLink, unlinkLink } from '../docflowLinks.js';
@@ -36,9 +36,15 @@ export function registerDocflowLinkRoutes(app: Express): void {
       const result = await createLink(getPrisma(), {
         itemId: text(b.itemId), role: b.role === 'remarks' ? 'remarks' : 'file', toLinkId: text(b.toLinkId) || undefined, folderKey: text(b.folderKey),
         relativePath: text(b.relativePath), fileName: text(b.fileName), sha256: text(b.sha256), size: Number(b.size) || 0, reviewCode: text(b.reviewCode),
-        receivedAt: text(b.receivedAt) || null, replace: b.replace === true,
+        receivedAt: text(b.receivedAt) || null, timeZone: text(b.timeZone), replace: b.replace === true,
       }, String(actorOf(req)?.id || ''));
       announce(result.link.projectId);
+      // Замечания по коду рассмотрения возвращают исполнителю документ в работу — как раньше при правке строки
+      const effect = result.effect;
+      if (effect?.assigneeId && effect.status === 'REMARKS' && effect.previousStatus !== 'REMARKS') {
+        const due = effect.dueDate ? ` · срок ${new Date(effect.dueDate).toLocaleDateString('ru-RU')}` : '';
+        await notifyUser(effect.assigneeId, 'ДОКУМЕНТЫ', `Замечания (код ${effect.reviewCode}): ${effect.title}`, `Заказчик вернул замечания${due}`, `/docflow?tab=registry&item=${encodeURIComponent(result.link.itemId)}`).catch(() => undefined);
+      }
       res.json(result);
     } catch (err) { fail(res, err); }
   });

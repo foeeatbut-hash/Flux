@@ -327,7 +327,7 @@ export async function queryOfficeSource(projectId: string, sourceId: 'management
     ]);
     const stages = json(setting?.value);
     const itemIds = registers.flatMap((register: any) => list(register.items).map((item: any) => item.id));
-    const revisions = itemIds.length ? await soft(db.docRegisterItemRevision.findMany({ where: { itemId: { in: itemIds } }, orderBy: [{ date: 'asc' }, { id: 'asc' }] }), [] as any[]) : [];
+    const revisions = itemIds.length ? await soft(db.docRegisterItemRevision.findMany({ where: { itemId: { in: itemIds }, undoneAt: null }, orderBy: [{ date: 'asc' }, { id: 'asc' }] }), [] as any[]) : [];
     const rows = managementRows(tags, registers, Array.isArray(stages) ? stages : [], revisions);
     return { rows, revision: digest({ projectId, stages, tags: tags.map((tag: any) => [tag.id, tag.updatedAt, tag.metadata]), registers: registers.map((register: any) => [register.id, register.updatedAt, register.items]), revisions }) };
   }
