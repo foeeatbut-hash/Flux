@@ -10,7 +10,11 @@ import { useDisplayStore } from '../../src/store/displayStore';
 import { useDesktopStore } from '../../src/store/desktopStore';
 import { ENV_CONFIG } from '../../src/config/env';
 import DocflowScreen from '../../src/screens/DocflowScreen';
-import { DOCFLOW, docflowBindings, docflowFetch, docflowFiles, posts as docflowPosts } from './docflow-stand';
+import TagCatalogClass from '../../src/components/registry/TagCatalogClass';
+import TagVdrDocs from '../../src/components/registry/TagVdrDocs';
+import FileCell from '../../src/components/vdr/RowFileCells';
+import { CREATE_STAND, createStand, createBridge, createFetch } from './docflow-create-stand';
+import { DOCFLOW, docflowBindings, docflowFetch, docflowFiles, posts as docflowPosts, classStand, kitStand, waitClassStand } from './docflow-stand';
 import type { WindowsFileEntry, WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse, WindowsRoot, WindowsVolume } from '../../filesystem/contracts';
 
 const root: WindowsRoot = { id: 'desktop-id', name: 'Рабочий стол', kind: 'desktop', available: true };
@@ -93,6 +97,8 @@ function childFolders(ref: WindowsFileRef, peek = false) {
 }
 async function invoke(request: WindowsFilesRequest): Promise<WindowsFilesResponse<any>> {
   calls.push(request);
+  const createAnswer = await createBridge(request);
+  if (createAnswer) return createAnswer;
   if (request.action === 'shellMenu' && shellMenuOpenDelayMs) await new Promise((resolve) => setTimeout(resolve, shellMenuOpenDelayMs));
   if (request.action === 'shellMenuInvoke' && shellMenuInvokeDelayMs) await new Promise((resolve) => setTimeout(resolve, shellMenuInvokeDelayMs));
   if (request.action === 'list' && request.ref.relativePath === delayedListPath) await new Promise((resolve) => setTimeout(resolve, 350));
@@ -254,9 +260,15 @@ useDisplayStore.setState({ workspace: { enabled: true, displays: [
 useDesktopStore.getState().pinApp('/registry');
 (window as any).__bindings = (window as any).__bindings || docflowBindings;
 (window as any).__docflowPosts = docflowPosts;
+(window as any).__classStand = classStand;
+(window as any).__kitStand = kitStand;
+(window as any).__createStand = createStand;
 if (DOCFLOW) useStore.setState({ user: { id: 'admin', role: 'ADMIN', name: 'Администратор' } as any });
 (window as any).fetch = async (url: string, init?: RequestInit) => {
   const path = String(url);
+  const createAnswer = await createFetch(path, init);
+  if (createAnswer) return createAnswer;
+  await waitClassStand(path);
   const docflow = docflowFetch(path, init);
   if (docflow) return docflow;
   // Общий журнал привязок: стенд управляется флагами страницы (__canManageBindings, __bindings).
@@ -281,7 +293,7 @@ function Fixture() {
   return <div style={{ position: 'absolute', inset: 0, width: '100vw', height: '100vh' }}>
     {/* Переход между программами должен менять экран: оставшийся Проводник
         иначе прочтёт параметры ДО как своё пустое место и перепишет адрес. */}
-    {desktop ? <WindowsDesktop key={desktop} screenOrigin={{ x: -1280, y: -200 }} /> : <div className="h-full"><LocationDebug />{route.pathname === '/docflow' ? <DocflowScreen /> : <Explorer />}</div>}
+    {desktop ? <WindowsDesktop key={desktop} screenOrigin={{ x: -1280, y: -200 }} /> : <div className="h-full"><LocationDebug />{CREATE_STAND && new URLSearchParams(location.search).get('screen') === 'filecell' ? <FileCell projectId="project-1" itemId="i1" revision="B" role="file" links={[{ id: 'old', itemId: 'i1', revision: 'A', role: 'file', fileName: 'old_A.docx' } as any]} bindings={[]} canAssign onAssign={() => undefined} onChanged={() => undefined} /> : new URLSearchParams(location.search).get('screen') === 'tagclass' ? <TagCatalogClass tag={{ id: 'tag-1', equipment: { type: 'AHU', catalogClassId: classStand.value } }} projectId="project-1" onChanged={() => undefined} /> : new URLSearchParams(location.search).get('screen') === 'tagdocs' ? <TagVdrDocs tagId="tag-1" projectId="project-1" /> : route.pathname === '/docflow' ? <DocflowScreen /> : <Explorer />}</div>}
     <ToastProvider />
   </div>;
 }

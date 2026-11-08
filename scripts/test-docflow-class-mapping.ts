@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import { classMappingErrors } from '../shared/docflow/classMapping';
+import { normalizeDocflowConfig, mergeSections, diffSections } from '../shared/docflow/config';
+
+const input = [{ type: ' ahu ', classId: ' class-a ' }, { type: 'fan', classId: 'class-a' }];
+assert.deepEqual(classMappingErrors(input), []);
+const source = normalizeDocflowConfig({ equipmentClasses: input });
+assert.deepEqual(source.equipmentClasses, [{ type: 'AHU', classId: 'class-a' }, { type: 'FAN', classId: 'class-a' }]);
+assert.deepEqual(normalizeDocflowConfig({}).equipmentClasses, []);
+assert.ok(classMappingErrors([{ type: ' ahu ', classId: 'a' }, { type: 'AHU', classId: 'b' }]).length);
+assert.ok(classMappingErrors([{ type: '', classId: 'a' }, { type: 'FAN', classId: ' ' }]).length);
+assert.ok(classMappingErrors([{ type: 'A'.repeat(101), classId: 'x' }, { type: 'FAN', classId: 'x'.repeat(101) }]).length);
+assert.ok(classMappingErrors(Array.from({ length: 501 }, (_, i) => ({ type: `T${i}`, classId: 'x' }))).length);
+const target = normalizeDocflowConfig({ equipmentClasses: [{ type: 'AHU', classId: 'old' }], kits: [{ classId: 'k', types: ['E02'] }] });
+const copied = mergeSections(target, source, ['equipmentClasses']);
+assert.deepEqual(copied.equipmentClasses, source.equipmentClasses);
+assert.deepEqual(copied.kits, target.kits);
+assert.deepEqual(mergeSections(target, source, ['kits']).equipmentClasses, target.equipmentClasses);
+const lines = diffSections(target, copied, ['equipmentClasses'])[0].lines;
+assert.ok(lines.includes('изменится AHU') && lines.includes('добавится FAN'), JSON.stringify(lines));
+assert.ok(!lines.some(line => line.includes('class-a')), JSON.stringify(lines));
+console.log('Соответствия классов: нормализация, ошибки, перенос и различия проверены');

@@ -1,3 +1,6 @@
+import { normalizeKits, type DocflowKit } from './kits';
+import { normalizeClassMappings, type EquipmentClassMapping } from './classMapping';
+
 /**
  * Настройки документооборота проекта (docs/docflow-program.md, раздел 5).
  *
@@ -37,8 +40,8 @@ export interface DocflowConfig {
   vdrTypes: DocflowDocType[];
   masks: DocflowMasks;
   folders: DocflowFolders;
-  /** Комплекты по классам оборудования — этап 2; хранится и переносится уже сейчас. */
-  kits: Array<{ classId: string; types: string[] }>;
+  equipmentClasses: EquipmentClassMapping[];
+  kits: DocflowKit[];
   deadlines: { milestones: Array<{ code: string; label: string; date: string }>; byType: DocflowDeadline[] };
   signers: DocflowSigners;
   columns: Array<{ key: string; title: string }>;
@@ -78,6 +81,7 @@ export const DEFAULT_DOCFLOW_CONFIG: DocflowConfig = {
   ],
   masks: { file: '{шифр}_{ред}', cipher: '{заказ}-{установка}-{тип}-{номер}', cipherSource: 'contractorNo', ignore: ['*.bak', '~$*', 'Thumbs.db', 'desktop.ini'] },
   folders: { work: '{тип}', issue: '{ред}', returns: '{тип}/{шифр}/{ред}', incoming: '' },
+  equipmentClasses: [],
   kits: [],
   deadlines: { milestones: [], byType: [] },
   signers: { developed: '', checked: '', approved: '', normControl: '' },
@@ -138,7 +142,8 @@ export function normalizeDocflowConfig(raw: any): DocflowConfig {
       returns: typeof folders.returns === 'string' ? text(folders.returns, 200) : d.folders.returns,
       incoming: typeof folders.incoming === 'string' ? text(folders.incoming, 200) : d.folders.incoming,
     },
-    kits: list(r.kits, (k: any) => (k && text(k.classId, 100) ? { classId: text(k.classId, 100), types: list<string>(k.types, (t) => text(t, 20) || null, 200) } : null), 500),
+    equipmentClasses: normalizeClassMappings(r.equipmentClasses),
+    kits: normalizeKits(r.kits),
     deadlines: {
       milestones: list(deadlines.milestones, (m: any) => (m && text(m.code, 40) ? { code: text(m.code, 40), label: text(m.label, 200), date: text(m.date, 30) } : null), 100),
       byType: list<DocflowDeadline>(deadlines.byType, (m: any) => (m && text(m.type, 20) ? { type: text(m.type, 20), from: text(m.from, 40), days: Math.max(0, Number(m.days) || 0), workdays: m.workdays !== false } : null), 500),
@@ -156,6 +161,7 @@ export const DOCFLOW_SECTIONS: Array<{ key: string; label: string; fields: (keyo
   { key: 'types', label: 'Типы документов', fields: ['vdrTypes'] },
   { key: 'masks', label: 'Маски', fields: ['masks'] },
   { key: 'folders', label: 'Папки', fields: ['folders'] },
+  { key: 'equipmentClasses', label: 'Классы оборудования', fields: ['equipmentClasses'] },
   { key: 'kits', label: 'Комплекты', fields: ['kits'] },
   { key: 'deadlines', label: 'Сроки', fields: ['deadlines'] },
   { key: 'signers', label: 'Подписанты', fields: ['signers'] },
@@ -172,10 +178,10 @@ export function mergeSections(target: DocflowConfig, source: DocflowConfig, sect
   return normalizeDocflowConfig(next);
 }
 
-const keyed = (value: unknown): Map<string, string> | null => {
+const keyed = (value: unknown, byType = false): Map<string, string> | null => {
   if (!Array.isArray(value)) return null;
   const map = new Map<string, string>();
-  value.forEach((row: any, i) => map.set(String(row?.code ?? row?.key ?? row?.classId ?? row?.type ?? i), JSON.stringify(row)));
+  value.forEach((row: any, i) => map.set(String(byType ? row?.type ?? i : row?.code ?? row?.key ?? row?.classId ?? row?.type ?? i), JSON.stringify(row)));
   return map;
 };
 
@@ -191,8 +197,8 @@ export function diffSections(before: DocflowConfig, after: DocflowConfig, sectio
     for (const field of section.fields) {
       const a = (before as any)[field];
       const b = (after as any)[field];
-      const ka = keyed(a);
-      const kb = keyed(b);
+      const ka = keyed(a, field === 'equipmentClasses');
+      const kb = keyed(b, field === 'equipmentClasses');
       if (ka && kb) {
         for (const [k, v] of kb) if (!ka.has(k)) lines.push(`добавится ${k}`); else if (ka.get(k) !== v) lines.push(`изменится ${k}`);
         for (const k of ka.keys()) if (!kb.has(k)) lines.push(`уберётся ${k}`);

@@ -22,6 +22,7 @@ on:
       - src/components/ConnectionPanel.tsx
       - scripts/test-*.ts
       - scripts/security-db-equipment-binding-ledger.ts
+      - scripts/security-db-docflow-stage-2.ts
       - prisma/**
       - package.json
       - package-lock.json
@@ -133,6 +134,29 @@ jobs:
           FLUX_BINDING_LEDGER_PROVIDER=mysql node --import tsx scripts/security-db-equipment-binding-ledger.ts
           FLUX_ID_MIGRATION_PROVIDER=postgresql node --import tsx scripts/test-entity-id-migration-sqlite.ts
           FLUX_BINDING_LEDGER_PROVIDER=postgresql node --import tsx scripts/security-db-equipment-binding-ledger.ts
+      - name: Документооборот — классы, комплекты и создание файлов на трёх СУБД
+        env:
+          FLUX_TEST_FIXTURE_DOCFLOW_STAGE2: "1"
+          FLUX_DOCFLOW_MARIA_URL: mysql://root:disposable-ci-fixture-password@127.0.0.1:${{ job.services.mariadb.ports[3306] }}/flux_docflow_stage2_fixture
+          FLUX_DOCFLOW_PG_URL: postgresql://postgres:disposable-ci-fixture-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/flux_docflow_stage2_fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const mariadb = require('mariadb');
+          const { Client } = require('pg');
+          (async () => {
+            const m = new URL(process.env.FLUX_DOCFLOW_MARIA_URL);
+            const db = await mariadb.createConnection({ host: m.hostname, port: Number(m.port), user: decodeURIComponent(m.username), password: decodeURIComponent(m.password) });
+            try { await db.query('CREATE DATABASE `flux_docflow_stage2_fixture`'); } finally { await db.end(); }
+            const p = new URL(process.env.FLUX_DOCFLOW_PG_URL); p.pathname = '/postgres';
+            const pg = new Client({ connectionString: p.toString() }); await pg.connect();
+            try { await pg.query('CREATE DATABASE flux_docflow_stage2_fixture'); } finally { await pg.end(); }
+          })().catch(e => { console.error(e.message); process.exit(1); });
+          NODE
+          FLUX_DOCFLOW_STAGE2_PROVIDER=sqlite node --import tsx scripts/security-db-docflow-stage-2.ts
+          FLUX_DOCFLOW_STAGE2_PROVIDER=mysql FLUX_DOCFLOW_STAGE2_FIXTURE_URL="$FLUX_DOCFLOW_MARIA_URL" node --import tsx scripts/security-db-docflow-stage-2.ts
+          FLUX_DOCFLOW_STAGE2_PROVIDER=postgresql FLUX_DOCFLOW_STAGE2_FIXTURE_URL="$FLUX_DOCFLOW_PG_URL" node --import tsx scripts/security-db-docflow-stage-2.ts
       - name: Обновления через общую MariaDB 10.11
         env:
           FLUX_UPDATE_MARIA_FIXTURE_URL: mysql://root:disposable-ci-fixture-password@127.0.0.1:${{ job.services.mariadb.ports[3306] }}/flux_update_fixture

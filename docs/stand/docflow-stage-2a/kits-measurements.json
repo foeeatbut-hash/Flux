@@ -1,0 +1,458 @@
+[
+  {
+    "name": "kits-settings",
+    "viewportWidth": 1440,
+    "dark": false,
+    "x": 224,
+    "y": 125,
+    "width": 896,
+    "height": 409,
+    "client": 896,
+    "scroll": 896,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.978 0.004 163)",
+      "rgb": [
+        245,
+        249,
+        247,
+        255
+      ],
+      "dark": false,
+      "glass": false,
+      "stored": "light"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "tags-geometry",
+    "viewportWidth": 1440,
+    "dark": false,
+    "toolbarSize": {
+      "height": 40,
+      "clientHeight": 39,
+      "borderBottom": "1px"
+    },
+    "rowHeights": [
+      32,
+      32
+    ]
+  },
+  {
+    "name": "kits-tags",
+    "viewportWidth": 1440,
+    "dark": false,
+    "x": 224,
+    "y": 197,
+    "width": 1200,
+    "height": 128,
+    "client": 1200,
+    "scroll": 1200,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.978 0.004 163)",
+      "rgb": [
+        245,
+        249,
+        247,
+        255
+      ],
+      "dark": false,
+      "glass": false,
+      "stored": "light"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "kits-plan",
+    "viewportWidth": 1440,
+    "dark": false,
+    "x": 218,
+    "y": 228,
+    "width": 1024,
+    "height": 279,
+    "client": 1022,
+    "scroll": 1022,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.978 0.004 163)",
+      "rgb": [
+        245,
+        249,
+        247,
+        255
+      ],
+      "dark": false,
+      "glass": false,
+      "stored": "light"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "kits-tag-card",
+    "viewportWidth": 1440,
+    "dark": false,
+    "x": 16,
+    "y": 48,
+    "width": 1408,
+    "height": 128,
+    "client": 1408,
+    "scroll": 1408,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.978 0.004 163)",
+      "rgb": [
+        245,
+        249,
+        247,
+        255
+      ],
+      "dark": false,
+      "glass": false,
+      "stored": "light"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "kits-settings",
+    "viewportWidth": 1440,
+    "dark": true,
+    "x": 224,
+    "y": 125,
+    "width": 896,
+    "height": 409,
+    "client": 896,
+    "scroll": 896,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.16 0.009 163)",
+      "rgb": [
+        10,
+        15,
+        12,
+        255
+      ],
+      "dark": true,
+      "glass": false,
+      "stored": "dark"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "tags-geometry",
+    "viewportWidth": 1440,
+    "dark": true,
+    "toolbarSize": {
+      "height": 40,
+      "clientHeight": 39,
+      "borderBottom": "1px"
+    },
+    "rowHeights": [
+      32,
+      32
+    ]
+  },
+  {
+    "name": "kits-tags",
+    "viewportWidth": 1440,
+    "dark": true,
+    "x": 224,
+    "y": 197,
+    "width": 1200,
+    "height": 128,
+    "client": 1200,
+    "scroll": 1200,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.16 0.009 163)",
+      "rgb": [
+        10,
+        15,
+        12,
+        255
+      ],
+      "dark": true,
+      "glass": false,
+      "stored": "dark"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "kits-plan",
+    "viewportWidth": 1440,
+    "dark": true,
+    "x": 218,
+    "y": 228,
+    "width": 1024,
+    "height": 279,
+    "client": 1022,
+    "scroll": 1022,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.16 0.009 163)",
+      "rgb": [
+        10,
+        15,
+        12,
+        255
+      ],
+      "dark": true,
+      "glass": false,
+      "stored": "dark"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "kits-tag-card",
+    "viewportWidth": 1440,
+    "dark": true,
+    "x": 16,
+    "y": 48,
+    "width": 1408,
+    "height": 128,
+    "client": 1408,
+    "scroll": 1408,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.16 0.009 163)",
+      "rgb": [
+        10,
+        15,
+        12,
+        255
+      ],
+      "dark": true,
+      "glass": false,
+      "stored": "dark"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "kits-settings",
+    "viewportWidth": 1024,
+    "dark": false,
+    "x": 224,
+    "y": 125,
+    "width": 784,
+    "height": 409,
+    "client": 784,
+    "scroll": 784,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.978 0.004 163)",
+      "rgb": [
+        245,
+        249,
+        247,
+        255
+      ],
+      "dark": false,
+      "glass": false,
+      "stored": "light"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "tags-geometry",
+    "viewportWidth": 1024,
+    "dark": false,
+    "toolbarSize": {
+      "height": 40,
+      "clientHeight": 39,
+      "borderBottom": "1px"
+    },
+    "rowHeights": [
+      32,
+      32
+    ]
+  },
+  {
+    "name": "kits-tags",
+    "viewportWidth": 1024,
+    "dark": false,
+    "x": 224,
+    "y": 197,
+    "width": 784,
+    "height": 128,
+    "client": 784,
+    "scroll": 784,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.978 0.004 163)",
+      "rgb": [
+        245,
+        249,
+        247,
+        255
+      ],
+      "dark": false,
+      "glass": false,
+      "stored": "light"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "kits-plan",
+    "viewportWidth": 1024,
+    "dark": false,
+    "x": 0,
+    "y": 228,
+    "width": 1024,
+    "height": 279,
+    "client": 1022,
+    "scroll": 1022,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.978 0.004 163)",
+      "rgb": [
+        245,
+        249,
+        247,
+        255
+      ],
+      "dark": false,
+      "glass": false,
+      "stored": "light"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "kits-tag-card",
+    "viewportWidth": 1024,
+    "dark": false,
+    "x": 16,
+    "y": 48,
+    "width": 992,
+    "height": 128,
+    "client": 992,
+    "scroll": 992,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.978 0.004 163)",
+      "rgb": [
+        245,
+        249,
+        247,
+        255
+      ],
+      "dark": false,
+      "glass": false,
+      "stored": "light"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "kits-settings",
+    "viewportWidth": 1024,
+    "dark": true,
+    "x": 224,
+    "y": 125,
+    "width": 784,
+    "height": 409,
+    "client": 784,
+    "scroll": 784,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.16 0.009 163)",
+      "rgb": [
+        10,
+        15,
+        12,
+        255
+      ],
+      "dark": true,
+      "glass": false,
+      "stored": "dark"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "tags-geometry",
+    "viewportWidth": 1024,
+    "dark": true,
+    "toolbarSize": {
+      "height": 40,
+      "clientHeight": 39,
+      "borderBottom": "1px"
+    },
+    "rowHeights": [
+      32,
+      32
+    ]
+  },
+  {
+    "name": "kits-tags",
+    "viewportWidth": 1024,
+    "dark": true,
+    "x": 224,
+    "y": 197,
+    "width": 784,
+    "height": 128,
+    "client": 784,
+    "scroll": 784,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.16 0.009 163)",
+      "rgb": [
+        10,
+        15,
+        12,
+        255
+      ],
+      "dark": true,
+      "glass": false,
+      "stored": "dark"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "kits-plan",
+    "viewportWidth": 1024,
+    "dark": true,
+    "x": 0,
+    "y": 228,
+    "width": 1024,
+    "height": 279,
+    "client": 1022,
+    "scroll": 1022,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.16 0.009 163)",
+      "rgb": [
+        10,
+        15,
+        12,
+        255
+      ],
+      "dark": true,
+      "glass": false,
+      "stored": "dark"
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "name": "kits-tag-card",
+    "viewportWidth": 1024,
+    "dark": true,
+    "x": 16,
+    "y": 48,
+    "width": 992,
+    "height": 128,
+    "client": 992,
+    "scroll": 992,
+    "opacity": "1",
+    "theme": {
+      "color": "oklch(0.16 0.009 163)",
+      "rgb": [
+        10,
+        15,
+        12,
+        255
+      ],
+      "dark": true,
+      "glass": false,
+      "stored": "dark"
+    },
+    "minRgbDifference": 234
+  }
+]

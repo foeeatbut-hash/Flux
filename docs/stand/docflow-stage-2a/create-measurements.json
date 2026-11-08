@@ -1,0 +1,242 @@
+[
+  {
+    "mode": "filecell",
+    "viewport": 1440,
+    "dark": false,
+    "bounds": {
+      "x": 218,
+      "y": 223,
+      "width": 1024,
+      "height": 295,
+      "opacity": "1",
+      "client": 1022,
+      "scroll": 1022
+    },
+    "rowHeights": [
+      32
+    ],
+    "toolbar": null,
+    "color": {
+      "bg": "oklch(0.978 0.004 163)",
+      "rgb": [
+        245,
+        249,
+        247,
+        255
+      ],
+      "dark": false,
+      "glass": false
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "mode": "tags",
+    "viewport": 1440,
+    "dark": false,
+    "bounds": {
+      "x": 218,
+      "y": 223,
+      "width": 1024,
+      "height": 295,
+      "opacity": "1",
+      "client": 1022,
+      "scroll": 1022
+    },
+    "rowHeights": [
+      32
+    ],
+    "toolbar": 40,
+    "color": {
+      "bg": "oklch(0.978 0.004 163)",
+      "rgb": [
+        245,
+        249,
+        247,
+        255
+      ],
+      "dark": false,
+      "glass": false
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "mode": "filecell",
+    "viewport": 1440,
+    "dark": true,
+    "bounds": {
+      "x": 218,
+      "y": 223,
+      "width": 1024,
+      "height": 295,
+      "opacity": "1",
+      "client": 1022,
+      "scroll": 1022
+    },
+    "rowHeights": [
+      32
+    ],
+    "toolbar": null,
+    "color": {
+      "bg": "oklch(0.16 0.009 163)",
+      "rgb": [
+        10,
+        15,
+        12,
+        255
+      ],
+      "dark": true,
+      "glass": false
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "mode": "tags",
+    "viewport": 1440,
+    "dark": true,
+    "bounds": {
+      "x": 218,
+      "y": 223,
+      "width": 1024,
+      "height": 295,
+      "opacity": "1",
+      "client": 1022,
+      "scroll": 1022
+    },
+    "rowHeights": [
+      32
+    ],
+    "toolbar": 40,
+    "color": {
+      "bg": "oklch(0.16 0.009 163)",
+      "rgb": [
+        10,
+        15,
+        12,
+        255
+      ],
+      "dark": true,
+      "glass": false
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "mode": "filecell",
+    "viewport": 1024,
+    "dark": false,
+    "bounds": {
+      "x": 0,
+      "y": 223,
+      "width": 1024,
+      "height": 295,
+      "opacity": "1",
+      "client": 1022,
+      "scroll": 1022
+    },
+    "rowHeights": [
+      32
+    ],
+    "toolbar": null,
+    "color": {
+      "bg": "oklch(0.978 0.004 163)",
+      "rgb": [
+        245,
+        249,
+        247,
+        255
+      ],
+      "dark": false,
+      "glass": false
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "mode": "tags",
+    "viewport": 1024,
+    "dark": false,
+    "bounds": {
+      "x": 0,
+      "y": 223,
+      "width": 1024,
+      "height": 295,
+      "opacity": "1",
+      "client": 1022,
+      "scroll": 1022
+    },
+    "rowHeights": [
+      32
+    ],
+    "toolbar": 40,
+    "color": {
+      "bg": "oklch(0.978 0.004 163)",
+      "rgb": [
+        245,
+        249,
+        247,
+        255
+      ],
+      "dark": false,
+      "glass": false
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "mode": "filecell",
+    "viewport": 1024,
+    "dark": true,
+    "bounds": {
+      "x": 0,
+      "y": 223,
+      "width": 1024,
+      "height": 295,
+      "opacity": "1",
+      "client": 1022,
+      "scroll": 1022
+    },
+    "rowHeights": [
+      32
+    ],
+    "toolbar": null,
+    "color": {
+      "bg": "oklch(0.16 0.009 163)",
+      "rgb": [
+        10,
+        15,
+        12,
+        255
+      ],
+      "dark": true,
+      "glass": false
+    },
+    "minRgbDifference": 234
+  },
+  {
+    "mode": "tags",
+    "viewport": 1024,
+    "dark": true,
+    "bounds": {
+      "x": 0,
+      "y": 223,
+      "width": 1024,
+      "height": 295,
+      "opacity": "1",
+      "client": 1022,
+      "scroll": 1022
+    },
+    "rowHeights": [
+      32
+    ],
+    "toolbar": 40,
+    "color": {
+      "bg": "oklch(0.16 0.009 163)",
+      "rgb": [
+        10,
+        15,
+        12,
+        255
+      ],
+      "dark": true,
+      "glass": false
+    },
+    "minRgbDifference": 234
+  }
+]

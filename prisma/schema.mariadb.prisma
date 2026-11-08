@@ -176,9 +176,24 @@ model DocRegisterItem {
   updatedAt      DateTime  @updatedAt
 
   register DocRegister @relation(fields: [registerId], references: [id], onDelete: Cascade)
+  kitRow   DocflowKitRow?
 
   @@index([registerId])
   @@index([projectId, status])
+}
+
+model DocflowKitRow {
+  id        String @id @default(uuid())
+  projectId String
+  unit      String
+  scopeId   String
+  docType   String
+  itemId    String @unique
+  cipher    String
+  item      DocRegisterItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, unit, scopeId, docType])
+  @@unique([projectId, cipher])
 }
 
 /// Связь строки ВДР с тегом по id (docs/docflow-integration.md, 2.3). Код тега в
@@ -354,11 +369,31 @@ model FileNode {
   chunks     FileChunk[]
 }
 
+/// Ограниченный по сроку план ДО: сервер хранит снимок, а клиент подтверждает его id.
+model DocflowPlan {
+  id        String   @id @default(uuid())
+  projectId String
+  actorId   String
+  kind      String
+  state     String   @default("preview")
+  payload   String   @db.LongText
+  result    String   @default("") @db.LongText
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime
+
+  @@index([projectId, actorId, kind, state])
+  @@index([expiresAt])
+}
+
 model Equipment {
   id          String  @id @default(uuid())
   type        String // "VALVE", "FAN", "AHU", "CONTROL_PANEL"
   description String? @db.Text
+  catalogClassId String?
   tags        Tag[]
+
+  @@index([catalogClassId])
 }
 
 model Tag {

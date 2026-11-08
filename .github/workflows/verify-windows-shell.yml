@@ -8,6 +8,10 @@ on:
       - filesystem/**
       - equipment/sourceXml.ts
       - src/lib/equipmentSourcesLocal.ts
+      - src/lib/docflowCreate*.ts
+      - src/lib/docflowEmptyFile.ts
+      - scripts/test-docflow-create-disk.ts
+      - scripts/test-docflow-empty-files.ts
       - scripts/test-equipment-sources-local.ts
       - tools/windows-notification-bridge/**
       - tools/e3-probe/**
@@ -43,7 +47,7 @@ jobs:
         run: npm ci
       - name: Файловые права, конфликт сохранения и мост оболочки
         run: |
-          $checks = @('test-windows-files', 'test-windows-files-bridge', 'test-file-sharing-sync', 'test-equipment-sources-local', 'test-displays-native', 'test-desktop-shell-native', 'test-windows-notifications', 'test-native-desktop-compile')
+          $checks = @('test-windows-files', 'test-windows-files-bridge', 'test-docflow-create-disk', 'test-docflow-empty-files', 'test-file-sharing-sync', 'test-equipment-sources-local', 'test-displays-native', 'test-desktop-shell-native', 'test-windows-notifications', 'test-native-desktop-compile')
           foreach ($check in $checks) {
             node --import tsx "scripts/$check.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

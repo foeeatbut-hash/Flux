@@ -61,6 +61,63 @@
       "timeoutMs": 30000
     },
     {
+      "id": "docflow-empty-files",
+      "path": "scripts/test-docflow-empty-files.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-create-disk",
+      "path": "scripts/test-docflow-create-disk.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 60000
+    },
+    {
+      "id": "docflow-create-files-ui",
+      "path": "scripts/test-docflow-create-files-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "docflow-class-settings",
+      "path": "scripts/test-docflow-class-settings.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-kits",
+      "path": "scripts/test-docflow-kits.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-class-mapping",
+      "path": "scripts/test-docflow-class-mapping.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
       "id": "docflow-settings",
       "path": "scripts/test-docflow-settings.ts",
       "layer": "api-db",
@@ -123,6 +180,99 @@
       ],
       "prerequisites": [],
       "timeoutMs": 120000
+    },
+    {
+      "id": "docflow-classes-ui",
+      "path": "scripts/test-docflow-classes-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "docflow-kits-ui",
+      "path": "scripts/test-docflow-kits-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "docflow-kit-tags-ui",
+      "path": "scripts/test-docflow-kit-tags-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "files-office-vite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "docflow-equipment-classes",
+      "path": "scripts/test-docflow-equipment-classes.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
+      "id": "docflow-stage2-security-db",
+      "path": "scripts/security-db-docflow-stage-2.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture",
+        "mariadb-fixture",
+        "postgresql-fixture"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_DOCFLOW_STAGE2_PROVIDER"
+        },
+        {
+          "kind": "env",
+          "name": "FLUX_TEST_FIXTURE_DOCFLOW_STAGE2",
+          "value": "1"
+        }
+      ],
+      "timeoutMs": 300000,
+      "external": true
+    },
+    {
+      "id": "docflow-kit-rows",
+      "path": "scripts/test-docflow-kit-rows.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
+      "id": "docflow-create-files",
+      "path": "scripts/test-docflow-create-files.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 90000
     }
   ],
   "actions": [
@@ -200,6 +350,105 @@
       "manual": []
     },
     {
+      "id": "docflow.equipment-classes",
+      "program": "docflow",
+      "label": "Настроить классы оборудования проекта",
+      "sources": [
+        "shared/docflow/classMapping.ts",
+        "shared/docflow/config.ts",
+        "src/components/docflow/EquipmentClassesEditor.tsx"
+      ],
+      "triggers": [
+        "Настройки → Классы оборудования"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Соответствия типов и классов проекта проверяются и переносятся с настройками"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-class-mapping",
+          "layer": "unit",
+          "claims": [
+            "Нормализация, ошибки и перенос соответствий сохраняют различия по типам"
+          ]
+        },
+        {
+          "suite": "docflow-classes-ui",
+          "layer": "component",
+          "claims": [
+            "Сохранение настроек и подтверждённый план назначают класс; отказ и отмена видны"
+          ]
+        },
+        {
+          "suite": "docflow-class-settings",
+          "layer": "unit",
+          "claims": [
+            "Неизвестные классы и некорректные строки блокируют запись, перенос, шаблон и отмену"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "docflow.empty-files",
+      "program": "docflow",
+      "label": "Создать пустое содержимое документа",
+      "sources": [
+        "src/lib/docflowEmptyFile.ts"
+      ],
+      "triggers": [
+        "Генерация пустого файла ДО"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Созданные файлы открываются и не содержат проектных данных"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-empty-files",
+          "layer": "unit",
+          "claims": [
+            "Word, Excel и PDF читаются парсерами без содержимого; TXT пуст"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "docflow.kit-settings",
+      "program": "docflow",
+      "label": "Настроить комплекты документов проекта",
+      "sources": [
+        "shared/docflow/kits.ts",
+        "src/components/docflow/KitsEditor.tsx"
+      ],
+      "triggers": [
+        "Настройки → Комплекты"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Комплекты проверяются и переносятся с настройками проекта"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-kits",
+          "layer": "unit",
+          "claims": [
+            "Старый формат читается, ошибки отклоняются, состав переносится с различиями"
+          ]
+        },
+        {
+          "suite": "docflow-kits-ui",
+          "layer": "component",
+          "claims": [
+            "Редактор блокирует некорректный черновик, сохраняет поля и отображает перенесённый комплект"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
       "id": "docflow.mask-folder-check",
       "program": "docflow",
       "label": "Проверить маску по рабочей папке",
@@ -234,6 +483,136 @@
           ]
         }
       ]
+    },
+    {
+      "id": "docflow.equipment-class-plan",
+      "program": "docflow",
+      "label": "Заполнить классы оборудования проекта",
+      "sources": [
+        "server/equipmentClasses.ts",
+        "server/routes/equipmentClasses.ts",
+        "server/docflowPlans.ts"
+      ],
+      "triggers": [
+        "POST /api/equipment/projects/:projectId/catalog-classes/plan",
+        "POST /api/equipment/projects/:projectId/catalog-classes/apply",
+        "POST /api/equipment/projects/:projectId/catalog-classes/undo",
+        "GET /api/equipment/projects/:projectId/catalog-classes/last"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Классы назначаются только подтверждённым тегам доступного проекта; общие записи и чужие теги сохраняются",
+        "Устаревший план и отмена после новой правки не перезаписывают данные"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-equipment-classes",
+          "layer": "api-db",
+          "claims": [
+            "HTTP проверяет право и доступ к проекту, неизвестные ссылки отклоняются",
+            "Предпросмотр, применение, повтор, отмена и сроки проверяются на SQLite"
+          ]
+        },
+        {
+          "suite": "docflow-stage2-security-db",
+          "layer": "api-db",
+          "claims": [
+            "Схема и проектный план с проверкой прав, устаревшего состояния и отмены проверяются на SQLite, MariaDB и PostgreSQL"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "docflow.kit-rows",
+      "program": "docflow",
+      "label": "Заполнить недостающие строки комплектов",
+      "sources": [
+        "server/docflowKitRows.ts",
+        "server/docflowKitContext.ts",
+        "server/docflowKitRefs.ts",
+        "server/routes/docflowKits.ts",
+        "server/docflowConfigRefs.ts",
+        "server/batchRead.ts"
+      ],
+      "triggers": [
+        "GET /api/docflow/tags",
+        "POST /api/docflow/kits/plan",
+        "POST /api/docflow/kits/apply",
+        "POST /api/docflow/kits/undo"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Строки создаются только по подтверждённому плану с правами проекта",
+        "Повтор, конкурирующий план и отмена сохраняют чужие изменения и не создают дубликаты"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-kit-rows",
+          "layer": "api-db",
+          "claims": [
+            "Права, предпросмотр, применение, повтор, конкуренция и безопасная отмена проверяются через HTTP и SQLite",
+            "Стадии, общие документы, условия, сроки, ссылки и ограничения уникальности проверяются на fixture"
+          ]
+        },
+        {
+          "suite": "docflow-kit-tags-ui",
+          "layer": "component",
+          "claims": [
+            "План не создаёт строки до подтверждения, повтор не предлагает дубликат, отмена и переход к связанной строке доступны"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "docflow.create-files",
+      "program": "docflow",
+      "label": "Создать файлы для строк ДО",
+      "sources": [
+        "server/docflowCreatePlans.ts",
+        "server/docflowCreateFiles.ts",
+        "server/routes/docflowCreateFiles.ts"
+      ],
+      "triggers": [
+        "POST /api/docflow/create-files/plan",
+        "POST /api/docflow/create-files/claim",
+        "POST /api/docflow/create-files/complete",
+        "GET /api/docflow/create-files/state",
+        "POST /api/docflow/create-files/undo-plan",
+        "POST /api/docflow/create-files/undo",
+        "POST /api/docflow/create-files/cancel"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Предпросмотр не создаёт связи; файл связывается после резерва и подтверждения",
+        "Конкурирующие резервы и отмена сохраняют последующие изменения"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-create-files",
+          "layer": "api-db",
+          "claims": [
+            "HTTP проверяет права, проект, шаблон и маску, атомарность подтверждения и безопасную отмену",
+            "Конкуренция, повтор, занятые пути и истечение резервов проверяются на SQLite"
+          ]
+        },
+        {
+          "suite": "docflow-create-disk",
+          "layer": "unit",
+          "claims": [
+            "Публикация и повтор сохраняют байты; занятое имя, изменённый шаблон и изменённый файл не перезаписываются и не удаляются"
+          ]
+        },
+        {
+          "suite": "docflow-create-files-ui",
+          "layer": "component",
+          "claims": [
+            "Создание подтверждается человеком; повтор и отмена учитывают состояние сервера и изменения файла"
+          ]
+        }
+      ],
+      "manual": []
     }
   ],
   "connections": []

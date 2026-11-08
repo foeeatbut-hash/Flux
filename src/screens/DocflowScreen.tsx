@@ -4,6 +4,7 @@ import { SectionHead, Tabs } from '../components/ui';
 import VdrPanel from '../components/vdr/VdrPanel';
 import ReconcileTab from '../components/docflow/ReconcileTab';
 import DocflowSettings from '../components/docflow/DocflowSettings';
+import DocflowTags from '../components/docflow/DocflowTags';
 import { can, hasAdminRole } from '../lib/permissions';
 import { useAppContext } from '../store/policyStore';
 import NoProject from '../components/NoProject';
@@ -38,6 +39,7 @@ export default function DocflowScreen() {
         <Tabs label="Вкладки документооборота" value={tab} onChange={setTab} tabs={tabs} />
       </SectionHead>
       {tab === 'registry' ? <div className="flex-1 min-h-0 overflow-y-auto"><VdrPanel /></div>
+        : tab === 'tags' ? <DocflowTags key={project.id} projectId={project.id} />
         : tab === 'settings' ? <div className="flex-1 min-h-0 overflow-hidden"><DocflowSettings projectId={project.id} canEdit={can(user, 'docflow.settings')} isAdmin={hasAdminRole(user)} addToast={addToast} /></div>
           : tab === 'reconcile' ? <div className="flex-1 min-h-0 overflow-hidden"><ReconcileTab projectId={project.id} /></div>
           : <div className="p-4 text-sm text-slate-500 dark:text-dark-text-muted">Этот раздел находится в разработке.</div>}

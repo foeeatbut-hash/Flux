@@ -496,10 +496,10 @@ export default function VdrPanel() {
                       <td className="max-w-36"><div className="truncate text-slate-500" title={tagsOf(it).join('; ')}>{tagsOf(it).slice(0, 2).join('; ')}{tagsOf(it).length > 2 ? '…' : ''}</div></td>
                       <td className="whitespace-nowrap text-slate-500">{users.find(u => u.id === it.assigneeId)?.name?.split(' ')[0] || '—'}</td>
                       <td onClick={e => e.stopPropagation()}>
-                        {docsOfProject && <FileCell itemId={it.id} links={linksOfItem.get(it.id) || []} role="file" bindings={folderBindings} canAssign={canAssign} onAssign={() => setAssign({ role: 'file', item: it })} onChanged={() => void reloadDocs(projectId)} />}
+                        {docsOfProject && <FileCell projectId={projectId} itemId={it.id} revision={it.revision} links={linksOfItem.get(it.id) || []} role="file" bindings={folderBindings} canAssign={canAssign} onAssign={() => setAssign({ role: 'file', item: it })} onChanged={() => void reloadDocs(projectId)} />}
                       </td>
                       <td onClick={e => e.stopPropagation()}>
-                        {docsOfProject && <FileCell itemId={it.id} links={linksOfItem.get(it.id) || []} role="remarks" bindings={folderBindings} canAssign={canAssign} onAssign={() => setAssign({ role: 'remarks', item: it })} onChanged={() => void reloadDocs(projectId)} />}
+                        {docsOfProject && <FileCell projectId={projectId} itemId={it.id} links={linksOfItem.get(it.id) || []} role="remarks" bindings={folderBindings} canAssign={canAssign} onAssign={() => setAssign({ role: 'remarks', item: it })} onChanged={() => void reloadDocs(projectId)} />}
                       </td>
                       <td onClick={e => e.stopPropagation()}>
                         <div className="fx-row-acts">

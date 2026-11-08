@@ -47,6 +47,8 @@ export const THING_RU: Record<string, string> = {
   DocRegisterItemRevision: 'ревизия строки ведомости',
   DocFileLink: 'связь файла со строкой реестра',
   DocflowSettings: 'настройки документооборота проекта',
+  DocflowPlan: 'план действий документооборота',
+  DocflowKitRow: 'строка комплекта документов',
   DocStandard: 'стандарт документооборота',
   Equipment: 'оборудование',
   EquipmentHistory: 'история оборудования',
