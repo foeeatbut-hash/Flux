@@ -6,6 +6,7 @@ import { kitUndo } from '../../lib/docflowKitApi';
 import { useKitDocuments } from './useKitDocuments';
 import KitRowsDialog from './KitRowsDialog';
 import TagKitDocuments from './TagKitDocuments';
+import CreateFilesDialog from './CreateFilesDialog';
 
 export default function DocflowTags({ projectId }: { projectId: string }) {
   const { user } = useAppContext();
@@ -15,11 +16,13 @@ export default function DocflowTags({ projectId }: { projectId: string }) {
   const [selected, setSelected] = React.useState('');
   const [search, setSearch] = React.useState('');
   const [planTags, setPlanTags] = React.useState<string[] | null>(null);
+  const [fileItems, setFileItems] = React.useState<string[] | null>(null);
   const [notice, setNotice] = React.useState('');
   const [busy, setBusy] = React.useState(false);
-  React.useEffect(() => { setSelected(''); setNotice(''); setPlanTags(null); }, [projectId]);
+  React.useEffect(() => { setSelected(''); setNotice(''); setPlanTags(null); setFileItems(null); }, [projectId]);
   const tags = view?.tags.filter(tag => tag.identifier.toLocaleLowerCase().includes(search.toLocaleLowerCase())) || [];
   const current = tags.find(tag => tag.id === selected) || tags[0];
+  const currentItemIds = [...new Set([...(current?.items || []).map(item => item.id), ...(current?.requirements || []).flatMap(r => r.item ? [r.item.id] : [])])];
   const undo = async () => {
     if (!view?.lastPlanId) return;
     setBusy(true); setNotice('');
@@ -43,11 +46,13 @@ export default function DocflowTags({ projectId }: { projectId: string }) {
         </button>)}</aside>
         <div className="min-w-0 flex-1 overflow-auto p-4">{current ? <>
           <div className="flex items-center gap-2 mb-3"><h3 className="font-medium text-sm font-mono">{current.identifier}</h3>
+            {can(user, 'docflow.files') && <Btn disabled={!currentItemIds.length} onClick={() => setFileItems(currentItemIds)}>Создать файлы по тегу…</Btn>}
             {canEdit && !current.removed && <Btn className="ml-auto" onClick={() => setPlanTags([current.id])}>Создать недостающие строки…</Btn>}</div>
           <TagKitDocuments key={current.id} tag={current} canEdit={canEdit} onCreate={() => setPlanTags([current.id])} />
         </> : <p className="fx-note">Тегов пока нет или они не подходят поиску.</p>}</div>
       </div>
     </>}
     {planTags && view && <KitRowsDialog projectId={projectId} tagIds={planTags} registers={view.registers} stage={stage} onClose={() => setPlanTags(null)} onApplied={reload} />}
+    {fileItems && <CreateFilesDialog projectId={projectId} itemIds={fileItems} onClose={() => setFileItems(null)} onDone={reload} />}
   </div>;
 }

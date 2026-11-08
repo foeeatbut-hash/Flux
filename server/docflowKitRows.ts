@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { hasPosition } from '../shared/positions.js';
 import { buildFileName, maskParts } from '../shared/docflow/nameMask.js';
-import { loadKitContext, requirementFor, parse, iso, type KitContext } from './docflowKitContext.js';
+import { loadKitContext, requirementFor, itemAppliesToTag, parse, iso, type KitContext } from './docflowKitContext.js';
 import { DocflowPlanError, saveDocflowPlan, loadDocflowPlan, parsedPlan, finishDocflowPlan } from './docflowPlans.js';
 
 const KIND = 'kit-rows';
@@ -101,7 +101,7 @@ export async function listKitDocuments(prisma: any, projectId: string, tagId?: s
   const context = await loadKitContext(prisma, projectId);
   if (tagId && !context.tags.some(tag => tag.id === tagId)) throw new DocflowPlanError('Тег не найден в этом проекте', 403);
   const tags = context.tags.filter(tag => !tagId || tag.id === tagId).map(tag => ({ id: tag.id, identifier: tag.identifier, classId: tag.classId, removed: tag.removed,
-    items: context.items.filter(item => context.links.some(link => link.itemId === item.id && link.tagId === tag.id)),
+    items: context.items.filter(item => !item.titleEn?.includes('Vendor Document Register') && itemAppliesToTag(context, item, tag.id)),
     requirements: (context.settings.config.kits.find(k => k.classId === tag.classId)?.items || []).filter(spec => !stage || !spec.stage || spec.stage === stage).map(spec => {
       const r = requirementFor(context, tag, spec); const { spec: _spec, ...rest } = r; return rest;
     }),

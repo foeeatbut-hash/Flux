@@ -11,6 +11,8 @@ import { ensureRemoteSchema } from '../server/schema-sync.js';
 import { setPrisma, setBroadcaster } from '../server/context.js';
 import { registerEquipmentClassRoutes } from '../server/routes/equipmentClasses.js';
 import { registerDocflowKitRoutes } from '../server/routes/docflowKits.js';
+import { registerDocflowCreateFileRoutes } from '../server/routes/docflowCreateFiles.js';
+import { registerProjectFolderBindingRoutes } from '../server/routes/projectFolderBindings.js';
 
 const require = createRequire(import.meta.url);
 assert.equal(process.env.FLUX_TEST_FIXTURE_DOCFLOW_STAGE2, '1', 'нужен marker одноразовой fixture');
@@ -38,6 +40,8 @@ async function main() {
   app.use((req: any, _res, next) => { req.authUser = req.headers['x-denied'] ? { id: 'denied', role: 'USER' } : { id: String(req.headers['x-actor'] || 'admin'), role: 'ADMIN' }; next(); });
   registerEquipmentClassRoutes(app);
   registerDocflowKitRoutes(app);
+  registerDocflowCreateFileRoutes(app);
+  registerProjectFolderBindingRoutes(app, { mayManage: async () => true });
   const server = await new Promise<any>(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const base = `http://127.0.0.1:${server.address().port}/api/equipment/projects`;
   const call = async (project: string, action: string, body?: any, denied = false) => {
@@ -111,6 +115,37 @@ async function main() {
     assert.equal((await kitCall('undo', { projectId: 'a', planId: winning.plan.body.id }, winning.actor)).status, 200);
     assert.equal(await db.docflowKitRow.count(), 0); assert.equal(await db.docRegisterItemTag.count(), 0);
     console.log(`✓ ${provider}: строки группы и проекта, конкуренция, уникальность, повтор и отмена`);
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const folderKey = 'a'.repeat(64);
+    const bindingResponse = await fetch(`${origin}/api/explorer/project-bindings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ expectedRevision: 0, operation: { kind: 'upsert', binding: { projectId: 'a', locationKey: folderKey, label: 'Рабочая', purpose: 'work', locator: { folderKey, anchors: [{ key: folderKey, relativePath: '' }] } } } }) });
+    assert.equal(bindingResponse.status, 200, 'штатное назначение рабочей папки');
+    await db.docRegisterItem.create({ data: { id: 'file-item', projectId: 'a', registerId: 'reg-a', contractorNo: 'PO-UNIT-E02-099', vdrCode: 'E02', revision: 'A' } });
+    const fileCall = async (action: string, body: any, actor = 'admin') => {
+      const r = await fetch(`${origin}/api/docflow/create-files/${action}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-actor': actor }, body: JSON.stringify(body) });
+      return { status: r.status, body: await r.json() as any };
+    };
+    const fileRequest = { projectId: 'a', itemIds: ['file-item'], format: 'docx', useTemplates: false };
+    const filePlan1 = await fileCall('plan', fileRequest, 'admin');
+    const filePlan2 = await fileCall('plan', fileRequest, 'admin2');
+    assert.equal(filePlan1.status, 200); assert.equal(filePlan2.status, 200);
+    assert.equal(filePlan1.body.rows[0].action, 'create'); assert.equal(await db.docFileLink.count(), 0);
+    const contents = [{ itemId: 'file-item', sha256: 'c'.repeat(64), size: 120 }];
+    const fileResults = await Promise.all([
+      fileCall('claim', { projectId: 'a', planId: filePlan1.body.id, files: contents }, 'admin'),
+      fileCall('claim', { projectId: 'a', planId: filePlan2.body.id, files: contents }, 'admin2'),
+    ]);
+    assert.deepEqual(fileResults.map(result => result.status).sort(), [200, 409], 'два автора не резервируют одну ревизию');
+    assert.equal(await db.docflowPlan.count({ where: { kind: 'file-create-claim' } }), 2);
+    assert.equal(await db.docFileLink.count(), 0, 'резерв не создаёт ссылку');
+    const fileWinner = fileResults[0].status === 200 ? { plan: filePlan1, actor: 'admin' } : { plan: filePlan2, actor: 'admin2' };
+    const complete = await fileCall('complete', { projectId: 'a', planId: fileWinner.plan.body.id }, fileWinner.actor);
+    assert.equal(complete.status, 200); assert.equal(complete.body.count, 1);
+    assert.equal((await fileCall('complete', { projectId: 'a', planId: fileWinner.plan.body.id }, fileWinner.actor)).status, 200);
+    assert.equal(await db.docFileLink.count({ where: { unlinkedAt: null } }), 1); assert.equal(await db.docflowPlan.count({ where: { kind: 'file-create-claim' } }), 0);
+    assert.equal((await fileCall('undo', { projectId: 'a', planId: fileWinner.plan.body.id }, fileWinner.actor)).status, 200);
+    assert.equal(await db.docFileLink.count({ where: { unlinkedAt: null } }), 0); assert.equal(await db.docFileLink.count(), 1);
+    console.log(`✓ ${provider}: создание файла, конкурентный резерв, повтор и отмена`);
+
 
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); await db.$disconnect(); if (local) fs.rmSync(tmp, { recursive: true, force: true }); }
 }

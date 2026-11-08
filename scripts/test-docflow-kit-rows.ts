@@ -213,6 +213,45 @@ async function main() {
     check('перенос сохраняет комплект и возможность отмены', copied.config.kits.length === 1 && copied.config.kits[0].items.length === 4 && copied.canUndo);
     const undoCopy = await undoLast(db, 'b', 'admin');
     check('отмена переноса возвращает прежний комплект', undoCopy.config.kits.length === 0);
+    // Совместимость ручных строк прежнего ВДР: универсальный маркер без M:N.
+    await db.docRegisterItem.createMany({ data: [
+      { id: 'generic-en', projectId: 'a', registerId: 'reg-a', contractorNo: 'GENERAL', vdrCode: 'E04', equipmentTags: JSON.stringify(['All items']) },
+      { id: 'generic-ru', projectId: 'a', registerId: 'reg-a', contractorNo: 'ALL-RU', vdrCode: 'C32', equipmentTags: JSON.stringify(['Все позиции']) },
+      { id: 'self-vdr', projectId: 'a', registerId: 'reg-a', contractorNo: 'SELF', vdrCode: 'VDR', titleEn: 'Vendor Document Register' },
+    ] });
+    await db.docRegisterItemTag.create({ data: { itemId: 'self-vdr', tagId: 'a1', tagIdentifier: 'A-1' } });
+    const regressionFailures: string[] = [];
+    const regression = (name: string, condition: unknown, detail?: unknown) => {
+      if (condition) { passed++; console.log(`✓ ${name}`); }
+      else { regressionFailures.push(name); console.error(`✗ ${name}: ${JSON.stringify(detail)}`); }
+    };
+    const legacyOverview = await send('GET', `${list}&tagId=a1`, undefined, 'editor');
+    const items = legacyOverview.body.tags?.[0]?.items || [];
+    regression('универсальные ручные строки видны тегу без M:N', legacyOverview.status === 200 && items.some((r: any) => r.id === 'generic-en') && items.some((r: any) => r.id === 'generic-ru'), items.map((r: any) => r.id));
+    regression('собственный Vendor Document Register не входит в другие документы', !items.some((r: any) => r.id === 'self-vdr'), items.map((r: any) => r.id));
+    const genericPlan = await send('POST', planPath, { ...request, tagIds: ['a1', 'a2'] }, 'editor');
+    const genericRow = genericPlan.body.rows?.find((row: any) => row.docType === 'E04');
+    regression('общий комплект повторно использует ручную универсальную строку', genericPlan.status === 200 && genericRow?.action === 'keep' && genericRow.itemId === 'generic-en', genericRow);
+    if (genericPlan.status === 200 && genericRow?.action === 'keep') {
+      const result = await send('POST', '/api/docflow/kits/apply', { projectId: 'a', planId: genericPlan.body.id }, 'editor');
+      regression('применение общего комплекта не создаёт дубль универсальной строки', result.status === 200 && await db.docRegisterItem.count({ where: { projectId: 'a', vdrCode: 'E04' } }) === 1, result.body);
+    }
+    await db.project.create({ data: { id: 'bulk', name: 'Большой проект' } });
+    await db.docRegister.create({ data: { id: 'bulk-reg', projectId: 'bulk', name: 'Реестр', poNumber: 'PO' } });
+    await db.docflowSettings.create({ data: { projectId: 'bulk', config: JSON.stringify({ vdrTypes: [{ code: 'E02', titleRu: 'Вид', titleEn: '' }], kits: [{ classId: 'fan-class', items: [item('E02')] }] }) } });
+    await db.tag.createMany({ data: Array.from({ length: 501 }, (_, i) => ({ id: `bulk-${i}`, identifier: `B-${i}`, projectId: 'bulk', equipmentId: 'fan' })) });
+    const bulkOverview = await send('GET', '/api/docflow/tags?projectId=bulk');
+    regression('обзор проекта из 501 тега доступен целиком', bulkOverview.status === 200 && bulkOverview.body.tags?.length === 501, { status: bulkOverview.status, error: bulkOverview.body.error });
+    const bulkPlan = await send('POST', planPath, { projectId: 'bulk', registerId: 'bulk-reg', tagIds: ['bulk-0'], stage: 'Р', fields: { установка: 'UNIT' } });
+    regression('выбранный тег в большом проекте доступен для плана', bulkPlan.status === 200 && bulkPlan.body.rows?.some((r: any) => r.action === 'create'), { status: bulkPlan.status, error: bulkPlan.body.error });
+    await db.project.create({ data: { id: 'many-rows', name: 'Проект с большим реестром' } });
+    await db.docRegister.create({ data: { id: 'many-reg', projectId: 'many-rows', name: 'Реестр' } });
+    await db.tag.create({ data: { id: 'many-tag', identifier: 'M-1', projectId: 'many-rows' } });
+    await db.docRegisterItem.createMany({ data: Array.from({ length: 5001 }, (_, i) => ({ id: `many-item-${i}`, projectId: 'many-rows', registerId: 'many-reg', contractorNo: `N-${i}` })) });
+    const manyRows = await send('GET', '/api/docflow/tags?projectId=many-rows&tagId=many-tag');
+    regression('обзор проекта с 5001 строкой реестра доступен', manyRows.status === 200 && manyRows.body.tags?.[0]?.id === 'many-tag', { status: manyRows.status, error: manyRows.body.error });
+    assert.deepEqual(regressionFailures, [], 'регрессии совместимости ВДР и большого проекта');
+
 
 
 

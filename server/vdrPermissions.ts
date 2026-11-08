@@ -23,6 +23,8 @@ export const VDR_PERM_RULES: VdrPermRule[] = [
     perm: 'docflow.settings', title: 'Настройки документооборота', also: [view] },
   { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/docflow\/links(\/|$)/,
     perm: 'docflow.files', title: 'Назначение файлов и возвратов', also: [view] },
+  { method: /^(GET|POST)$/, path: /^\/api\/docflow\/create-files(\/|$)/,
+    perm: 'docflow.files', title: 'Создание и назначение файлов', also: [view] },
   { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/docflow\//,
     perm: 'docflow.edit', title: 'Реестр ВДР', also: [view] },
   { method: /^GET$/, path: /^\/api\/docflow\//, ...view },

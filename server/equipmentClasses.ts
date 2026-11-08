@@ -29,7 +29,7 @@ async function preview(prisma: any, projectId: string, selection: ClassSelection
   const tags: any[] = await prisma.tag.findMany({
     where: { projectId, ...(selection.tagIds ? { id: { in: selection.tagIds } } : {}) },
     take: 501, orderBy: { id: 'asc' },
-    include: { equipment: true, componentElements: { include: { monoblock: { include: { system: true } } } } },
+    include: { equipment: true, componentElements: { orderBy: { id: 'asc' }, include: { monoblock: { include: { system: true } } } } },
   });
   if (tags.length > 500) throw new DocflowPlanError('В проекте больше 500 тегов. Выберите часть тегов.', 400);
   if (selection.tagIds?.some(id => !tags.some(tag => tag.id === id)) || selection.overrides?.some(row => !tags.some(tag => tag.id === row.tagId))) {
@@ -111,7 +111,8 @@ export async function undoEquipmentClasses(prisma: any, projectId: string, actor
     const result = JSON.parse(row.result);
     for (const item of result.changes) {
       if (item.before && !(await tx.equipment.findUnique({ where: { id: item.before } }))) throw new DocflowPlanError('Исходное оборудование удалено. Отмена недоступна.');
-      const done = await tx.tag.updateMany({ where: { id: item.tagId, projectId, equipmentId: item.equipmentId, updatedAt: new Date(item.updatedAt) }, data: { equipmentId: item.before } });
+      const updatedAt = new Date(Math.max(Date.now(), Date.parse(item.updatedAt) + 1));
+      const done = await tx.tag.updateMany({ where: { id: item.tagId, projectId, equipmentId: item.equipmentId, updatedAt: new Date(item.updatedAt) }, data: { equipmentId: item.before, updatedAt } });
       if (done.count !== 1) throw new DocflowPlanError('После заполнения тег изменили. Отмена не затронула новые правки.');
     }
     for (const equipmentId of new Set<string>(result.changes.filter((item: any) => item.created).map((item: any) => item.equipmentId))) {

@@ -3,6 +3,8 @@ import { DocflowPlanError } from './docflowPlans.js';
 import { readSettings, rawSettingsConfig } from './docflowSettings.js';
 import { validateDocflowReferences } from './docflowConfigRefs.js';
 import type { DocflowKitItem } from '../shared/docflow/kits.js';
+import { codesOfItem, isGenericTagCode } from './vdrTags.js';
+import { readInBatches } from './batchRead.js';
 
 export const parse = (raw: any, fallback: any = {}) => { try { return typeof raw === 'string' ? JSON.parse(raw) : raw ?? fallback; } catch { return fallback; } };
 export const iso = (value: any) => value ? new Date(value).toISOString() : null;
@@ -15,12 +17,11 @@ export async function loadKitContext(prisma: any, projectId: string) {
   await validateDocflowReferences(prisma, await rawSettingsConfig(prisma, projectId));
   const settings = await readSettings(prisma, projectId);
   await validateDocflowReferences(prisma, settings.config);
-  const tags: any[] = await prisma.tag.findMany({ where: { projectId }, take: 501, orderBy: { id: 'asc' }, include: {
-    equipment: true, componentElements: { include: { monoblock: { include: { system: true } } } },
+  const tags: any[] = await prisma.tag.findMany({ where: { projectId }, orderBy: { id: 'asc' }, include: {
+    equipment: true, componentElements: { orderBy: { id: 'asc' }, include: { monoblock: { include: { system: true } } } },
   } });
-  if (tags.length > 500) throw new DocflowPlanError('В проекте больше 500 тегов. Уточните область комплекта.', 400);
   const ids = tags.flatMap(tag => tag.componentElements.map((el: any) => `equipment_catalog_binding:${el.id}`));
-  const bindings: any[] = ids.length ? await prisma.appSetting.findMany({ where: { key: { in: ids }, userId: null } }) : [];
+  const bindings = await readInBatches<any>(ids, part => prisma.appSetting.findMany({ where: { key: { in: part }, userId: null } }));
   const mapping = new Map(settings.config.equipmentClasses.map(row => [row.type, row.classId]));
   for (const tag of tags) {
     tag.active = tag.componentElements.filter((el: any) => el.status !== 'REMOVED');
@@ -48,21 +49,26 @@ export async function loadKitContext(prisma: any, projectId: string) {
     tag.group = systems.length === 1 ? systems[0] : null;
     tag.removed = !!tag.componentElements.length && !tag.active.length;
   }
-  const items: any[] = await prisma.docRegisterItem.findMany({ where: { projectId }, take: 5001, orderBy: { id: 'asc' } });
-  if (items.length > 5000) throw new DocflowPlanError('В проекте больше 5000 строк. Уточните область комплекта.', 400);
-  const links: any[] = items.length ? await prisma.docRegisterItemTag.findMany({ where: { itemId: { in: items.map(item => item.id) } }, orderBy: [{ itemId: 'asc' }, { tagId: 'asc' }] }) : [];
+  const items: any[] = await prisma.docRegisterItem.findMany({ where: { projectId }, orderBy: { id: 'asc' } });
+  const itemIds = items.map(item => item.id);
+  const links = await readInBatches<any>(itemIds, part => prisma.docRegisterItemTag.findMany({ where: { itemId: { in: part } }, orderBy: [{ itemId: 'asc' }, { tagId: 'asc' }] }));
   const unknownLinks = links.filter(l => !tags.some(tag => tag.id === l.tagId));
   if (unknownLinks.length) {
-    const others = await prisma.tag.findMany({ where: { id: { in: unknownLinks.map(l => l.tagId) } }, select: { projectId: true } });
+    const others = await readInBatches<any>(unknownLinks.map(l => l.tagId), part => prisma.tag.findMany({ where: { id: { in: part } }, select: { projectId: true } }));
     if (others.some((tag: any) => tag.projectId !== projectId)) throw new DocflowPlanError('Строка содержит тег другого проекта', 403);
   }
   const reservations: any[] = await prisma.docflowKitRow.findMany({ where: { projectId }, orderBy: { id: 'asc' } });
-  const files: any[] = items.length ? await prisma.docFileLink.findMany({ where: { projectId, itemId: { in: items.map(item => item.id) }, role: 'file', unlinkedAt: null }, orderBy: { id: 'asc' } }) : [];
+  const files = await readInBatches<any>(itemIds, part => prisma.docFileLink.findMany({ where: { projectId, itemId: { in: part }, role: 'file', unlinkedAt: null }, orderBy: { id: 'asc' } }));
   const registers: any[] = await prisma.docRegister.findMany({ where: { projectId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
   return { project, settings, tags, items, links, reservations, files, registers };
 }
 
 export type KitContext = Awaited<ReturnType<typeof loadKitContext>>;
+/** «Все позиции» — прежняя общепроектная отметка; чтение не создаёт связей. */
+export const unitOfItem = (item: any): string => parse(item.meta).docflowUnit || (codesOfItem(item.equipmentTags).some(isGenericTagCode) ? 'project' : 'tag');
+export function itemAppliesToTag(context: KitContext, item: any, tagId: string) {
+  return context.links.some(link => link.itemId === item.id && link.tagId === tagId) || codesOfItem(item.equipmentTags).some(isGenericTagCode);
+}
 export function requirementFor(context: KitContext, tag: any, spec: DocflowKitItem) {
   const { config } = context.settings;
   const scopeId = spec.unit === 'tag' ? tag.id : spec.unit === 'project' ? context.project.id : tag.group?.id || '';
@@ -74,7 +80,7 @@ export function requirementFor(context: KitContext, tag: any, spec: DocflowKitIt
   const problem = !scopeId ? 'У тега нет однозначной установки. Проверьте связь оборудования.' : '';
   const reservation = context.reservations.find(r => r.unit === spec.unit && r.scopeId === scopeId && r.docType === spec.docType);
   const scopeTags = spec.unit === 'tag' || !scopeId ? [tag] : spec.unit === 'project' ? context.tags : context.tags.filter(t => t.group?.id === scopeId);
-  const item = reservation ? context.items.find(i => i.id === reservation.itemId) : context.items.find(i => i.vdrCode === spec.docType && context.links.some(l => l.itemId === i.id && scopeTags.some(t => t.id === l.tagId)) && (parse(i.meta).docflowUnit || 'tag') === spec.unit);
+  const item = reservation ? context.items.find(i => i.id === reservation.itemId) : context.items.find(i => i.vdrCode === spec.docType && scopeTags.some(t => itemAppliesToTag(context, i, t.id)) && unitOfItem(i) === spec.unit);
   const hasFile = !!item && context.files.some(file => file.itemId === item.id && file.revision === item.revision && !file.lostAt);
   return { key, docType: spec.docType, title: config.vdrTypes.find(type => type.code === spec.docType)?.titleRu || spec.docType,
     unit: spec.unit, scopeId, needed, problem, spec, tagIds: scopeTags.map(t => t.id), item: item || null, hasFile,

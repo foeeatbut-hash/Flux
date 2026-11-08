@@ -132,7 +132,10 @@ const posts = (page: Page) => page.evaluate(() => (window as any).__docflowPosts
     await page.goto(`${URL}&screen=docflow&tab=registry`);
     await page.getByRole('columnheader', { name: 'Файл' }).waitFor();
     const regRow = page.getByRole('row', { name: /3700-B01-E02-001/ });
-    ok('Реестр: «Файл» — ссылка на файл ревизии, «Возврат» — ссылка на файл замечаний', await regRow.locator('[data-file-link="file"]').innerText().then((t) => t.includes('ред. B')) && await regRow.locator('[data-file-link="remarks"]').innerText().then((t) => t.includes('Замечания.pdf')));
+    const remarks = await regRow.locator('[data-file-link="remarks"]').innerText();
+    ok('Реестр: прежний файл B не выдаётся за текущую ревизию C, возврат остаётся ссылкой', await regRow.locator('[data-file-link="file"]').count() === 0 && remarks.includes('Замечания.pdf'));
+    const currentRow = page.getByRole('row', { name: /3700-B01-E02-002/ });
+    ok('Реестр: файл текущей ревизии A открывается ссылкой', (await currentRow.locator('[data-file-link="file"]').innerText()).includes('ред. A'));
     const emptyRow = page.getByRole('row', { name: /3700-B01-E02-004/ });
     ok('Пустое место — кнопка «Назначить…» при праве docflow.files', await emptyRow.locator('[data-assign="file"]').count() === 1);
     const lostRow = page.getByRole('row', { name: /3700-B01-E02-002/ });
