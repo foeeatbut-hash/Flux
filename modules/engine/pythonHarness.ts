@@ -20,7 +20,7 @@
 export const PYTHON_ALLOWED_MODULES = [
   'math', 'cmath', 'json', 're', 'statistics', 'decimal', 'fractions', 'itertools', 'functools', 'collections',
   'operator', 'string', 'textwrap', 'dataclasses', 'typing', 'enum', 'random', 'bisect', 'heapq', 'array',
-  'numbers', 'copy', 'abc', 'contextlib', 'numpy',
+  'numbers', 'copy', 'abc', 'contextlib',
 ] as const;
 
 export const PYTHON_HARNESS = String.raw`

@@ -37,11 +37,8 @@ export function clampWasmMemory(maxPages: number): () => void {
   return () => { (WebAssembly as any).Memory = Original; };
 }
 
-const NUMPY = /^\s*(?:import\s+numpy|from\s+numpy\b)/m;
-
 export class PythonEnvironment {
   private loaded = new Map<string, string>();
-  private packages = new Set<string>();
 
   constructor(private py: PyodideApi) {
     py.runPython(PYTHON_HARNESS);
@@ -53,10 +50,6 @@ export class PythonEnvironment {
   private async prepare(key: string, source: string) {
     // Подпрограмма загружается один раз; изменившийся исходник (новая версия) перезагружается
     if (this.loaded.get(key) === source) return;
-    if (NUMPY.test(source) && !this.packages.has('numpy')) {
-      try { await this.py.loadPackage('numpy'); } catch { throw new ComputeError('UNAVAILABLE', 'numpy не загружен'); }
-      this.packages.add('numpy');
-    }
     try { this.py.globals.get('flux_load')(key, source); } catch (e: any) {
       throw new ComputeError('CRASH', `logic/main.py не загружается: ${firstLine(e)}`);
     }
