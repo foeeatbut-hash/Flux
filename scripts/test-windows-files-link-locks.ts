@@ -11,6 +11,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { WindowsFilesService } from '../electron/filesystem/service';
 import { LinkLocks, lockKeyOf } from '../electron/filesystem/linkLocks';
+import { collectServerLocks } from '../electron/filesystem/lockSync';
+import { EXPLORER_WRITE_ACTIONS, isExplorerAction } from '../electron/filesystem/explorerBridge';
 
 let passed = 0;
 const check = (condition: unknown, message: string) => { assert.ok(condition, message); passed++; console.log(`✓ ${message}`); };
@@ -39,7 +41,7 @@ async function main() {
     // До блокировки всё работает
     check((await service.write(free, Buffer.from('free2').toString('base64'), (await service.read(free)).sha256)).name === 'Free.pdf', 'свободный файл записывается');
 
-    const result = await service.setLinkLocks([locked], []);
+    const result = await service.applyLinkLocks([locked]);
     check(result.locked === 1 && result.protectedFiles === 1, 'список замков принят, файлу поставлен атрибут «только чтение»');
     check(((await fs.stat(path.join(desktop, 'E02', 'Locked.pdf'))).mode & 0o222) === 0, 'атрибут «только чтение» виден на диске');
 
@@ -65,16 +67,50 @@ async function main() {
     check((await service.rename({ rootId, relativePath: 'E02/Copy.pdf' }, 'Copy2.pdf')).file.name === 'Copy2.pdf', 'копия заблокированного файла — обычный файл');
 
     // Новый список снимает замок и возвращает запись
-    const freed = await service.setLinkLocks([], []);
+    const freed = await service.applyLinkLocks([]);
     check(freed.locked === 0 && freed.released === 1, 'пустой список снимает замок и «только чтение»');
     check(((await fs.stat(path.join(desktop, 'E02', 'Locked.pdf'))).mode & 0o200) !== 0, 'файл снова доступен для записи');
     check((await service.rename(locked, 'Renamed.pdf')).file.name === 'Renamed.pdf', 'снятый замок разрешает переименование');
 
     // Явное освобождение (отмена создания файла)
-    await service.setLinkLocks([{ rootId, relativePath: 'E02/Renamed.pdf' }], []);
+    await service.applyLinkLocks([{ rootId, relativePath: 'E02/Renamed.pdf' }]);
     await rejectsLocked(() => service.trash({ rootId, relativePath: 'E02/Renamed.pdf' }), 'после нового списка файл снова защищён');
     check((await service.releaseLinkLocks([{ rootId, relativePath: 'E02/Renamed.pdf' }])).released === 1 && (await service.trash({ rootId, relativePath: 'E02/Renamed.pdf' })).trashed === true, 'явное освобождение позволяет удалить файл');
-    check((await service.setLinkLocks([{ rootId, relativePath: 'E02/нет.pdf' }], [])).locked === 0, 'несуществующий файл в списке не ломает приём');
+    check((await service.applyLinkLocks([{ rootId, relativePath: 'E02/нет.pdf' }])).locked === 0, 'несуществующий файл в списке не ломает приём');
+
+    // ── Прежний атрибут «только чтение» не сбрасывается ──
+    const mine = path.join(desktop, 'E02', 'AlreadyReadOnly.pdf');
+    await fs.writeFile(mine, 'ro'); await fs.chmod(mine, 0o444);
+    const roRef = { rootId, relativePath: 'E02/AlreadyReadOnly.pdf' };
+    await service.applyLinkLocks([roRef]);
+    await service.applyLinkLocks([]);
+    check(((await fs.stat(mine)).mode & 0o222) === 0, 'файл, который был «только чтение» до блокировки, остаётся таким после снятия замка');
+
+    // ── Замок снят на другом компьютере или до перезапуска: атрибут уходит при ближайшей сверке ──
+    const away = path.join(desktop, 'E02', 'Away.pdf');
+    await fs.writeFile(away, 'away');
+    const awayRef = { rootId, relativePath: 'E02/Away.pdf' };
+    await service.applyLinkLocks([awayRef]);
+    check(((await fs.stat(away)).mode & 0o222) === 0, 'новый замок ставит «только чтение»');
+    const restarted = await WindowsFilesService.create({ userData, knownFolders: { desktop }, trashItem: async () => undefined, showItemInFolder: () => undefined, openPath: async () => '' });
+    const restartedRoot = (await restarted.roots())[0].id;
+    check((await restarted.applyLinkLocks([])).released === 1 && ((await fs.stat(away)).mode & 0o200) !== 0, 'после перезапуска список сервера без файла снимает «только чтение», поставленное прежним сеансом');
+    void restartedRoot;
+
+    // ── Список замков main берёт у сервера сам; страница его не диктует ──
+    const asked: string[] = [];
+    const serverJson = async (route: string) => {
+      asked.push(route);
+      if (route === '/api/explorer/project-bindings') return { bindings: [{ locationKey: 'k1', locator: { folderKey: 'k1', anchors: [] } }, { locationKey: 'k2' }] };
+      return { links: [{ folderKey: 'k1', relativePath: 'E02/Locked.pdf' }, { folderKey: 'k2', relativePath: 'x.pdf' }, { folderKey: 'k3', relativePath: 'y.pdf' }, { relativePath: 'bad' }] };
+    };
+    const found = await collectServerLocks({ serverJson, resolveFolder: async () => ({ rootId: 'r', relativePath: 'Проекты' }) });
+    check(asked.includes('/api/docflow/locks') && asked.includes('/api/explorer/project-bindings'), 'main запрашивает у сервера привязки и замки сам');
+    check(found.length === 1 && found[0].rootId === 'r' && found[0].relativePath === 'Проекты/E02/Locked.pdf', 'путь собирается из привязанной папки на этом компьютере; папки без привязки и мусор пропускаются');
+    check((await collectServerLocks({ serverJson: async () => ({}), resolveFolder: async () => null })).length === 0, 'пустой ответ сервера — пустой список');
+
+    // ── Команды замков — записывающие: без права записи недоступны ──
+    check(EXPLORER_WRITE_ACTIONS.has('syncLinkLocks') && EXPLORER_WRITE_ACTIONS.has('releaseLinkLocks') && isExplorerAction('syncLinkLocks'), 'syncLinkLocks и releaseLinkLocks требуют права записи, а не читают');
   } finally { await fs.rm(sandbox, { recursive: true, force: true }); }
   console.log(`windows-files-link-locks: ${passed} проверок прошли`);
 }

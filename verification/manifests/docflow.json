@@ -20,7 +20,8 @@
         "src/lib/docflowIssueApi.ts",
         "src/lib/localEditing.ts",
         "src/components/docflow/DocflowTags.tsx",
-        "src/components/explorer/LinkLockSync.tsx"
+        "src/components/explorer/LinkLockSync.tsx",
+        "src/lib/docflowTracking.ts"
       ]
     }
   ],
@@ -320,6 +321,26 @@
       ],
       "prerequisites": [],
       "timeoutMs": 90000
+    },
+    {
+      "id": "docflow-tracking",
+      "path": "scripts/test-docflow-tracking.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-live-permissions",
+      "path": "scripts/test-docflow-live-permissions.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 240000
     }
   ],
   "actions": [

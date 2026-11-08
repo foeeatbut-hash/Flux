@@ -1,4 +1,5 @@
 import { migrateDocflowPermissions } from '../docflowPermissionMigration.js';
+import { backfillLegacyIssues } from '../docflowIssue.js';
 import type { Express, Request, Response } from 'express';
 import { administratorPermission } from '../accessPolicy.js';
 import { defaultPermissions } from '../../src/lib/permissions';
@@ -190,6 +191,7 @@ export async function seedRoles() {
       }
     }
     await migrateDocflowPermissions(prisma);
+    await backfillLegacyIssues(prisma).catch(() => 0); // старые выпуски без ключа, см. server/docflowIssue.ts
     invalidateRolePerms();
   } catch (_) { /* старая база без таблицы ролей — подхватится после синхронизации схемы */ }
 }

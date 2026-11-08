@@ -206,6 +206,25 @@ async function main() {
     check('повторная отмена безопасна, ревизию можно выпустить заново', (await send('POST', '/api/docflow/issue/undo', { projectId: 'p-a', planId: undoPlan.body.id })).status === 200
       && (await plan([row('i4', l4.id)])).body.ok === true);
 
+    // ── Данные, выпущенные прежним способом (до этого PR): записи истории без ключа выпуска ──
+    await mk('old1', '3700-B01-E02-021', { status: 'ISSUED' }); await mk('old2', '3700-B01-E02-022', { status: 'DRAFT', revision: 'B' }); await mk('old3', '3700-B01-E02-023', { status: 'REMARKS' });
+    for (const id of ['old1', 'old2', 'old3']) await prisma.docRegisterItemRevision.create({ data: { itemId: id, revision: id === 'old2' ? 'B' : 'A', reason: 'IFR' } });
+    const oldLink = await link('old1', '3700-B01-E02-021_A.pdf');
+    const stuck = await send('POST', '/api/vdr/items/old3/issue-revision', { kind: 'next' });
+    check('строка, выпущенная прежним способом (REMARKS + запись истории), открывает следующую ревизию', stuck.status === 200 && stuck.body.item.revision === 'B', stuck.body);
+    check('рабочая ревизия, начатая прежним способом (DRAFT), выпущенной не считается', (await send('POST', '/api/vdr/items/old2/issue-revision', { kind: 'next' })).status === 409);
+    const { backfillLegacyIssues } = await import('../server/docflowIssue.js');
+    check('разовая миграция ставит ключ и файл ревизии старому выпуску', await backfillLegacyIssues(prisma) === 1
+      && (await prisma.docRegisterItemRevision.findFirst({ where: { itemId: 'old1' } })).linkId === oldLink.id && (await prisma.docRegisterItemRevision.findFirst({ where: { itemId: 'old1' } })).issuedKey !== null);
+    check('повторная миграция ничего не меняет, DRAFT не затронут', await backfillLegacyIssues(prisma) === 0 && (await prisma.docRegisterItemRevision.findFirst({ where: { itemId: 'old2' } })).issuedKey === null);
+    check('после миграции возврат к старому выпуску назначается', (await send('POST', '/api/docflow/links', rem({ itemId: 'old1', toLinkId: oldLink.id, relativePath: 'E02/old1/Замечания.pdf', fileName: 'Замечания.pdf', reviewCode: '' }))).status === 200);
+    await prisma.docRegisterItem.update({ where: { id: 'i4' }, data: { revision: 'Ж', status: 'ISSUED' } });
+    await prisma.docRegisterItemRevision.create({ data: { itemId: 'i4', revision: 'Ж', reason: 'IFR' } });
+    const outside = await send('POST', '/api/vdr/items/i4/issue-revision', { kind: 'next' });
+    check('кириллическая ревизия вне схемы проекта — явная ошибка, а не перескок на цифру', outside.status === 409 && /нет в схеме проекта/.test(outside.body.error), outside.body);
+    await prisma.docRegisterItem.update({ where: { id: 'i4' }, data: { revision: 'A', status: 'READY' } });
+    await prisma.docRegisterItemRevision.deleteMany({ where: { itemId: 'i4', revision: 'Ж' } });
+
     // ── Права: пользователь без docflow.issue ──
     await prisma.role.create({ data: { id: 'role-plain', code: 'PLAIN', name: 'Инженер', permissions: JSON.stringify({ 'docflow.issue': { enabled: false, until: null } }) } });
     await prisma.user.create({ data: { id: 'plain', symbol: 'plain', name: 'Без выпуска', password: 'x', role: 'PLAIN' } });
@@ -215,7 +234,7 @@ async function main() {
       && (await apply('x', {})).status === 403 && (await send('POST', '/api/docflow/issue/undo', { projectId: 'p-a', planId: 'x' })).status === 403);
     actor = { id: 'admin', role: 'ADMIN' };
     const before = await count();
-    check('итог: проверки не оставили лишних ревизий', before === 2, before);
+    check('итог: проверки не оставили лишних ревизий', before === 4, before);
   } finally { await new Promise((r) => server.close(r)); await prisma.$disconnect(); fs.rmSync(temp, { recursive: true, force: true }); }
   console.log(`docflow-issue: ${passed} проверок прошли`);
 }

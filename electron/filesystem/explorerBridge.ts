@@ -8,6 +8,7 @@ import { DropTickets, importDropped } from './importPaths';
 import { planPublication } from './publishing';
 import { undoLast, redoLast } from './undo';
 import type { ShellCommands } from './shellCommands';
+import { collectServerLocks } from './lockSync';
 import { LocationKeys, MAX_LOCATION_REFS, resolvePortableFolder } from './locationKeys';
 import { mappedDriveUnc } from './network';
 
@@ -23,9 +24,11 @@ export const EXPLORER_WRITE_ACTIONS: ReadonlySet<string> = new Set([
   'quickAccessPin', 'shellMenuInvoke', 'recycleBinRestore', 'recycleBinPurge', 'recycleBinEmpty',
   // Перетаскивание наружу: Windows-получатель сам решает, копировать или переносить, поэтому право на запись нужно и здесь.
   'startDrag', 'importPaths', 'undo', 'redo',
+  // Замки связанных файлов меняют защиту файлов, поэтому требуют права записи, как и операции над самими файлами
+  'syncLinkLocks', 'releaseLinkLocks',
 ]);
 const READ_ACTIONS = new Set(['search', 'searchCancel', 'children', 'quickAccess', 'cloudRoots', 'thumbnail', 'openWithList', 'openWith', 'shellMenu', 'shellMenuClose',
-  'recycleBin', 'systemProperties', 'resolveAddress', 'locationKeys', 'selectionProvenance', 'resolvePortableFolder', 'placeIcon', 'undoState', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete', 'setLinkLocks', 'releaseLinkLocks']);
+  'recycleBin', 'systemProperties', 'resolveAddress', 'locationKeys', 'selectionProvenance', 'resolvePortableFolder', 'placeIcon', 'undoState', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete']);
 export const isExplorerAction = (action: string) => READ_ACTIONS.has(action) || EXPLORER_WRITE_ACTIONS.has(action);
 
 export interface ExplorerBridgeDeps {
@@ -36,6 +39,8 @@ export interface ExplorerBridgeDeps {
   emitSearch: (owner: number, event: WindowsSearchEvent) => void;
   /** Ключи мест папок; по умолчанию — настоящий перевод сетевых дисков в UNC (только Windows). */
   locations?: LocationKeys;
+  /** GET к серверу Flux под сессией пользователя (токен знает только main). Без него сверка замков недоступна. */
+  serverJson?: (path: string) => Promise<any>;
 }
 
 const ref = (value: unknown): WindowsFileRef => {
@@ -59,6 +64,12 @@ export class ExplorerBridge {
   private readonly locations: LocationKeys;
   constructor(private deps: ExplorerBridgeDeps) {
     this.locations = deps.locations || new LocationKeys({ rootPath: id => deps.service.rootPathOf(id), uncOfDrive: mappedDriveUnc });
+  }
+
+  async syncLinkLocks() {
+    if (!this.deps.serverJson) return { locked: 0, protectedFiles: 0, released: 0, skipped: true };
+    const refs = await collectServerLocks({ serverJson: this.deps.serverJson, resolveFolder: (locator) => this.resolvePortableFolder(locator) as Promise<WindowsFileRef | null> });
+    return this.deps.service.applyLinkLocks(refs);
   }
 
   /** preload → main: пути брошенных файлов. Вызывается только из канала, закрытого для страницы. */
@@ -86,7 +97,8 @@ export class ExplorerBridge {
       case 'openWith': await service.assertNotLinkLocked(ref(r.ref), 'открыть для правки'); return shell.openWith(owner, ref(r.ref), r.handlerId);
       // Меню Windows умеет вырезать, удалять и переименовывать мимо Flux: для заблокированных файлов оно не открывается
       case 'shellMenu': for (const target of refs(r.refs)) await service.assertNotLinkLocked(target, 'менять'); return shell.shellMenu(owner, refs(r.refs), r.extended === true);
-      case 'setLinkLocks': return service.setLinkLocks(Array.isArray(r.locked) ? refs(r.locked) : [], Array.isArray(r.released) ? refs(r.released) : []);
+      // Список замков берёт сам main у сервера под сессией пользователя: страница только просит обновить
+      case 'syncLinkLocks': return this.syncLinkLocks();
       case 'releaseLinkLocks': return service.releaseLinkLocks(refs(r.refs));
       case 'shellMenuInvoke': return shell.shellMenuInvoke(owner, r.token, r.commandId, r.label);
       case 'shellMenuClose': return shell.shellMenuClose(owner, r.token);

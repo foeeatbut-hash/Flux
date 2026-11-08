@@ -5,6 +5,7 @@ import type { WindowsFileEntry, WindowsFileRef } from '../../lib/windowsFiles';
 import { windowsFilesRequest } from '../../lib/windowsFiles';
 import { nearestBinding, type ProjectFolderBinding } from '../../lib/projectFolderBindings';
 import { can } from '../../lib/permissions';
+import { HashMemory } from '../../lib/docflowTracking';
 import { trackLinks, unlinkLink, type TrackUpdate } from '../../lib/docflowApi';
 import { dirOf, linkLookupKey, relativeInBinding } from '../../../shared/docflow/links';
 import { useStore } from '../../store/store';
@@ -77,8 +78,9 @@ export function useExplorerDocflow(input: {
 
   // ── Слежение (3.5): переименовали/перенесли — по отпечатку находим файл; не нашли — помечаем ──
   const tracking = React.useRef(false);
+  const memory = React.useRef(new HashMemory());
   React.useEffect(() => {
-    if (!mayFiles || !complete || tracking.current) return;
+    if (!mayFiles || !complete) return;
     const present = new Set<string>();
     const groups = new Map<string, { projectId: string; folderKey: string; dir: string; entries: WindowsFileEntry[] }>();
     for (const entry of entries) {
@@ -105,9 +107,10 @@ export function useExplorerDocflow(input: {
             // Выданный файл сверяется по отпечатку всегда: замена файла того же размера иначе осталась бы незамеченной
             const issuedLink = link.locked || ctx.issues.some((i) => i.linkId === link.id);
             if (here && (link.lostAt || (link.size && here.size !== link.size) || (issuedLink && hashed < 20))) {
-              if (issuedLink) hashed++;
-              const hash = await windowsFilesRequest<{ sha256: string; size: number }>({ action: 'fileHash', ref: entryRef(here, rootId) });
-              if (hash.ok && (link.lostAt || hash.data.sha256 !== link.sha256 || hash.data.size !== link.size)) updates.push({ itemId: link.itemId, linkId: link.id, sha256: hash.data.sha256, size: hash.data.size });
+              // Файл читается с диска, только если у него изменились размер или время изменения с прошлого прохода
+              const hash = await memory.current.fingerprint(link.id, here, async () => { const a = await windowsFilesRequest<{ sha256: string; size: number }>({ action: 'fileHash', ref: entryRef(here, rootId) }); return a.ok ? a.data : null; });
+              if (hash?.read && issuedLink) hashed++;
+              if (hash && (link.lostAt || hash.sha256 !== link.sha256 || hash.size !== link.size)) updates.push({ itemId: link.itemId, linkId: link.id, sha256: hash.sha256, size: hash.size });
             }
             continue;
           }
@@ -125,8 +128,13 @@ export function useExplorerDocflow(input: {
       }
       if (updates.length) await trackLinks(updates.slice(0, 200));
     };
-    tracking.current = true;
-    void work().catch(() => undefined).finally(() => { tracking.current = false; });
+    // Проход не чаще, чем раз в пару секунд: пере-листинг папки и vdr:changed приходят пачками
+    const timer = window.setTimeout(() => {
+      if (tracking.current) return;
+      tracking.current = true;
+      void work().catch(() => undefined).finally(() => { tracking.current = false; });
+    }, 2000);
+    return () => window.clearTimeout(timer);
   }, [entries, placed, infoOf, docs, complete, mayFiles, rootId]);
 
   // ── Меню «Документооборот ▸» (3.3) ──

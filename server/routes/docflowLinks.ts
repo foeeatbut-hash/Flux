@@ -60,6 +60,22 @@ export function registerDocflowLinkRoutes(app: Express): void {
     } catch (err) { fail(res, err); }
   });
 
+  // Замки для файлового моста: действующие заблокированные связи проектов, которые видит пользователь (чтение — docflow.view)
+  app.get('/api/docflow/locks', async (req: Request, res: Response) => {
+    try {
+      const prisma = getPrisma();
+      const me = actorOf(req);
+      const rows: any[] = await prisma.docFileLink.findMany({ where: { locked: true, unlinkedAt: null }, select: { id: true, projectId: true, folderKey: true, relativePath: true }, orderBy: { id: 'asc' }, take: 50000 });
+      const visible = new Map<string, boolean>();
+      const links = [];
+      for (const r of rows) {
+        if (!visible.has(r.projectId)) visible.set(r.projectId, isAdminActor(me) || await canSeeProject(String(me?.id), r.projectId, false));
+        if (visible.get(r.projectId)) links.push(r);
+      }
+      res.json({ links });
+    } catch (err) { fail(res, err); }
+  });
+
   // Замочек связанного файла: право docflow.files, как у назначения; проект строки сверяется здесь же
   app.post('/api/docflow/links/lock', async (req: Request, res: Response) => {
     try {

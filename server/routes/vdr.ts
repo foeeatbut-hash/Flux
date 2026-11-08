@@ -6,6 +6,7 @@ import { syncItemTags, linksOfItems, unmatchedCodesOf, planTagLinks, applyTagLin
 import { tagCodeKey } from '../tagWrite.js';
 import { projectConfig } from '../docflowSettings.js';
 import { DEFAULT_STATUSES } from '../../shared/docflow/config.js';
+import { backfillLegacyIssues } from '../docflowIssue.js';
 import { normalizeRevisionRules, expectedRevision, kindOfRevision } from '../../shared/docflow/revisions.js';
 import { VdrConflict, expectedStamp, expectedRevisionOf, guardedUpdate, guardedIssue, whenText, inTransaction } from '../vdrWrite.js';
 
@@ -811,6 +812,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       const askedRevision = expectedRevisionOf(req.body?.expectedRevision);
       // Устаревшую ожидаемую ревизию разбирает сверка версии ниже: у неё свой текст отказа
       if ((kind === 'next' || kind === 'certify') && (askedRevision === undefined || askedRevision === first.revision)) {
+        await backfillLegacyIssues(prisma, first.id).catch(() => 0); // выпуск прежним способом тоже считается выпуском
         const issued = await prisma.docRegisterItemRevision.findFirst({ where: { itemId: first.id, revision: first.revision, issuedKey: { not: null } } });
         if (!issued) return res.status(409).json({ error: `Ревизия ${first.revision} ещё не выпущена. Выпустите её кнопкой «Выпустить…» — там проверяются файл, имя и статус.`, conflict: true });
       }
@@ -834,6 +836,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
           else {
             // Следующая ревизия — по схеме проекта: буква за буквой, после букв — цифры; «утвердить» сразу даёт цифровую
             const current = String(item.revision).toUpperCase();
+            if (kindOfRevision(current) === 'letter' && !rules.letters.includes(current)) throw new VdrConflict(`Ревизии ${item.revision} нет в схеме проекта (Настройки → Ревизии): следующая не определена.`);
             const preferDigit = kind === 'certify' || kindOfRevision(current) === 'digit';
             const next = expectedRevision(rules, current, preferDigit ? 'digit' : 'letter') || expectedRevision(rules, current, 'digit');
             if (!next) throw new VdrConflict(`По схеме ревизий проекта после ${item.revision} следующей нет.`);

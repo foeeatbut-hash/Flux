@@ -21,6 +21,7 @@ export class LinkLocks {
   size(): number { return this.keys.size; }
   has(filename: string): boolean { return this.keys.has(lockKeyOf(filename)); }
   drop(filename: string): void { this.keys.delete(lockKeyOf(filename)); }
+  hasKey(key: string): boolean { return this.keys.has(key); }
   /** Внутри папки есть заблокированный файл — саму папку переносить и удалять нельзя. */
   inside(directory: string): boolean {
     const prefix = lockKeyOf(directory).replace(/[\\/]+$/, '') + path.sep;
@@ -41,12 +42,26 @@ export class LinkLocks {
   }
 }
 
-/** Атрибут «только чтение» на заблокированном файле; сбой (нет файла, сетевой диск без прав) блокировку не отменяет. */
-export async function protectFile(filename: string, locked: boolean): Promise<boolean> {
+/**
+ * Атрибут «только чтение»: ставится или снимается; возвращает, был ли файл только для чтения ДО этого вызова.
+ * Сбой (нет файла, сетевой диск без прав) блокировку не отменяет: она держится в мосте.
+ */
+export async function setReadOnly(filename: string, on: boolean): Promise<{ ok: boolean; before: boolean }> {
   try {
     const stat = await fs.stat(filename);
-    if (!stat.isFile()) return false;
-    await fs.chmod(filename, locked ? stat.mode & ~0o222 : stat.mode | 0o200);
-    return true;
-  } catch { return false; }
+    if (!stat.isFile()) return { ok: false, before: false };
+    const before = (stat.mode & 0o222) === 0;
+    await fs.chmod(filename, on ? stat.mode & ~0o222 : stat.mode | 0o200);
+    return { ok: true, before };
+  } catch { return { ok: false, before: false }; }
+}
+
+/** Что поставили мы: путь и был ли у файла «только чтение» до блокировки — такой атрибут при снятии замка не трогается. */
+export type ProtectedFiles = Record<string, { path: string; readOnlyBefore: boolean }>;
+
+export async function loadProtected(file: string): Promise<ProtectedFiles> {
+  try { const v = JSON.parse(await fs.readFile(file, 'utf8')); return v && typeof v === 'object' ? v : {}; } catch { return {}; }
+}
+export async function saveProtected(file: string, value: ProtectedFiles): Promise<void> {
+  try { await fs.writeFile(file, JSON.stringify(value)); } catch { /* память атрибутов — удобство, не условие блокировки */ }
 }

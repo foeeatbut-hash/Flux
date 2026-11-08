@@ -216,3 +216,36 @@ export async function lastIssue(prisma: any, projectId: string, actorId: string)
   const plans = await prisma.docflowPlan.findMany({ where: { projectId, actorId, kind: ISSUE_KIND, state: 'applied', expiresAt: { gt: new Date() } }, orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }], take: 1 });
   return plans[0] ? stateIssue(prisma, projectId, actorId, plans[0].id) : null;
 }
+
+const LEGACY_ISSUED_STATUSES = ['ISSUED', 'ACCEPTED', 'REMARKS'];
+
+/**
+ * Выпуски, сделанные прежним способом (до окна «Выпустить…»): у них в истории ревизий нет ключа выпуска.
+ * Строка в статусе «Выдан / Принят / Замечания» с записью истории на её текущую ревизию считается выпущенной:
+ * записи ставится ключ «строка + ревизия» и файл ревизии (если он связан). Без этого «следующая ревизия»
+ * для старых данных не открывалась, а выпустить заново было нельзя. Повторный запуск ничего не меняет;
+ * проходит страницами, чтобы не читать весь реестр сразу.
+ */
+export async function backfillLegacyIssues(db: any, onlyItemId?: string): Promise<number> {
+  let fixed = 0; let cursor = '';
+  for (;;) {
+    const items: any[] = await db.docRegisterItem.findMany({
+      where: { status: { in: LEGACY_ISSUED_STATUSES }, ...(onlyItemId ? { id: onlyItemId } : cursor ? { id: { gt: cursor } } : {}) }, orderBy: { id: 'asc' }, take: 500, select: { id: true, revision: true },
+    });
+    if (!items.length) return fixed;
+    cursor = items[items.length - 1].id;
+    const ids = items.map((i) => i.id);
+    const rows: any[] = await db.docRegisterItemRevision.findMany({ where: { itemId: { in: ids }, issuedKey: null, undoneAt: null, linkId: null }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] });
+    const keyed: any[] = await db.docRegisterItemRevision.findMany({ where: { itemId: { in: ids }, issuedKey: { not: null } }, select: { itemId: true, revision: true } });
+    for (const item of items) {
+      const revision = String(item.revision).toUpperCase();
+      if (keyed.some((k) => k.itemId === item.id && String(k.revision).toUpperCase() === revision)) continue;
+      const row = rows.find((r) => r.itemId === item.id && String(r.revision).toUpperCase() === revision);
+      if (!row) continue;
+      const link = await db.docFileLink.findFirst({ where: { itemId: item.id, role: 'file', revision: item.revision, unlinkedAt: null } });
+      try { await db.docRegisterItemRevision.update({ where: { id: row.id }, data: { issuedKey: issuedKeyOf(item.id, item.revision), linkId: link?.id || null, sha256: link?.sha256 || '' } }); fixed++; }
+      catch (e: any) { if (e?.code !== 'P2002') throw e; /* другой запуск успел раньше */ }
+    }
+    if (onlyItemId) return fixed;
+  }
+}

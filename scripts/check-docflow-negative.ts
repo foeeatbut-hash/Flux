@@ -31,6 +31,11 @@ const mutations = [
     change: (s: string) => s.replace('Number(day.slice(8, 10)), 23, 59, 59);', 'Number(day.slice(8, 10)), 0, 0, 0);') },
   { id: 'issue-calendar-days', test: 'scripts/test-docflow-revisions.ts', file: 'shared/docflow/revisions.ts',
     change: (s: string) => s.replace('Math.trunc(days) * 86_400_000', 'Math.trunc(days) * 86_000_000') },
+  // Слежение: диск не читается при неизменных размере и времени
+  { id: 'tracking-cache', test: 'scripts/test-docflow-tracking.ts', file: 'src/lib/docflowTracking.ts',
+    change: (s: string) => s.replace('if (prev && !needsHash(prev, now))', 'if (false)') },
+  { id: 'tracking-mtime', test: 'scripts/test-docflow-tracking.ts', file: 'src/lib/docflowTracking.ts',
+    change: (s: string) => s.replace(' || prev.mtime !== (now.modifiedAt || \'\')', '') },
 ];
 try {
   for (const mutation of mutations) {

@@ -11,7 +11,7 @@ import { replaceWindowsFile } from './replace';
 import { isNetworkFolder } from './network';
 import { existingAt, freeNameIn, parseChoices } from './publishing';
 import type { WindowsPublishChoices } from '../../filesystem/contracts';
-import { LinkLocks, protectFile } from './linkLocks';
+import { LinkLocks, lockKeyOf, setReadOnly, loadProtected, saveProtected, type ProtectedFiles } from './linkLocks';
 import { UndoJournal, fingerprint, type TrashInfo, type UndoOp, type Place } from './undo';
 
 export interface WindowsFilesDependencies {
@@ -84,26 +84,43 @@ export class WindowsFilesService {
   private constructor(private deps: WindowsFilesDependencies, readonly state: WindowsFilesState, readonly journal: UndoJournal) {}
   /** Файлы, связанные со строками документооборота: их нельзя менять, переносить, переименовывать и удалять. */
   readonly linkLocks = new LinkLocks();
+  private protectedFiles: ProtectedFiles | null = null;
+  private async protectedMemory(): Promise<ProtectedFiles> { return this.protectedFiles ||= await loadProtected(path.join(this.deps.userData, 'link-locks.json')); }
+  /** Снимает «только чтение» у файлов, которые поставили мы и которых больше нет в списке замков; чужой атрибут (был до блокировки) остаётся. */
+  private async releaseUnlisted(): Promise<number> {
+    const memory = await this.protectedMemory(); let released = 0;
+    for (const key of Object.keys(memory)) {
+      if (this.linkLocks.hasKey(key)) continue;
+      if (!memory[key].readOnlyBefore && (await setReadOnly(memory[key].path, false)).ok) released++;
+      delete memory[key];
+    }
+    return released;
+  }
   /**
-   * Страница присылает полный список заблокированных ссылок; атрибут «только чтение» меняется только у
-   * тех файлов, чей замок поставили или сняли с прошлого списка (и у явно освобождённых).
+   * Полный список заблокированных файлов (его собирает main по данным сервера). Атрибут «только чтение» ставится новым
+   * замкам с запоминанием прежнего значения, а у файлов, которых в списке больше нет — в том числе разблокированных
+   * на другом компьютере или до перезапуска, — снимается.
    */
-  async setLinkLocks(locked: WindowsFileRef[], released: WindowsFileRef[]): Promise<{ locked: number; protectedFiles: number; released: number }> {
+  async applyLinkLocks(locked: WindowsFileRef[]): Promise<{ locked: number; protectedFiles: number; released: number }> {
     const names: string[] = [];
     for (const ref of locked) { try { const r = this.resolveRef(ref); if (!r.draftId) names.push(await this.filename(r)); } catch { /* файла нет — защищать нечего */ } }
-    const { added, removed } = this.linkLocks.replace(names);
+    const { added } = this.linkLocks.replace(names);
+    const memory = await this.protectedMemory();
     let protectedFiles = 0;
-    for (const name of added) if (await protectFile(name, true)) protectedFiles++;
-    const freed = new Set(removed);
-    for (const ref of released) { try { const r = this.resolveRef(ref); if (!r.draftId) freed.add(await this.filename(r)); } catch { /* уже нет */ } }
-    let releasedCount = 0;
-    for (const name of freed) if (!this.linkLocks.has(name) && await protectFile(name, false)) releasedCount++;
-    return { locked: names.length, protectedFiles, released: releasedCount };
+    for (const name of added) {
+      if (memory[lockKeyOf(name)]) continue;
+      const done = await setReadOnly(name, true);
+      if (done.ok) { memory[lockKeyOf(name)] = { path: name, readOnlyBefore: done.before }; protectedFiles++; }
+    }
+    const released = await this.releaseUnlisted();
+    await saveProtected(path.join(this.deps.userData, 'link-locks.json'), memory);
+    return { locked: names.length, protectedFiles, released };
   }
-  /** Файл перестаёт быть заблокированным до следующего списка (отвязан, создание отменено): сразу снимается и «только чтение». */
+  /** Файл перестаёт быть заблокированным до следующей сверки (отвязан, создание отменено): замок и «только чтение» снимаются сразу. */
   async releaseLinkLocks(refs: WindowsFileRef[]): Promise<{ released: number }> {
-    let released = 0;
-    for (const ref of refs) { try { const r = this.resolveRef(ref); if (r.draftId) continue; const name = await this.filename(r); this.linkLocks.drop(name); if (await protectFile(name, false)) released++; } catch { /* файла уже нет */ } }
+    for (const ref of refs) { try { const r = this.resolveRef(ref); if (!r.draftId) this.linkLocks.drop(await this.filename(r)); } catch { /* файла уже нет */ } }
+    const released = await this.releaseUnlisted();
+    await saveProtected(path.join(this.deps.userData, 'link-locks.json'), await this.protectedMemory());
     return { released };
   }
   /** Отказ над заблокированным файлом (или папкой, где такие есть). `what` — действие в родительном падеже для подсказки. */
