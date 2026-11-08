@@ -1,8 +1,10 @@
 import type {
-  BridgeError, HostMessage, LaunchContext, ModuleManifest, ReadData,
+  BridgeError, ComputeHostMessage, HostMessage, LaunchContext, ModuleManifest, ModuleOutput, ReadData,
   ReadRequest, Resource, ThemeTokens, ModuleFailureKind,
 } from './contract';
 import { validMessage } from './schemas';
+import { ComputeError, codeOf, type ComputeErrorCode } from './engine/types';
+import { encodeJson } from './engine/json';
 
 export interface ModuleBridgeOptions {
   frame: () => Window | null;
@@ -13,6 +15,13 @@ export interface ModuleBridgeOptions {
   read: <R extends Resource>(resource: R, entityId?: string) => Promise<ReadData[R]>;
   beginReadCycle?: () => void;
   onFailure?: (kind: ModuleFailureKind) => void;
+  /**
+   * Расчёт логики на Python или WebAssembly (src/services/moduleCompute.ts). Язык и файл выбирает
+   * не подпрограмма, а подписанный манифест: подпрограмма присылает только вход.
+   */
+  compute?: (input: Record<string, unknown>) => Promise<ModuleOutput>;
+  /** Расчёт закончился ошибкой: окно показывает «подпрограмма остановилась»; счётчик сбоев пишет сам расчёт */
+  onComputeError?: (code: ComputeErrorCode) => void;
 }
 
 function messageBytes(message: unknown): number {
@@ -33,7 +42,8 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
   const pending = new Set<string>();
   let budget = 100;
   let budgetAt = Date.now();
-  function post(message: HostMessage) {
+  const computing = new Set<string>();
+  function post(message: HostMessage | ComputeHostMessage) {
     if (!disposed && validMessage(message.type, message)) {
       // Получатель — только сохранённое окно iframe. Его opaque origin
       // нельзя указать строкой targetOrigin, поэтому здесь нужен '*'.
@@ -44,6 +54,27 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     if (code !== 'NO_PROJECT') options.onFailure?.('bridge');
     post({ flux: 'module', v: 1, session: options.session, type: 'error', id, code });
   };
+  async function runCompute(message: { id: string; input: Record<string, unknown> }) {
+    const fail = (code: ComputeErrorCode) => post({ flux: 'module', v: 1, session: options.session, type: 'compute-error', id: message.id, code });
+    if (!options.compute) { fail('UNAVAILABLE'); return; }
+    if (computing.size >= 4 || computing.has(message.id)) { fail('BUSY'); return; }
+    const epoch = generation;
+    computing.add(message.id);
+    try {
+      // Числа проверяются здесь, а не в подпрограмме: NaN и целое больше 2^53 в обход frame.ts не пройдут
+      encodeJson(message.input);
+      const output = await options.compute(message.input);
+      if (disposed || epoch !== generation) return;
+      const result: ComputeHostMessage = { flux: 'module', v: 1, session: options.session, type: 'compute-result', id: message.id, output };
+      if (messageBytes(result) > 1024 * 1024 || !validMessage('compute-result', result)) { fail('BAD_OUTPUT'); options.onComputeError?.('BAD_OUTPUT'); }
+      else post(result);
+    } catch (error) {
+      if (disposed || epoch !== generation) return;
+      const code = codeOf(error instanceof ComputeError ? error : new ComputeError('CRASH'));
+      fail(code);
+      options.onComputeError?.(code);
+    } finally { computing.delete(message.id); }
+  }
   function notify(event: 'opened' | 'project-changed' | 'changed') {
     generation++;
     options.beginReadCycle?.();
@@ -83,6 +114,7 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       error(id, 'READ_ONLY');
       return;
     }
+    if (validMessage('compute', message)) { void runCompute(message); return; }
     if (!validMessage('read', message)) return;
     const request = message as ReadRequest;
     if (!options.manifest.reads.includes(request.resource)) { error(request.id, 'DENIED'); return; }
@@ -105,6 +137,6 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
   }
   return {
     handle, notify,
-    dispose: () => { disposed = true; generation++; pending.clear(); },
+    dispose: () => { disposed = true; generation++; pending.clear(); computing.clear(); },
   };
 }

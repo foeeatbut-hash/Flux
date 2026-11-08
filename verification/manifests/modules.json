@@ -67,7 +67,17 @@
         "modules/engine/wasmInspect.ts",
         "modules/trust/execution.ts",
         "modules/engine/wasm.ts",
-        "modules/engine/wasmCacheIdb.ts"
+        "modules/engine/python.ts",
+        "modules/engine/pythonHarness.ts",
+        "modules/compute/pythonWorker.ts",
+        "modules/compute/hostFrame.ts",
+        "scripts/fixtures/moduleLanguages.ts",
+        "modules/engine/scheduler.ts",
+        "src/services/moduleCompute.ts",
+        "src/services/moduleComputeHost.ts",
+        "src/services/moduleControlsGate.ts",
+        "src/workers/moduleWasm.worker.ts",
+        "electron/moduleControls.ts"
       ]
     }
   ],
@@ -257,6 +267,51 @@
       "path": "scripts/test-modules-wasm.ts",
       "layer": "unit",
       "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-python",
+      "path": "scripts/test-modules-python.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-parity",
+      "path": "scripts/test-modules-parity.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-scheduler",
+      "path": "scripts/test-modules-scheduler.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-compute",
+      "path": "scripts/test-modules-compute.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-compute-native",
+      "path": "scripts/test-modules-compute-native.ts",
+      "layer": "windows-native",
+      "platform": "win32",
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 900000

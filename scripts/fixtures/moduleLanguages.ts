@@ -24,7 +24,7 @@ export const statsControls = () => parseControls(statsControlsText()) as Control
 export const fixtureManifest = (lang: FixtureLanguage) => JSON.parse(read(lang, 'manifest.json').toString('utf8'));
 export const logicBytes = (lang: FixtureLanguage) => new Uint8Array(read(lang, fixtureManifest(lang).logic));
 
-export function languageFiles(lang: FixtureLanguage, patch: Record<string, unknown> = {}): Record<string, Uint8Array | string> {
+export function languageFiles(lang: FixtureLanguage, patch: Record<string, unknown> = {}, extra: Record<string, Uint8Array | string> = {}): Record<string, Uint8Array | string> {
   const manifest = { ...fixtureManifest(lang), ...patch };
   const files: Record<string, Uint8Array | string> = {
     'manifest.json': JSON.stringify(manifest, null, 2),
@@ -34,6 +34,6 @@ export function languageFiles(lang: FixtureLanguage, patch: Record<string, unkno
     'build/runtime.js': `/* runtime ${manifest.id} */`,
   };
   for (const source of SOURCES[lang]) files[source] = read(lang, source).toString('utf8');
-  return files;
+  return { ...files, ...extra };
 }
-export const languageBundle = (lang: FixtureLanguage, patch: Record<string, unknown> = {}) => packBundle(languageFiles(lang, patch));
+export const languageBundle = (lang: FixtureLanguage, patch: Record<string, unknown> = {}, extra: Record<string, Uint8Array | string> = {}) => packBundle(languageFiles(lang, patch, extra));
