@@ -6,7 +6,7 @@
 
 ## Шаги
 - [x] 1. Общий механизм: modules/engine (types, json, controls, wasmInspect), manifest language/sourceLanguage/platform, подпись (claims, verify, execution), набор modules-languages
-- [ ] 2. WebAssembly: движок, WASI-урезанный, кэш компиляции, фикстуры C/C++/Rust/Go/C#
+- [x] 2. WebAssembly: engine (wasm.ts, wasmInspect.ts, кэш), два ABI (реактор и WASI-команда для C#), фикстуры C/C++/Rust/Go/C# собраны, набор modules-wasm
 - [ ] 3. Python: Pyodide в portable, общий Worker, выгрузка по простою
 - [ ] 4. Пределы: планировщик (ядра-1, <=4), фон, время/память, счётчики сбоев, контрольные при первом запуске
 - [ ] 5. Точность и сквозная проверка (Electron), документы, PR

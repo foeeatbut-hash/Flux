@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "title": "Позиция оборудования",
+      "fields": [
+        { "label": "Наименование", "bind": "flux.equipment.name" },
+        { "label": "Код позиции", "bind": "flux.equipment.itemCode", "kind": "code" }
+      ]
+    },
+    {
+      "title": "Статистика числовых параметров",
+      "fields": [
+        { "label": "Значений", "bind": "calc.out.count" },
+        { "label": "Сумма", "bind": "calc.out.sum" },
+        { "label": "Среднее", "bind": "calc.out.mean" },
+        { "label": "Среднеквадратичное", "bind": "calc.out.rms" },
+        { "label": "Наименьшее", "bind": "calc.out.min" },
+        { "label": "Наибольшее", "bind": "calc.out.max" }
+      ]
+    }
+  ],
+  "tables": []
+}

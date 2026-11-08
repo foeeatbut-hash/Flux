@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RuntimeIdentifier>wasi-wasm</RuntimeIdentifier>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>FluxStats</AssemblyName>
+    <RootNamespace>FluxStats</RootNamespace>
+    <!-- Одним файлом: без сборок на диске модуль не умеет загружать ничего снаружи -->
+    <WasmSingleFileBundle>true</WasmSingleFileBundle>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>full</TrimMode>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <!-- Память: 16 МиБ в начале, не больше 128 МиБ (для среды .NET предел Flux — 2048 страниц) -->
+    <WasmInitialHeapSize>16777216</WasmInitialHeapSize>
+    <Deterministic>true</Deterministic>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <_WasiSdkLinkerFlags Include="--max-memory=134217728" />
+  </ItemGroup>
+</Project>

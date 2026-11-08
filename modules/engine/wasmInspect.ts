@@ -40,11 +40,19 @@ export const FLUX_IMPORTS: Record<string, FuncType> = {
   abort: { params: ['i32', 'i32'], results: [] },
 };
 export const WASI_MODULE = 'wasi_snapshot_preview1';
+/**
+ * Все имена WASI preview1: рантаймы (.NET, wasi-libc) импортируют их скопом, даже не пользуясь.
+ * Работают только вывод/ввод стандартных потоков, аргументы и окружение (пустые), часы (стоят),
+ * случайность (от зерна); остальное в wasm.ts отвечает «не поддерживается» и ничего не открывает.
+ */
 export const WASI_NAMES = [
-  'fd_write', 'fd_read', 'fd_close', 'fd_seek', 'fd_fdstat_get', 'fd_fdstat_set_flags', 'fd_prestat_get', 'fd_prestat_dir_name',
-  'fd_filestat_get', 'fd_tell', 'fd_sync', 'fd_advise', 'fd_allocate', 'fd_datasync', 'fd_pread', 'fd_pwrite', 'fd_readdir', 'fd_renumber',
-  'environ_get', 'environ_sizes_get', 'args_get', 'args_sizes_get', 'clock_time_get', 'clock_res_get', 'random_get', 'proc_exit',
-  'sched_yield', 'poll_oneoff', 'proc_raise',
+  'args_get', 'args_sizes_get', 'environ_get', 'environ_sizes_get', 'clock_res_get', 'clock_time_get',
+  'fd_advise', 'fd_allocate', 'fd_close', 'fd_datasync', 'fd_fdstat_get', 'fd_fdstat_set_flags', 'fd_fdstat_set_rights',
+  'fd_filestat_get', 'fd_filestat_set_size', 'fd_filestat_set_times', 'fd_pread', 'fd_prestat_get', 'fd_prestat_dir_name',
+  'fd_pwrite', 'fd_read', 'fd_readdir', 'fd_renumber', 'fd_seek', 'fd_sync', 'fd_tell', 'fd_write',
+  'path_create_directory', 'path_filestat_get', 'path_filestat_set_times', 'path_link', 'path_open', 'path_readlink',
+  'path_remove_directory', 'path_rename', 'path_symlink', 'path_unlink_file', 'poll_oneoff', 'proc_exit', 'proc_raise',
+  'random_get', 'sched_yield', 'sock_accept', 'sock_recv', 'sock_send', 'sock_shutdown',
 ] as const;
 
 const VALTYPES: Record<number, string> = { 0x7f: 'i32', 0x7e: 'i64', 0x7d: 'f32', 0x7c: 'f64', 0x7b: 'v128', 0x70: 'funcref', 0x6f: 'externref' };
@@ -160,19 +168,35 @@ export function wasmProblem(bytes: Uint8Array): string {
     if (imp.module === 'env' && imp.name === 'memory' && imp.kind === 'memory') continue;
     return `Импорт ${imp.module}.${imp.name} недоступен: модулю разрешены только API Flux (flux.*) и урезанный WASI, без сети, часов, файлов и случайности вне зерна`;
   }
+  const abi = wasmAbi(info);
+  if (!abi) return 'Нет ни экспортов flux_alloc/flux_run/flux_output, ни _start: непонятно, как вызвать расчёт';
+  const cap = wasmPageCap(abi);
   const memory = info.importedMemory || info.memory;
   if (!memory) return 'У модуля нет линейной памяти';
   if (memory.shared) return 'Общая (shared) память не поддерживается';
   if (info.memory && !info.importedMemory) {
     // Свою память модуль не даёт ограничить снаружи: предел должен быть записан в самом файле
-    if (memory.max === null) return `У памяти не задан максимум: пересоберите с пределом ${LIMITS.wasmMaxPages * 64} КиБ`;
-    if (memory.max > LIMITS.wasmMaxPages) return `Максимум памяти ${memory.max} страниц больше предела ${LIMITS.wasmMaxPages}`;
+    if (memory.max === null) return `У памяти не задан максимум: пересоберите с пределом не более ${cap * 64} КиБ`;
+    if (memory.max > cap) return `Максимум памяти ${memory.max} страниц больше предела ${cap}`;
   }
-  if (memory.min > LIMITS.wasmMaxPages) return `Начальная память ${memory.min} страниц больше предела ${LIMITS.wasmMaxPages}`;
+  if (memory.min > cap) return `Начальная память ${memory.min} страниц больше предела ${cap}`;
   const exp = (name: string) => info.exports.find(e => e.name === name);
   if (!info.importedMemory && exp('memory')?.kind !== 'memory') return 'Нет экспорта memory';
-  if (!same(exp('flux_alloc')?.type, ['i32'], ['i32'])) return 'Нет экспорта flux_alloc(i32) -> i32';
-  if (!same(exp('flux_run')?.type, ['i32', 'i32'], ['i32'])) return 'Нет экспорта flux_run(i32, i32) -> i32';
-  if (!same(exp('flux_output')?.type, [], ['i32'])) return 'Нет экспорта flux_output() -> i32';
   return '';
 }
+
+/**
+ * Два способа вызова, один результат:
+ * - `reactor` (C, C++, Rust, Go/TinyGo): экспорты flux_alloc / flux_run / flux_output, JSON в памяти модуля;
+ * - `command` (C#/.NET и всё, что умеет только WASI): `_start`, вход на stdin, выход на stdout.
+ */
+export type WasmAbi = 'reactor' | 'command';
+export function wasmAbi(info: WasmInfo): WasmAbi | null {
+  const exp = (name: string) => info.exports.find(e => e.name === name);
+  if (same(exp('flux_alloc')?.type, ['i32'], ['i32']) && same(exp('flux_run')?.type, ['i32', 'i32'], ['i32'])
+    && same(exp('flux_output')?.type, [], ['i32'])) return 'reactor';
+  if (exp('_start')?.kind === 'func' && same(exp('_start')?.type, [], [])) return 'command';
+  return null;
+}
+/** .NET в памяти тяжелее: ему положен больший потолок, но тоже записанный в самом файле */
+export const wasmPageCap = (abi: WasmAbi) => abi === 'command' ? LIMITS.wasmCommandMaxPages : LIMITS.wasmMaxPages;

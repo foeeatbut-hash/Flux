@@ -65,7 +65,9 @@
         "modules/engine/json.ts",
         "modules/engine/controls.ts",
         "modules/engine/wasmInspect.ts",
-        "modules/trust/execution.ts"
+        "modules/trust/execution.ts",
+        "modules/engine/wasm.ts",
+        "modules/engine/wasmCacheIdb.ts"
       ]
     }
   ],
@@ -244,6 +246,15 @@
     {
       "id": "modules-languages",
       "path": "scripts/test-modules-languages.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-wasm",
+      "path": "scripts/test-modules-wasm.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
