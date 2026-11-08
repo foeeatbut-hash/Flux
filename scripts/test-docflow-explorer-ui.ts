@@ -168,7 +168,7 @@ const posts = (page: Page) => page.evaluate(() => (window as any).__docflowPosts
     await lockBtn.click();
     await page.waitForFunction(() => (window as any).__docflowPosts.some((p: any) => p.url === '/api/docflow/links/lock' && p.body.locked === false), null, { timeout: 5000 });
     ok('Нажатие на замок снимает его: на сервер уходят строка, связь и locked=false', (await posts(page)).some((p) => p.url === '/api/docflow/links/lock' && p.body.itemId === 'i1' && p.body.linkId === 'l3' && p.body.locked === false));
-    await page.waitForFunction(() => document.querySelector('tr [data-file-lock="open"]'), null, { timeout: 5000 });
+    await regRow.locator('[data-file-lock="open"]').waitFor({ timeout: 5000 });
     const openTitle = await regRow.locator('[data-file-lock]').getAttribute('title') || '';
     ok('После снятия замок открыт, подсказка называет снявшего', /Замок снят.*Администратор/.test(openTitle), openTitle);
     await shoot(page, 'docflow-registry-lock', '.fx-page');

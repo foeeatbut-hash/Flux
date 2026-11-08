@@ -11,7 +11,14 @@ import { useBindingLedger } from './useProjectFolderBindings';
  * должен знать, какие пути нельзя менять. Компонент ничего не рисует: при каждом изменении связей присылает мосту
  * полный список заблокированных файлов и тех, чей замок только что сняли (им возвращается запись).
  */
+/** Без входа запросы дают 401, а без моста Windows блокировать нечем: тогда компонент ничего не загружает. */
 export default function LinkLockSync() {
+  const user = useStore((s) => s.user);
+  const hasBridge = typeof window !== 'undefined' && !!(window as any).electron?.windowsFiles;
+  return user && hasBridge ? <LinkLockSyncInner /> : null;
+}
+
+function LinkLockSyncInner() {
   const user = useStore((s) => s.user);
   const mayView = can(user, 'docflow.view');
   const { bindings } = useBindingLedger(user?.id);
