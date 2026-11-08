@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { markEditing, unmarkEditing } from '../../lib/localEditing';
 import { base64ToBytes, type WindowsFileContent, type WindowsFileRef } from '../../lib/windowsFiles';
 import { isOfficeMsg, isOfficeEditorReadyMessage, fromOwnFrame, targetOrigin, pathOf } from '../../lib/officeBridge';
 import { localAnswer } from './OfficeAppEditor';
@@ -125,13 +126,14 @@ export default function LocalOfficeEditor({ app, file, fileRef, load, write, cop
   const closeSession = useCallback(async (id: number) => {
     if (closedSessions.current.has(id)) return;
     closedSessions.current.add(id);
+    unmarkEditing(id);
     try { await native({ action: 'close', session: id }); } catch { /* closing after unmount is best effort */ }
   }, []);
   const ensure = useCallback(async () => {
     if (disposed.current) throw new Error('Редактор уже закрывается.');
     if (!session.current) session.current = native({ action: 'open', app, ref: fileRef }).then(async r => {
       if (disposed.current) { await closeSession(r.session); throw new Error('Редактор уже закрывается.'); }
-      sessionId.current = r.session; return r.session as number;
+      sessionId.current = r.session; markEditing(r.session, fileRef); return r.session as number;
     }).catch(e => { session.current = null; throw e; });
     return session.current;
   }, [app, fileRef.rootId, fileRef.relativePath, fileRef.draftId, closeSession]);

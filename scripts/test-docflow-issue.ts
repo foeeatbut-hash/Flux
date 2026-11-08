@@ -20,7 +20,6 @@ import { registerProjectFolderBindingRoutes } from '../server/routes/projectFold
 import { vdrPermissionFor } from '../server/vdrPermissions.js';
 import { bootstrapLocalDatabase } from '../server/databaseBootstrap.js';
 import { setPrisma, setBroadcaster } from '../server/context.js';
-import { addCalendarDays, endOfDay, expectedRevision, normalizeRevisionRules, revisionProblem, responseDeadline, validDay } from '../shared/docflow/revisions.js';
 
 const require = createRequire(import.meta.url);
 const { PrismaClient } = require('../prisma-clients/client-sqlite');
@@ -38,18 +37,6 @@ const WORK = key('a'); const RETURNS = key('b');
 const sha = (c: string) => c.repeat(64);
 
 async function main() {
-  // ── Схема ревизий и сроки: чистые правила ──
-  const rules = normalizeRevisionRules({});
-  check('после A идёт B, после Z букв нет, после буквы — первая цифра', expectedRevision(rules, 'A', 'letter') === 'B' && expectedRevision(rules, 'Z', 'letter') === null && expectedRevision(rules, 'C', 'digit') === '0');
-  check('после цифры буквенная невозможна, цифры идут подряд', expectedRevision(rules, '1', 'letter') === null && expectedRevision(rules, '1', 'digit') === '2');
-  check('первый выпуск принимает любую ревизию своего вида', expectedRevision(rules, null, 'letter') === '' && revisionProblem(rules, null, 'C', 'letter') === null);
-  check('пропуск ревизии отвергается', /следующей должна быть B/.test(revisionProblem(rules, 'A', 'C', 'letter') || ''));
-  check('свои правила схемы: пропуск буквы I', expectedRevision(normalizeRevisionRules({ letters: 'ABCDEFGHJK', firstDigit: 1 }), 'H', 'letter') === 'J' && expectedRevision(normalizeRevisionRules({ letters: 'ABC', firstDigit: 1 }), 'C', 'digit') === '1');
-  check('несуществующая дата отвергается', !validDay('2026-02-31') && validDay('2026-02-28') && !validDay('26-1-1'));
-  check('календарные дни через переход на зимнее время не плывут', addCalendarDays('2026-10-24', 3) === '2026-10-27' && addCalendarDays('2026-12-30', 3) === '2027-01-02');
-  check('срок кончается в последнюю секунду дня часового пояса пользователя',
-    endOfDay('2026-11-10', 'Europe/Moscow').toISOString() === '2026-11-10T20:59:59.000Z' && endOfDay('2026-11-10', 'America/New_York').toISOString() === '2026-11-11T04:59:59.000Z'
-    && responseDeadline('2026-11-05', 10, 'Asia/Novosibirsk').toISOString() === '2026-11-15T16:59:59.000Z');
   check('выпуск — отдельное право, а чтение состояния — просмотр', vdrPermissionFor('POST', '/api/docflow/issue/plan')?.perm === 'docflow.issue' && vdrPermissionFor('POST', '/api/docflow/issue/apply')?.perm === 'docflow.issue'
     && vdrPermissionFor('POST', '/api/docflow/issue/undo')?.perm === 'docflow.issue' && vdrPermissionFor('GET', '/api/docflow/issue/last')?.perm === 'docflow.view');
 
@@ -206,6 +193,12 @@ async function main() {
     check('чужой автор не видит и не отменяет план — 403', (await send('POST', '/api/docflow/issue/undo', { projectId: 'p-a', planId: undoPlan.body.id })).status === 403
       && (await send('GET', `/api/docflow/issue/state?projectId=p-a&planId=${undoPlan.body.id}`)).status === 403);
     actor = { id: 'admin', role: 'ADMIN' };
+    // Возврат без кода рассмотрения строку не меняет, но выпуск всё равно уже использован
+    const plainReturn = await send('POST', '/api/docflow/links', rem({ itemId: 'i4', toLinkId: l4.id, relativePath: 'E02/i4/A/Письмо.pdf', fileName: 'Письмо.pdf', reviewCode: '' }));
+    check('возврат без кода принят и не трогает строку', plainReturn.status === 200 && (await prisma.docRegisterItem.findUnique({ where: { id: 'i4' } })).status === 'ISSUED');
+    check('по выпуску есть возврат — отмена отказана, строка осталась выданной', (await send('POST', '/api/docflow/issue/undo', { projectId: 'p-a', planId: undoPlan.body.id })).status === 409
+      && (await prisma.docRegisterItem.findUnique({ where: { id: 'i4' } })).status === 'ISSUED');
+    await send('POST', '/api/docflow/links/unlink', { itemId: 'i4', linkId: plainReturn.body.link.id });
     const undone = await send('POST', '/api/docflow/issue/undo', { projectId: 'p-a', planId: undoPlan.body.id });
     const restored = await prisma.docRegisterItem.findUnique({ where: { id: 'i4' } });
     check('отмена возвращает строку и освобождает ревизию, история помечена', undone.status === 200 && restored.status === 'READY' && restored.issueDate === null

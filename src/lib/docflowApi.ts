@@ -6,7 +6,7 @@
  * 409 (перечитать и сказать «уже изменили»), а что — на 403 (нет права).
  */
 import type { DocflowConfig } from '../../shared/docflow/config';
-import type { DocLinkDto, LinkedItemBrief } from '../../shared/docflow/links';
+import type { DocLinkDto, IssueDto, LinkedItemBrief } from '../../shared/docflow/links';
 import type { NameCheck, RowForCheck } from '../../shared/docflow/nameMask';
 
 export interface ApiAnswer<T = any> { ok: boolean; status: number; data: T & { error?: string } }
@@ -53,11 +53,11 @@ export const migrationApply = (projectIds: string[]) => docflowCall<MigrationPla
 export const migrationUndo = () => docflowCall<{ kept: string[]; plan: MigrationPlan }>('POST', '/api/docflow/migration/undo', {});
 
 // ── Связи файлов со строками ВДР (server/routes/docflowLinks.ts) ──
-export interface LinksView { links: DocLinkDto[]; items: Record<string, LinkedItemBrief> }
+export interface LinksView { links: DocLinkDto[]; items: Record<string, LinkedItemBrief>; issues: IssueDto[] }
 export interface LinkPlan { check: NameCheck; expectedName: string; blocked: boolean; reason: string; sameRevisionFile: DocLinkDto | null; /** Строка так, как её видит проверка имени: из неё собираются имя файла и подпапка. */ row: RowForCheck }
 export interface LinkRequest {
   itemId: string; role?: 'file' | 'remarks'; toLinkId?: string; folderKey: string; relativePath: string; fileName: string;
-  sha256?: string; size?: number; reviewCode?: string; receivedAt?: string | null; replace?: boolean;
+  sha256?: string; size?: number; reviewCode?: string; receivedAt?: string | null; timeZone?: string; replace?: boolean;
 }
 export interface TrackUpdate { itemId: string; linkId: string; folderKey?: string; relativePath?: string; fileName?: string; sha256?: string; size?: number; lost?: boolean }
 

@@ -32,7 +32,8 @@ export interface AssignFileDialogProps {
   onDone: () => void;
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+// Дата получения — календарный день на часах пользователя, а не по UTC
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 export default function AssignFileDialog({ role, projectId, docs, bindings, row: fixedRow, file, renameOffer = true, onClose, onDone }: AssignFileDialogProps) {
   const { config } = docs;
@@ -73,15 +74,21 @@ export default function AssignFileDialog({ role, projectId, docs, bindings, row:
     return () => { alive = false; };
   }, [row?.id, source?.name, role]);
 
-  const fileLinks = React.useMemo(() => docs.links.filter((l) => row && l.itemId === row.id && l.role === 'file' && !l.unlinkedAt).sort((a, b) => b.revision.localeCompare(a.revision)), [docs.links, row?.id]);
+  // Возврат бывает только к выданной ревизии; по умолчанию — последняя выданная
+  const fileLinks = React.useMemo(() => {
+    const issued = docs.issues.filter((i) => row && i.itemId === row.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return issued.map((i) => docs.links.find((l) => l.id === i.linkId && l.role === 'file' && !l.unlinkedAt)).filter((l): l is NonNullable<typeof l> => !!l);
+  }, [docs.links, docs.issues, row?.id]);
   React.useEffect(() => { setToLinkId(fileLinks[0]?.id || ''); }, [fileLinks]);
+  const rule = config.reviewCodes.find((c) => c.code === reviewCode);
+  const nextStatus = rule && rule.action !== 'info' ? config.statuses.find((s) => s.code === (rule.status || (rule.action === 'accept' ? 'ACCEPTED' : 'REMARKS')))?.label || '' : '';
 
   const blocked = role === 'file' && !!plan?.blocked;
   const finalName = source ? (blocked && fix === 'rename' && plan?.expectedName ? plan.expectedName : source.name) : '';
   const revision = role === 'remarks' ? fileLinks.find((l) => l.id === toLinkId)?.revision || '' : plan?.check.revision || row?.revision || '';
   const placement = source && plan ? planPlacement({ source, role, config, row: plan.row, revision, projectId, bindings: mine, finalName }) : null;
   const needReplace = role === 'file' && !!plan?.sameRevisionFile;
-  const ready = !!source && !!row && !!plan && !!placement && !placement.error && !busy && (!blocked || (renameOffer && fix === 'rename' && !!plan.expectedName)) && (!needReplace || replace) && (role === 'file' || !!toLinkId);
+  const ready = !!source && !!row && !!plan && !!placement && !placement.error && !busy && (!blocked || (renameOffer && fix === 'rename' && !!plan.expectedName)) && (!needReplace || replace) && (role === 'file' || (!!toLinkId && !!received));
   const hint = React.useMemo(() => (source ? parseFileName(config, source.name).fields['шифр'] : undefined), [config, source?.name]);
 
   const recheck = async () => {
@@ -101,14 +108,14 @@ export default function AssignFileDialog({ role, projectId, docs, bindings, row:
       const answer = await createLink({
         itemId: row.id, role, ...(role === 'remarks' ? { toLinkId, reviewCode, receivedAt: received } : {}), folderKey: result.folderKey, relativePath: result.relativePath,
         fileName: result.finalName, sha256: result.sha256, size: result.size, replace,
+        ...(role === 'remarks' ? { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone } : {}),
       });
       if (!answer.ok) {
         setError(`${result.moved ? 'Файл уже перенесён (отменить можно в Проводнике, Ctrl+Z), но связать не удалось: ' : 'Связать не удалось: '}${answer.data.error || 'ошибка сервера'}`);
         setBusy(false);
         return;
       }
-      // Код рассмотрения задаёт следующий статус строки — по правилам самого реестра
-      if (role === 'remarks' && reviewCode) await applyReviewCode(row, reviewCode);
+      // Код рассмотрения, следующий статус и срок ответа записывает сервер вместе со связью
       onDone(); onClose();
     } catch (e: any) { setError(e?.message || 'Не удалось выполнить назначение'); setBusy(false); }
   };
@@ -151,9 +158,10 @@ export default function AssignFileDialog({ role, projectId, docs, bindings, row:
 
         {role === 'remarks' && row && source && (
           <div className="grid gap-3 sm:grid-cols-3">
-            <Field label="К файлу ревизии"><Select value={toLinkId} onChange={setToLinkId} options={fileLinks.length ? fileLinks.map((l) => ({ value: l.id, label: `ред. ${l.revision} · ${l.fileName}` })) : [{ value: '', label: 'Нет файла ревизии', disabled: true }]} /></Field>
+            <Field label="К файлу ревизии"><Select value={toLinkId} onChange={setToLinkId} options={fileLinks.length ? fileLinks.map((l) => ({ value: l.id, label: `ред. ${l.revision} · ${l.fileName}` })) : [{ value: '', label: 'Нет выданной ревизии', disabled: true }]} /></Field>
             <Field label="Код рассмотрения"><Select value={reviewCode} onChange={setReviewCode} options={[{ value: '', label: 'Не указан' }, ...config.reviewCodes.map((c) => ({ value: c.code, label: `${c.code} — ${c.label}` }))]} /></Field>
             <Field label="Получен"><Input type="date" value={received} onChange={(e) => setReceived(e.target.value)} /></Field>
+            {reviewCode && <p data-return-effect className="text-slate-600 sm:col-span-3 dark:text-slate-300">{nextStatus ? `Статус строки станет «${nextStatus}». ` : 'Статус строки не изменится. '}{rule && rule.deadlineDays > 0 && received ? `Срок ответа — ${rule.deadlineDays} календарных дн. от даты получения.` : ''}</p>}
           </div>
         )}
 
@@ -169,12 +177,4 @@ export default function AssignFileDialog({ role, projectId, docs, bindings, row:
       </div>
     </Dialog>
   );
-}
-
-/** Код рассмотрения — через обычное сохранение строки: статус и срок определяет реестр, а не ДО. */
-async function applyReviewCode(row: PickRow, code: string): Promise<void> {
-  const list = await fetch(`/api/vdr/items?registerId=${encodeURIComponent(row.registerId)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  const item = (list?.items || []).find((i: any) => i.id === row.id);
-  if (!item) return;
-  await fetch(`/api/vdr/items/${encodeURIComponent(row.id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewCode: code, expectedUpdatedAt: item.updatedAt }) });
 }

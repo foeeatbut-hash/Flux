@@ -12,6 +12,7 @@ import { useToastStore } from '../../store/toastStore';
 import { useProjectDocs } from '../docflow/useProjectDocs';
 import AssignFileDialog from '../docflow/AssignFileDialog';
 import AddToRegistryDialog from '../docflow/AddToRegistryDialog';
+import IssueDialog from '../docflow/IssueDialog';
 import DocDetails from '../files/DocDetails';
 import { docInfoOf, matchesDocFilter, type DocEntryInfo, type DocFilter } from '../files/docEntryInfo';
 import { OffMaskBadge, docCell } from '../files/DocColumns';
@@ -19,7 +20,7 @@ import { entryKey } from '../files/useSelection';
 import { entryRef } from '../files/fileOps';
 import type { FolderColumn } from '../files/viewModel';
 
-type Dialog = { kind: 'link' | 'remarks' | 'add'; entry: WindowsFileEntry; info: DocEntryInfo } | null;
+type Dialog = { kind: 'link' | 'remarks' | 'add' | 'issue'; entry: WindowsFileEntry; info: DocEntryInfo } | null;
 
 /**
  * Документооборот в Проводнике (docs/docflow-program.md, 3.2–3.5): сведения о
@@ -41,6 +42,7 @@ export function useExplorerDocflow(input: {
   const mayView = can(user, 'docflow.view');
   const mayFiles = can(user, 'docflow.files');
   const mayEdit = can(user, 'docflow.edit');
+  const mayIssue = can(user, 'docflow.issue');
   const [filter, setFilter] = React.useState<DocFilter>('all');
   const [dialog, setDialog] = React.useState<Dialog>(null);
 
@@ -89,6 +91,7 @@ export function useExplorerDocflow(input: {
     }
     const work = async () => {
       const updates: TrackUpdate[] = [];
+      let hashed = 0; // предел чтения выданных файлов за один проход
       for (const group of groups.values()) {
         const ctx = docs[group.projectId];
         if (!ctx) continue;
@@ -98,10 +101,13 @@ export function useExplorerDocflow(input: {
           const key = linkLookupKey(link.folderKey, link.relativePath);
           if (present.has(key)) {
             const here = group.entries.find((e) => linkLookupKey(group.folderKey, [group.dir, e.name].filter(Boolean).join('/')) === key);
-            // Файл на месте: пометка «не найден» снимается; изменился размер — отпечаток обновляется
-            if (here && (link.lostAt || (link.size && here.size !== link.size))) {
+            // Файл на месте: пометка «не найден» снимается; изменился размер — отпечаток обновляется.
+            // Выданный файл сверяется по отпечатку всегда: замена файла того же размера иначе осталась бы незамеченной
+            const issuedLink = ctx.issues.some((i) => i.linkId === link.id);
+            if (here && (link.lostAt || (link.size && here.size !== link.size) || (issuedLink && hashed < 20))) {
+              if (issuedLink) hashed++;
               const hash = await windowsFilesRequest<{ sha256: string; size: number }>({ action: 'fileHash', ref: entryRef(here, rootId) });
-              if (hash.ok) updates.push({ itemId: link.itemId, linkId: link.id, sha256: hash.data.sha256, size: hash.data.size });
+              if (hash.ok && (link.lostAt || hash.data.sha256 !== link.sha256 || hash.data.size !== link.size)) updates.push({ itemId: link.itemId, linkId: link.id, sha256: hash.data.sha256, size: hash.data.size });
             }
             continue;
           }
@@ -152,6 +158,7 @@ export function useExplorerDocflow(input: {
       }
       sub.push({ label: 'Назначить возвратом к…', disabled: !mayFiles, onClick: () => setDialog({ kind: 'remarks', entry, info }) });
     }
+    if (info.link && info.role === 'file' && info.item) sub.push({ label: 'Выпустить…', disabled: !mayIssue || (info.item.revision !== info.link.revision), onClick: () => setDialog({ kind: 'issue', entry, info }) });
     if (info.link) sub.push({ label: 'Открыть в ДО', onClick: () => openInDocflow(info) });
     if (info.link) sub.push({ label: 'Отвязать', danger: true, disabled: !mayFiles, onClick: () => void unlink(info) });
     if (!info.link && info.role === 'remarks') sub.push({ label: 'Назначить возвратом к…', disabled: !mayFiles, onClick: () => setDialog({ kind: 'remarks', entry, info }) });
@@ -181,6 +188,7 @@ export function useExplorerDocflow(input: {
     const ctx = docs[dialog.info.projectId];
     if (!ctx) return null;
     const file = entryRef(dialog.entry, rootId);
+    if (dialog.kind === 'issue' && dialog.info.item) return <IssueDialog projectId={dialog.info.projectId} docs={ctx} bindings={bindings} itemIds={[dialog.info.item.id]} onClose={() => setDialog(null)} onDone={done} />;
     if (dialog.kind === 'add') return <AddToRegistryDialog projectId={dialog.info.projectId} docs={ctx} file={file} info={dialog.info} onClose={() => setDialog(null)} onDone={done} />;
     return <AssignFileDialog role={dialog.kind === 'link' ? 'file' : 'remarks'} projectId={dialog.info.projectId} docs={ctx} bindings={bindings} file={file} renameOffer={false} onClose={() => setDialog(null)} onDone={done} />;
   })() : null;

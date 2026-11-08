@@ -1,7 +1,7 @@
 import React from 'react';
 import { AlertTriangle, FileText } from 'lucide-react';
 import ContextMenu, { type MenuItem } from '../ContextMenu';
-import type { DocLinkDto } from '../../../shared/docflow/links';
+import type { DocLinkDto, IssueDto } from '../../../shared/docflow/links';
 import type { ProjectFolderBinding } from '../../lib/projectFolderBindings';
 import { openLinked } from '../../lib/docflowFiles';
 import { unlinkLink } from '../../lib/docflowApi';
@@ -22,18 +22,25 @@ export interface FileCellProps {
   role: 'file' | 'remarks';
   bindings: ProjectFolderBinding[];
   canAssign: boolean;
+  /** Выпуск файла этой ревизии: по нему видно «изменён после выпуска». */
+  issue?: IssueDto | null;
+  /** Срок ответа на возврат (ISO) — просроченный выделяется. */
+  dueDate?: string | null;
   onAssign: () => void;
   onChanged: () => void;
 }
 
-export default function FileCell({ projectId, itemId, revision, links, role, bindings, canAssign, onAssign, onChanged }: FileCellProps) {
+export default function FileCell({ projectId, itemId, revision, links, role, bindings, canAssign, issue, dueDate, onAssign, onChanged }: FileCellProps) {
   const toast = useToastStore((s) => s.addToast);
   const [menu, setMenu] = React.useState<{ x: number; y: number } | null>(null);
   const [creating, setCreating] = React.useState(false);
   const mine = links.filter((l) => l.role === role && (role !== 'file' || !revision || l.revision === revision));
   // Файл — текущая (последняя) ревизия; возврат — последний по выданной ревизии
-  const main = mine[mine.length - 1];
-  const extra = role === 'remarks' ? mine.filter((l) => l.revision === main?.revision).length - 1 : 0;
+  // Возвраты последней выданной ревизии: столбец показывает первый из них и «+N» об остальных
+  const lastRevision = role === 'remarks' ? mine[mine.length - 1]?.revision : undefined;
+  const group = role === 'remarks' ? mine.filter((l) => l.revision === lastRevision) : [];
+  const main = role === 'remarks' ? group[0] : mine[mine.length - 1];
+  const extra = role === 'remarks' ? group.length - 1 : 0;
   const problem = main?.lostAt ? 'файл удалён или перемещён' : main?.mismatch?.length ? `имя не совпадает со строкой: ${main.mismatch.join('; ')}` : '';
   const open = async (how: 'open' | 'reveal') => { if (!main) return; const why = await openLinked(main, bindings, how); if (why) toast(why, 'error'); };
   const items: MenuItem[] = main ? [
@@ -56,6 +63,9 @@ export default function FileCell({ projectId, itemId, revision, links, role, bin
         <button type="button" data-assign={role} onClick={e => { e.stopPropagation(); onAssign(); }} className="text-sky-700 underline decoration-dotted dark:text-sky-300">Назначить…</button>
         {role === 'file' && <button type="button" data-create-docflow-file onClick={e => { e.stopPropagation(); setCreating(true); }} className="text-sky-700 underline decoration-dotted dark:text-sky-300">Создать…</button>}
       </span> : <span className="text-slate-400">—</span>}
+      {role === 'file' && main && issue?.changed && <span data-changed-after-issue className="ml-1 text-xs text-amber-700 dark:text-amber-400" title="Отпечаток файла не совпадает с отпечатком при выпуске">изменён после выпуска ред. {issue.revision}</span>}
+      {role === 'file' && main && issue && !issue.changed && <span data-issued className="ml-1 text-xs text-slate-500" title={`Выпущена ${issue.date}`}>выдан</span>}
+      {role === 'remarks' && main && dueDate && <span data-return-due className={`ml-1 text-xs ${new Date(dueDate).getTime() < Date.now() ? 'font-semibold text-rose-600 dark:text-rose-400' : 'text-slate-500'}`} title="Срок ответа на возврат — от даты получения">до {new Date(dueDate).toLocaleDateString('ru-RU')}{new Date(dueDate).getTime() < Date.now() ? ' · просрочено' : ''}</span>}
       {menu && main && <ContextMenu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
       {creating && canAssign && role === 'file' && <CreateFilesDialog projectId={projectId} itemIds={[itemId]} onClose={() => setCreating(false)} onDone={onChanged} />}
     </>

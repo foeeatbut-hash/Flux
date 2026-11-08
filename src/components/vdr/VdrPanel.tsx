@@ -21,6 +21,7 @@ import { DEFAULT_STATUSES } from '../../../shared/docflow/config';
 import { getSettings } from '../../lib/docflowApi';
 import FileCell from './RowFileCells';
 import AssignFileDialog from '../docflow/AssignFileDialog';
+import IssueDialog from '../docflow/IssueDialog';
 import { useProjectDocs } from '../docflow/useProjectDocs';
 import { useBindingLedger } from '../explorer/useProjectFolderBindings';
 import type { PickRow } from '../docflow/RowPicker';
@@ -75,9 +76,9 @@ interface Standard { id: string; name: string; config: any }
 
 // Статус — точка и слово (01-design.md): тон несёт смысл, а не заливка ячейки.
 // Список статусов — из настроек ДО проекта (раздел 5); без них — по умолчанию
-function statusMetaOf(standard: Standard | null): Record<string, { label: string; tone: Tone }> {
-  const list: Array<{ code: string; label: string; tone: string }> = standard?.config?.statuses?.length ? standard.config.statuses : DEFAULT_STATUSES;
-  return Object.fromEntries(list.map((s) => [s.code, { label: s.label, tone: (s.tone === 'violet' ? 'sky' : s.tone) as Tone }]));
+function statusMetaOf(standard: Standard | null): Record<string, { label: string; tone: Tone; issue: boolean }> {
+  const list: Array<{ code: string; label: string; tone: string; issue?: boolean }> = standard?.config?.statuses?.length ? standard.config.statuses : DEFAULT_STATUSES;
+  return Object.fromEntries(list.map((s) => [s.code, { label: s.label, tone: (s.tone === 'violet' ? 'sky' : s.tone) as Tone, issue: !!s.issue }]));
 }
 
 const fmtD = (s?: string | null) => { try { return s ? new Date(s).toLocaleDateString('ru-RU') : ''; } catch { return ''; } };
@@ -99,6 +100,12 @@ export default function VdrPanel() {
   const docsOfProject = projectDocs[projectId];
   const { bindings: folderBindings } = useBindingLedger(user?.id);
   const [assign, setAssign] = useState<{ role: 'file' | 'remarks'; item: Item; file?: WindowsFileRef } | null>(null);
+  const [issueIds, setIssueIds] = useState<string[] | null>(null);
+  const issuesOfItem = useMemo(() => {
+    const map = new Map<string, import('../../../shared/docflow/links').IssueDto[]>();
+    for (const i of docsOfProject?.issues || []) map.set(i.itemId, [...(map.get(i.itemId) || []), i]);
+    return map;
+  }, [docsOfProject]);
   const linksOfItem = useMemo(() => {
     const map = new Map<string, import('../../../shared/docflow/links').DocLinkDto[]>();
     for (const l of docsOfProject?.links || []) if (!l.unlinkedAt) map.set(l.itemId, [...(map.get(l.itemId) || []), l]);
@@ -423,6 +430,9 @@ export default function VdrPanel() {
               <button type="button" aria-pressed={onlyMine} onClick={() => setOnlyMine(v => !v)}>Мои</button>
             </div>
             <span className="ml-auto" />
+            {selected.size > 0 && canIssue && (
+              <Btn tone="ghost" data-issue-selected disabled={!docsOfProject || selected.size > 100} title="Выпустить выбранные документы: проверки файла, имени, статуса и ревизии" onClick={() => setIssueIds([...selected])}><ArrowUpCircle />Выпустить…</Btn>
+            )}
             {selected.size > 0 && (
               <select defaultValue="" onChange={e => { if (e.target.value !== '') bulkAssign(e.target.value); }} className="fx-input w-auto cursor-pointer">
                 <option value="" disabled>Назначить {countOf(selected.size, 'строка')}…</option>
@@ -496,13 +506,16 @@ export default function VdrPanel() {
                       <td className="max-w-36"><div className="truncate text-slate-500" title={tagsOf(it).join('; ')}>{tagsOf(it).slice(0, 2).join('; ')}{tagsOf(it).length > 2 ? '…' : ''}</div></td>
                       <td className="whitespace-nowrap text-slate-500">{users.find(u => u.id === it.assigneeId)?.name?.split(' ')[0] || '—'}</td>
                       <td onClick={e => e.stopPropagation()}>
-                        {docsOfProject && <FileCell projectId={projectId} itemId={it.id} revision={it.revision} links={linksOfItem.get(it.id) || []} role="file" bindings={folderBindings} canAssign={canAssign} onAssign={() => setAssign({ role: 'file', item: it })} onChanged={() => void reloadDocs(projectId)} />}
+                        {docsOfProject && <FileCell projectId={projectId} itemId={it.id} revision={it.revision} links={linksOfItem.get(it.id) || []} role="file" issue={(issuesOfItem.get(it.id) || []).find(i => i.revision === it.revision) || null} bindings={folderBindings} canAssign={canAssign} onAssign={() => setAssign({ role: 'file', item: it })} onChanged={() => void reloadDocs(projectId)} />}
                       </td>
                       <td onClick={e => e.stopPropagation()}>
-                        {docsOfProject && <FileCell projectId={projectId} itemId={it.id} links={linksOfItem.get(it.id) || []} role="remarks" bindings={folderBindings} canAssign={canAssign} onAssign={() => setAssign({ role: 'remarks', item: it })} onChanged={() => void reloadDocs(projectId)} />}
+                        {docsOfProject && <FileCell projectId={projectId} itemId={it.id} links={linksOfItem.get(it.id) || []} role="remarks" dueDate={it.dueDate} bindings={folderBindings} canAssign={canAssign} onAssign={() => setAssign({ role: 'remarks', item: it })} onChanged={() => void reloadDocs(projectId)} />}
                       </td>
                       <td onClick={e => e.stopPropagation()}>
                         <div className="fx-row-acts">
+                          {canIssue && docsOfProject && (STATUS_META[it.status]?.issue ?? false) && (
+                            <button type="button" data-issue-row title="Выпустить…" aria-label="Выпустить" onClick={() => setIssueIds([it.id])} className="fx-ibtn"><ArrowUpCircle className="w-3.5 h-3.5" /></button>
+                          )}
                           {it.status !== 'READY' && it.status !== 'ACCEPTED' && (
                             <button type="button" title="Готово — уведомить менеджера" onClick={() => patchItem(it.id, { status: 'READY' }, 'Менеджер уведомлён')}
                               aria-label="Готово — уведомить менеджера" className="fx-ibtn"><Send className="w-3.5 h-3.5" /></button>
@@ -533,12 +546,18 @@ export default function VdrPanel() {
           projectTags={projectTags}
           onClose={() => setCardItem(null)}
           onChanged={refresh}
+          issued={(issuesOfItem.get(cardItem.id) || []).some(i => i.revision === cardItem.revision)}
+          onIssue={docsOfProject ? () => { setIssueIds([cardItem.id]); setCardItem(null); } : undefined}
         />
       )}
       {assign && register && docsOfProject && (
         <AssignFileDialog role={assign.role} projectId={projectId} docs={docsOfProject} bindings={folderBindings} file={assign.file}
           row={{ id: assign.item.id, registerId: assign.item.registerId, registerName: register.name, contractorNo: assign.item.contractorNo, ownerNo: assign.item.ownerNo, vendorNo: assign.item.vendorNo, titleRu: assign.item.titleRu, titleEn: assign.item.titleEn, vdrCode: assign.item.vdrCode, revision: assign.item.revision, status: assign.item.status } satisfies PickRow}
           onClose={() => setAssign(null)} onDone={() => { void reloadDocs(projectId); refresh(); }} />
+      )}
+      {issueIds && docsOfProject && (
+        <IssueDialog projectId={projectId} docs={docsOfProject} bindings={folderBindings} itemIds={issueIds}
+          onClose={() => setIssueIds(null)} onDone={() => { void reloadDocs(projectId); setSelected(new Set()); refresh(); }} />
       )}
       {tagPlanOpen && (
         <TagLinkPlanDialog projectId={projectId} initial={tagPlan} onClose={() => setTagPlanOpen(false)} onChanged={refresh} />
@@ -552,10 +571,12 @@ export default function VdrPanel() {
 }
 
 // ═════════ Карточка строки: все поля по группам, теги, ревизии ═════════
-function ItemCard({ item, register, standard, users, projectTags, onClose, onChanged }: {
+function ItemCard({ item, register, standard, users, projectTags, onClose, onChanged, issued, onIssue }: {
   item: Item; register: Register; standard: Standard | null; users: UserLite[];
   projectTags: { id: string; identifier: string }[];
   onClose: () => void; onChanged: () => void;
+  /** Текущая ревизия выпущена окном «Выпустить…»: только тогда открывается следующая. */
+  issued: boolean; onIssue?: () => void;
 }) {
   const STATUS_META = statusMetaOf(standard);
   const user = useStore(s => s.user);
@@ -675,9 +696,10 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           {/* Ревизия */}
           {!isNew && (
             <div className="flex items-center gap-2">
-              <button type="button" disabled={!canIssue} onClick={() => setRevDialog('next')} className="fx-btn fx-btn-primary" title="Выпустить новую ревизию">
-                <ArrowUpCircle className="w-3.5 h-3.5" /> Рев. {f.revision} ↑
+              <button type="button" data-card-issue disabled={!canIssue || !onIssue} onClick={onIssue} className="fx-btn fx-btn-primary" title="Выпустить ревизию: проверки файла, имени, статуса и порядка ревизий">
+                <ArrowUpCircle className="w-3.5 h-3.5" /> Выпустить рев. {f.revision}…
               </button>
+              <button type="button" disabled={!canIssue || !issued} onClick={() => setRevDialog('next')} className="fx-btn" title={issued ? 'Открыть следующую рабочую ревизию' : 'Следующая ревизия открывается после выпуска текущей'}>Следующая ревизия</button>
             </div>
           )}
 
@@ -821,7 +843,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           <div className="absolute inset-0 z-10 fx-backdrop flex items-center justify-center p-6" onClick={() => setRevDialog(null)}>
             <div className="fx-dialog w-full p-4 space-y-2.5" onClick={e => e.stopPropagation()}>
               <h4 className="font-semibold text-sm text-slate-800 dark:text-white">
-                {revDialog === 'void' ? 'Аннулировать документ (→V)' : revDialog === 'superseded' ? 'Пометить заменённым (→S)' : `Выпустить ревизию (текущая: ${f.revision})`}
+                {revDialog === 'void' ? 'Аннулировать документ (→V)' : revDialog === 'superseded' ? 'Пометить заменённым (→S)' : `Открыть следующую ревизию (текущая: ${f.revision})`}
               </h4>
               <input value={revPlace} onChange={e => setRevPlace(e.target.value)} placeholder="Место изменения (разд., лист)" className={inputCls} />
               <textarea value={revDesc} onChange={e => setRevDesc(e.target.value)} rows={2} placeholder="Описание изменения" className={inputCls} />
@@ -831,7 +853,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
                   <button type="button" onClick={() => { setRevDialog('certify'); setTimeout(issueRevision, 0); }} disabled={busy}
                     className="fx-btn fx-btn-sm">Утвердить (→0)</button>
                 )}
-                <button type="button" onClick={issueRevision} disabled={busy || !canIssue} className="fx-btn fx-btn-primary fx-btn-sm">Выпустить</button>
+                <button type="button" onClick={issueRevision} disabled={busy || !canIssue} className="fx-btn fx-btn-primary fx-btn-sm">{revDialog === 'next' ? 'Открыть' : 'Выполнить'}</button>
               </div>
             </div>
           </div>

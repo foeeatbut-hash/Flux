@@ -24,6 +24,13 @@ const mutations = [
     change: (s: string) => s.replace('return result;', 'return { ...source };') },
   { id: 'files-default-deny', test: 'scripts/test-docflow-permissions.ts', file: 'src/lib/permissions.ts',
     change: (s: string) => s.replace("  'docflow.files',\n", '') },
+  // Выпуск (шаг 5): чистые правила схемы ревизий и сроков
+  { id: 'issue-next-revision', test: 'scripts/test-docflow-revisions.ts', file: 'shared/docflow/revisions.ts',
+    change: (s: string) => s.replace('if (next && next !== wanted) return', 'if (false && next && next !== wanted) return') },
+  { id: 'issue-deadline-end-of-day', test: 'scripts/test-docflow-revisions.ts', file: 'shared/docflow/revisions.ts',
+    change: (s: string) => s.replace('Number(day.slice(8, 10)), 23, 59, 59);', 'Number(day.slice(8, 10)), 0, 0, 0);') },
+  { id: 'issue-calendar-days', test: 'scripts/test-docflow-revisions.ts', file: 'shared/docflow/revisions.ts',
+    change: (s: string) => s.replace('Math.trunc(days) * 86_400_000', 'Math.trunc(days) * 86_000_000') },
 ];
 try {
   for (const mutation of mutations) {
