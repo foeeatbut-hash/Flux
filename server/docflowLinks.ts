@@ -11,12 +11,13 @@
  */
 import { createHash } from 'node:crypto';
 import { checkName, buildFileName, type NameCheck, type RowForCheck } from '../shared/docflow/nameMask.js';
-import { isFolderKey, linkLookupKey, purposeAllows, purposeLabel, relativePathProblem, type DocLinkDto, type FolderPurpose, type LinkedItemBrief, type LinkRole } from '../shared/docflow/links.js';
+import { lockViolationOf, isFolderKey, linkLookupKey, purposeAllows, purposeLabel, relativePathProblem, type DocLinkDto, type IssueDto, type FolderPurpose, type LinkedItemBrief, type LinkRole } from '../shared/docflow/links.js';
 import type { DocflowConfig } from '../shared/docflow/config.js';
 import { readSettings } from './docflowSettings.js';
 import { codesOfItem } from './vdrTags.js';
 import { inTransaction } from './vdrWrite.js';
 import { projectBindingsOf } from './routes/projectFolderBindings.js';
+import { validDay, validTimeZone, dayToInstant, instantToDay, responseDeadline } from '../shared/docflow/revisions.js';
 
 export class LinkError extends Error {
   constructor(message: string, readonly status = 400, readonly extra: Record<string, unknown> = {}) { super(message); this.name = 'LinkError'; }
@@ -28,12 +29,14 @@ const iso = (d: any) => (d ? new Date(d).toISOString() : null);
 export const pathKeyOf = (folderKey: string, relativePath: string): string =>
   createHash('sha256').update(linkLookupKey(folderKey, relativePath)).digest('hex');
 
-export function toDto(row: any, mismatch?: string[]): DocLinkDto {
+export function toDto(row: any, mismatch?: string[], names?: Map<string, string>): DocLinkDto {
   return {
     id: row.id, itemId: row.itemId, projectId: row.projectId, revision: row.revision, role: row.role === 'remarks' ? 'remarks' : 'file',
     toLinkId: row.toLinkId || null, folderKey: row.folderKey, relativePath: row.relativePath, fileName: row.fileName, sha256: row.sha256 || '',
     size: Number(row.size) || 0, reviewCode: row.reviewCode || '', receivedAt: iso(row.receivedAt), lostAt: iso(row.lostAt),
     linkedById: row.linkedById || null, createdAt: iso(row.createdAt) || '', unlinkedAt: iso(row.unlinkedAt), unlinkReason: row.unlinkReason || '',
+    locked: row.locked !== false, lockedAt: iso(row.lockedAt), lockedByName: names?.get(row.lockedById) || '', unlockedAt: iso(row.unlockedAt), unlockedByName: names?.get(row.unlockedById) || '',
+    lockViolation: row.unlinkedAt ? '' : lockViolationOf({ locked: row.locked !== false, lostAt: row.lostAt, sha256: row.sha256 || '', lockedSha256: row.lockedSha256 || '', relativePath: row.relativePath, lockedPath: row.lockedPath || '' }),
     ...(mismatch ? { mismatch } : {}),
   };
 }
@@ -80,7 +83,9 @@ export async function planLink(prisma: any, input: { itemId: string; fileName: s
 
 export interface CreateLinkInput {
   itemId: string; role?: LinkRole; toLinkId?: string; folderKey: string; relativePath: string; fileName: string;
-  sha256?: string; size?: number; reviewCode?: string; receivedAt?: string | null;
+  sha256?: string; size?: number; reviewCode?: string;
+  /** Календарный день получения «ГГГГ-ММ-ДД» и часовой пояс пользователя: срок ответа считается в нём. */
+  receivedAt?: string | null; timeZone?: string;
   /** Заменить действующий файл этой же ревизии (прежняя связь уйдёт в историю). */
   replace?: boolean;
 }
@@ -97,7 +102,19 @@ async function ownerOfPath(prisma: any, key: string): Promise<string> {
   return item ? (item.contractorNo || item.ownerNo || item.vendorNo || item.titleRu || 'другой строкой') : 'другой строкой';
 }
 
-export async function createLink(prisma: any, input: CreateLinkInput, actorId: string): Promise<{ link: DocLinkDto; replaced: DocLinkDto | null; check: NameCheck | null }> {
+export interface ReturnEffect { status: string; previousStatus: string; dueDate: string | null; reviewCode: string; assigneeId: string | null; title: string }
+
+/** Следующий статус по коду рассмотрения из настроек проекта; «для сведения» статус не меняет. */
+function statusAfterReview(config: DocflowConfig, code: string): { status: string | null; days: number; accept: boolean } {
+  const rc = config.reviewCodes.find((c) => c.code === code);
+  if (!rc) throw new LinkError(`Кода рассмотрения «${code}» нет в настройках проекта`, 400);
+  if (rc.action === 'info') return { status: null, days: rc.deadlineDays, accept: false };
+  const status = rc.status || (rc.action === 'accept' ? 'ACCEPTED' : 'REMARKS');
+  if (!config.statuses.some((s) => s.code === status)) throw new LinkError(`Статуса «${status}» нет в настройках проекта: код ${code} не может его установить`, 422);
+  return { status, days: rc.deadlineDays, accept: rc.action === 'accept' };
+}
+
+export async function createLink(prisma: any, input: CreateLinkInput, actorId: string): Promise<{ link: DocLinkDto; replaced: DocLinkDto | null; check: NameCheck | null; effect?: ReturnEffect }> {
   const role: LinkRole = input.role === 'remarks' ? 'remarks' : 'file';
   if (!isFolderKey(input.folderKey)) throw new LinkError('Некорректный ключ папки', 400);
   const problem = relativePathProblem(input.relativePath, input.fileName);
@@ -123,6 +140,12 @@ export async function createLink(prisma: any, input: CreateLinkInput, actorId: s
     toLink = await prisma.docFileLink.findUnique({ where: { id: String(input.toLinkId || '') } });
     if (!toLink || toLink.itemId !== ctx.item.id || toLink.role !== 'file' || toLink.unlinkedAt) throw new LinkError('Замечания привязываются к действующему файлу ревизии этой строки', 422);
     revision = toLink.revision;
+    // Возврат бывает только к выданной ревизии: к рабочему файлу заказчик замечаний не присылает
+    if (!await prisma.docRegisterItemRevision.findFirst({ where: { itemId: ctx.item.id, linkId: toLink.id, issuedKey: { not: null } } })) {
+      throw new LinkError(`Ревизия ${toLink.revision} не выпущена: возврат назначается к выданной ревизии. Выпустите её в окне «Выпустить…».`, 422);
+    }
+    if (!validDay(input.receivedAt)) throw new LinkError('Укажите дату получения возврата', 400);
+    if (input.reviewCode && !validTimeZone(input.timeZone)) throw new LinkError('Не указан часовой пояс пользователя: по нему считается срок ответа', 400);
   }
   try {
     return await inTransaction(prisma, async (db) => {
@@ -131,6 +154,9 @@ export async function createLink(prisma: any, input: CreateLinkInput, actorId: s
       let replaced: any = null;
       if (role === 'file') {
         const same = await db.docFileLink.findFirst({ where: { itemId: ctx.item.id, role: 'file', revision, unlinkedAt: null } });
+        if (same && await db.docRegisterItemRevision.findFirst({ where: { itemId: ctx.item.id, linkId: same.id, issuedKey: { not: null } } })) {
+          throw new LinkError(`Ревизия ${revision} выпущена: её файл не заменяется. Отмените выпуск или выпустите следующую ревизию.`, 409, { issued: true });
+        }
         if (same && !input.replace) throw new LinkError(`У строки уже есть файл ревизии ${revision}: ${same.fileName}. Назначьте другой, заменив его, или отвяжите прежний.`, 409, { linkId: same.id, replaceable: true });
         if (same) replaced = await db.docFileLink.update({ where: { id: same.id }, data: { unlinkedAt: new Date(), unlinkedById: actorId, unlinkReason: 'заменён другим файлом', pathKey: null } });
       }
@@ -139,11 +165,15 @@ export async function createLink(prisma: any, input: CreateLinkInput, actorId: s
           itemId: ctx.item.id, projectId: ctx.projectId, revision, role, toLinkId: toLink?.id || null, folderKey: input.folderKey,
           relativePath: input.relativePath.split(/[\\/]+/).join('/'), fileName: input.fileName, sha256: String(input.sha256 || '').slice(0, 64),
           size: Number(input.size) > 0 ? Number(input.size) : 0, reviewCode: role === 'remarks' ? String(input.reviewCode || '').slice(0, 20) : '',
-          receivedAt: role === 'remarks' && input.receivedAt && !Number.isNaN(Date.parse(input.receivedAt)) ? new Date(input.receivedAt) : null,
+          receivedAt: role === 'remarks' && validDay(input.receivedAt) ? dayToInstant(input.receivedAt) : null,
           pathKey: key, linkedById: actorId,
+          // Связанный файл блокируется сразу: правят его только после снятия замка в строке
+          locked: true, lockedAt: new Date(), lockedById: actorId, lockedSha256: String(input.sha256 || '').slice(0, 64), lockedPath: input.relativePath.split(/[\\/]+/).join('/'),
+          lockLog: JSON.stringify([{ at: new Date().toISOString(), by: actorId, action: 'lock', why: 'связан со строкой' }]),
         },
       });
-      return { link: toDto(made), replaced: replaced ? toDto(replaced) : null, check };
+      const effect = role === 'remarks' && input.reviewCode ? await applyReturn(db, ctx, toLink, made, input) : undefined;
+      return { link: toDto(made), replaced: replaced ? toDto(replaced) : null, check, ...(effect ? { effect } : {}) };
     });
   } catch (err: any) {
     // Гонка двух запросов: уникальный индекс отказал второму
@@ -152,12 +182,56 @@ export async function createLink(prisma: any, input: CreateLinkInput, actorId: s
   }
 }
 
+/**
+ * Код рассмотрения из возврата ставит статус строки и срок ответа от даты получения.
+ * Старый возврат, назначенный позже нового, строку не откатывает: действует самый свежий по дате получения.
+ */
+async function applyReturn(db: any, ctx: ItemContext, toLink: any, made: any, input: CreateLinkInput): Promise<ReturnEffect | undefined> {
+  const { config } = await readSettings(db, ctx.projectId);
+  const rule = statusAfterReview(config, String(input.reviewCode));
+  const item = await db.docRegisterItem.findUnique({ where: { id: ctx.item.id } });
+  if (toLink.revision !== item.revision) return undefined;
+  const newer = await db.docFileLink.findFirst({ where: { itemId: item.id, role: 'remarks', unlinkedAt: null, id: { not: made.id }, receivedAt: { gt: dayToInstant(String(input.receivedAt)) }, reviewCode: { not: '' } } });
+  if (newer) return undefined;
+  const data: any = { reviewCode: String(input.reviewCode) };
+  if (rule.status) data.status = rule.status;
+  if (rule.days > 0) data.dueDate = responseDeadline(String(input.receivedAt), rule.days, String(input.timeZone));
+  else if (rule.accept) data.dueDate = null;
+  const written = await db.docRegisterItem.update({ where: { id: item.id }, data });
+  return { status: written.status, previousStatus: item.status, dueDate: iso(written.dueDate), reviewCode: written.reviewCode, assigneeId: written.assigneeId || null, title: written.contractorNo || written.titleRu || written.titleEn || 'документ' };
+}
+
+/**
+ * Замочек связанного файла (право docflow.files проверяет маршрут). Блокировка хранится у связи;
+ * при постановке запоминаются отпечаток и путь — по ним слежение узнаёт «изменён при блокировке».
+ */
+export async function setLinkLock(prisma: any, input: { itemId: string; linkId: string; locked: boolean }, actorId: string): Promise<DocLinkDto> {
+  return inTransaction(prisma, async (db) => {
+    const link = await db.docFileLink.findUnique({ where: { id: input.linkId } });
+    if (!link || link.itemId !== input.itemId) throw new LinkError('Связь не найдена', 404);
+    if (link.unlinkedAt) throw new LinkError('Связь снята: замок не меняется', 409);
+    if ((link.locked !== false) === input.locked) return toDto(link);
+    const log = (() => { try { const v = JSON.parse(link.lockLog || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } })();
+    const now = new Date();
+    log.push({ at: now.toISOString(), by: actorId, action: input.locked ? 'lock' : 'unlock' });
+    const data = input.locked
+      ? { locked: true, lockedAt: now, lockedById: actorId, lockedSha256: link.sha256 || '', lockedPath: link.relativePath, lockLog: JSON.stringify(log.slice(-20)) }
+      : { locked: false, unlockedAt: now, unlockedById: actorId, lockLog: JSON.stringify(log.slice(-20)) };
+    const done = await db.docFileLink.updateMany({ where: { id: link.id, updatedAt: link.updatedAt, locked: link.locked, unlinkedAt: null }, data });
+    if (done.count !== 1) throw new LinkError('Связь уже изменили. Обновите реестр.', 409);
+    return toDto(await db.docFileLink.findUnique({ where: { id: link.id } }), undefined, new Map([[actorId, '']]));
+  });
+}
+
 /** Отвязка: запись остаётся историей. Замечания, привязанные к отвязанному файлу, отвязываются вместе с ним. */
 export async function unlinkLink(prisma: any, input: { itemId: string; linkId: string; reason?: string }, actorId: string): Promise<DocLinkDto[]> {
   return inTransaction(prisma, async (db) => {
     const link = await db.docFileLink.findUnique({ where: { id: input.linkId } });
     if (!link || link.itemId !== input.itemId) throw new LinkError('Связь не найдена', 404);
     if (link.unlinkedAt) throw new LinkError('Файл уже отвязан', 409);
+    if (link.role === 'file' && await db.docRegisterItemRevision.findFirst({ where: { itemId: link.itemId, linkId: link.id, issuedKey: { not: null } } })) {
+      throw new LinkError(`Ревизия ${link.revision} выпущена: файл не отвязывается. Отмените выпуск, если он ошибочен.`, 409, { issued: true });
+    }
     const data = { unlinkedAt: new Date(), unlinkedById: actorId, unlinkReason: String(input.reason || 'отвязан').slice(0, 200), pathKey: null };
     const out = [await db.docFileLink.update({ where: { id: link.id }, data })];
     if (link.role === 'file') {
@@ -214,7 +288,7 @@ export async function mismatchOf(config: DocflowConfig, ctx: ItemContext, link: 
 }
 
 /** Действующие связи проекта (или строки) с краткими сведениями о строках; `history` добавляет отвязанные. */
-export async function listLinks(prisma: any, input: { projectId?: string; itemId?: string; history?: boolean }): Promise<{ links: DocLinkDto[]; items: Record<string, LinkedItemBrief> }> {
+export async function listLinks(prisma: any, input: { projectId?: string; itemId?: string; history?: boolean }): Promise<{ links: DocLinkDto[]; items: Record<string, LinkedItemBrief>; issues: IssueDto[] }> {
   const where: any = {};
   if (input.itemId) where.itemId = input.itemId;
   else if (input.projectId) where.projectId = input.projectId;
@@ -226,7 +300,7 @@ export async function listLinks(prisma: any, input: { projectId?: string; itemId
   const projectId = input.projectId || items[0]?.projectId || rows[0]?.projectId;
   const { config } = await readSettings(prisma, projectId || '');
   const registers: any[] = await prisma.docRegister.findMany({ where: { id: { in: [...new Set(items.map((i) => i.registerId))] } } });
-  const assigneeIds = [...new Set(items.map((i) => i.assigneeId).filter(Boolean))];
+  const assigneeIds = [...new Set([...items.map((i) => i.assigneeId), ...rows.flatMap((r) => [r.lockedById, r.unlockedById])].filter(Boolean))];
   const users: any[] = assigneeIds.length ? await prisma.user.findMany({ where: { id: { in: assigneeIds } }, select: { id: true, name: true } }) : [];
   const userName = new Map(users.map((u) => [u.id, u.name]));
   const byItem = new Map(items.map((i) => [i.id, i]));
@@ -235,7 +309,23 @@ export async function listLinks(prisma: any, input: { projectId?: string; itemId
   for (const r of rows) {
     const item = byItem.get(r.itemId);
     const mismatch = item && !r.unlinkedAt ? await mismatchOf(config, { item, register: byRegister.get(item.registerId), projectId: item.projectId, tags: codesOfItem(item.equipmentTags) }, r) : undefined;
-    links.push(toDto(r, mismatch));
+    links.push(toDto(r, mismatch, userName));
   }
-  return { links, items: Object.fromEntries(items.map((i) => [i.id, briefOf(i, config, userName.get(i.assigneeId) || '')])) };
+  return { links, items: Object.fromEntries(items.map((i) => [i.id, briefOf(i, config, userName.get(i.assigneeId) || '')])), issues: await issuesOf(prisma, itemIds, rows) };
+}
+
+/** Выпущенные ревизии строк для Реестра и «Сведений»: действующие записи и признак «изменён после выпуска». */
+export async function issuesOf(db: any, itemIds: string[], links: any[]): Promise<IssueDto[]> {
+  if (!itemIds.length) return [];
+  const records: any[] = await db.docRegisterItemRevision.findMany({ where: { itemId: { in: itemIds }, issuedKey: { not: null } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 20000 });
+  const byId = new Map(links.map((l) => [l.id, l]));
+  return records.map((r) => {
+    const link = r.linkId ? byId.get(r.linkId) : null;
+    return {
+      id: r.id, itemId: r.itemId, revision: r.revision, reason: r.reason, date: instantToDay(r.date), linkId: r.linkId || null,
+      sha256: r.sha256 || '', authorId: r.authorId || null, createdAt: new Date(r.createdAt).toISOString(),
+      // Отпечаток связи обновляет слежение; отпечаток выпуска остаётся в ревизии и сравнивается с ним
+      changed: !!link && !link.unlinkedAt && !!link.sha256 && !!r.sha256 && link.sha256 !== r.sha256,
+    };
+  });
 }

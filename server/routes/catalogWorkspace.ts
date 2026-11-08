@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError, broadcast } from '../context.js';
 import { CATALOG_LISTS, overlayCatalog, catalogDocumentProblem, type CatalogEntity, type CatalogGrant } from '../../catalog/publication.js';
-import { CATALOG_ENTITIES, catalogAllowed, catalogGrants, catalogSetting, putCatalogSetting, listCatalogDrafts, stageCatalogDraft, publishCatalogDrafts, discardCatalogDraft, catalogFailure } from '../catalogWorkspace.js';
+import { CATALOG_ENTITIES, assertGlobalFamily, catalogAllowed, catalogGrants, catalogSetting, putCatalogSetting, listCatalogDrafts, stageCatalogDraft, publishCatalogDrafts, discardCatalogDraft, catalogFailure } from '../catalogWorkspace.js';
 import { createHash } from 'node:crypto';
 import { hashCatalogRow } from '../catalogWorkspace.js';
 import { seedCatalog } from '../../catalog/seed.js';
@@ -101,6 +101,7 @@ export function registerCatalogWorkspaceRoutes(app: Express, deps: Deps) {
     for (const [entity, list] of Object.entries(CATALOG_LISTS) as Array<[CatalogEntity, keyof typeof cat]>) {
       if (body[list] !== undefined && !Array.isArray(body[list])) catalogFailure(400, 'В пакете вместо списка записей другое значение');
       for (const document of body[list] || []) {
+        await assertGlobalFamily(db, entity, document?.id, document);
         const problem = catalogDocumentProblem(entity, document); if (problem) catalogFailure(400, `${document?.code || entity}: ${problem}`);
         if (!await catalogAllowed(db, actor(req), 'import', document, deps.can, entity)) catalogFailure(403, 'Нет права импорта этой области');
         const before = cat[list].find((x: any) => x.id === document.id); const clean: any = { ...before }; delete clean._draftVersion; delete clean._publishedHash;
@@ -139,6 +140,7 @@ export function registerCatalogWorkspaceRoutes(app: Express, deps: Deps) {
       }); return res.json({ ok: true, id });
     }
     if (!rev || !CATALOG_ENTITIES[rev.entity as CatalogEntity]) catalogFailure(400, 'Для шаблона используйте его редактор; запись каталога не найдена');
+    await assertGlobalFamily(db, rev.entity, rev.entityId);
     const snapshot = JSON.parse(rev.snapshotJson); const document = JSON.parse(snapshot.dataJson || '{}');
     if (!await catalogAllowed(db, actor(req), 'edit', document, deps.can, (req.params.entity || 'family') as CatalogEntity)) catalogFailure(403, 'Нет права правки');
     const draft = await stageCatalogDraft(db, rev.entity, rev.entityId, document, actor(req).id, snapshot.operation === 'archive' ? 'archive' : 'save', req.body?._draftVersion);
@@ -147,6 +149,7 @@ export function registerCatalogWorkspaceRoutes(app: Express, deps: Deps) {
   app.put('/api/catalog/:entity/:id', handle(async (req, res, db) => {
     const entity = req.params.entity as CatalogEntity; if (!CATALOG_ENTITIES[entity]) catalogFailure(404, 'Неизвестный вид записи');
     // Смена области не даёт редактору перенести чужую модель к себе.
+    await assertGlobalFamily(db, entity, String(req.params.id), req.method === 'PUT' ? req.body : undefined);
     const existing = await db[CATALOG_ENTITIES[entity].model].findUnique({ where: { id: String(req.params.id) } });
     if (!await catalogAllowed(db, actor(req), 'edit', req.body, deps.can, entity) || (existing && !await catalogAllowed(db, actor(req), 'edit', JSON.parse(existing.dataJson), deps.can, entity))) catalogFailure(403, 'Нет права правки этой области');
     if (existing && !req.body?._draftVersion && req.body?._publishedHash === undefined) catalogFailure(409, 'Обновите запись перед сохранением');
@@ -154,11 +157,13 @@ export function registerCatalogWorkspaceRoutes(app: Express, deps: Deps) {
   }));
   app.delete('/api/catalog/learn/:id', handle(async (req, res, db) => {
     const row = await db.catalogLearn.findUnique({ where: { id: String(req.params.id) } });
+    if (row) await assertGlobalFamily(db, 'family', row.familyId);
     if (row && !await catalogAllowed(db, actor(req), 'edit', { classId: row.classId }, deps.can)) catalogFailure(403, 'Общие правила подбора меняет редактор каталога');
     if (row) await db.catalogLearn.delete({ where: { id: row.id } }); res.json({ ok: true });
   }));
   app.delete('/api/catalog/:entity/:id', handle(async (req, res, db) => {
     const entity = req.params.entity as CatalogEntity; if (!CATALOG_ENTITIES[entity]) catalogFailure(404, 'Неизвестный вид записи');
+    await assertGlobalFamily(db, entity, String(req.params.id), req.method === 'PUT' ? req.body : undefined);
     const existing = await db[CATALOG_ENTITIES[entity].model].findUnique({ where: { id: String(req.params.id) } });
     const prior = (await listCatalogDrafts(db)).find(d => d.id === req.params.id && d.entity === entity);
     const document = prior?.document || (existing ? JSON.parse(existing.dataJson) : null);

@@ -127,6 +127,10 @@ export default function DocflowSettings({ projectId, canEdit, isAdmin, addToast 
               <RowsEditor<DocflowReason> label="Причины выпуска" rows={draft.reasons} disabled={ro} addLabel="причина" onChange={(v) => set('reasons', v)}
                 blank={{ code: '', label: '', revKind: 'letter' }}
                 columns={[{ key: 'code', title: 'Код', width: '90px', mono: true }, { key: 'label', title: 'Название' }, { key: 'revKind', title: 'Ревизии', width: '140px', kind: 'select', options: [{ value: 'letter', label: 'A, B, C…' }, { value: 'digit', label: '0, 1, 2…' }] }]} />
+              <div className="grid grid-cols-2 gap-3 max-w-md" data-revision-rules>
+                <Field label="Буквенные ревизии по порядку" hint="Выпуск принимает только следующую после выпущенной"><Input aria-label="Буквенные ревизии" value={draft.revisionRules.letters} disabled={ro} className="font-mono" onChange={(e) => set('revisionRules', { ...draft.revisionRules, letters: e.target.value.toUpperCase() })} /></Field>
+                <Field label="Первая цифровая ревизия"><Input aria-label="Первая цифровая ревизия" type="number" min={0} max={99} value={draft.revisionRules.firstDigit} disabled={ro} className="font-mono" onChange={(e) => set('revisionRules', { ...draft.revisionRules, firstDigit: Number(e.target.value) || 0 })} /></Field>
+              </div>
               <div className="grid grid-cols-2 gap-3 max-w-md">
                 <Field label="Ревизия «аннулирован»"><Input value={draft.specialRevisions.void} disabled={ro} className="font-mono" onChange={(e) => set('specialRevisions', { ...draft.specialRevisions, void: e.target.value })} /></Field>
                 <Field label="Ревизия «заменён»"><Input value={draft.specialRevisions.superseded} disabled={ro} className="font-mono" onChange={(e) => set('specialRevisions', { ...draft.specialRevisions, superseded: e.target.value })} /></Field>
@@ -137,7 +141,7 @@ export default function DocflowSettings({ projectId, canEdit, isAdmin, addToast 
               columns={[{ key: 'code', title: 'Код', width: '70px', mono: true }, { key: 'label', title: 'Название' },
                 { key: 'action', title: 'Действие', width: '130px', kind: 'select', options: [{ value: 'accept', label: 'принят' }, { value: 'revise', label: 'замечания' }, { value: 'info', label: 'для сведения' }] },
                 { key: 'status', title: 'Следующий статус', width: '150px', kind: 'select', options: [{ value: '', label: 'по действию' }, ...draft.statuses.map((s) => ({ value: s.code, label: s.label }))] },
-                { key: 'deadlineDays', title: 'Срок, дн.', width: '90px', kind: 'number' }]} />}
+                { key: 'deadlineDays', title: 'Срок, кален. дн.', width: '90px', kind: 'number' }]} />}
             {section === 'types' && <RowsEditor<DocflowDocType> label="Типы документов" rows={draft.vdrTypes} disabled={ro} addLabel="тип" onChange={(v) => set('vdrTypes', v)}
               blank={{ code: '', titleRu: '', titleEn: '', stage: '', template: '' }}
               columns={[{ key: 'code', title: 'Код ВДР', width: '90px', mono: true, placeholder: 'E02' }, { key: 'titleRu', title: 'Наименование' }, { key: 'titleEn', title: 'English' },

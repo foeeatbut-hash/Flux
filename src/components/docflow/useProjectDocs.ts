@@ -1,6 +1,6 @@
 import React from 'react';
 import type { DocflowConfig } from '../../../shared/docflow/config';
-import { linkLookupKey, type DocLinkDto, type LinkedItemBrief } from '../../../shared/docflow/links';
+import { linkLookupKey, type DocLinkDto, type IssueDto, type LinkedItemBrief } from '../../../shared/docflow/links';
 import { getLinks, getSettings } from '../../lib/docflowApi';
 
 /**
@@ -13,6 +13,8 @@ export interface ProjectDocs {
   config: DocflowConfig;
   links: DocLinkDto[];
   items: Record<string, LinkedItemBrief>;
+  /** Выпущенные ревизии строк (действующие записи выпуска). */
+  issues: IssueDto[];
   /** Действующие связи по «папка + путь»: так Проводник находит связь файла за одно обращение. */
   byPath: Map<string, DocLinkDto>;
 }
@@ -30,7 +32,7 @@ export function useProjectDocs(projectIds: string[], enabled = true) {
     if (!settings.ok) return;
     setDocs((current) => ({
       ...current,
-      [projectId]: { projectId, config: settings.data.config, links: links.ok ? links.data.links : [], items: links.ok ? links.data.items : {}, byPath: indexLinks(links.ok ? links.data.links : []) },
+      [projectId]: { projectId, config: settings.data.config, links: links.ok ? links.data.links : [], items: links.ok ? links.data.items : {}, issues: links.ok ? links.data.issues || [] : [], byPath: indexLinks(links.ok ? links.data.links : []) },
     }));
   }, []);
 

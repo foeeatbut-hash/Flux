@@ -1,5 +1,6 @@
 import React from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Lock } from 'lucide-react';
+import { LOCK_VIOLATION_TEXT } from '../../../shared/docflow/links';
 import type { DocflowConfig, DocflowTone } from '../../../shared/docflow/config';
 import type { DocEntryInfo } from './docEntryInfo';
 import type { FolderColumn } from './viewModel';
@@ -13,6 +14,16 @@ const DOT: Record<DocflowTone, string> = {
   // Фиолетового в палитре Flux нет: как и в реестре, «на проверке» рисуется синим
   violet: 'bg-sky-500',
 };
+
+/** Замок у имени заблокированного файла; красный — файл изменён вне Flux при блокировке. */
+export function LockBadge({ info }: { info: DocEntryInfo | null }) {
+  const link = info?.link;
+  if (!link?.locked || link.unlinkedAt) return null;
+  const text = link.lockViolation
+    ? `Нарушена блокировка: файл ${LOCK_VIOLATION_TEXT[link.lockViolation]}`
+    : `Заблокирован: связан со строкой документооборота${link.lockedByName ? `, ${link.lockedByName}` : ''}. Снять замок можно в строке реестра`;
+  return <span data-lock-badge={link.lockViolation || 'locked'} title={text} aria-label={text} className={`inline-flex shrink-0 ${link.lockViolation ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500 dark:text-slate-400'}`}><Lock size={13} aria-hidden /></span>;
+}
 
 export function OffMaskBadge({ problems }: { problems: string[] }) {
   if (!problems.length) return null;

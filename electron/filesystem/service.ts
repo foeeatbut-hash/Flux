@@ -11,6 +11,7 @@ import { replaceWindowsFile } from './replace';
 import { isNetworkFolder } from './network';
 import { existingAt, freeNameIn, parseChoices } from './publishing';
 import type { WindowsPublishChoices } from '../../filesystem/contracts';
+import { LinkLocks, lockKeyOf, setReadOnly, loadProtected, saveProtected, type ProtectedFiles } from './linkLocks';
 import { UndoJournal, fingerprint, type TrashInfo, type UndoOp, type Place } from './undo';
 
 export interface WindowsFilesDependencies {
@@ -81,6 +82,55 @@ export class WindowsFilesService {
   private listNames = new Map<string, { mtimeMs: number; at: number; names: string[]; kinds: Map<string, WindowsFileEntry['kind']>; hydrated: Map<string, WindowsFileEntry> }>();
   private hydrating = new Set<string>();
   private constructor(private deps: WindowsFilesDependencies, readonly state: WindowsFilesState, readonly journal: UndoJournal) {}
+  /** Файлы, связанные со строками документооборота: их нельзя менять, переносить, переименовывать и удалять. */
+  readonly linkLocks = new LinkLocks();
+  private protectedFiles: ProtectedFiles | null = null;
+  private async protectedMemory(): Promise<ProtectedFiles> { return this.protectedFiles ||= await loadProtected(path.join(this.deps.userData, 'link-locks.json')); }
+  /** Снимает «только чтение» у файлов, которые поставили мы и которых больше нет в списке замков; чужой атрибут (был до блокировки) остаётся. */
+  private async releaseUnlisted(): Promise<number> {
+    const memory = await this.protectedMemory(); let released = 0;
+    for (const key of Object.keys(memory)) {
+      if (this.linkLocks.hasKey(key)) continue;
+      if (!memory[key].readOnlyBefore && (await setReadOnly(memory[key].path, false)).ok) released++;
+      delete memory[key];
+    }
+    return released;
+  }
+  /**
+   * Полный список заблокированных файлов (его собирает main по данным сервера). Атрибут «только чтение» ставится новым
+   * замкам с запоминанием прежнего значения, а у файлов, которых в списке больше нет — в том числе разблокированных
+   * на другом компьютере или до перезапуска, — снимается.
+   */
+  async applyLinkLocks(locked: WindowsFileRef[]): Promise<{ locked: number; protectedFiles: number; released: number }> {
+    const names: string[] = [];
+    for (const ref of locked) { try { const r = this.resolveRef(ref); if (!r.draftId) names.push(await this.filename(r)); } catch { /* файла нет — защищать нечего */ } }
+    const { added } = this.linkLocks.replace(names);
+    const memory = await this.protectedMemory();
+    let protectedFiles = 0;
+    for (const name of added) {
+      if (memory[lockKeyOf(name)]) continue;
+      const done = await setReadOnly(name, true);
+      if (done.ok) { memory[lockKeyOf(name)] = { path: name, readOnlyBefore: done.before }; protectedFiles++; }
+    }
+    const released = await this.releaseUnlisted();
+    await saveProtected(path.join(this.deps.userData, 'link-locks.json'), memory);
+    return { locked: names.length, protectedFiles, released };
+  }
+  /** Файл перестаёт быть заблокированным до следующей сверки (отвязан, создание отменено): замок и «только чтение» снимаются сразу. */
+  async releaseLinkLocks(refs: WindowsFileRef[]): Promise<{ released: number }> {
+    for (const ref of refs) { try { const r = this.resolveRef(ref); if (!r.draftId) this.linkLocks.drop(await this.filename(r)); } catch { /* файла уже нет */ } }
+    const released = await this.releaseUnlisted();
+    await saveProtected(path.join(this.deps.userData, 'link-locks.json'), await this.protectedMemory());
+    return { released };
+  }
+  /** Отказ над заблокированным файлом (или папкой, где такие есть). `what` — действие в родительном падеже для подсказки. */
+  async assertNotLinkLocked(ref: WindowsFileRef, what = 'изменить'): Promise<void> {
+    if (!this.linkLocks.size() || !ref || ref.draftId) return;
+    const filename = await this.filename(this.resolveRef(ref), true).catch(() => '');
+    if (!filename) return;
+    if (this.linkLocks.has(filename)) throw new WindowsFilesError('LINK_LOCKED', `Файл «${path.basename(filename)}» заблокирован: он связан со строкой документооборота. Чтобы ${what} его, снимите замок в строке реестра (столбец «Файл»).`);
+    if (this.linkLocks.inside(filename)) throw new WindowsFilesError('LINK_LOCKED', `В папке «${path.basename(filename)}» есть файлы, связанные со строками документооборота и заблокированные. Снимите замки в реестре или действуйте с отдельными файлами.`);
+  }
   static async create(deps: WindowsFilesDependencies) {
     const state = await WindowsFilesState.load(deps.userData);
     for (const [kind, folder] of Object.entries(deps.knownFolders || {})) {
@@ -346,7 +396,7 @@ export class WindowsFilesService {
   async fileHash(ref: WindowsFileRef) { const filename = await this.filename(ref); const version = await snapshotFile(filename); await this.filename(ref); return version; }
   /** Для файловых операций временная копия уже проверена: не загружаем её целиком в память редактора. */
   async replaceFromFile(ref: WindowsFileRef, source: string, baseSha256: string) {
-    ref = this.resolveRef(ref); const filename = await this.filename(ref);
+    ref = this.resolveRef(ref); await this.assertNotLinkLocked(ref, 'заменить'); const filename = await this.filename(ref);
     return this.locked(filename, async () => {
       const entry = await this.entry(ref); const current = await snapshotFile(filename);
       if (current.sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Файл назначения изменился. Проверьте свежую версию.');
@@ -369,7 +419,7 @@ export class WindowsFilesService {
     return this.writeResolved(ref, base64, baseSha256);
   }
   private async writeResolved(ref: WindowsFileRef, base64: string, baseSha256: string) {
-    ref = this.resolveRef(ref);
+    ref = this.resolveRef(ref); await this.assertNotLinkLocked(ref, 'изменить');
     const bytes = decodeBytes(base64);
     if (!/^[a-f0-9]{64}$/u.test(baseSha256 || '')) throw new WindowsFilesError('VERSION_REQUIRED', 'Для сохранения нужна исходная версия файла.');
     const filename = await this.filename(ref);
@@ -700,7 +750,7 @@ export class WindowsFilesService {
     return this.entry(ref);
   }
   async rename(ref: WindowsFileRef, name: string, opts: OpOptions = {}) {
-    ref = this.resolveRef(ref);
+    ref = this.resolveRef(ref); await this.assertNotLinkLocked(ref, 'переименовать');
     validateWindowsName(name);
     if (ref.draftId) {
       const draft = this.draft(ref); await this.ensureFreeName(draft.parent, name, draft.id);
@@ -792,7 +842,7 @@ export class WindowsFilesService {
   }
   /** Сам перенос, без записи в журнал: им же пользуется отмена, чтобы не записывать собственные шаги. */
   async moveCore(ref: WindowsFileRef, parent: WindowsFileRef, name: string, baseSha256?: string) {
-    ref = this.resolveRef(ref);
+    ref = this.resolveRef(ref); await this.assertNotLinkLocked(ref, 'переместить');
     parent = this.resolveRef(parent);
     if (ref.draftId) {
       const draft = this.draft(ref);
@@ -905,7 +955,7 @@ export class WindowsFilesService {
   }
   /** Само удаление в корзину без записи в журнал; nativePath — только для main, в ответ renderer'у не попадает. */
   async trashCore(ref: WindowsFileRef, baseSha256?: string): Promise<{ trashed: true; fileId: string; storage?: 'flux'; nativePath?: string }> {
-    ref = this.resolveRef(ref);
+    ref = this.resolveRef(ref); await this.assertNotLinkLocked(ref, 'удалить');
     if (ref.draftId) {
       const draft = this.draft(ref);
       if (baseSha256 && (await this.fileHash(ref)).sha256 !== baseSha256) throw new WindowsFilesError('CONFLICT', 'Черновик изменился; проверьте свежую версию.');
@@ -939,7 +989,7 @@ export class WindowsFilesService {
   }
   /** Shift+Delete: корни и ссылки запрещены; команда не выдаёт обещание отмены. */
   async permanentDelete(ref: WindowsFileRef, baseSha256?: string) {
-    ref = this.resolveRef(ref);
+    ref = this.resolveRef(ref); await this.assertNotLinkLocked(ref, 'удалить');
     if (!ref.relativePath) throw new WindowsFilesError('ROOT_OPERATION', 'Подключённую папку нельзя удалить через Flux.');
     const filename = await this.filename(ref);
     return this.locked(ref.draftId ? `draft-operation:${ref.draftId}` : filename, async () => {
@@ -967,7 +1017,7 @@ export class WindowsFilesService {
     });
   }
   async reveal(ref: WindowsFileRef) { ref = this.resolveRef(ref); if (ref.draftId) throw new WindowsFilesError('DRAFT_NOT_PUBLISHED', 'Черновик находится только в Flux. Сначала выберите «Отобразить в Windows».'); this.deps.showItemInFolder(await this.filename(ref)); return { opened: true }; }
-  async open(ref: WindowsFileRef) { ref = this.resolveRef(ref); if (ref.draftId) throw new WindowsFilesError('DRAFT_NOT_PUBLISHED', 'Черновик находится только в Flux. Откройте его редактором Flux или опубликуйте в Windows.'); const error = await this.deps.openPath(await this.filename(ref)); if (error) throw new WindowsFilesError('OPEN_FAILED', error); return { opened: true }; }
+  async open(ref: WindowsFileRef) { ref = this.resolveRef(ref); await this.assertNotLinkLocked(ref, 'открыть для правки'); if (ref.draftId) throw new WindowsFilesError('DRAFT_NOT_PUBLISHED', 'Черновик находится только в Flux. Откройте его редактором Flux или опубликуйте в Windows.'); const error = await this.deps.openPath(await this.filename(ref)); if (error) throw new WindowsFilesError('OPEN_FAILED', error); return { opened: true }; }
   /** Путь файла для нативного помощника Windows (миниатюры, «Открыть с помощью», меню). Остаётся в main; у черновика его нет. */
   async nativePath(ref: WindowsFileRef): Promise<string> {
     const resolved = this.resolveRef(ref);
@@ -980,6 +1030,7 @@ export class WindowsFilesService {
    * принять, и «вытащить» его значило бы тихо опубликовать в чужую папку.
    */
   async startDrag(owner: number, refs: WindowsFileRef[]) {
+    for (const target of refs) await this.assertNotLinkLocked(target, 'перетащить');
     if (!Array.isArray(refs) || !refs.length || refs.length > 100) throw new WindowsFilesError('INVALID_REQUEST', 'Выберите от 1 до 100 объектов.');
     if (!this.deps.startDrag) throw new WindowsFilesError('NOT_SUPPORTED', 'Перетаскивание наружу доступно только в приложении Flux.');
     const resolved = refs.map(ref => { if (!ref || typeof ref !== 'object') throw new WindowsFilesError('INVALID_REQUEST', 'Не указан файл.'); return this.resolveRef(ref); });

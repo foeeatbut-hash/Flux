@@ -15,8 +15,8 @@ export async function saveDocflowPlan(prisma: any, input: {
 }) {
   const now = new Date();
   await prisma.docflowPlan.deleteMany({ where: { expiresAt: { lte: now } } });
-  const count = await prisma.docflowPlan.count({ where: { projectId: input.projectId, actorId: input.actorId, kind: input.kind } });
-  if (count >= MAX_PLANS) throw new DocflowPlanError('Достигнут предел сохранённых операций. Дождитесь окончания срока отмены.', 429);
+  const count = await prisma.docflowPlan.count({ where: { projectId: input.projectId, actorId: input.actorId, kind: input.kind, state: 'preview' } });
+  if (count >= MAX_PLANS) throw new DocflowPlanError('Достигнут предел неприменённых планов. Дождитесь окончания срока предпросмотра.', 429);
   const payload = JSON.stringify(input.payload);
   if (Buffer.byteLength(payload, 'utf8') > MAX_PAYLOAD) throw new DocflowPlanError('План слишком большой. Выберите меньше тегов.', 400);
   return prisma.docflowPlan.create({ data: {

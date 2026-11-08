@@ -12,7 +12,10 @@ import { setPrisma, setBroadcaster } from '../server/context.js';
 import { registerEquipmentClassRoutes } from '../server/routes/equipmentClasses.js';
 import { registerDocflowKitRoutes } from '../server/routes/docflowKits.js';
 import { registerDocflowCreateFileRoutes } from '../server/routes/docflowCreateFiles.js';
+import { registerDocflowIssueRoutes } from '../server/routes/docflowIssue.js';
 import { registerProjectFolderBindingRoutes } from '../server/routes/projectFolderBindings.js';
+import { planProjectFamily, applyProjectFamily, undoProjectFamily } from '../server/projectCatalogPlans.js';
+import { familyDocument, projectFamilyRevision } from '../server/projectCatalogData.js';
 
 const require = createRequire(import.meta.url);
 assert.equal(process.env.FLUX_TEST_FIXTURE_DOCFLOW_STAGE2, '1', 'нужен marker одноразовой fixture');
@@ -41,6 +44,7 @@ async function main() {
   registerEquipmentClassRoutes(app);
   registerDocflowKitRoutes(app);
   registerDocflowCreateFileRoutes(app);
+  registerDocflowIssueRoutes(app);
   registerProjectFolderBindingRoutes(app, { mayManage: async () => true });
   const server = await new Promise<any>(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const base = `http://127.0.0.1:${server.address().port}/api/equipment/projects`;
@@ -145,6 +149,95 @@ async function main() {
     assert.equal((await fileCall('undo', { projectId: 'a', planId: fileWinner.plan.body.id }, fileWinner.actor)).status, 200);
     assert.equal(await db.docFileLink.count({ where: { unlinkedAt: null } }), 0); assert.equal(await db.docFileLink.count(), 1);
     console.log(`✓ ${provider}: создание файла, конкурентный резерв, повтор и отмена`);
+
+    // Шаг 5: выпуск пачкой. Уникальный ключ «строка + ревизия», один план — одна запись, второй одновременный выпуск — 409
+    await db.docRegisterItem.update({ where: { id: 'file-item' }, data: { status: 'READY' } });
+    const issueFile = 'PO-UNIT-E02-099_A.pdf';
+    const issueLink = await db.docFileLink.create({ data: { itemId: 'file-item', projectId: 'a', revision: 'A', role: 'file', folderKey, relativePath: `E02/${issueFile}`, fileName: issueFile, sha256: 'd'.repeat(64), size: 5, pathKey: `issue-${provider}`.padEnd(64, '0') } });
+    // Замочек связанного файла: новая связь заблокирована по умолчанию, колонки замка записываются и читаются на всех СУБД
+    assert.equal(issueLink.locked, true); assert.equal(issueLink.lockLog, '[]'); assert.equal(issueLink.lockedSha256, '');
+    const lockedRow = await db.docFileLink.update({ where: { id: issueLink.id }, data: { locked: false, unlockedAt: new Date(), unlockedById: 'admin', lockedSha256: 'd'.repeat(64), lockedPath: 'E02/'.repeat(60) + 'файл.pdf', lockLog: JSON.stringify(Array.from({ length: 20 }, (_, i) => ({ at: new Date().toISOString(), by: 'admin', action: i % 2 ? 'lock' : 'unlock' }))) } });
+    assert.equal(lockedRow.locked, false); assert.equal(JSON.parse(lockedRow.lockLog).length, 20); assert.ok(lockedRow.lockedPath.length > 200, 'длинный путь baseline сохраняется');
+    await db.docFileLink.update({ where: { id: issueLink.id }, data: { locked: true } });
+    const issueCall = async (action: string, body: any, actor = 'admin', denied = false) => {
+      const r = await fetch(`${origin}/api/docflow/issue/${action}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-actor': actor, ...(denied ? { 'x-denied': '1' } : {}) }, body: JSON.stringify(body) });
+      return { status: r.status, body: await r.json() as any };
+    };
+    const issueRows = [{ itemId: 'file-item', linkId: issueLink.id, reason: 'IFR', date: new Date().toISOString().slice(0, 10), sha256: 'd'.repeat(64) }];
+    const issuePlan1 = await issueCall('plan', { projectId: 'a', rows: issueRows }, 'admin');
+    const issuePlan2 = await issueCall('plan', { projectId: 'a', rows: issueRows }, 'admin2');
+    assert.equal(issuePlan1.status, 200, JSON.stringify(issuePlan1.body)); assert.equal(issuePlan1.body.ok, true, JSON.stringify(issuePlan1.body.rows));
+    assert.equal(await db.docRegisterItemRevision.count({ where: { itemId: 'file-item' } }), 0, 'предпросмотр выпуска не пишет');
+    assert.equal((await issueCall('plan', { projectId: 'a', rows: issueRows }, 'admin', true)).status, 403, 'без доступа к проекту — отказ');
+    const issueHashes = { 'file-item': 'd'.repeat(64) };
+    const issueResults = await Promise.all([
+      issueCall('apply', { projectId: 'a', planId: issuePlan1.body.id, hashes: issueHashes }, 'admin'),
+      issueCall('apply', { projectId: 'a', planId: issuePlan2.body.id, hashes: issueHashes }, 'admin2'),
+    ]);
+    assert.deepEqual(issueResults.map(result => result.status).sort(), [200, 409], 'два одновременных выпуска одной ревизии: 200 и 409');
+    assert.equal(await db.docRegisterItemRevision.count({ where: { itemId: 'file-item', issuedKey: { not: null } } }), 1, 'одна действующая ревизия');
+    const issueWinner = issueResults[0].status === 200 ? { plan: issuePlan1, actor: 'admin' } : { plan: issuePlan2, actor: 'admin2' };
+    const repeated = await issueCall('apply', { projectId: 'a', planId: issueWinner.plan.body.id, hashes: issueHashes }, issueWinner.actor);
+    assert.equal(repeated.status, 200); assert.equal(repeated.body.repeated, true);
+    assert.equal(await db.docRegisterItemRevision.count({ where: { itemId: 'file-item' } }), 1, 'повтор не плодит ревизий');
+    const recorded = await db.docRegisterItemRevision.findFirst({ where: { itemId: 'file-item' } });
+    await assert.rejects(db.docRegisterItemRevision.create({ data: { itemId: 'file-item', revision: 'A', issuedKey: recorded.issuedKey } }), 'SQL уникальность ключа выпуска');
+    assert.equal((await issueCall('undo', { projectId: 'a', planId: issueWinner.plan.body.id }, issueWinner.actor)).status, 200);
+    assert.equal(await db.docRegisterItemRevision.count({ where: { itemId: 'file-item', issuedKey: { not: null } } }), 0, 'отмена освобождает ключ');
+    assert.equal((await db.docRegisterItemRevision.findFirst({ where: { itemId: 'file-item' } })).sha256, 'd'.repeat(64), 'история и отпечаток сохраняются');
+    await db.docFileLink.delete({ where: { id: issueLink.id } });
+    await db.docRegisterItemRevision.deleteMany({ where: { itemId: 'file-item' } });
+    console.log(`✓ ${provider}: выпуск пачкой, уникальный ключ, конкуренция, повтор и отмена`);
+
+    // Все действия проходят через те же планы и транзакции, что HTTP-маршрут.
+    await db.catalogManufacturer.create({ data: { id: 'maker', name: 'Изготовитель' } });
+    const commonDocument = { id: 'common-family', classId: 'class', manufacturerId: 'maker', code: 'COMMON', title: { ru: 'Модель' }, typeLabel: { ru: 'Тип' }, kind: 'fan', shapes: [], match: { kinds: [] }, status: 'partial', designationMode: 'free', params: [], positions: [], specs: [], rules: [] };
+    const common = await db.catalogFamily.create({ data: { id: commonDocument.id, classId: 'class', manufacturerId: 'maker', code: commonDocument.code, status: commonDocument.status, dataJson: JSON.stringify(commonDocument) } });
+    const scope = { prisma: db, projectId: 'a', actorId: 'admin' };
+    const snapshot = (id: string) => db.catalogFamily.findUnique({ where: { id } });
+    const preview = (input: any) => planProjectFamily(scope, input);
+    const take = await preview({ operation: 'take', familyId: common.id });
+    const familyId = take.rows[0].id;
+    assert.equal(await snapshot(familyId), null, 'предпросмотр не создаёт позицию');
+    await applyProjectFamily(scope, take.id);
+    let project = await snapshot(familyId);
+    assert.equal(project.basedOnRevision, projectFamilyRevision(common));
+    assert.equal(project.baseDataJson, JSON.stringify(familyDocument(project)), 'зафиксирован исходный документ');
+    const duplicate = { ...project, id: 'duplicate-project-family' };
+    delete duplicate.createdAt; delete duplicate.updatedAt;
+    await assert.rejects(db.catalogFamily.create({ data: duplicate }), 'SQL уникальность проекта и общей позиции');
+    const localDocument = { ...familyDocument(project), code: 'PROJECT-OVERRIDE' };
+    const edit = await preview({ operation: 'edit', familyId, expectedRevision: projectFamilyRevision(project), document: localDocument });
+    await applyProjectFamily(scope, edit.id);
+    project = await snapshot(familyId);
+    assert.equal(familyDocument(project).code, 'PROJECT-OVERRIDE');
+    const pinned = project.baseDataJson;
+    const modifiedCommon = { ...familyDocument(common), code: 'COMMON-CHANGED' };
+    await db.catalogFamily.update({ where: { id: common.id }, data: { code: modifiedCommon.code, dataJson: JSON.stringify(modifiedCommon), updatedAt: new Date(common.updatedAt.getTime() + 1000) } });
+    const changedCommon = await snapshot(common.id);
+    project = await snapshot(familyId);
+    assert.equal(project.baseDataJson, pinned, 'общая правка не меняет закреплённую основу');
+    assert.equal(familyDocument(project).code, 'PROJECT-OVERRIDE');
+    assert.notEqual(project.basedOnRevision, projectFamilyRevision(changedCommon));
+    const update = await preview({ operation: 'update', familyId, expectedRevision: projectFamilyRevision(project) });
+    assert.ok(update.rows[0].conflicts.some((x: any) => x.path.join('.') === 'code'), 'показан конфликт изменений');
+    await applyProjectFamily(scope, update.id);
+    project = await snapshot(familyId);
+    assert.equal(project.basedOnRevision, projectFamilyRevision(changedCommon));
+    assert.equal(familyDocument(project).code, 'PROJECT-OVERRIDE', 'переопределение сохранено');
+    const reset = await preview({ operation: 'reset', familyId, expectedRevision: projectFamilyRevision(project) });
+    await applyProjectFamily(scope, reset.id);
+    project = await snapshot(familyId);
+    assert.equal(familyDocument(project).code, 'COMMON-CHANGED', 'сброс к закреплённой основе');
+    await assert.rejects(undoProjectFamily(scope, update.id), 'отмена не затирает последующий сброс');
+    await undoProjectFamily(scope, reset.id);
+    project = await snapshot(familyId);
+    assert.equal(familyDocument(project).code, 'PROJECT-OVERRIDE', 'отмена восстанавливает локальную правку');
+    await assert.rejects(planProjectFamily({ ...scope, projectId: 'b' }, { operation: 'take', familyId }), 'проектная позиция не может быть общей основой');
+    await assert.rejects(planProjectFamily({ ...scope, projectId: 'b' }, { operation: 'edit', familyId, expectedRevision: projectFamilyRevision(project), document: familyDocument(project) }), 'чужой проект не меняет позицию');
+    assert.equal((await snapshot(common.id)).dataJson, JSON.stringify(modifiedCommon), 'проектные действия не изменили общий документ');
+    console.log(`✓ ${provider}: каталог проекта, закрепление, обновление, SQL уникальность и безопасная отмена`);
+
 
 
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); await db.$disconnect(); if (local) fs.rmSync(tmp, { recursive: true, force: true }); }

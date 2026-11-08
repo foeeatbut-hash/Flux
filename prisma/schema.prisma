@@ -273,6 +273,18 @@ model DocFileLink {
   unlinkedAt   DateTime?
   unlinkedById String?
   unlinkReason String    @default("")
+  /// Блокировка связанного файла («замочек»): ставится при связи, снимается и
+  /// ставится обратно из строки Реестра. Baseline (`lockedSha256`, `lockedPath`)
+  /// — отпечаток и путь на момент блокировки: расхождение со слежением — нарушение.
+  locked       Boolean   @default(true)
+  lockedAt     DateTime?
+  lockedById   String?
+  unlockedAt   DateTime?
+  unlockedById String?
+  lockedSha256 String    @default("")
+  lockedPath   String    @default("")
+  /// Последние 20 событий замка (JSON): кто и когда ставил и снимал — история строки без роста без предела
+  lockLog      String    @default("[]")
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -292,8 +304,18 @@ model DocRegisterItemRevision {
   description String   @default("") // описание изменения
   authorId    String?
   createdAt   DateTime @default(now())
+  /// Выпуск ДО (этап 2б): связь с файлом ревизии, его отпечаток на момент выпуска и
+  /// ключ «строка + ревизия». Ключ уникален только у действующих выпусков (NULL у
+  /// старых записей и у отменённых индексу не мешает): два одновременных выпуска
+  /// одной ревизии не пройдут оба. Отпечаток не меняется слежением за файлом.
+  linkId      String?
+  sha256      String   @default("")
+  issuedKey   String?  @unique
+  planId      String?
+  undoneAt    DateTime?
 
   @@index([itemId])
+  @@index([planId])
 }
 
 model Dictionary {
@@ -1867,6 +1889,13 @@ model CatalogManufacturer {
 
 model CatalogFamily {
   id             String    @id @default(uuid())
+  /// Пусто — общий каталог; проектная позиция читается только в своём проекте.
+  projectId       String?
+  basedOnFamilyId String?
+  basedOnRevision String?
+  /// Закреплённый снимок общего и явная разница; dataJson — действующий документ.
+  baseDataJson    String    @default("{}")
+  overridesJson   String    @default("{}")
   classId        String
   manufacturerId String
   code           String
@@ -1884,6 +1913,8 @@ model CatalogFamily {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  @@unique([projectId, basedOnFamilyId])
+  @@index([projectId])
   @@index([classId])
 }
 

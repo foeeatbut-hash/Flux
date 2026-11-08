@@ -53,13 +53,25 @@ export async function catalogAllowed(db: any, user: any, action: CatalogAction, 
     (!g.classId || g.classId === document?.classId || (entity === 'class' && g.classId === document?.id)) &&
     (!g.manufacturerId || g.manufacturerId === document?.manufacturerId || (entity === 'manufacturer' && g.manufacturerId === document?.id)));
 }
+export async function assertGlobalFamily(db: any, entity: string, id: string, document?: any): Promise<void> {
+  if (entity !== 'family') return;
+  if (document?.projectId != null || document?.basedOnFamilyId != null || document?.basedOnRevision != null || document?.baseDataJson != null || document?.overridesJson != null) catalogFailure(404, 'Запись общего каталога не найдена');
+  if (typeof id !== 'string' || !id) return;
+  const row = await db.catalogFamily.findUnique({ where: { id }, select: { projectId: true } });
+  if (row?.projectId != null) catalogFailure(404, 'Запись общего каталога не найдена');
+}
 export async function listCatalogDrafts(db: any): Promise<CatalogDraft[]> {
   const rows = await db.appSetting.findMany({ where: { key: { startsWith: PREFIX } }, take: 5000 });
-  return rows.map((r: any) => JSON.parse(r.value));
+  const drafts: CatalogDraft[] = rows.map((r: any) => JSON.parse(r.value));
+  const ids = drafts.filter(d => d.entity === 'family').map(d => d.id);
+  const projectRows = ids.length ? await db.catalogFamily.findMany({ where: { id: { in: ids }, projectId: { not: null } }, select: { id: true } }) : [];
+  const projectIds = new Set(projectRows.map((r: any) => r.id));
+  return drafts.filter(d => d.entity !== 'family' || (!projectIds.has(d.id) && d.document?.projectId == null && d.document?.basedOnFamilyId == null && d.document?.basedOnRevision == null && d.document?.baseDataJson == null && d.document?.overridesJson == null));
 }
 /** Ожидаемая версия защищает черновик, исходный хеш — опубликованную запись. */
 export async function stageCatalogDraft(db: any, entity: CatalogEntity, id: string, body: any, actorId: string, operation: 'save' | 'archive' = 'save', expected?: string): Promise<CatalogDraft> {
   if (!CATALOG_ENTITIES[entity]) catalogFailure(404, 'Неизвестный вид записи');
+  await assertGlobalFamily(db, entity, id, body);
   const document = { ...body, id }; delete document._draftVersion; delete document._publishedHash; delete document.publicationState;
   const problem = operation === 'save' ? catalogDocumentProblem(entity, document) : '';
   if (problem) catalogFailure(400, problem);
@@ -92,7 +104,8 @@ export async function publishCatalogDrafts(prisma: any, selections: Array<{ enti
     const drafts: CatalogDraft[] = [];
     for (const selection of selections) {
       const draft = await catalogSetting(db, slot(selection.entity, selection.id), null) as CatalogDraft | null;
-      if (!draft || draft.revision !== selection.revision) catalogFailure(409, 'Черновик изменён или уже опубликован');
+      if (!draft || draft.revision !== selection.revision || draft.entity !== selection.entity || draft.id !== selection.id) catalogFailure(409, 'Черновик изменён или уже опубликован');
+      await assertGlobalFamily(db, selection.entity, selection.id, draft.document);
       if (!await catalogAllowed(db, user, 'publish', draft.document, can, draft.entity)) catalogFailure(403, 'Нет права публикации в этой области каталога');
       if (policy.requireSecondReview && ['family','component'].includes(draft.entity) && (!draft.reviewedById || draft.reviewedById === draft.authorId)) catalogFailure(409, 'Для модели нужна проверка другим сотрудником с правом публикации');
       const current = await db[CATALOG_ENTITIES[draft.entity].model].findUnique({ where: { id: draft.id } });
@@ -115,6 +128,7 @@ export async function publishCatalogDrafts(prisma: any, selections: Array<{ enti
         const refs = [d.document.catalog, ...(d.document.documents || []), ...(d.document.sections || []).map((s: any) => s.source), ...(d.document.tables || []).flatMap((t: any) => [t.source, ...t.rows.map((r: any) => r.source)])];
         for (const ref of refs) if (ref?.assetId) {
           const asset = await catalogSetting(db, `catalog_asset:${ref.assetId}`, null);
+          if (asset?.familyId) await assertGlobalFamily(db, 'family', asset.familyId);
           if (!asset?.complete) catalogFailure(409, 'Исходный файл ещё не загружен полностью');
           if (!await catalogAllowed(db, user, 'publish', asset.scope, can)) catalogFailure(403, 'Нет права публикации этого исходника');
         }
@@ -136,7 +150,10 @@ export async function publishCatalogDrafts(prisma: any, selections: Array<{ enti
     }
     for (const r of effectiveRules.values()) if (!sets.classes.has(r.classId)) catalogFailure(409, 'Сначала измените правила тегов этого вида');
     for (const t of await db.blankTemplate.findMany()) if (t.classId && !sets.classes.has(t.classId)) catalogFailure(409, 'Вид оборудования используется шаблоном бланка');
-    for (const learned of await db.catalogLearn.findMany()) if (!sets.classes.has(learned.classId) || !sets.families.has(learned.familyId)) catalogFailure(409, 'Запись используется сохранённым правилом подбора; сначала отмените обучение');
+    const learnedRows = await db.catalogLearn.findMany();
+    const projectFamilies = await db.catalogFamily.findMany({ where: { projectId: { not: null }, id: { in: learnedRows.map((row: any) => row.familyId) } }, select: { id: true } });
+    const projectFamilyIds = new Set(projectFamilies.map((row: any) => row.id));
+    for (const learned of learnedRows) if (!projectFamilyIds.has(learned.familyId) && (!sets.classes.has(learned.classId) || !sets.families.has(learned.familyId))) catalogFailure(409, 'Запись используется сохранённым правилом подбора; сначала отмените обучение');
     for (const d of drafts) {
       const model = db[CATALOG_ENTITIES[d.entity].model];
       const before = await model.findUnique({ where: { id: d.id } });

@@ -93,6 +93,8 @@ export async function removeCreatedFiles(plan: FileCreatePlan, prepared: Prepare
     if (!actual || actual.sha256 !== file.sha256) throw new Error('Один из созданных файлов изменён или перенесён. Отмена сохраняет новые данные.');
   }
   for (const file of files) {
+    // Только что созданный и связанный файл заблокирован; отмена создания — единственное, что вправе его убрать
+    await windowsFilesRequest({ action: 'releaseLinkLocks', refs: [file.ref] });
     const answer = await windowsFilesRequest({ action: 'trash', ref: file.ref, baseSha256: file.sha256, group: `docflow-create-undo-${plan.id}` });
     if ('error' in answer) throw new Error(`Отмена файлов не завершена: ${answer.error.message}. Уже удалённые файлы можно вернуть журналом Проводника.`);
     file.removed = true;

@@ -6,6 +6,8 @@ import { syncItemTags, linksOfItems, unmatchedCodesOf, planTagLinks, applyTagLin
 import { tagCodeKey } from '../tagWrite.js';
 import { projectConfig } from '../docflowSettings.js';
 import { DEFAULT_STATUSES } from '../../shared/docflow/config.js';
+import { backfillLegacyIssues } from '../docflowIssue.js';
+import { normalizeRevisionRules, expectedRevision, kindOfRevision } from '../../shared/docflow/revisions.js';
 import { VdrConflict, expectedStamp, expectedRevisionOf, guardedUpdate, guardedIssue, whenText, inTransaction } from '../vdrWrite.js';
 
 // ── ВДР (Vendor Document Register) — реестр документации поставщика ──
@@ -72,7 +74,8 @@ async function ensureTables(): Promise<void> {
         "id" TEXT NOT NULL PRIMARY KEY, "itemId" TEXT NOT NULL, "revision" TEXT NOT NULL,
         "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "reason" TEXT NOT NULL DEFAULT '',
         "place" TEXT NOT NULL DEFAULT '', "description" TEXT NOT NULL DEFAULT '', "authorId" TEXT,
-        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "linkId" TEXT, "sha256" TEXT NOT NULL DEFAULT '', "issuedKey" TEXT UNIQUE, "planId" TEXT, "undoneAt" TIMESTAMP(3)
       )`);
       await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "DocRegisterItemTag" (
         "itemId" TEXT NOT NULL, "tagId" TEXT NOT NULL, "tagIdentifier" TEXT NOT NULL DEFAULT '',
@@ -782,7 +785,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
   app.get('/api/vdr/items/:id/revisions', async (req: Request, res: Response) => {
     try {
       const revisions = await getPrisma().docRegisterItemRevision.findMany({
-        where: { itemId: req.params.id }, orderBy: { createdAt: 'asc' },
+        where: { itemId: req.params.id, undoneAt: null }, orderBy: { createdAt: 'asc' },
       });
       res.json({ revisions });
     } catch (err: any) { sendError(res, err); }
@@ -804,6 +807,16 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       const register = await prisma.docRegister.findUnique({ where: { id: first.registerId } });
       const std = await standardOfRegister(register);
       const kind = String(req.body?.kind || 'next'); // next | certify | void | superseded
+      // «next»/«certify» больше не выпускают: выпуск идёт окном «Выпустить…» с проверкой файла
+      // (server/docflowIssue.ts). Здесь — только открыть следующую рабочую ревизию выпущенного документа
+      const askedRevision = expectedRevisionOf(req.body?.expectedRevision);
+      // Устаревшую ожидаемую ревизию разбирает сверка версии ниже: у неё свой текст отказа
+      if ((kind === 'next' || kind === 'certify') && (askedRevision === undefined || askedRevision === first.revision)) {
+        await backfillLegacyIssues(prisma, first.id).catch(() => 0); // выпуск прежним способом тоже считается выпуском
+        const issued = await prisma.docRegisterItemRevision.findFirst({ where: { itemId: first.id, revision: first.revision, issuedKey: { not: null } } });
+        if (!issued) return res.status(409).json({ error: `Ревизия ${first.revision} ещё не выпущена. Выпустите её кнопкой «Выпустить…» — там проверяются файл, имя и статус.`, conflict: true });
+      }
+      const rules = normalizeRevisionRules(std.revisionRules);
 
       // Кто и когда выпустил текущую ревизию — для текста отказа
       const staleMessage = async (db: any, cur: any) => {
@@ -821,23 +834,24 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
           if (kind === 'void') { revision = std.specialRevisions?.void || 'V'; reason = 'VOID'; }
           else if (kind === 'superseded') { revision = std.specialRevisions?.superseded || 'S'; reason = 'SUPERSEDED'; }
           else {
-            revision = nextRevision(item.revision, kind === 'certify');
-            // Причина по типу ревизии из стандарта: цифровая → первая digit-причина (CEF), буквенная → letter (IFR)
-            const kindOf = /^\d+$/.test(revision) ? 'digit' : 'letter';
-            reason = String(req.body?.reason || (std.reasons || []).find((r: any) => r.revKind === kindOf)?.code || (kindOf === 'digit' ? 'CEF' : 'IFR'));
+            // Следующая ревизия — по схеме проекта: буква за буквой, после букв — цифры; «утвердить» сразу даёт цифровую
+            const current = String(item.revision).toUpperCase();
+            if (kindOfRevision(current) === 'letter' && !rules.letters.includes(current)) throw new VdrConflict(`Ревизии ${item.revision} нет в схеме проекта (Настройки → Ревизии): следующая не определена.`);
+            const preferDigit = kind === 'certify' || kindOfRevision(current) === 'digit';
+            const next = expectedRevision(rules, current, preferDigit ? 'digit' : 'letter') || expectedRevision(rules, current, 'digit');
+            if (!next) throw new VdrConflict(`По схеме ревизий проекта после ${item.revision} следующей нет.`);
+            revision = next; reason = '';
           }
           return {
-            data: {
-              revision,
-              issueDate: new Date(),
-              reasonForIssue: reason,
-              dueDate: null,
-              ...(kind === 'next' || kind === 'certify' ? { status: 'DRAFT', reviewCode: '' } : {}),
-            },
+            data: kind === 'next' || kind === 'certify'
+              ? { revision, status: 'DRAFT', reviewCode: '', dueDate: null }
+              : { revision, issueDate: new Date(), reasonForIssue: reason, dueDate: null },
             extra: { revision, reason },
           };
         },
         after: async (db, item, { revision, reason }) => {
+          // Следующая рабочая ревизия — не выпуск: запись в историю появится, когда её выпустят
+          if (kind === 'next' || kind === 'certify') return;
           await db.docRegisterItemRevision.create({
             data: {
               itemId: item.id,

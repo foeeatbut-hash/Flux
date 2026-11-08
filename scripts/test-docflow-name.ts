@@ -49,6 +49,9 @@ check('правильное имя собирается из строки', buil
 check('и для новой ревизии', buildFileName(cfg, row, '.pdf', 'B') === '3700-B01-E02-001_B.pdf');
 check('без шифра имя не собирается', buildFileName(cfg, { ...row, contractorNo: '' }, '.pdf') === '');
 check('папка по маске структуры', folderPath(cfg.folders.returns, rowFields(cfg, row, 'B')) === 'E02/3700-B01-E02-001/B');
+check('ошибочные сегменты папки не меняются молча', folderPath('{тип}/{шифр}', { тип: 'CON', шифр: 'имя. ' }) === 'CON/имя. ');
+const unsafeName = normalizeDocflowConfig({ masks: { file: '{шифр}' } });
+check('недопустимые символы имени не заменяются молча', buildFileName(unsafeName, { ...row, contractorNo: 'имя?' }, '.pdf') === 'имя?.pdf');
 check('поля шифра раскладываются обратно', rowFields(cfg, row).заказ === '3700');
 
 // ── Маски и правила ──

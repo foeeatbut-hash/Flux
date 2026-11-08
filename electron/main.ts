@@ -267,7 +267,15 @@ app.whenReady().then(async () => {
   displayWorkspace.attach();
   const localAccess = createLocalFileAccess({ server: () => '',
     token: readNativeSession, fetch: globalThis.fetch });
-  const localFiles = await registerWindowsFilesIpc({ isTrusted: trustedAuthSender, ...localAccess });
+  const serverJson = async (path: string) => {
+    const origin = 'http://localhost:3000';
+    const token = readNativeSession(origin);
+    if (!token) throw new Error('Нет сессии Flux.');
+    const response = await fetch(origin + path, { headers: { Authorization: `Bearer ${token}` }, redirect: 'error', signal: AbortSignal.timeout(10000) });
+    if (!response.ok) throw new Error('Сервер не ответил.');
+    return response.json();
+  };
+  const localFiles = await registerWindowsFilesIpc({ isTrusted: trustedAuthSender, ...localAccess, serverJson });
   registerLocalOfficeIpc({ files: localFiles, isTrusted: trustedAuthSender, ...localAccess });
   registerUpdateCampaignIpc({ ipcMain, dataDir: app.getPath('userData'), version: () => app.getVersion(),
     authorized: async (event) => trustedAuthSender(event) && await localAccess.mayRead(event),

@@ -44,8 +44,32 @@ export interface DocLinkDto {
   createdAt: string;
   unlinkedAt: string | null;
   unlinkReason: string;
+  /** Файл заблокирован ссылкой на строку: Flux не даёт его править, переносить, переименовывать и удалять. */
+  locked: boolean;
+  lockedAt: string | null;
+  lockedByName: string;
+  unlockedAt: string | null;
+  unlockedByName: string;
+  /** Заблокированный файл изменён, перемещён или удалён вне Flux — нарушение блокировки. */
+  lockViolation: '' | 'changed' | 'moved' | 'lost';
   /** Имя файла сейчас не сходится со строкой (после переименования в Windows) и что именно не так. */
   mismatch?: string[];
+}
+
+/** Выпущенная ревизия строки: файл, отпечаток на момент выпуска и признак правки после него. */
+export interface IssueDto {
+  id: string;
+  itemId: string;
+  revision: string;
+  reason: string;
+  /** Календарный день выпуска «ГГГГ-ММ-ДД». */
+  date: string;
+  linkId: string | null;
+  sha256: string;
+  authorId: string | null;
+  createdAt: string;
+  /** Отпечаток файла изменился после выпуска. */
+  changed: boolean;
 }
 
 /** Короткие сведения о строке для столбцов Проводника и ДО, чтобы не запрашивать каждую строку отдельно. */
@@ -87,6 +111,7 @@ export function relativePathProblem(relativePath: string, fileName: string): str
   if (/[\u0000-\u001f]/.test(relativePath) || /^[\\/]/.test(relativePath) || /^[A-Za-z]:/.test(relativePath)) return 'Путь файла должен быть внутри папки проекта';
   const parts = relativePath.split(/[\\/]+/);
   if (parts.some((p) => !p || p === '.' || p === '..')) return 'Путь файла содержит недопустимые сегменты';
+  if (parts.some((p) => /[<>:"|?*]/.test(p) || /[. ]$/.test(p) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(p))) return 'Путь файла содержит недопустимое для Windows имя сегмента';
   if (typeof fileName !== 'string' || parts[parts.length - 1].toLowerCase() !== fileName.toLowerCase()) return 'Имя файла не совпадает с концом пути';
   return null;
 }
@@ -94,6 +119,19 @@ export function relativePathProblem(relativePath: string, fileName: string): str
 /** Папка файла внутри привязанной: «E02/3700-B01» для «E02/3700-B01/x.pdf». */
 export function dirOf(relativePath: string): string {
   return clean(relativePath).slice(0, -1).join('/');
+}
+
+export const LOCK_VIOLATION_TEXT: Record<'changed' | 'moved' | 'lost', string> = {
+  changed: 'изменён при блокировке', moved: 'перемещён или переименован при блокировке', lost: 'удалён при блокировке',
+};
+
+/** Что случилось с заблокированным файлом по сравнению с моментом блокировки (по последнему наблюдению слежения). */
+export function lockViolationOf(link: { locked: boolean; lostAt: unknown; sha256: string; lockedSha256: string; relativePath: string; lockedPath: string }): '' | 'changed' | 'moved' | 'lost' {
+  if (!link.locked) return '';
+  if (link.lostAt) return 'lost';
+  if (link.lockedSha256 && link.sha256 && link.sha256 !== link.lockedSha256) return 'changed';
+  if (link.lockedPath && link.relativePath.toLowerCase() !== link.lockedPath.toLowerCase()) return 'moved';
+  return '';
 }
 
 export const isFolderKey = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/u.test(value);

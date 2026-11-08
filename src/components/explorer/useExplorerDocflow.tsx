@@ -5,6 +5,7 @@ import type { WindowsFileEntry, WindowsFileRef } from '../../lib/windowsFiles';
 import { windowsFilesRequest } from '../../lib/windowsFiles';
 import { nearestBinding, type ProjectFolderBinding } from '../../lib/projectFolderBindings';
 import { can } from '../../lib/permissions';
+import { HashMemory } from '../../lib/docflowTracking';
 import { trackLinks, unlinkLink, type TrackUpdate } from '../../lib/docflowApi';
 import { dirOf, linkLookupKey, relativeInBinding } from '../../../shared/docflow/links';
 import { useStore } from '../../store/store';
@@ -12,14 +13,15 @@ import { useToastStore } from '../../store/toastStore';
 import { useProjectDocs } from '../docflow/useProjectDocs';
 import AssignFileDialog from '../docflow/AssignFileDialog';
 import AddToRegistryDialog from '../docflow/AddToRegistryDialog';
+import IssueDialog from '../docflow/IssueDialog';
 import DocDetails from '../files/DocDetails';
 import { docInfoOf, matchesDocFilter, type DocEntryInfo, type DocFilter } from '../files/docEntryInfo';
-import { OffMaskBadge, docCell } from '../files/DocColumns';
+import { LockBadge, OffMaskBadge, docCell } from '../files/DocColumns';
 import { entryKey } from '../files/useSelection';
 import { entryRef } from '../files/fileOps';
 import type { FolderColumn } from '../files/viewModel';
 
-type Dialog = { kind: 'link' | 'remarks' | 'add'; entry: WindowsFileEntry; info: DocEntryInfo } | null;
+type Dialog = { kind: 'link' | 'remarks' | 'add' | 'issue'; entry: WindowsFileEntry; info: DocEntryInfo } | null;
 
 /**
  * Документооборот в Проводнике (docs/docflow-program.md, 3.2–3.5): сведения о
@@ -41,6 +43,7 @@ export function useExplorerDocflow(input: {
   const mayView = can(user, 'docflow.view');
   const mayFiles = can(user, 'docflow.files');
   const mayEdit = can(user, 'docflow.edit');
+  const mayIssue = can(user, 'docflow.issue');
   const [filter, setFilter] = React.useState<DocFilter>('all');
   const [dialog, setDialog] = React.useState<Dialog>(null);
 
@@ -75,8 +78,9 @@ export function useExplorerDocflow(input: {
 
   // ── Слежение (3.5): переименовали/перенесли — по отпечатку находим файл; не нашли — помечаем ──
   const tracking = React.useRef(false);
+  const memory = React.useRef(new HashMemory());
   React.useEffect(() => {
-    if (!mayFiles || !complete || tracking.current) return;
+    if (!mayFiles || !complete) return;
     const present = new Set<string>();
     const groups = new Map<string, { projectId: string; folderKey: string; dir: string; entries: WindowsFileEntry[] }>();
     for (const entry of entries) {
@@ -89,6 +93,7 @@ export function useExplorerDocflow(input: {
     }
     const work = async () => {
       const updates: TrackUpdate[] = [];
+      let hashed = 0; // предел чтения выданных файлов за один проход
       for (const group of groups.values()) {
         const ctx = docs[group.projectId];
         if (!ctx) continue;
@@ -98,10 +103,14 @@ export function useExplorerDocflow(input: {
           const key = linkLookupKey(link.folderKey, link.relativePath);
           if (present.has(key)) {
             const here = group.entries.find((e) => linkLookupKey(group.folderKey, [group.dir, e.name].filter(Boolean).join('/')) === key);
-            // Файл на месте: пометка «не найден» снимается; изменился размер — отпечаток обновляется
-            if (here && (link.lostAt || (link.size && here.size !== link.size))) {
-              const hash = await windowsFilesRequest<{ sha256: string; size: number }>({ action: 'fileHash', ref: entryRef(here, rootId) });
-              if (hash.ok) updates.push({ itemId: link.itemId, linkId: link.id, sha256: hash.data.sha256, size: hash.data.size });
+            // Файл на месте: пометка «не найден» снимается; изменился размер — отпечаток обновляется.
+            // Выданный файл сверяется по отпечатку всегда: замена файла того же размера иначе осталась бы незамеченной
+            const issuedLink = link.locked || ctx.issues.some((i) => i.linkId === link.id);
+            if (here && (link.lostAt || (link.size && here.size !== link.size) || (issuedLink && hashed < 20))) {
+              // Файл читается с диска, только если у него изменились размер или время изменения с прошлого прохода
+              const hash = await memory.current.fingerprint(link.id, here, async () => { const a = await windowsFilesRequest<{ sha256: string; size: number }>({ action: 'fileHash', ref: entryRef(here, rootId) }); return a.ok ? a.data : null; });
+              if (hash?.read && issuedLink) hashed++;
+              if (hash && (link.lostAt || hash.sha256 !== link.sha256 || hash.size !== link.size)) updates.push({ itemId: link.itemId, linkId: link.id, sha256: hash.sha256, size: hash.size });
             }
             continue;
           }
@@ -119,8 +128,13 @@ export function useExplorerDocflow(input: {
       }
       if (updates.length) await trackLinks(updates.slice(0, 200));
     };
-    tracking.current = true;
-    void work().catch(() => undefined).finally(() => { tracking.current = false; });
+    // Проход не чаще, чем раз в пару секунд: пере-листинг папки и vdr:changed приходят пачками
+    const timer = window.setTimeout(() => {
+      if (tracking.current) return;
+      tracking.current = true;
+      void work().catch(() => undefined).finally(() => { tracking.current = false; });
+    }, 2000);
+    return () => window.clearTimeout(timer);
   }, [entries, placed, infoOf, docs, complete, mayFiles, rootId]);
 
   // ── Меню «Документооборот ▸» (3.3) ──
@@ -134,6 +148,11 @@ export function useExplorerDocflow(input: {
       if (project) setActiveProject(project);
       open();
     });
+  };
+  /** Причина, по которой выбранные файлы нельзя менять: хотя бы один связан со строкой и заблокирован. Пусто — можно. */
+  const lockReason = (picked: WindowsFileEntry[]): string => {
+    const hit = picked.map((entry) => ({ entry, link: infoOf(entry)?.link })).find((x) => x.link?.locked && !x.link.unlinkedAt);
+    return hit ? `Файл «${hit.entry.name}» заблокирован: он связан со строкой документооборота. Снимите замок в строке реестра (столбец «Файл»).` : '';
   };
   const unlink = async (info: DocEntryInfo) => {
     if (!info.link) return;
@@ -152,6 +171,7 @@ export function useExplorerDocflow(input: {
       }
       sub.push({ label: 'Назначить возвратом к…', disabled: !mayFiles, onClick: () => setDialog({ kind: 'remarks', entry, info }) });
     }
+    if (info.link && info.role === 'file' && info.item) sub.push({ label: 'Выпустить…', disabled: !mayIssue || (info.item.revision !== info.link.revision), onClick: () => setDialog({ kind: 'issue', entry, info }) });
     if (info.link) sub.push({ label: 'Открыть в ДО', onClick: () => openInDocflow(info) });
     if (info.link) sub.push({ label: 'Отвязать', danger: true, disabled: !mayFiles, onClick: () => void unlink(info) });
     if (!info.link && info.role === 'remarks') sub.push({ label: 'Назначить возвратом к…', disabled: !mayFiles, onClick: () => setDialog({ kind: 'remarks', entry, info }) });
@@ -165,7 +185,7 @@ export function useExplorerDocflow(input: {
 
   const doc = React.useMemo(() => ({
     cell: (entry: WindowsFileEntry, column: FolderColumn) => { const info = infoOf(entry); return docCell(info, column, info ? docs[info.projectId]?.config : undefined); },
-    badge: (entry: WindowsFileEntry) => { const info = infoOf(entry); return info && !info.ignored ? <OffMaskBadge problems={info.offMask} /> : null; },
+    badge: (entry: WindowsFileEntry) => { const info = infoOf(entry); return info && !info.ignored ? <><LockBadge info={info} /><OffMaskBadge problems={info.offMask} /></> : null; },
   }), [infoOf, docs]);
 
   /** Блок «Документооборот» для правой панели «Сведения». */
@@ -181,9 +201,10 @@ export function useExplorerDocflow(input: {
     const ctx = docs[dialog.info.projectId];
     if (!ctx) return null;
     const file = entryRef(dialog.entry, rootId);
+    if (dialog.kind === 'issue' && dialog.info.item) return <IssueDialog projectId={dialog.info.projectId} docs={ctx} bindings={bindings} itemIds={[dialog.info.item.id]} onClose={() => setDialog(null)} onDone={done} />;
     if (dialog.kind === 'add') return <AddToRegistryDialog projectId={dialog.info.projectId} docs={ctx} file={file} info={dialog.info} onClose={() => setDialog(null)} onDone={done} />;
     return <AssignFileDialog role={dialog.kind === 'link' ? 'file' : 'remarks'} projectId={dialog.info.projectId} docs={ctx} bindings={bindings} file={file} renameOffer={false} onClose={() => setDialog(null)} onDone={done} />;
   })() : null;
 
-  return { active, infoOf, details, doc, filter, setFilter, visible, menuItems, folderMenuItems, element, docs };
+  return { active, infoOf, lockReason, details, doc, filter, setFilter, visible, menuItems, folderMenuItems, element, docs };
 }

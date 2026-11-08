@@ -65,6 +65,7 @@ import { registerEquipmentClassRoutes } from './server/routes/equipmentClasses.j
 import { registerDocflowKitRoutes } from './server/routes/docflowKits.js';
 import { registerDocflowCreateFileRoutes } from './server/routes/docflowCreateFiles.js';
 import { registerDocflowLinkRoutes } from './server/routes/docflowLinks.js';
+import { registerDocflowIssueRoutes } from './server/routes/docflowIssue.js';
 import { registerLogRoutes } from './server/routes/logs.js';
 import { registerSettingsRoutes } from './server/routes/settings.js';
 import { registerEntityIdMigrationRoutes } from './server/routes/entityIdMigration.js';
@@ -1177,6 +1178,7 @@ registerEquipmentClassRoutes(app);
 registerDocflowKitRoutes(app);
 registerDocflowCreateFileRoutes(app);
 registerDocflowLinkRoutes(app);
+registerDocflowIssueRoutes(app);
 
 // Резервные копии: суточный «Архив» (БД + файлы Проводника в родных форматах
 // + данные в Excel), страховочные копии базы при старте, API и расписание
