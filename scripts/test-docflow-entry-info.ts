@@ -16,7 +16,7 @@ const K = 'a'.repeat(64); const R = 'b'.repeat(64);
 const config = normalizeDocflowConfig({ vdrTypes: [{ code: 'E02', titleRu: 'Общий вид' }] });
 const link = (id: string, relativePath: string, over: Partial<DocLinkDto> = {}): DocLinkDto => ({
   id, itemId: 'i1', projectId: 'p', revision: 'B', role: 'file', toLinkId: null, folderKey: K, relativePath, fileName: relativePath.split('/').pop()!,
-  sha256: '', size: 1, reviewCode: '', receivedAt: null, lostAt: null, linkedById: null, createdAt: '', unlinkedAt: null, unlinkReason: '', ...over,
+  sha256: '', size: 1, reviewCode: '', receivedAt: null, lostAt: null, linkedById: null, createdAt: '', unlinkedAt: null, unlinkReason: '', locked: false, lockedAt: null, lockedByName: '', unlockedAt: null, unlockedByName: '', lockViolation: '', ...over,
 });
 const brief: LinkedItemBrief = { id: 'i1', cipher: '3700-B01-E02-001', title: 'Общий вид', vdrCode: 'E02', revision: 'C', status: 'DRAFT', registerId: 'r', dueDate: null, assignee: '', tags: [] };
 const f = link('l1', 'E02/3700-B01-E02-001_B.pdf');

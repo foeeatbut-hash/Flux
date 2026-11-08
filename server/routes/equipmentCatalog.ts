@@ -5,11 +5,18 @@ import { emitEntityChanged } from '../entityChanged.js';
 import { randomUUID } from 'node:crypto';
 import { canSeeProject, roleGrantsOf } from './members.js';
 import { actorMay } from '../projectAccess.js';
-import { sourceInfo, equipmentCatalog, bindingKey, catalogRevision, matchesFor, publishedRevision, familyMatchesEquipment, componentMatchesEquipment, validateFamilyValues } from '../equipmentCatalog.js';
+import { sourceInfo, bindingKey, catalogRevision, matchesFor, publishedRevision, familyMatchesEquipment, componentMatchesEquipment, validateFamilyValues } from '../equipmentCatalog.js';
 import { previewCatalogSource } from '../equipmentCatalog.js';
 import { catalogValuesByAddress, snapshotForBinding } from '../../equipment/catalogSpecs.js';
 import { withBump } from '../equipmentVersion.js';
-import { readCatalog } from './catalog.js';
+import { catalogForElement } from '../projectCatalogData.js';
+import { ensureCatalog } from './catalog.js';
+
+function requestedCatalogSource(value: unknown): 'effective' | 'project' | 'common' {
+  if (value === undefined) return 'effective';
+  if (value === 'project' || value === 'common') return value;
+  throw Object.assign(new Error('Неизвестный источник каталога'), { status: 400 });
+}
 
 export function registerEquipmentCatalogRoutes(app: Express): void {
   const position = async (req: Request) => {
@@ -26,8 +33,11 @@ export function registerEquipmentCatalogRoutes(app: Express): void {
   app.post('/api/equipment/component/:id/catalog-source/preview', async (req, res) => {
     try {
       const el = await position(req);
+      if (!(await actorMay((req as any).authUser, roleGrantsOf, 'equipment.manage'))) throw Object.assign(new Error('Нужно право «Правка характеристик оборудования»'), { status: 403 });
       const sourceType = req.body?.sourceType === 'family' ? 'family' : 'component';
-      const result = await previewCatalogSource(el, String(req.body?.modelId || ''), sourceType, req.body?.values);
+      await ensureCatalog(getPrisma());
+      const catalog = await catalogForElement(getPrisma(), el, requestedCatalogSource(req.body?.catalogueSource));
+      const result = await previewCatalogSource(el, String(req.body?.modelId || ''), sourceType, req.body?.values, catalog);
       res.json(result);
     } catch (err: any) { sendError(res, err, err.status || 500); }
   });
@@ -36,13 +46,15 @@ export function registerEquipmentCatalogRoutes(app: Express): void {
       const el = await position(req); const actor = (req as any).authUser;
       if (!(await actorMay(actor, roleGrantsOf, 'equipment.manage'))) throw Object.assign(new Error('Нужно право «Правка характеристик оборудования»'), { status: 403 });
       const p = getPrisma(); const mode = req.body?.mode;
+      await ensureCatalog(p);
       if (!['xml', 'catalog', 'hybrid'].includes(mode)) return res.status(400).json({ error: 'Выберите источник данных' });
       const expectedVersion = Number(req.body?.expectedVersion);
       if (!Number.isInteger(expectedVersion) || expectedVersion !== Number(el.version || 1)) return res.status(409).json({ error: 'Карточка оборудования изменилась. Обновите данные перед применением.' });
       const key = bindingKey(el.id); const before = await p.appSetting.findFirst({ where: { key, userId: null } });
       const old = before ? JSON.parse(before.value) : null;
       if ((req.body?.expectedRevision || '') !== (old?.revision || '')) return res.status(409).json({ error: 'Привязка изменена коллегой. Обновите карточку' });
-      const catalog = await equipmentCatalog();
+      const catalogueSource = requestedCatalogSource(req.body?.catalogueSource);
+      const catalog = await catalogForElement(p, el, catalogueSource);
       const sourceType = req.body?.sourceType === 'family' ? 'family' : 'component';
       const model = mode === 'xml' ? undefined : sourceType === 'family'
         ? catalog.families.find(c => c.id === req.body?.modelId)
@@ -78,7 +90,7 @@ export function registerEquipmentCatalogRoutes(app: Express): void {
       const serializedOverrides = Object.keys(nextOverrides).length ? JSON.stringify(nextOverrides) : null;
       const binding = {
         mode, modelId: model?.id, code: model?.code, manufacturer: sourceType === 'family' ? catalog.manufacturers.find(m => m.id === (model as any).manufacturerId)?.name : (model as any)?.manufacturer,
-        sourceType: model ? sourceType : undefined, values: sourceType === 'family' ? values : undefined,
+        sourceType: model ? sourceType : undefined, catalogueSource: model ? catalogueSource : undefined, values: sourceType === 'family' ? values : undefined,
         acceptedCatalogParams,
         revision: randomUUID(), catalogRevision: snapshot ? catalogRevision(snapshot) : undefined,
         sourceRevision: sameSource && !req.body?.refresh ? old?.sourceRevision : sourceRevision,
@@ -90,7 +102,7 @@ export function registerEquipmentCatalogRoutes(app: Express): void {
       await p.$transaction(async (db: any) => {
         // Повторная проверка внутри транзакции защищает ручные значения от публикации после предпросмотра.
         if (mode !== 'xml') {
-          const currentCatalog = await readCatalog(db);
+          const currentCatalog = await catalogForElement(db, el, catalogueSource);
           const currentModel = sourceType === 'family'
             ? currentCatalog.families.find(c => c.id === model!.id)
             : currentCatalog.components.find(c => c.id === model!.id);

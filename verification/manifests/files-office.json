@@ -680,6 +680,15 @@
       "timeoutMs": 900000
     },
     {
+      "id": "files-windows-files-link-locks",
+      "path": "scripts/test-windows-files-link-locks.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
       "id": "files-windows-explorer-ui",
       "path": "scripts/test-windows-explorer-ui.ts",
       "layer": "component",

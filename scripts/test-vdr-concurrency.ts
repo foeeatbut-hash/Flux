@@ -57,15 +57,26 @@ async function main() {
     const getItem = async (registerId: string, id: string) => (await send('GET', `/api/vdr/items?registerId=${registerId}`)).body.items.find((i: any) => i.id === id);
     const history = async (id: string) => (await send('GET', `/api/vdr/items/${id}/revisions`)).body.revisions as any[];
 
+    // Выпуск идёт окном «Выпустить…» (scripts/test-docflow-issue.ts); здесь «следующая ревизия» открывается
+    // только у выпущенного документа, поэтому выпуск ставится прямо в базу — как после окна выпуска
+    const seedIssued = async (id: string) => {
+      const row = await prisma.docRegisterItem.findUnique({ where: { id } });
+      await prisma.docRegisterItemRevision.create({ data: { itemId: id, revision: row.revision, reason: 'IFR', issuedKey: `seed-${id}-${row.revision}` } });
+    };
     const register = await newRegister();
 
     // ── Обычный путь ──
     const solo = await newItem(register.id, 'D-solo');
+    const unissued = await send('POST', `/api/vdr/items/${solo.id}/issue-revision`, { kind: 'next', expectedRevision: 'A' });
+    check('невыпущенная ревизия следующей не открывается: 409 и указание на окно выпуска', unissued.status === 409 && /Выпустить/.test(unissued.body.error), unissued.body);
+    await seedIssued(solo.id);
     const first = await send('POST', `/api/vdr/items/${solo.id}/issue-revision`, { kind: 'next', expectedRevision: 'A' });
     check('обычный выпуск с ожидаемой ревизией: A → B', first.status === 200 && first.body.item.revision === 'B', first.body);
     check('история после обычного выпуска — одна запись', (await history(solo.id)).length === 1);
+    await seedIssued(solo.id);
     const second = await send('POST', `/api/vdr/items/${solo.id}/issue-revision`, { kind: 'next', expectedRevision: 'B' });
     check('следующий выпуск: B → C', second.status === 200 && second.body.item.revision === 'C', second.body);
+    await seedIssued(solo.id);
     const noExpect = await send('POST', `/api/vdr/items/${solo.id}/issue-revision`, { kind: 'next' });
     check('клиент без ожидаемой версии, без гонки: работает как раньше (C → D)', noExpect.status === 200 && noExpect.body.item.revision === 'D', noExpect.body);
 
@@ -79,6 +90,7 @@ async function main() {
     // ── Два параллельных выпуска одной строки ──
     for (let round = 1; round <= 5; round++) {
       const it = await newItem(register.id, `D-race-${round}`);
+      await seedIssued(it.id);
       const results = await Promise.all([
         send('POST', `/api/vdr/items/${it.id}/issue-revision`, { kind: 'next', expectedRevision: 'A' }),
         send('POST', `/api/vdr/items/${it.id}/issue-revision`, { kind: 'next', expectedRevision: 'A' }),
@@ -86,20 +98,20 @@ async function main() {
       const codes = results.map((r) => r.status).sort();
       check(`гонка ${round}: один выпуск 200 и один отказ 409`, codes[0] === 200 && codes[1] === 409, results.map((r) => [r.status, r.body.error]));
       const rows = await history(it.id);
-      check(`гонка ${round}: ревизия B, в истории ровно одна запись B`, (await getItem(register.id, it.id)).revision === 'B' && rows.length === 1 && rows[0].revision === 'B', rows);
+      check(`гонка ${round}: ревизия B, в истории ровно одна запись выпуска A`, (await getItem(register.id, it.id)).revision === 'B' && rows.length === 1 && rows[0].revision === 'A', rows);
     }
 
     // Клиент без ожидаемой версии в гонке не получает двух одинаковых номеров
     // и не теряет записи истории: каждая успешная запись — своя ревизия
     {
       const it = await newItem(register.id, 'D-race-old');
+      await seedIssued(it.id);
       const results = await Promise.all(Array.from({ length: 4 }, () => send('POST', `/api/vdr/items/${it.id}/issue-revision`, { kind: 'next' })));
       const ok = results.filter((r) => r.status === 200);
       const rows = await history(it.id);
       check('старые клиенты в гонке: каждый ответ 200 или 409, без 500', results.every((r) => r.status === 200 || r.status === 409), results.map((r) => r.status));
-      check('старые клиенты в гонке: запись истории на каждый успех, номера разные',
-        rows.length === ok.length && new Set(rows.map((r) => r.revision)).size === rows.length, { rows: rows.map((r) => r.revision), ok: ok.length });
-      check('старые клиенты в гонке: ревизия строки — последняя из истории', (await getItem(register.id, it.id)).revision === rows[rows.length - 1].revision);
+      check('старые клиенты в гонке: следующую ревизию открывает ровно один, B не выпущена — остальные отказаны', ok.length === 1 && rows.length === 1, { rows: rows.map((r) => r.revision), ok: ok.length });
+      check('старые клиенты в гонке: ревизия строки B', (await getItem(register.id, it.id)).revision === 'B');
     }
 
     // ── PUT строки ──
@@ -115,6 +127,7 @@ async function main() {
 
     // Карточка старого клиента шлёт и ревизию, которую видела: затереть ею
     // выпущенную нельзя
+    await seedIssued(row.id);
     await send('POST', `/api/vdr/items/${row.id}/issue-revision`, { kind: 'next' });
     const putRev = await send('PUT', `/api/vdr/items/${row.id}`, { titleRu: 'С чужой ревизией', revision: 'A' });
     check('PUT без версии с ревизией, отличной от текущей — 409, не откат выпуска', putRev.status === 409 && (await getItem(register.id, row.id)).revision === 'B', putRev.body);

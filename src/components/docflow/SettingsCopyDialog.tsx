@@ -18,6 +18,7 @@ export default function SettingsCopyDialog({ mode, projectId, current, onClose, 
   const [templates, setTemplates] = React.useState<TemplateView[]>([]);
   const [sourceId, setSourceId] = React.useState('');
   const [sections, setSections] = React.useState<string[]>(DOCFLOW_SECTIONS.map((s) => s.key));
+  const [includeCatalog, setIncludeCatalog] = React.useState(false);
   const [plan, setPlan] = React.useState<Awaited<ReturnType<typeof copyPlan>>['data'] | null>(null);
   const [error, setError] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -26,18 +27,18 @@ export default function SettingsCopyDialog({ mode, projectId, current, onClose, 
     if (mode === 'project') void dataService.getProjects().then((list) => setProjects(list.filter((p) => p.id !== projectId))).catch(() => undefined);
     else void listTemplates().then((a) => a.ok && setTemplates(a.data.templates || []));
   }, [mode, projectId]);
-  React.useEffect(() => { setPlan(null); setError(''); }, [sourceId, sections.join(',')]);
+  React.useEffect(() => { setPlan(null); setError(''); }, [sourceId, sections.join(','), includeCatalog]);
 
   const from: CopySource = mode === 'project' ? { projectId: sourceId } : { templateId: sourceId };
   const preview = async () => {
     setBusy(true); setError('');
-    const answer = await copyPlan(projectId, from, sections);
+    const answer = await copyPlan(projectId, from, sections, includeCatalog);
     setBusy(false);
     if (answer.ok) setPlan(answer.data); else setError(answer.data.error || 'Не удалось собрать предпросмотр');
   };
   const apply = async () => {
     setBusy(true); setError('');
-    const answer = await copyApply(projectId, from, sections, current.updatedAt);
+    const answer = await copyApply(projectId, from, sections, current.updatedAt, includeCatalog, plan?.catalogToken);
     setBusy(false);
     if (answer.ok) onApplied(answer.data);
     else setError(answer.status === 409 ? 'Настройки проекта уже изменили — закройте окно и повторите' : answer.data.error || 'Не удалось применить');
@@ -51,7 +52,7 @@ export default function SettingsCopyDialog({ mode, projectId, current, onClose, 
     <Dialog title={mode === 'project' ? 'Скопировать настройки из проекта' : 'Создать настройки из шаблона'} onClose={onClose} busy={busy} width="max-w-xl"
       footer={<>
         <Btn onClick={onClose} disabled={busy}>Отмена</Btn>
-        <Btn onClick={() => void preview()} disabled={busy || !sourceId || !sections.length}>Показать различия</Btn>
+        <Btn onClick={() => void preview()} disabled={busy || !sourceId || (!sections.length && !includeCatalog)}>Показать различия</Btn>
         <Btn tone="primary" onClick={() => void apply()} disabled={busy || !plan || !changed}>Применить</Btn>
       </>}>
       <div className="flex flex-col gap-3">
@@ -70,6 +71,7 @@ export default function SettingsCopyDialog({ mode, projectId, current, onClose, 
             ))}
           </div>
         </fieldset>
+        {mode === 'project' && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeCatalog} onChange={e => setIncludeCatalog(e.target.checked)} />С каталогом проекта</label>}
         {plan && (
           <div aria-label="Предпросмотр различий" className="flex flex-col gap-2">
             <div className="fx-label">Что изменится в проекте{changed ? '' : ' — ничего: отмеченные разделы уже совпадают'}</div>

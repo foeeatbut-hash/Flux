@@ -23,6 +23,9 @@ export const VDR_PERM_RULES: VdrPermRule[] = [
     perm: 'docflow.settings', title: 'Настройки документооборота', also: [view] },
   { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/docflow\/links(\/|$)/,
     perm: 'docflow.files', title: 'Назначение файлов и возвратов', also: [view] },
+  // Выпуск пачки документов с проверкой файлов — то же право, что у старых адресов выпуска
+  { method: /^POST$/, path: /^\/api\/docflow\/issue(\/|$)/,
+    perm: 'docflow.issue', title: 'Выпуск документов', also: [view] },
   { method: /^(GET|POST)$/, path: /^\/api\/docflow\/create-files(\/|$)/,
     perm: 'docflow.files', title: 'Создание и назначение файлов', also: [view] },
   { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/docflow\//,

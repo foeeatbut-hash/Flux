@@ -1,5 +1,5 @@
 import type { DocflowConfig } from '../../../shared/docflow/config';
-import { linkLookupKey, purposeAllows, type DocLinkDto, type FolderPurpose, type LinkedItemBrief } from '../../../shared/docflow/links';
+import { linkLookupKey, purposeAllows, type IssueDto, type DocLinkDto, type FolderPurpose, type LinkedItemBrief } from '../../../shared/docflow/links';
 import { isIgnored, parseFileName, revisionValid, type ParsedName } from '../../../shared/docflow/nameMask';
 
 /**
@@ -24,9 +24,11 @@ export interface DocEntryInfo {
   item: LinkedItemBrief | null;
   /** У файла замечаний — файл ревизии, к которому он относится. */
   remarksTo: DocLinkDto | null;
+  /** Выпуск этого файла ревизии (у файла возврата — выпуск файла, к которому он относится). */
+  issue: IssueDto | null;
 }
 
-export interface DocContext { config: DocflowConfig; byPath: Map<string, DocLinkDto>; items: Record<string, LinkedItemBrief>; links: DocLinkDto[] }
+export interface DocContext { config: DocflowConfig; byPath: Map<string, DocLinkDto>; items: Record<string, LinkedItemBrief>; links: DocLinkDto[]; issues?: IssueDto[] }
 
 export function docInfoOf(
   entry: { name: string; kind: string },
@@ -36,19 +38,20 @@ export function docInfoOf(
   if (entry.kind !== 'file' || !where.relativePath) return null;
   const isRemarks = where.purpose === 'returns';
   if (!isRemarks && !purposeAllows('file', where.purpose)) return null;
-  const base: DocEntryInfo = { ...where, role: isRemarks ? 'remarks' : 'file', parsed: null, offMask: [], ignored: false, link: null, item: null, remarksTo: null };
+  const base: DocEntryInfo = { ...where, role: isRemarks ? 'remarks' : 'file', parsed: null, offMask: [], ignored: false, link: null, item: null, remarksTo: null, issue: null };
   if (!ctx) return base;
   const link = ctx.byPath.get(linkLookupKey(where.folderKey, where.relativePath)) || null;
   const item = link ? ctx.items[link.itemId] || null : null;
   const remarksTo = link?.toLinkId ? ctx.links.find((l) => l.id === link.toLinkId) || null : null;
-  if (isRemarks) return { ...base, link, item, remarksTo };
+  const issueOf = (l: DocLinkDto | null) => (l ? ctx.issues?.find((i) => i.linkId === l.id) || null : null);
+  if (isRemarks) return { ...base, link, item, remarksTo, issue: issueOf(remarksTo) };
   if (isIgnored(ctx.config, entry.name)) return { ...base, ignored: true };
   const parsed = parseFileName(ctx.config, entry.name);
   const rev = parsed.fields['ред'];
   const offMask = parsed.ok
     ? [...parsed.problems, ...(rev !== undefined && !revisionValid(ctx.config, rev) ? [`ревизия «${rev}» не по схеме проекта`] : [])]
     : parsed.problems;
-  return { ...base, parsed, offMask, link, item };
+  return { ...base, parsed, offMask, link, item, issue: issueOf(link) };
 }
 
 export type DocFilter = 'all' | 'linked' | 'unlinked' | 'offMask';

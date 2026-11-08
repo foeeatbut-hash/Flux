@@ -8,7 +8,7 @@ import express from 'express';
 import { bootstrapLocalDatabase } from '../server/databaseBootstrap.js';
 import { setPrisma } from '../server/context.js';
 import { registerEquipmentCatalogRoutes } from '../server/routes/equipmentCatalog.js';
-import { bindingKey } from '../server/equipmentCatalog.js';
+import { bindingKey, enrichEquipment } from '../server/equipmentCatalog.js';
 import { ensureCatalog } from '../server/routes/catalog.js';
 
 const require = createRequire(import.meta.url);
@@ -56,10 +56,61 @@ async function main() {
 
     const app = express();
     app.use(express.json());
-    app.use((req, _res, next) => { (req as any).authUser = { id: 'fixture-admin', role: 'ADMIN', isActive: true }; next(); });
+    app.use((req, _res, next) => { (req as any).authUser = req.headers['x-no-equipment'] ? { id: 'fixture-user', role: 'USER', isActive: true } : { id: 'fixture-admin', role: 'ADMIN', isActive: true }; next(); });
     registerEquipmentCatalogRoutes(app);
     server = await new Promise<any>(resolve => { const listening = app.listen(0, '127.0.0.1', () => resolve(listening)); });
     const origin = `http://127.0.0.1:${server.address().port}`;
+    const previewUrl = `${origin}/api/equipment/component/catalog-revision-element/catalog-source/preview`;
+    const denied = await fetch(previewUrl, { method: 'POST', headers: { 'content-type': 'application/json', 'x-no-equipment': '1' }, body: JSON.stringify({ modelId: family.id, sourceType: 'family' }) });
+    assert.equal(denied.status, 403, 'предпросмотр требует equipment.manage');
+
+    await prisma.project.create({ data: { id: 'catalog-project-b', name: 'Project B' } });
+    await prisma.equipmentSystem.create({ data: { id: 'catalog-system-b', name: 'SYS-B', projectId: 'catalog-project-b' } });
+    await prisma.monoblock.create({ data: { id: 'catalog-mono-b', name: 'M-B', systemId: 'catalog-system-b' } });
+    for (const [id, projectId, value] of [['family-project-a', 'catalog-revision-project', 'А'], ['family-project-b', 'catalog-project-b', 'Б']]) {
+      const scopedFamily = { ...family, id, specs: [{ label: { ru: 'Номинальный диаметр' }, value: { ru: value }, unit: 'мм' }] };
+      await prisma.catalogFamily.create({ data: { id, projectId, basedOnFamilyId: family.id, classId: family.classId, manufacturerId: family.manufacturerId, code: family.code, dataJson: JSON.stringify(scopedFamily), status: 'full', updatedAt: publishedAt } });
+    }
+    const foreign = await fetch(previewUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ modelId: 'family-project-b', sourceType: 'family', catalogueSource: 'project' }) });
+    assert.equal(foreign.status, 400, 'администратор не выбирает семейство другого проекта');
+    const foreignPut = await fetch(`${origin}/api/equipment/component/catalog-revision-element/catalog-source`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'catalog', modelId: 'family-project-b', sourceType: 'family', catalogueSource: 'project', expectedVersion: 1 }) });
+    assert.equal(foreignPut.status, 400, 'чужой ID нельзя применить напрямую');
+    const matchedSpecs = JSON.stringify({ groups: [{ title: 'Маркировка', params: [{ key: 'Марка', value: 'RR-1' }] }] });
+    await prisma.componentElement.update({ where: { id: 'catalog-revision-element' }, data: { specs: matchedSpecs } });
+    await prisma.componentElement.create({ data: { id: 'catalog-element-b', name: 'RR-1', itemCode: 'RR-1', monoblockId: 'catalog-mono-b', equipType: 'Клапан', equipClass: 'Клапан', specs: matchedSpecs } });
+    const systems = await prisma.equipmentSystem.findMany({ where: { id: { in: ['catalog-revision-system', 'catalog-system-b'] } }, include: { monoblocks: { include: { components: true } } } });
+    await enrichEquipment(systems);
+    for (const system of systems) {
+      const component = system.monoblocks[0].components[0] as any;
+      assert.equal(component.catalogSource.binding?.modelId, system.projectId === 'catalog-project-b' ? 'family-project-b' : 'family-project-a', 'каждая система использует каталог своего проекта');
+    }
+    await prisma.appSetting.deleteMany({ where: { key: { in: [bindingKey('catalog-revision-element'), bindingKey('catalog-element-b')] } } });
+    await prisma.componentElement.update({ where: { id: 'catalog-revision-element' }, data: { specs } });
+    const scopedPreview = await fetch(previewUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ modelId: 'family-project-a', sourceType: 'family', catalogueSource: 'project', values: { drive: 'manual' } }) });
+    assert.equal(scopedPreview.status, 200);
+    const scopedRevision = (await scopedPreview.json() as any).sourceRevision;
+    const originalTransaction = prisma.$transaction.bind(prisma);
+    (prisma as any).$transaction = (work: any, options: any) => originalTransaction(async (tx: any) => {
+      await tx.catalogFamily.update({ where: { id: 'family-project-a' }, data: { updatedAt: new Date('2026-11-01T00:00:00.000Z') } });
+      return work(tx);
+    }, options);
+    const scopedRace = await fetch(`${origin}/api/equipment/component/catalog-revision-element/catalog-source`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'catalog', modelId: 'family-project-a', sourceType: 'family', catalogueSource: 'project', values: { drive: 'manual' }, expectedVersion: 1, expectedPublishedRevision: scopedRevision }) });
+    (prisma as any).$transaction = originalTransaction;
+    assert.equal(scopedRace.status, 409, 'изменение проектного каталога внутри транзакции отклоняет запись');
+    assert.equal(await prisma.appSetting.findFirst({ where: { key: bindingKey('catalog-revision-element'), userId: null } }), null);
+    const commonPreview = await fetch(previewUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ modelId: family.id, sourceType: 'family', catalogueSource: 'common', values: { drive: 'manual' } }) });
+    assert.equal(commonPreview.status, 200, 'общая модель доступна даже при проектной замене');
+    const commonRevision = (await commonPreview.json() as any).sourceRevision;
+    const commonApply = await fetch(`${origin}/api/equipment/component/catalog-revision-element/catalog-source`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'hybrid', modelId: family.id, sourceType: 'family', catalogueSource: 'common', values: { drive: 'manual' }, expectedVersion: 1, expectedPublishedRevision: commonRevision }) });
+    assert.equal(commonApply.status, 200);
+    const reloaded = await (await fetch(`${origin}/api/equipment/component/catalog-revision-element/catalog-source`)).json() as any;
+    assert.equal(reloaded.binding.modelId, family.id, 'перезагрузка сохраняет закреплённую общую модель');
+    assert.equal(reloaded.binding.catalogueSource, 'common');
+    assert.equal(reloaded.warnings.some((warning: string) => warning.includes('Модель удалена')), false);
+    await prisma.appSetting.deleteMany({ where: { key: bindingKey('catalog-revision-element') } });
+    await prisma.equipmentHistory.deleteMany({ where: { elementId: 'catalog-revision-element' } });
+    await prisma.componentElement.update({ where: { id: 'catalog-revision-element' }, data: { version: 1, overrides } });
+    await prisma.catalogFamily.deleteMany({ where: { id: { in: ['family-project-a', 'family-project-b'] } } });
     const put = (body: Record<string, unknown>) => fetch(`${origin}/api/equipment/component/catalog-revision-element/catalog-source`, {
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });

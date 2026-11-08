@@ -1,5 +1,5 @@
 import React from 'react';
-import type { DocLinkDto } from '../../../shared/docflow/links';
+import { LOCK_VIOLATION_TEXT, type DocLinkDto } from '../../../shared/docflow/links';
 import { getItemLinks, planLink } from '../../lib/docflowApi';
 import { renameFile, newGroup } from '../../lib/docflowFiles';
 import type { WindowsFileRef } from '../../lib/windowsFiles';
@@ -62,6 +62,21 @@ export default function DocDetails({ info, docs, fileRef, onOpen, onUnlink, onCh
           {info.role === 'remarks' && info.link && <><dt className={T.muted}>Код</dt><dd>{info.link.reviewCode || '—'}{info.link.receivedAt ? ` · получен ${new Date(info.link.receivedAt).toLocaleDateString('ru-RU')}` : ''}</dd></>}
         </dl>
       )}
+      {info.link && !info.link.unlinkedAt && (
+        <p data-doc-lock className={`mt-2 text-xs ${info.link.locked && info.link.lockViolation ? 'text-rose-700 dark:text-rose-400' : T.muted}`}>
+          {info.link.locked
+            ? `Файл заблокирован${info.link.lockedAt ? ` с ${new Date(info.link.lockedAt).toLocaleDateString('ru-RU')}` : ''}${info.link.lockedByName ? `, ${info.link.lockedByName}` : ''}: его нельзя править, переносить, переименовывать и удалять, пока замок не снят в строке реестра.`
+            : `Замок снят${info.link.unlockedAt ? ` ${new Date(info.link.unlockedAt).toLocaleDateString('ru-RU')}` : ''}${info.link.unlockedByName ? `, ${info.link.unlockedByName}` : ''}: файл можно править.`}
+          {info.link.locked && info.link.lockViolation ? ` Нарушена блокировка: ${LOCK_VIOLATION_TEXT[info.link.lockViolation]}.` : ''}
+        </p>
+      )}
+      {info.issue && (
+        <p data-doc-issue className={`mt-2 text-xs ${info.issue.changed && info.role === 'file' ? 'text-amber-700 dark:text-amber-400' : T.muted}`}>
+          Выдан: ред. {info.issue.revision}, {new Date(`${info.issue.date}T12:00:00Z`).toLocaleDateString('ru-RU')}, причина {info.issue.reason || '—'}.
+          {info.role === 'file' && info.issue.changed ? ` Изменён после выпуска ред. ${info.issue.revision}.` : ''}
+        </p>
+      )}
+      {info.role === 'remarks' && info.remarksTo && <p data-doc-return-of className={`mt-1 text-xs ${T.muted}`}>Возврат к выданному файлу «{info.remarksTo.fileName}» (ред. {info.remarksTo.revision}).</p>}
       {info.link?.lostAt && <p role="status" className="mt-2 text-xs text-rose-600 dark:text-rose-400">Файл ред. {info.link.revision} удалён или перемещён.</p>}
       {mismatch?.length ? (
         <div role="alert" className="mt-2 space-y-1 text-xs text-rose-700 dark:text-rose-400">

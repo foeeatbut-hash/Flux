@@ -337,19 +337,20 @@ export default function WindowsExplorer() {
       setContext({ x: event.clientX, y: event.clientY });
     } else if ('error' in answer && generation === shellMenuOpenGeneration.current) toast(answer.error.message, 'error');
   };
+  const lockedWhy = docflow.lockReason(menuEntries);
   const contextItems: ContextMenuItem[] = shellMenu ? nativeMenu(shellMenu.items, shellMenu) : targetEntry ? [
-    { label: 'Открыть', disabled: menuEntries.length !== 1, onClick: () => openEntry(targetEntry) },
+    { label: 'Открыть', disabled: menuEntries.length !== 1 || (!!lockedWhy && targetEntry.kind === 'file'), ...(lockedWhy && targetEntry.kind === 'file' ? { title: `${lockedWhy} Открыть на правку нельзя.` } : {}), onClick: () => openEntry(targetEntry) },
     { label: 'Открыть с помощью…', disabled: menuEntries.length !== 1 || !!targetEntry.draftId || targetEntry.kind !== 'file', onClick: () => { void windowsFilesRequest<WindowsOpenWithHandler[]>({ action: 'openWithList', ref: entryRef(targetEntry, rootId) }).then((answer) => { if (answer.ok) setHandlers(answer.data); else if ('error' in answer) toast(answer.error.message, 'error'); }); } },
-    { label: 'Копировать', separated: true, onClick: () => void ops.copy(menuEntries) }, { label: 'Вырезать', onClick: () => void ops.cut(menuEntries) },
-    { label: 'Переименовать', disabled: menuEntries.length !== 1, onClick: () => setRename({ entry: targetEntry, rootId, name: targetEntry.name }) },
+    { label: 'Копировать', separated: true, onClick: () => void ops.copy(menuEntries) }, { label: 'Вырезать', disabled: !!lockedWhy, ...(lockedWhy ? { title: lockedWhy } : {}), onClick: () => void ops.cut(menuEntries) },
+    { label: 'Переименовать', disabled: menuEntries.length !== 1 || !!lockedWhy, ...(lockedWhy ? { title: lockedWhy } : {}), onClick: () => setRename({ entry: targetEntry, rootId, name: targetEntry.name }) },
     { label: 'Копировать как путь', onClick: () => { void command({ action: 'copyPath', refs: menuEntries.map((e) => entryRef(e, rootId)) }); } },
     ...(targetEntry.kind === 'directory' ? [...(canManageBindings ? [{ label: 'Привязать к проекту', separated: true, disabled: !!targetEntry.draftId || !root?.available, onClick: () => setBindingDialog(entryRef(targetEntry, rootId)) }] : []), { label: 'Открыть в новой вкладке', onClick: () => tabs.open(childPlace(place, targetEntry)) }, { label: 'Закрепить в быстром доступе', disabled: !!targetEntry.draftId, onClick: () => { void usePlacesStore.getState().pin(entryRef(targetEntry, rootId), true).then((result) => { if (!result.ok) toast(result.message || 'Не удалось закрепить папку', 'error'); }); } }] : []),
     ...(targetEntry.storage === 'flux' ? [{ label: 'Опубликовать в Windows', onClick: () => operations.publish(targetEntry) }] : []),
     { label: 'Сжать в ZIP-файл', disabled: !ref || !!ref.draftId || menuEntries.some((e) => !!e.draftId), onClick: () => { if (ref) setArchive({ refs: menuEntries.map((e) => entryRef(e, rootId)), parent: { ...ref }, name: targetEntry.name.replace(/\.[^.]+$/u, '') + '.zip' }); } },
-    { label: 'Удалить', danger: true, separated: true, onClick: () => void ops.trash(menuEntries) },
+    { label: 'Удалить', danger: true, separated: true, disabled: !!lockedWhy, ...(lockedWhy ? { title: lockedWhy } : {}), onClick: () => void ops.trash(menuEntries) },
     { label: 'Свойства', disabled: menuEntries.length !== 1, onClick: () => showProperties(targetEntry) },
     ...docflow.menuItems(menuEntries, targetEntry),
-    { label: 'Показать дополнительные параметры', separated: true, disabled: menuEntries.some((e) => !!e.draftId), onClick: () => { const fake = { clientX: context!.x, clientY: context!.y } as React.MouseEvent; void showShellMenu(fake); } },
+    { label: 'Показать дополнительные параметры', separated: true, disabled: menuEntries.some((e) => !!e.draftId) || !!lockedWhy, ...(lockedWhy ? { title: lockedWhy } : {}), onClick: () => { const fake = { clientX: context!.x, clientY: context!.y } as React.MouseEvent; void showShellMenu(fake); } },
   ] : [
     { label: 'Просмотреть', items: Object.entries(VIEW_LABELS).map(([layout, label]) => ({ label, onClick: () => setView({ ...view, layout: layout as FolderView['layout'] }) })) },
     { label: 'Обновить', onClick: refresh }, panel.menuItem(),

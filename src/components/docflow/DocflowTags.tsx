@@ -7,6 +7,10 @@ import { useKitDocuments } from './useKitDocuments';
 import KitRowsDialog from './KitRowsDialog';
 import TagKitDocuments from './TagKitDocuments';
 import CreateFilesDialog from './CreateFilesDialog';
+import IssueDialog from './IssueDialog';
+import { useProjectDocs } from './useProjectDocs';
+import { useStore } from '../../store/store';
+import { useBindingLedger } from '../explorer/useProjectFolderBindings';
 
 export default function DocflowTags({ projectId }: { projectId: string }) {
   const { user } = useAppContext();
@@ -17,6 +21,9 @@ export default function DocflowTags({ projectId }: { projectId: string }) {
   const [search, setSearch] = React.useState('');
   const [planTags, setPlanTags] = React.useState<string[] | null>(null);
   const [fileItems, setFileItems] = React.useState<string[] | null>(null);
+  const [issueItems, setIssueItems] = React.useState<string[] | null>(null);
+  const { docs: projectDocs, reload: reloadDocs } = useProjectDocs([projectId], can(user, 'docflow.view'));
+  const { bindings: folderBindings } = useBindingLedger(useStore(s => s.user)?.id);
   const [notice, setNotice] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   React.useEffect(() => { setSelected(''); setNotice(''); setPlanTags(null); setFileItems(null); }, [projectId]);
@@ -47,12 +54,14 @@ export default function DocflowTags({ projectId }: { projectId: string }) {
         <div className="min-w-0 flex-1 overflow-auto p-4">{current ? <>
           <div className="flex items-center gap-2 mb-3"><h3 className="font-medium text-sm font-mono">{current.identifier}</h3>
             {can(user, 'docflow.files') && <Btn disabled={!currentItemIds.length} onClick={() => setFileItems(currentItemIds)}>Создать файлы по тегу…</Btn>}
+            {can(user, 'docflow.issue') && <Btn data-issue-by-tag disabled={!currentItemIds.length || !projectDocs[projectId]} onClick={() => setIssueItems(currentItemIds)}>Выпустить документы тега…</Btn>}
             {canEdit && !current.removed && <Btn className="ml-auto" onClick={() => setPlanTags([current.id])}>Создать недостающие строки…</Btn>}</div>
           <TagKitDocuments key={current.id} tag={current} canEdit={canEdit} onCreate={() => setPlanTags([current.id])} />
         </> : <p className="fx-note">Тегов пока нет или они не подходят поиску.</p>}</div>
       </div>
     </>}
     {planTags && view && <KitRowsDialog projectId={projectId} tagIds={planTags} registers={view.registers} stage={stage} onClose={() => setPlanTags(null)} onApplied={reload} />}
+    {issueItems && projectDocs[projectId] && <IssueDialog projectId={projectId} docs={projectDocs[projectId]} bindings={folderBindings} itemIds={issueItems} onClose={() => setIssueItems(null)} onDone={() => { reload(); void reloadDocs(projectId); }} />}
     {fileItems && <CreateFilesDialog projectId={projectId} itemIds={fileItems} onClose={() => setFileItems(null)} onDone={reload} />}
   </div>;
 }

@@ -1,8 +1,8 @@
 import type { Express, Request, Response } from 'express';
-import { getPrisma, broadcast } from '../context.js';
+import { getPrisma, broadcast, notifyUser } from '../context.js';
 import { isAdminActor } from '../projectAccess.js';
 import { canSeeProject } from './members.js';
-import { LinkError, createLink, itemContext, listLinks, planLink, trackLink, unlinkLink } from '../docflowLinks.js';
+import { LinkError, createLink, itemContext, listLinks, planLink, setLinkLock, trackLink, unlinkLink } from '../docflowLinks.js';
 
 // ── Документооборот: связь файлов папки проекта со строками ВДР ──
 // Права — общая таблица server/vdrPermissions.ts: чтение — docflow.view,
@@ -36,9 +36,15 @@ export function registerDocflowLinkRoutes(app: Express): void {
       const result = await createLink(getPrisma(), {
         itemId: text(b.itemId), role: b.role === 'remarks' ? 'remarks' : 'file', toLinkId: text(b.toLinkId) || undefined, folderKey: text(b.folderKey),
         relativePath: text(b.relativePath), fileName: text(b.fileName), sha256: text(b.sha256), size: Number(b.size) || 0, reviewCode: text(b.reviewCode),
-        receivedAt: text(b.receivedAt) || null, replace: b.replace === true,
+        receivedAt: text(b.receivedAt) || null, timeZone: text(b.timeZone), replace: b.replace === true,
       }, String(actorOf(req)?.id || ''));
       announce(result.link.projectId);
+      // Замечания по коду рассмотрения возвращают исполнителю документ в работу — как раньше при правке строки
+      const effect = result.effect;
+      if (effect?.assigneeId && effect.status === 'REMARKS' && effect.previousStatus !== 'REMARKS') {
+        const due = effect.dueDate ? ` · срок ${new Date(effect.dueDate).toLocaleDateString('ru-RU')}` : '';
+        await notifyUser(effect.assigneeId, 'ДОКУМЕНТЫ', `Замечания (код ${effect.reviewCode}): ${effect.title}`, `Заказчик вернул замечания${due}`, `/docflow?tab=registry&item=${encodeURIComponent(result.link.itemId)}`).catch(() => undefined);
+      }
       res.json(result);
     } catch (err) { fail(res, err); }
   });
@@ -51,6 +57,37 @@ export function registerDocflowLinkRoutes(app: Express): void {
       const links = await unlinkLink(prisma, { itemId, linkId: text(req.body?.linkId), reason: text(req.body?.reason) }, String(actorOf(req)?.id || ''));
       announce(projectId);
       res.json({ links });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Замки для файлового моста: действующие заблокированные связи проектов, которые видит пользователь (чтение — docflow.view)
+  app.get('/api/docflow/locks', async (req: Request, res: Response) => {
+    try {
+      const prisma = getPrisma();
+      const me = actorOf(req);
+      const rows: any[] = await prisma.docFileLink.findMany({ where: { locked: true, unlinkedAt: null }, select: { id: true, projectId: true, folderKey: true, relativePath: true }, orderBy: { id: 'asc' }, take: 50000 });
+      const visible = new Map<string, boolean>();
+      const links = [];
+      for (const r of rows) {
+        if (!visible.has(r.projectId)) visible.set(r.projectId, isAdminActor(me) || await canSeeProject(String(me?.id), r.projectId, false));
+        if (visible.get(r.projectId)) links.push(r);
+      }
+      res.json({ links });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Замочек связанного файла: право docflow.files, как у назначения; проект строки сверяется здесь же
+  app.post('/api/docflow/links/lock', async (req: Request, res: Response) => {
+    try {
+      const prisma = getPrisma();
+      const me = actorOf(req);
+      const itemId = text(req.body?.itemId);
+      const { projectId } = await itemContext(prisma, itemId);
+      if (!isAdminActor(me) && !(await canSeeProject(String(me?.id), projectId, false))) throw new LinkError('Нет доступа к данным проекта', 403);
+      if (typeof req.body?.locked !== 'boolean') throw new LinkError('Не указано, ставить или снимать замок', 400);
+      const link = await setLinkLock(prisma, { itemId, linkId: text(req.body?.linkId), locked: req.body.locked }, String(me?.id || ''));
+      announce(projectId);
+      res.json({ link });
     } catch (err) { fail(res, err); }
   });
 

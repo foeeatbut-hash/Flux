@@ -48,7 +48,7 @@ jobs:
           for check in test-entity-ids test-entity-id-migration-sqlite test-entity-id-migration-routes test-dynamic-field-rename-sqlite test-tag-exchange test-equipment-source-import test-equipment-document-import-source test-equipment-xml-routes-sqlite test-remaining-identity-project-routes test-remaining-files-notes test-remaining-files-explorer-purge test-html-to-markdown test-mail-open-unread; do
             node --import tsx "scripts/$check.ts"
           done
-          node --import tsx scripts/run-checks.ts test-docflow-name.ts test-docflow-empty-files.ts test-docflow-create-disk.ts test-docflow-create-files.ts test-docflow-settings.ts test-docflow-kits.ts test-docflow-kit-rows.ts test-docflow-class-mapping.ts test-docflow-class-settings.ts test-docflow-equipment-classes.ts test-docflow-links.ts test-docflow-reconcile.ts test-docflow-entry-info.ts test-docflow-navigation.ts test-docflow-permissions.ts
+          node --import tsx scripts/run-checks.ts test-docflow-name.ts test-docflow-empty-files.ts test-docflow-create-disk.ts test-docflow-create-files.ts test-docflow-settings.ts test-docflow-kits.ts test-docflow-kit-rows.ts test-docflow-class-mapping.ts test-docflow-class-settings.ts test-docflow-equipment-classes.ts test-docflow-links.ts test-docflow-lock.ts test-docflow-tracking.ts test-docflow-live-permissions.ts test-docflow-issue.ts test-docflow-revisions.ts test-vdr-concurrency.ts test-docflow-reconcile.ts test-docflow-entry-info.ts test-docflow-navigation.ts test-docflow-permissions.ts test-catalog-project.ts test-catalog-global-boundary.ts test-docflow-catalog-copy.ts
       - name: Компонентные сценарии интерфейса
         env:
           FLUX_CHROME: /usr/bin/google-chrome
@@ -94,7 +94,7 @@ jobs:
             exit 1
           fi
 
-          for check in test-catalog-ui test-employee-import-ui test-windows-explorer-ui test-explorer-contents-ui test-explorer-nav-ui test-explorer-operation-ui test-docflow-explorer-ui test-docflow-mask-ui test-docflow-classes-ui test-docflow-kits-ui test-docflow-kit-tags-ui test-docflow-create-files-ui test-icons-shell-ui test-import-file-chooser-ui test-chat-ui test-chat-screen-ui test-owner-login-ui test-modules-restart-ui test-feedback-module-ui; do
+          for check in test-catalog-ui test-catalog-project-ui test-employee-import-ui test-windows-explorer-ui test-explorer-contents-ui test-explorer-nav-ui test-explorer-operation-ui test-docflow-explorer-ui test-docflow-mask-ui test-docflow-classes-ui test-docflow-kits-ui test-docflow-kit-tags-ui test-docflow-create-files-ui test-icons-shell-ui test-import-file-chooser-ui test-chat-ui test-chat-screen-ui test-owner-login-ui test-modules-restart-ui test-feedback-module-ui; do
             node --import tsx "scripts/$check.ts"
           done
           SHOT="${{ runner.temp }}/store/store.png" node --import tsx scripts/test-modules-store-ui.ts
@@ -180,6 +180,7 @@ jobs:
             /tmp/flux-restart-*.png
             /tmp/feedback-module-*.png
             ${{ runner.temp }}/store/*.png
+            /tmp/flux-catalog-project-ui/*
             /tmp/catalog-ui-report.json
             /tmp/catalog-ui-*.png
             /tmp/employee-import-*.png

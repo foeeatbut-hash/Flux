@@ -14,7 +14,7 @@ import TagCatalogClass from '../../src/components/registry/TagCatalogClass';
 import TagVdrDocs from '../../src/components/registry/TagVdrDocs';
 import FileCell from '../../src/components/vdr/RowFileCells';
 import { CREATE_STAND, createStand, createBridge, createFetch } from './docflow-create-stand';
-import { DOCFLOW, docflowBindings, docflowFetch, docflowFiles, posts as docflowPosts, classStand, kitStand, waitClassStand } from './docflow-stand';
+import { DOCFLOW, docflowBindings, docflowFetch, docflowFiles, posts as docflowPosts, classStand, kitStand, issueStand, waitClassStand } from './docflow-stand';
 import type { WindowsFileEntry, WindowsFileRef, WindowsFilesRequest, WindowsFilesResponse, WindowsRoot, WindowsVolume } from '../../filesystem/contracts';
 
 const root: WindowsRoot = { id: 'desktop-id', name: 'Рабочий стол', kind: 'desktop', available: true };
@@ -260,6 +260,7 @@ useDisplayStore.setState({ workspace: { enabled: true, displays: [
 useDesktopStore.getState().pinApp('/registry');
 (window as any).__bindings = (window as any).__bindings || docflowBindings;
 (window as any).__docflowPosts = docflowPosts;
+(window as any).__issueStand = issueStand;
 (window as any).__classStand = classStand;
 (window as any).__kitStand = kitStand;
 (window as any).__createStand = createStand;

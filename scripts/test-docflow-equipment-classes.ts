@@ -98,9 +98,12 @@ async function main() {
     check('истёкший план очищается', !(await db.docflowPlan.findUnique({ where: { id: exp.body.id } })));
     const appliedRecord = await db.docflowPlan.findUnique({ where: { id: stale.body.id } });
     check('срок отмены 30 дней', Math.abs(appliedRecord.expiresAt.getTime() - appliedRecord.updatedAt.getTime() - 30 * 86400000) < 2000);
-    const current = await db.docflowPlan.count({ where: { projectId: 'a', actorId: 'admin', kind: 'equipment-classes' } });
+    await db.docflowPlan.createMany({ data: Array.from({ length: 200 }, (_, i) => ({ id: `history-limit-${i}`, projectId: 'a', actorId: 'admin', kind: 'equipment-classes', state: i % 2 ? 'applied' : 'undone', payload: '{}', expiresAt: new Date(Date.now() + 60000) })) });
+    check('завершённые планы не занимают лимит предпросмотров', (await call('a', 'plan', { tagIds: ['local'] })).status === 200 && await db.docflowPlan.count({ where: { id: { startsWith: 'history-limit-' } } }) === 200);
+    await db.docflowPlan.deleteMany({ where: { id: { startsWith: 'history-limit-' } } });
+    const current = await db.docflowPlan.count({ where: { projectId: 'a', actorId: 'admin', kind: 'equipment-classes', state: 'preview' } });
     await db.docflowPlan.createMany({ data: Array.from({ length: 200 - current }, (_, i) => ({ id: `limit-${i}`, projectId: 'a', actorId: 'admin', kind: 'equipment-classes', payload: '{}', expiresAt: new Date(Date.now() + 60000) })) });
-    check('предел хранения не удаляет действующие планы', (await call('a', 'plan', { tagIds: ['local'] })).status === 429 && await db.docflowPlan.count({ where: { projectId: 'a', actorId: 'admin', kind: 'equipment-classes' } }) === 200);
+    check('предел хранения не удаляет действующие планы', (await call('a', 'plan', { tagIds: ['local'] })).status === 429 && await db.docflowPlan.count({ where: { projectId: 'a', actorId: 'admin', kind: 'equipment-classes', state: 'preview' } }) === 200);
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); await db.$disconnect(); fs.rmSync(dir, { recursive: true, force: true }); }
   console.log(`Классы оборудования: ${checks} проверок прошли`);
 }

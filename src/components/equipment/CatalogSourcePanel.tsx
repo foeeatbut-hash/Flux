@@ -9,6 +9,7 @@ import { useCatalogStore } from '../../store/catalogStore';
 
 type Mode = 'hybrid' | 'xml' | 'catalog';
 type Source = 'xml' | 'catalog' | 'manual';
+type CatalogueSource = 'project' | 'common';
 interface Model {
   id: string;
   code: string;
@@ -19,6 +20,7 @@ interface Model {
   effectiveSpecs?: Array<{ label?: { ru?: string } | string; value: string; unit?: string }>;
   catalog?: unknown;
   sourceType?: 'component' | 'family';
+  catalogueSource?: CatalogueSource;
   sourceRevision?: string;
   parsedValues?: Record<string, string | number>;
   status?: string;
@@ -31,7 +33,9 @@ interface Model {
 }
 interface Snapshot {
   mode: Mode;
-  binding?: { modelId: string; code: string; manufacturer?: string; revision?: string; catalogRevision?: string; sourceRevision?: string; sourceType?: 'component' | 'family'; values?: Record<string, string | number>; at?: string; snapshot?: Model };
+  binding?: { modelId: string; code: string; manufacturer?: string; revision?: string; catalogRevision?: string; sourceRevision?: string; sourceType?: 'component' | 'family'; catalogueSource?: CatalogueSource; values?: Record<string, string | number>; at?: string; snapshot?: Model };
+  projectId?: string;
+  hasProjectCatalog?: boolean;
   matches: Model[];
   updateAvailable?: Model;
   effective: Array<{ group?: string; key: string; value: string; unit?: string; source: Source; revision?: string; sourceRef?: { file: string; pages?: string; edition?: string } }>;
@@ -72,6 +76,7 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
   const catalogMeta = useCatalogStore((state) => state.meta);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [mode, setMode] = useState<Mode>('hybrid');
+  const [catalogueSource, setCatalogueSource] = useState<CatalogueSource>('common');
   const [selectedId, setSelectedId] = useState('');
   const [selectedType, setSelectedType] = useState<'component' | 'family'>('component');
   const [selectedModel, setSelectedModel] = useState<Model | null>(null);
@@ -99,7 +104,8 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
       const data = await readJson<Snapshot>(await fetch(`/api/equipment/component/${encodeURIComponent(componentId)}/catalog-source`, { signal }));
       setSnapshot(data);
       setMode(data.mode);
-      setSelectedId((current) => current || data.binding?.modelId || '');
+      setCatalogueSource(data.binding?.catalogueSource || (data.binding ? 'common' : data.hasProjectCatalog ? 'project' : 'common'));
+      setSelectedId(data.binding?.modelId || '');
       setSelectedType(data.binding?.sourceType || 'component');
       const currentModel = data.binding?.snapshot
         ? { ...data.binding.snapshot, sourceType: data.binding.sourceType || 'component', sourceRevision: data.binding.sourceRevision || data.binding.snapshot.sourceRevision, manufacturer: data.binding.manufacturer || '', parsedValues: data.binding.values } as Model
@@ -126,6 +132,10 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
     void load(controller.signal);
     return () => controller.abort();
   }, [componentId]);
+
+  useEffect(() => {
+    setCatalogLoaded(false); setAllModels([]); setSearchResults([]); setSearchLoading(false);
+  }, [snapshot?.projectId, catalogueSource]);
 
   useEffect(() => {
     let generation = 0;
@@ -165,7 +175,9 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
       setSearchLoading(true);
       try {
         setError('');
-        const body = await readJson<CatalogIndex>(await fetch('/api/catalog', { signal: controller.signal }));
+        const url = catalogueSource === 'project' && snapshot?.projectId
+          ? `/api/catalog/project?projectId=${encodeURIComponent(snapshot.projectId)}&source=project` : '/api/catalog';
+        const body = await readJson<CatalogIndex>(await fetch(url, { signal: controller.signal }));
         const manufacturers = new Map((body.manufacturers || []).map((maker) => [maker.id, {
           name: maker.name || maker.shortName || '',
           search: [maker.name, maker.shortName].filter(Boolean).join(' '),
@@ -201,13 +213,13 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
       }
     }, 220);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [query, catalogLoaded, allModels, equipClass]);
+  }, [query, catalogLoaded, allModels, equipClass, catalogueSource, snapshot?.projectId]);
 
   const candidates = useMemo(() => {
     const byId = new Map<string, Model>();
-    for (const item of [...(snapshot?.matches || []), ...searchResults]) byId.set(`${item.sourceType || 'component'}:${item.id}`, item);
+    for (const item of [...(snapshot?.matches || []).filter(item => (item.catalogueSource || 'common') === catalogueSource), ...searchResults]) byId.set(`${item.sourceType || 'component'}:${item.id}`, item);
     return [...byId.values()];
-  }, [snapshot?.matches, searchResults]);
+  }, [snapshot?.matches, searchResults, catalogueSource]);
   const chosen = selectedModel || candidates.find((item) => item.id === selectedId && (item.sourceType || 'component') === selectedType);
   const normalizeRevision = (revision?: string) => {
     if (!revision) return undefined;
@@ -234,7 +246,7 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
     try {
       const response = await fetch(`/api/equipment/component/${encodeURIComponent(componentId)}/catalog-source/preview`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modelId: model.id, sourceType: model.sourceType || 'component', values, mode }),
+        body: JSON.stringify({ modelId: model.id, sourceType: model.sourceType || 'component', catalogueSource, values, mode }),
       });
       setPreview(await readJson<CatalogPreview>(response));
     } catch (e: any) { setError(e?.message || 'Не удалось построить сравнение с карточкой'); }
@@ -253,6 +265,7 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode,
+          catalogueSource,
           ...(selectedId || snapshot?.binding?.modelId ? { modelId: selectedId || snapshot?.binding?.modelId, sourceType: chosen?.sourceType || snapshot?.binding?.sourceType || 'component' } : {}),
           ...(refresh ? { refresh: true } : {}),
           ...(mode !== 'xml' ? { expectedPublishedRevision: refresh ? snapshot?.updateAvailable?.sourceRevision || preview?.sourceRevision || chosen?.sourceRevision : preview?.sourceRevision || chosen?.sourceRevision } : {}),
@@ -286,6 +299,14 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
     <div className="fx-group-title">Источник параметров</div>
     {loading && <div className="fx-note flex items-center gap-2"><LoaderCircle className="w-3.5 h-3.5 animate-spin" />Загрузка источника…</div>}
     {!loading && <>
+      {snapshot?.hasProjectCatalog && <label className="flex items-center gap-2 py-1 text-xs">
+        <span className="fx-label shrink-0">Каталог</span>
+        <select aria-label="Каталог" className="fx-input min-w-0 flex-1 py-1" value={catalogueSource} disabled={busy} onChange={event => {
+          setCatalogueSource(event.target.value as CatalogueSource); setSelectedId(''); setSelectedModel(null); setSelectedValues({}); setPreview(null); setQuery(''); setShowMatches(false);
+        }}>
+          <option value="project">Каталог проекта</option><option value="common">Общий</option>
+        </select>
+      </label>}
       <div className="flex items-center gap-2 py-1">
         <label className="fx-label shrink-0" htmlFor={`catalog-mode-${componentId}`}>Источник</label>
         <select id={`catalog-mode-${componentId}`} className="fx-input min-w-0 flex-1 py-1" value={mode} disabled={busy} onChange={(event) => { const next = event.target.value as Mode; setMode(next); if (chosen) void previewSelection(chosen, selectedValues); }}>
@@ -303,10 +324,10 @@ export default function CatalogSourcePanel({ componentId, version, equipClass, o
           {searchLoading && <div className="fx-note flex items-center gap-2"><LoaderCircle className="w-3.5 h-3.5 animate-spin" />Поиск…</div>}
           {catalogLoaded && !searchResults.length && !error && <div className="fx-note">Модели не найдены.</div>}
         </div>}
-        {!query && (snapshot?.matches.length || 0) > 0 && <>
-          <button type="button" className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer" onClick={() => setShowMatches(v => !v)}>{showMatches ? 'Скрыть совпадения' : `Совпадения по данным позиции · ${snapshot?.matches.length}`}</button>
+        {!query && candidates.length > 0 && <>
+          <button type="button" className="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer" onClick={() => setShowMatches(v => !v)}>{showMatches ? 'Скрыть совпадения' : `Совпадения по данным позиции · ${candidates.length}`}</button>
           {showMatches && <div className="max-h-32 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800" role="listbox" aria-label="Подходящие модели каталога">
-            {snapshot?.matches.map((model) => <ModelChoice key={`${model.sourceType || 'component'}:${model.id}`} model={model} selected={selectedId === model.id && selectedType === (model.sourceType || 'component')} onSelect={() => void selectModel(model)} />)}
+            {candidates.map((model) => <ModelChoice key={`${model.sourceType || 'component'}:${model.id}`} model={model} selected={selectedId === model.id && selectedType === (model.sourceType || 'component')} onSelect={() => void selectModel(model)} />)}
           </div>}
         </>}
         <div className="fx-set-row min-h-7 py-1" aria-label="Выбранная модель">

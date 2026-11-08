@@ -20,6 +20,8 @@ export interface WindowsFilesIpcOptions {
   isTrusted: (event: IpcMainInvokeEvent) => boolean;
   mayRead: (event: IpcMainInvokeEvent) => boolean | Promise<boolean>;
   mayWrite: (event: IpcMainInvokeEvent) => boolean | Promise<boolean>;
+  /** GET к серверу Flux с сессией пользователя: по нему main сам узнаёт замки связанных файлов. */
+  serverJson?: (path: string) => Promise<any>;
 }
 const WRITE_ACTIONS = new Set(['write', 'publish', 'createDraft', 'createDraftFolder', 'publishDraft', 'publishDraftTree', 'restoreDraft', 'mkdir', 'rename', 'copy', 'move', 'trash', 'permanentDelete', 'replaceCopy', 'archive', 'purgeDraft', ...EXPLORER_WRITE_ACTIONS]);
 const ERROR_MESSAGES: Record<string, string> = {
@@ -85,7 +87,7 @@ export async function registerWindowsFilesIpc(options: WindowsFilesIpcOptions): 
   });
   shellCommands = new ShellCommands(service, nativeHost, {}, detailHost);
   const viewState = await ViewStateStore.load(app.getPath('userData'));
-  const explorer = new ExplorerBridge({ service, shell: shellCommands, viewState,
+  const explorer = new ExplorerBridge({ service, shell: shellCommands, viewState, serverJson: options.serverJson,
     // Страница поиска уходит только окну, которое его запустило и ещё живо.
     emitSearch: (owner, event) => { const target = webContents.fromId(owner); if (target && !target.isDestroyed() && activeSenders.has(owner)) target.send(WINDOWS_FILES_SEARCH, event); } });
   const provenanceForFilename = async (filename: string) => {

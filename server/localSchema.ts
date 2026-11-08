@@ -109,7 +109,12 @@ export function ensureSchemaColumns(dbPath: string, logInit: (message: string) =
         "place" TEXT NOT NULL DEFAULT '',
         "description" TEXT NOT NULL DEFAULT '',
         "authorId" TEXT,
-        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "linkId" TEXT,
+        "sha256" TEXT NOT NULL DEFAULT '',
+        "issuedKey" TEXT UNIQUE,
+        "planId" TEXT,
+        "undoneAt" DATETIME
       )`);
       db.exec('CREATE INDEX IF NOT EXISTS "DocRegisterItemRevision_itemId_idx" ON "DocRegisterItemRevision"("itemId")');
       // Связь строки ВДР с тегом по id: переименование тега её не рвёт

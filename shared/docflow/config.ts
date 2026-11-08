@@ -1,5 +1,6 @@
 import { normalizeKits, type DocflowKit } from './kits';
 import { normalizeClassMappings, type EquipmentClassMapping } from './classMapping';
+import { normalizeRevisionRules, DEFAULT_REVISION_RULES, type DocflowRevisionRules } from './revisions';
 
 /**
  * Настройки документооборота проекта (docs/docflow-program.md, раздел 5).
@@ -36,6 +37,8 @@ export interface DocflowConfig {
   statuses: DocflowStatus[];
   reasons: DocflowReason[];
   specialRevisions: { void: string; superseded: string };
+  /** Схема ревизий: порядок букв и первая цифра; по ней сервер проверяет, что выпускается следующая ревизия. */
+  revisionRules: DocflowRevisionRules;
   reviewCodes: DocflowReviewCode[];
   vdrTypes: DocflowDocType[];
   masks: DocflowMasks;
@@ -68,6 +71,7 @@ export const DEFAULT_DOCFLOW_CONFIG: DocflowConfig = {
     { code: 'CEF', label: 'Certified Final / Окончательный', revKind: 'digit' },
   ],
   specialRevisions: { void: 'V', superseded: 'S' },
+  revisionRules: DEFAULT_REVISION_RULES,
   reviewCodes: [
     { code: '1', label: 'Принято', action: 'accept', deadlineDays: 0 },
     { code: '2', label: 'Принято с замечаниями', action: 'revise', deadlineDays: 10 },
@@ -123,6 +127,7 @@ export function normalizeDocflowConfig(raw: any): DocflowConfig {
     statuses: statuses.length ? statuses : d.statuses.map((s) => ({ ...s })),
     reasons: Array.isArray(r.reasons) ? list<DocflowReason>(r.reasons, (x) => (x ? { code: text(x.code, 20), label: text(x.label, 200), revKind: x.revKind === 'digit' ? 'digit' : 'letter' } : null), 50) : d.reasons.map((x) => ({ ...x })),
     specialRevisions: { void: text(r.specialRevisions?.void, 4) || d.specialRevisions.void, superseded: text(r.specialRevisions?.superseded, 4) || d.specialRevisions.superseded },
+    revisionRules: normalizeRevisionRules(r.revisionRules),
     reviewCodes: Array.isArray(r.reviewCodes) ? list<DocflowReviewCode>(r.reviewCodes, (x) => (x ? {
       code: text(x.code, 20), label: text(x.label, 200), action: x.action === 'accept' || x.action === 'info' ? x.action : 'revise',
       deadlineDays: Math.max(0, Math.min(3650, Number(x.deadlineDays) || 0)), ...(x.status ? { status: text(x.status, 40) } : {}),
@@ -156,7 +161,7 @@ export function normalizeDocflowConfig(raw: any): DocflowConfig {
 /** Разделы настроек: их отмечают галочками при переносе из проекта в проект. */
 export const DOCFLOW_SECTIONS: Array<{ key: string; label: string; fields: (keyof DocflowConfig)[] }> = [
   { key: 'statuses', label: 'Статусы', fields: ['statuses'] },
-  { key: 'revisions', label: 'Ревизии и причины выпуска', fields: ['reasons', 'specialRevisions'] },
+  { key: 'revisions', label: 'Ревизии и причины выпуска', fields: ['reasons', 'specialRevisions', 'revisionRules'] },
   { key: 'reviewCodes', label: 'Коды рассмотрения', fields: ['reviewCodes'] },
   { key: 'types', label: 'Типы документов', fields: ['vdrTypes'] },
   { key: 'masks', label: 'Маски', fields: ['masks'] },

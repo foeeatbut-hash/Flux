@@ -15,7 +15,13 @@
         "src/components/docflow/ReconcileTab.tsx",
         "src/components/docflow/AssignFileDialog.tsx",
         "src/components/vdr/RowFileCells.tsx",
-        "src/components/docflow/MaskBuilder.tsx"
+        "src/components/docflow/MaskBuilder.tsx",
+        "src/components/docflow/IssueDialog.tsx",
+        "src/lib/docflowIssueApi.ts",
+        "src/lib/localEditing.ts",
+        "src/components/docflow/DocflowTags.tsx",
+        "src/components/explorer/LinkLockSync.tsx",
+        "src/lib/docflowTracking.ts"
       ]
     }
   ],
@@ -273,6 +279,68 @@
       ],
       "prerequisites": [],
       "timeoutMs": 90000
+    },
+    {
+      "id": "docflow-catalog-copy",
+      "path": "scripts/test-docflow-catalog-copy.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "docflow-revisions",
+      "path": "scripts/test-docflow-revisions.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-issue",
+      "path": "scripts/test-docflow-issue.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
+      "id": "docflow-lock",
+      "path": "scripts/test-docflow-lock.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
+      "id": "docflow-tracking",
+      "path": "scripts/test-docflow-tracking.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 30000
+    },
+    {
+      "id": "docflow-live-permissions",
+      "path": "scripts/test-docflow-live-permissions.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 240000
     }
   ],
   "actions": [
@@ -609,6 +677,33 @@
           "layer": "component",
           "claims": [
             "Создание подтверждается человеком; повтор и отмена учитывают состояние сервера и изменения файла"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "docflow.copy-project-catalog",
+      "program": "docflow",
+      "label": "Перенос настроек с каталогом проекта",
+      "sources": [
+        "server/docflowCatalogCopy.ts"
+      ],
+      "triggers": [
+        "POST /api/docflow/settings/copy-plan",
+        "POST /api/docflow/settings/copy-apply",
+        "POST /api/docflow/settings/undo"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Перенос каталога требует прав и доступа к обоим проектам, предпросмотра и безопасной отмены одной транзакцией"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-catalog-copy",
+          "layer": "api-db",
+          "claims": [
+            "Права, изоляция, ремап ссылок, версии, повтор и атомарная отмена проверяются на SQLite"
           ]
         }
       ],

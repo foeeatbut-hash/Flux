@@ -234,14 +234,14 @@ export function buildFileName(config: DocflowConfig, row: RowForCheck, ext: stri
   const values = rowFields(config, row, revision);
   const parts = maskParts(config.masks.file);
   if (parts.some((p) => 'field' in p && !values[p.field])) return '';
-  const base = buildFromMask(config.masks.file, values).replace(/[\\/:*?"<>|]/g, '_').trim();
+  const base = buildFromMask(config.masks.file, values);
   return base ? `${base}${ext}` : '';
 }
 
 /** Путь папки внутри назначенной папки по маске структуры: `{тип}/{шифр}/{ред}` → «E02/3700-…/B». */
 export function folderPath(mask: string, values: Record<string, string>): string {
   if (!String(mask || '').trim()) return '';
-  return buildFromMask(mask, values).split(/[\\/]+/).map((s) => s.trim().replace(/[:*?"<>|]/g, '_')).filter(Boolean).join('/');
+  return buildFromMask(mask, values).replace(/\\/g, '/');
 }
 
 /** Служебный файл по правилам «Не документ»: `*.bak`, `~$*`. */
