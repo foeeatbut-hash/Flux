@@ -56,6 +56,20 @@ const posts = (page: Page) => page.evaluate(() => (window as any).__docflowPosts
     ok('Подсказка называет недостающее поле', /нет поля «Ревизия»/.test(await noRev.locator('[data-off-mask]').getAttribute('title') || ''));
     ok('У подходящего имени значка нет', await linked.locator('[data-off-mask]').count() === 0 && await loose.locator('[data-off-mask]').count() === 0);
 
+    // ── Замочек (3.7): связанный файл заблокирован — значок, неактивные пункты с причиной ──
+    ok('У заблокированного связанного файла есть значок замка с подсказкой, у свободного — нет', await linked.locator('[data-lock-badge="locked"]').count() === 1 && /Заблокирован/.test(await linked.locator('[data-lock-badge]').getAttribute('title') || '') && await loose.locator('[data-lock-badge]').count() === 0);
+    await linked.click({ button: 'right' });
+    const lockMenu = page.locator('body > [data-context-menu]').first();
+    for (const name of ['Вырезать', 'Переименовать', 'Удалить', 'Открыть']) {
+      const item = lockMenu.getByRole('button', { name, exact: true });
+      ok(`Заблокированный файл: «${name}» неактивно, причина названа`, await item.isDisabled() && /заблокирован: он связан со строкой документооборота/.test(await item.getAttribute('title') || ''), name);
+    }
+    ok('Копировать как новый файл остаётся доступным', await lockMenu.getByRole('button', { name: 'Копировать', exact: true }).isEnabled());
+    await page.keyboard.press('Escape');
+    await loose.click({ button: 'right' });
+    ok('У свободного файла правка доступна', await page.locator('body > [data-context-menu]').first().getByRole('button', { name: 'Удалить', exact: true }).isEnabled());
+    await page.keyboard.press('Escape');
+
     // ── Фильтры ──
     const filter = page.getByLabel('Фильтр документооборота');
     await filter.selectOption({ label: 'Нет в реестре' });
@@ -147,6 +161,43 @@ const posts = (page: Page) => page.evaluate(() => (window as any).__docflowPosts
     await shoot(page, 'docflow-assign', '[role="dialog"]');
     await assign.getByRole('button', { name: 'Отмена' }).click();
     void lostRow;
+
+    // ── ДО: замочек в строке Реестра ──
+    const lockBtn = regRow.locator('[data-file-lock]');
+    ok('Реестр: замок возврата закрыт, в подсказке кто и когда, нарушения нет', await lockBtn.count() === 1 && await lockBtn.getAttribute('data-file-lock') === 'locked' && /Заблокирован .*Иванов И\. И\./.test(await lockBtn.getAttribute('title') || '') && await regRow.locator('[data-lock-violation-text]').count() === 0);
+    await lockBtn.click();
+    await page.waitForFunction(() => (window as any).__docflowPosts.some((p: any) => p.url === '/api/docflow/links/lock' && p.body.locked === false), null, { timeout: 5000 });
+    ok('Нажатие на замок снимает его: на сервер уходят строка, связь и locked=false', (await posts(page)).some((p) => p.url === '/api/docflow/links/lock' && p.body.itemId === 'i1' && p.body.linkId === 'l3' && p.body.locked === false));
+    await page.waitForFunction(() => document.querySelector('tr [data-file-lock="open"]'), null, { timeout: 5000 });
+    const openTitle = await regRow.locator('[data-file-lock]').getAttribute('title') || '';
+    ok('После снятия замок открыт, подсказка называет снявшего', /Замок снят.*Администратор/.test(openTitle), openTitle);
+    await shoot(page, 'docflow-registry-lock', '.fx-page');
+
+    // ── ДО: «Выпустить…» ──
+    const issueRow = page.getByRole('row', { name: /3700-B01-E02-005/ });
+    ok('Строка «Согласован» получает кнопку выпуска, «В работе» — нет', await issueRow.locator('[data-issue-row]').count() === 1 && await page.getByRole('row', { name: /3700-B01-E02-002/ }).locator('[data-issue-row]').count() === 0);
+    await page.getByRole('row', { name: /3700-B01-E02-002/ }).getByRole('checkbox').check();
+    await page.locator('[data-issue-selected]').click();
+    const bad = page.getByRole('dialog', { name: 'Выпустить документы' });
+    await bad.waitFor();
+    await bad.getByText(/не разрешает выпуск/).waitFor();
+    ok('Строка «В работе»: проверки называют причину, «Выпустить» недоступна', await bad.locator('[data-issue-submit]').isDisabled());
+    await bad.getByRole('button', { name: 'Отмена' }).click();
+    await page.getByRole('row', { name: /3700-B01-E02-002/ }).getByRole('checkbox').uncheck();
+    await issueRow.hover();
+    await issueRow.locator('[data-issue-row]').click();
+    const issue = page.getByRole('dialog', { name: 'Выпустить документы' });
+    await issue.getByText('Все проверки пройдены').waitFor();
+    ok('Окно выпуска показывает отпечаток файла и честно говорит, что файл на сервер не уходит', /^a{16}…/.test(await issue.locator('[data-issue-hash]').innerText()) && /на сервер не передаётся/.test(await issue.innerText()));
+    ok('Предпросмотр ничего не записал', !(await posts(page)).some((p) => p.url === '/api/docflow/issue/apply'));
+    await shoot(page, 'docflow-issue', '[role="dialog"]');
+    await issue.locator('[data-issue-submit]').click();
+    await issue.locator('[data-issue-done]').waitFor();
+    const applied = (await posts(page)).find((p) => p.url === '/api/docflow/issue/apply');
+    ok('Подтверждение шлёт отпечаток, прочитанный заново, а не файл', !!applied && applied.body.hashes.i5 === 'a'.repeat(64) && JSON.stringify(applied.body).length < 500, applied?.body);
+    await issue.getByRole('button', { name: 'Закрыть', exact: true }).last().click();
+    await page.waitForFunction(() => document.querySelector('tr [data-issued]'), null, { timeout: 5000 });
+    ok('В Реестре у выпущенного файла пометка «выдан»', await issueRow.locator('[data-issued]').count() === 1);
 
     // ── ДО: «Сверка с папкой» ──
     await page.goto(`${URL}&screen=docflow&tab=reconcile`);

@@ -1,5 +1,5 @@
 import React from 'react';
-import type { DocLinkDto } from '../../../shared/docflow/links';
+import { LOCK_VIOLATION_TEXT, type DocLinkDto } from '../../../shared/docflow/links';
 import { getItemLinks, planLink } from '../../lib/docflowApi';
 import { renameFile, newGroup } from '../../lib/docflowFiles';
 import type { WindowsFileRef } from '../../lib/windowsFiles';
@@ -61,6 +61,14 @@ export default function DocDetails({ info, docs, fileRef, onOpen, onUnlink, onCh
           <dt className={T.muted}>Срок</dt><dd>{item.dueDate ? new Date(item.dueDate).toLocaleDateString('ru-RU') : '—'}</dd>
           {info.role === 'remarks' && info.link && <><dt className={T.muted}>Код</dt><dd>{info.link.reviewCode || '—'}{info.link.receivedAt ? ` · получен ${new Date(info.link.receivedAt).toLocaleDateString('ru-RU')}` : ''}</dd></>}
         </dl>
+      )}
+      {info.link && !info.link.unlinkedAt && (
+        <p data-doc-lock className={`mt-2 text-xs ${info.link.locked && info.link.lockViolation ? 'text-rose-700 dark:text-rose-400' : T.muted}`}>
+          {info.link.locked
+            ? `Файл заблокирован${info.link.lockedAt ? ` с ${new Date(info.link.lockedAt).toLocaleDateString('ru-RU')}` : ''}${info.link.lockedByName ? `, ${info.link.lockedByName}` : ''}: его нельзя править, переносить, переименовывать и удалять, пока замок не снят в строке реестра.`
+            : `Замок снят${info.link.unlockedAt ? ` ${new Date(info.link.unlockedAt).toLocaleDateString('ru-RU')}` : ''}${info.link.unlockedByName ? `, ${info.link.unlockedByName}` : ''}: файл можно править.`}
+          {info.link.locked && info.link.lockViolation ? ` Нарушена блокировка: ${LOCK_VIOLATION_TEXT[info.link.lockViolation]}.` : ''}
+        </p>
       )}
       {info.issue && (
         <p data-doc-issue className={`mt-2 text-xs ${info.issue.changed && info.role === 'file' ? 'text-amber-700 dark:text-amber-400' : T.muted}`}>

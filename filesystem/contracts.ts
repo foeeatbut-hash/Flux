@@ -189,6 +189,8 @@ export type WindowsExplorerRequest =
   | { action: 'importPaths'; ticket: string; parent: WindowsFileRef; resolutions?: Record<string, WindowsFileChoice>; group?: string }
   | { action: 'undoState' } | { action: 'undo' } | { action: 'redo' }
   | { action: 'publishPlan'; ref: WindowsFileRef }
+  | { action: 'setLinkLocks'; locked: WindowsFileRef[]; released: WindowsFileRef[] }
+  | { action: 'releaseLinkLocks'; refs: WindowsFileRef[] }
   | { action: 'viewStateGet'; keys: string[] }
   | { action: 'viewStateSet'; entries: Record<string, unknown> }
   | { action: 'viewStateDelete'; keys: string[] };

@@ -44,6 +44,14 @@ export interface DocLinkDto {
   createdAt: string;
   unlinkedAt: string | null;
   unlinkReason: string;
+  /** Файл заблокирован ссылкой на строку: Flux не даёт его править, переносить, переименовывать и удалять. */
+  locked: boolean;
+  lockedAt: string | null;
+  lockedByName: string;
+  unlockedAt: string | null;
+  unlockedByName: string;
+  /** Заблокированный файл изменён, перемещён или удалён вне Flux — нарушение блокировки. */
+  lockViolation: '' | 'changed' | 'moved' | 'lost';
   /** Имя файла сейчас не сходится со строкой (после переименования в Windows) и что именно не так. */
   mismatch?: string[];
 }
@@ -111,6 +119,19 @@ export function relativePathProblem(relativePath: string, fileName: string): str
 /** Папка файла внутри привязанной: «E02/3700-B01» для «E02/3700-B01/x.pdf». */
 export function dirOf(relativePath: string): string {
   return clean(relativePath).slice(0, -1).join('/');
+}
+
+export const LOCK_VIOLATION_TEXT: Record<'changed' | 'moved' | 'lost', string> = {
+  changed: 'изменён при блокировке', moved: 'перемещён или переименован при блокировке', lost: 'удалён при блокировке',
+};
+
+/** Что случилось с заблокированным файлом по сравнению с моментом блокировки (по последнему наблюдению слежения). */
+export function lockViolationOf(link: { locked: boolean; lostAt: unknown; sha256: string; lockedSha256: string; relativePath: string; lockedPath: string }): '' | 'changed' | 'moved' | 'lost' {
+  if (!link.locked) return '';
+  if (link.lostAt) return 'lost';
+  if (link.lockedSha256 && link.sha256 && link.sha256 !== link.lockedSha256) return 'changed';
+  if (link.lockedPath && link.relativePath.toLowerCase() !== link.lockedPath.toLowerCase()) return 'moved';
+  return '';
 }
 
 export const isFolderKey = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/u.test(value);

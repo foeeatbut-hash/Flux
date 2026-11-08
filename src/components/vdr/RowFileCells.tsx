@@ -1,10 +1,10 @@
 import React from 'react';
-import { AlertTriangle, FileText } from 'lucide-react';
+import { AlertTriangle, FileText, Lock, LockOpen } from 'lucide-react';
 import ContextMenu, { type MenuItem } from '../ContextMenu';
-import type { DocLinkDto, IssueDto } from '../../../shared/docflow/links';
+import { LOCK_VIOLATION_TEXT, type DocLinkDto, type IssueDto } from '../../../shared/docflow/links';
 import type { ProjectFolderBinding } from '../../lib/projectFolderBindings';
 import { openLinked } from '../../lib/docflowFiles';
-import { unlinkLink } from '../../lib/docflowApi';
+import { lockLink, unlinkLink } from '../../lib/docflowApi';
 import { useToastStore } from '../../store/toastStore';
 import CreateFilesDialog from '../docflow/CreateFilesDialog';
 
@@ -63,6 +63,18 @@ export default function FileCell({ projectId, itemId, revision, links, role, bin
         <button type="button" data-assign={role} onClick={e => { e.stopPropagation(); onAssign(); }} className="text-sky-700 underline decoration-dotted dark:text-sky-300">Назначить…</button>
         {role === 'file' && <button type="button" data-create-docflow-file onClick={e => { e.stopPropagation(); setCreating(true); }} className="text-sky-700 underline decoration-dotted dark:text-sky-300">Создать…</button>}
       </span> : <span className="text-slate-400">—</span>}
+      {main && (() => {
+        const violation = main.locked && main.lockViolation ? LOCK_VIOLATION_TEXT[main.lockViolation] : '';
+        const who = [main.locked ? (main.lockedAt ? `Заблокирован ${new Date(main.lockedAt).toLocaleString('ru-RU')}${main.lockedByName ? `, ${main.lockedByName}` : ''}` : 'Заблокирован') : `Замок снят ${main.unlockedAt ? new Date(main.unlockedAt).toLocaleString('ru-RU') : ''}${main.unlockedByName ? `, ${main.unlockedByName}` : ''}`.trim()];
+        const action = canAssign ? (main.locked ? 'Нажмите, чтобы снять замок и разрешить правку' : 'Нажмите, чтобы заблокировать файл') : 'Менять замок может сотрудник с правом «Назначение файлов и возвратов»';
+        const text = `${violation ? `Нарушена блокировка: файл ${violation}. ` : ''}${who}. ${action}.`;
+        return <button type="button" data-file-lock={main.locked ? 'locked' : 'open'} data-lock-violation={violation ? main.lockViolation : undefined} aria-label={text} aria-pressed={main.locked} title={text} disabled={!canAssign}
+          onClick={(e) => { e.stopPropagation(); void lockLink(itemId, main.id, !main.locked).then((a) => { if (a.ok) { toast(main.locked ? 'Замок снят: файл можно править' : 'Файл заблокирован', 'success'); onChanged(); } else toast(a.data.error || 'Не удалось изменить замок', 'error'); }); }}
+          className={`ml-1 inline-flex align-middle ${violation ? 'text-rose-600 dark:text-rose-400' : main.locked ? 'text-slate-600 dark:text-slate-300' : 'text-amber-600 dark:text-amber-400'} ${canAssign ? 'cursor-pointer' : 'cursor-default opacity-70'}`}>
+          {main.locked ? <Lock size={13} aria-hidden /> : <LockOpen size={13} aria-hidden />}
+        </button>;
+      })()}
+      {main?.locked && main.lockViolation && <span data-lock-violation-text className="ml-1 text-xs font-semibold text-rose-600 dark:text-rose-400">{LOCK_VIOLATION_TEXT[main.lockViolation]}</span>}
       {role === 'file' && main && issue?.changed && <span data-changed-after-issue className="ml-1 text-xs text-amber-700 dark:text-amber-400" title="Отпечаток файла не совпадает с отпечатком при выпуске">изменён после выпуска ред. {issue.revision}</span>}
       {role === 'file' && main && issue && !issue.changed && <span data-issued className="ml-1 text-xs text-slate-500" title={`Выпущена ${issue.date}`}>выдан</span>}
       {role === 'remarks' && main && dueDate && <span data-return-due className={`ml-1 text-xs ${new Date(dueDate).getTime() < Date.now() ? 'font-semibold text-rose-600 dark:text-rose-400' : 'text-slate-500'}`} title="Срок ответа на возврат — от даты получения">до {new Date(dueDate).toLocaleDateString('ru-RU')}{new Date(dueDate).getTime() < Date.now() ? ' · просрочено' : ''}</span>}

@@ -25,7 +25,7 @@ export const EXPLORER_WRITE_ACTIONS: ReadonlySet<string> = new Set([
   'startDrag', 'importPaths', 'undo', 'redo',
 ]);
 const READ_ACTIONS = new Set(['search', 'searchCancel', 'children', 'quickAccess', 'cloudRoots', 'thumbnail', 'openWithList', 'openWith', 'shellMenu', 'shellMenuClose',
-  'recycleBin', 'systemProperties', 'resolveAddress', 'locationKeys', 'selectionProvenance', 'resolvePortableFolder', 'placeIcon', 'undoState', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete']);
+  'recycleBin', 'systemProperties', 'resolveAddress', 'locationKeys', 'selectionProvenance', 'resolvePortableFolder', 'placeIcon', 'undoState', 'publishPlan', 'viewStateGet', 'viewStateSet', 'viewStateDelete', 'setLinkLocks', 'releaseLinkLocks']);
 export const isExplorerAction = (action: string) => READ_ACTIONS.has(action) || EXPLORER_WRITE_ACTIONS.has(action);
 
 export interface ExplorerBridgeDeps {
@@ -83,8 +83,11 @@ export class ExplorerBridge {
       case 'placeIcon': return shell.placeIcon(r.place, r.size);
       case 'thumbnail': return shell.thumbnail(ref(r.ref), r.size, r.thumbnailOnly === true, signal);
       case 'openWithList': return shell.openWithList(owner, ref(r.ref));
-      case 'openWith': return shell.openWith(owner, ref(r.ref), r.handlerId);
-      case 'shellMenu': return shell.shellMenu(owner, refs(r.refs), r.extended === true);
+      case 'openWith': await service.assertNotLinkLocked(ref(r.ref), 'открыть для правки'); return shell.openWith(owner, ref(r.ref), r.handlerId);
+      // Меню Windows умеет вырезать, удалять и переименовывать мимо Flux: для заблокированных файлов оно не открывается
+      case 'shellMenu': for (const target of refs(r.refs)) await service.assertNotLinkLocked(target, 'менять'); return shell.shellMenu(owner, refs(r.refs), r.extended === true);
+      case 'setLinkLocks': return service.setLinkLocks(Array.isArray(r.locked) ? refs(r.locked) : [], Array.isArray(r.released) ? refs(r.released) : []);
+      case 'releaseLinkLocks': return service.releaseLinkLocks(refs(r.refs));
       case 'shellMenuInvoke': return shell.shellMenuInvoke(owner, r.token, r.commandId, r.label);
       case 'shellMenuClose': return shell.shellMenuClose(owner, r.token);
       case 'recycleBin': return shell.recycleBin(owner);

@@ -273,6 +273,18 @@ model DocFileLink {
   unlinkedAt   DateTime?
   unlinkedById String?
   unlinkReason String    @default("")
+  /// Блокировка связанного файла («замочек»): ставится при связи, снимается и
+  /// ставится обратно из строки Реестра. Baseline (`lockedSha256`, `lockedPath`)
+  /// — отпечаток и путь на момент блокировки: расхождение со слежением — нарушение.
+  locked       Boolean   @default(true)
+  lockedAt     DateTime?
+  lockedById   String?
+  unlockedAt   DateTime?
+  unlockedById String?
+  lockedSha256 String    @default("")
+  lockedPath   String    @default("")
+  /// Последние 20 событий замка (JSON): кто и когда ставил и снимал — история строки без роста без предела
+  lockLog      String    @default("[]")
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

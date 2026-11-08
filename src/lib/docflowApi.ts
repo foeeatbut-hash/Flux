@@ -66,5 +66,7 @@ export const getItemLinks = (itemId: string) => docflowCall<LinksView>('GET', `/
 export const planLink = (itemId: string, fileName: string) => docflowCall<LinkPlan>('POST', '/api/docflow/links/plan', { itemId, fileName });
 /** Отказ 422 несёт `check` с расхождениями по полям, 409 — `replaceable`, если у строки уже есть файл этой ревизии. */
 export const createLink = (body: LinkRequest) => docflowCall<{ link: DocLinkDto; replaced: DocLinkDto | null; check: NameCheck | null; replaceable?: boolean; linkId?: string }>('POST', '/api/docflow/links', body);
+/** Замочек связанного файла: снять или поставить обратно (право docflow.files проверяет сервер). */
+export const lockLink = (itemId: string, linkId: string, locked: boolean) => docflowCall<{ link: DocLinkDto }>('POST', '/api/docflow/links/lock', { itemId, linkId, locked });
 export const unlinkLink = (itemId: string, linkId: string, reason?: string) => docflowCall<{ links: DocLinkDto[] }>('POST', '/api/docflow/links/unlink', { itemId, linkId, reason });
 export const trackLinks = (updates: TrackUpdate[]) => docflowCall<{ links: DocLinkDto[] }>('POST', '/api/docflow/links/track', { updates });

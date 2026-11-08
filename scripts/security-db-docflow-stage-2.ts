@@ -154,6 +154,11 @@ async function main() {
     await db.docRegisterItem.update({ where: { id: 'file-item' }, data: { status: 'READY' } });
     const issueFile = 'PO-UNIT-E02-099_A.pdf';
     const issueLink = await db.docFileLink.create({ data: { itemId: 'file-item', projectId: 'a', revision: 'A', role: 'file', folderKey, relativePath: `E02/${issueFile}`, fileName: issueFile, sha256: 'd'.repeat(64), size: 5, pathKey: `issue-${provider}`.padEnd(64, '0') } });
+    // Замочек связанного файла: новая связь заблокирована по умолчанию, колонки замка записываются и читаются на всех СУБД
+    assert.equal(issueLink.locked, true); assert.equal(issueLink.lockLog, '[]'); assert.equal(issueLink.lockedSha256, '');
+    const lockedRow = await db.docFileLink.update({ where: { id: issueLink.id }, data: { locked: false, unlockedAt: new Date(), unlockedById: 'admin', lockedSha256: 'd'.repeat(64), lockedPath: 'E02/'.repeat(60) + 'файл.pdf', lockLog: JSON.stringify(Array.from({ length: 20 }, (_, i) => ({ at: new Date().toISOString(), by: 'admin', action: i % 2 ? 'lock' : 'unlock' }))) } });
+    assert.equal(lockedRow.locked, false); assert.equal(JSON.parse(lockedRow.lockLog).length, 20); assert.ok(lockedRow.lockedPath.length > 200, 'длинный путь baseline сохраняется');
+    await db.docFileLink.update({ where: { id: issueLink.id }, data: { locked: true } });
     const issueCall = async (action: string, body: any, actor = 'admin', denied = false) => {
       const r = await fetch(`${origin}/api/docflow/issue/${action}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-actor': actor, ...(denied ? { 'x-denied': '1' } : {}) }, body: JSON.stringify(body) });
       return { status: r.status, body: await r.json() as any };

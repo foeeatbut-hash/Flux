@@ -19,7 +19,7 @@ const row = (id: string, no: string, code: string, revision: string, status = 'D
 const file = (relativePath: string): ReconFile => ({ folderKey: K, relativePath, name: relativePath.split('/').pop()! });
 const link = (itemId: string, relativePath: string, revision: string, over: Partial<DocLinkDto> = {}): DocLinkDto => ({
   id: `l-${itemId}-${revision}`, itemId, projectId: 'p', revision, role: 'file', toLinkId: null, folderKey: K, relativePath, fileName: relativePath.split('/').pop()!,
-  sha256: '', size: 1, reviewCode: '', receivedAt: null, lostAt: null, linkedById: null, createdAt: '', unlinkedAt: null, unlinkReason: '', ...over,
+  sha256: '', size: 1, reviewCode: '', receivedAt: null, lostAt: null, linkedById: null, createdAt: '', unlinkedAt: null, unlinkReason: '', locked: false, lockedAt: null, lockedByName: '', unlockedAt: null, unlockedByName: '', lockViolation: '', ...over,
 });
 
 const rows = [

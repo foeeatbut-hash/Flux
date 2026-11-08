@@ -9,7 +9,7 @@
  */
 import type { DocflowConfig } from './config';
 import { checkName, isIgnored, parseFileName, same, revisionValid, buildFileName, type RowForCheck } from './nameMask';
-import { linkLookupKey, type DocLinkDto } from './links';
+import { linkLookupKey, LOCK_VIOLATION_TEXT, type DocLinkDto } from './links';
 
 export interface ReconRow { id: string; registerId: string; title: string; status: string; row: RowForCheck }
 /** Файл рабочей папки: путь внутри привязанной папки и имя. */
@@ -18,7 +18,7 @@ export interface ReconFile { folderKey: string; relativePath: string; name: stri
 export interface ReconNoFile { rowId: string; revision: string; /** Файлы папки, чьё имя читается как эта строка, но не привязано. */ candidates: ReconFile[] }
 export interface ReconNoRow { file: ReconFile; fields: Record<string, string>; /** Строки, чей шифр совпал с именем файла. */ matches: string[] }
 export interface ReconOffMask { file: ReconFile; problems: string[] }
-export interface ReconDiverged { link: DocLinkDto; rowId: string; reason: 'name' | 'missing'; problems: string[]; /** Имя по строке и маске — «Переименовать по строке». */ expectedName: string }
+export interface ReconDiverged { link: DocLinkDto; rowId: string; reason: 'name' | 'missing' | 'lock'; problems: string[]; /** Имя по строке и маске — «Переименовать по строке». */ expectedName: string }
 export interface Reconciliation { noFile: ReconNoFile[]; noRow: ReconNoRow[]; offMask: ReconOffMask[]; diverged: ReconDiverged[]; scanned: number; ignored: number }
 
 const extOf = (name: string) => /\.[^.\\/]+$/.exec(name)?.[0] || '';
@@ -46,9 +46,12 @@ export function reconcile(config: DocflowConfig, rows: ReconRow[], files: ReconF
     if (!row) continue;
     const here = present.has(linkLookupKey(link.folderKey, link.relativePath));
     const expectedName = buildFileName(config, row.row, extOf(link.fileName), link.revision);
-    if (!here || link.lostAt) { out.diverged.push({ link, rowId: row.id, reason: 'missing', problems: [link.lostAt ? 'файл удалён или перемещён' : 'файла нет в папке'], expectedName }); continue; }
+    // Заблокированный файл, изменённый или убранный вне Flux, — нарушение блокировки, а не просто расхождение
+    const violation = link.lockViolation ? `нарушена блокировка: ${LOCK_VIOLATION_TEXT[link.lockViolation]}` : '';
+    if (!here || link.lostAt) { out.diverged.push({ link, rowId: row.id, reason: 'missing', problems: [violation || (link.lostAt ? 'файл удалён или перемещён' : 'файла нет в папке')], expectedName }); continue; }
     const check = checkName(config, link.fileName, row.row);
-    if (!check.ok) out.diverged.push({ link, rowId: row.id, reason: 'name', problems: [...check.blocking.map((f) => f.text), ...(check.parsed.ok ? [] : check.parsed.problems)], expectedName });
+    const nameProblems = check.ok ? [] : [...check.blocking.map((f) => f.text), ...(check.parsed.ok ? [] : check.parsed.problems)];
+    if (violation || !check.ok) out.diverged.push({ link, rowId: row.id, reason: violation && check.ok ? 'lock' : 'name', problems: [...(violation ? [violation] : []), ...nameProblems], expectedName });
   }
 
   // 2. Файлы без связи: читаются по маске — ищем строку; не читаются — «Имя не по маске»

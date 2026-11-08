@@ -19,7 +19,8 @@
         "src/components/docflow/IssueDialog.tsx",
         "src/lib/docflowIssueApi.ts",
         "src/lib/localEditing.ts",
-        "src/components/docflow/DocflowTags.tsx"
+        "src/components/docflow/DocflowTags.tsx",
+        "src/components/explorer/LinkLockSync.tsx"
       ]
     }
   ],
@@ -301,6 +302,17 @@
     {
       "id": "docflow-issue",
       "path": "scripts/test-docflow-issue.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
+      "id": "docflow-lock",
+      "path": "scripts/test-docflow-lock.ts",
       "layer": "api-db",
       "platform": "any",
       "resources": [

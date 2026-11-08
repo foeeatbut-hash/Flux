@@ -11,7 +11,7 @@
  */
 import { createHash } from 'node:crypto';
 import { checkName, buildFileName, type NameCheck, type RowForCheck } from '../shared/docflow/nameMask.js';
-import { isFolderKey, linkLookupKey, purposeAllows, purposeLabel, relativePathProblem, type DocLinkDto, type IssueDto, type FolderPurpose, type LinkedItemBrief, type LinkRole } from '../shared/docflow/links.js';
+import { lockViolationOf, isFolderKey, linkLookupKey, purposeAllows, purposeLabel, relativePathProblem, type DocLinkDto, type IssueDto, type FolderPurpose, type LinkedItemBrief, type LinkRole } from '../shared/docflow/links.js';
 import type { DocflowConfig } from '../shared/docflow/config.js';
 import { readSettings } from './docflowSettings.js';
 import { codesOfItem } from './vdrTags.js';
@@ -29,12 +29,14 @@ const iso = (d: any) => (d ? new Date(d).toISOString() : null);
 export const pathKeyOf = (folderKey: string, relativePath: string): string =>
   createHash('sha256').update(linkLookupKey(folderKey, relativePath)).digest('hex');
 
-export function toDto(row: any, mismatch?: string[]): DocLinkDto {
+export function toDto(row: any, mismatch?: string[], names?: Map<string, string>): DocLinkDto {
   return {
     id: row.id, itemId: row.itemId, projectId: row.projectId, revision: row.revision, role: row.role === 'remarks' ? 'remarks' : 'file',
     toLinkId: row.toLinkId || null, folderKey: row.folderKey, relativePath: row.relativePath, fileName: row.fileName, sha256: row.sha256 || '',
     size: Number(row.size) || 0, reviewCode: row.reviewCode || '', receivedAt: iso(row.receivedAt), lostAt: iso(row.lostAt),
     linkedById: row.linkedById || null, createdAt: iso(row.createdAt) || '', unlinkedAt: iso(row.unlinkedAt), unlinkReason: row.unlinkReason || '',
+    locked: row.locked !== false, lockedAt: iso(row.lockedAt), lockedByName: names?.get(row.lockedById) || '', unlockedAt: iso(row.unlockedAt), unlockedByName: names?.get(row.unlockedById) || '',
+    lockViolation: row.unlinkedAt ? '' : lockViolationOf({ locked: row.locked !== false, lostAt: row.lostAt, sha256: row.sha256 || '', lockedSha256: row.lockedSha256 || '', relativePath: row.relativePath, lockedPath: row.lockedPath || '' }),
     ...(mismatch ? { mismatch } : {}),
   };
 }
@@ -165,6 +167,9 @@ export async function createLink(prisma: any, input: CreateLinkInput, actorId: s
           size: Number(input.size) > 0 ? Number(input.size) : 0, reviewCode: role === 'remarks' ? String(input.reviewCode || '').slice(0, 20) : '',
           receivedAt: role === 'remarks' && validDay(input.receivedAt) ? dayToInstant(input.receivedAt) : null,
           pathKey: key, linkedById: actorId,
+          // Связанный файл блокируется сразу: правят его только после снятия замка в строке
+          locked: true, lockedAt: new Date(), lockedById: actorId, lockedSha256: String(input.sha256 || '').slice(0, 64), lockedPath: input.relativePath.split(/[\\/]+/).join('/'),
+          lockLog: JSON.stringify([{ at: new Date().toISOString(), by: actorId, action: 'lock', why: 'связан со строкой' }]),
         },
       });
       const effect = role === 'remarks' && input.reviewCode ? await applyReturn(db, ctx, toLink, made, input) : undefined;
@@ -194,6 +199,28 @@ async function applyReturn(db: any, ctx: ItemContext, toLink: any, made: any, in
   else if (rule.accept) data.dueDate = null;
   const written = await db.docRegisterItem.update({ where: { id: item.id }, data });
   return { status: written.status, previousStatus: item.status, dueDate: iso(written.dueDate), reviewCode: written.reviewCode, assigneeId: written.assigneeId || null, title: written.contractorNo || written.titleRu || written.titleEn || 'документ' };
+}
+
+/**
+ * Замочек связанного файла (право docflow.files проверяет маршрут). Блокировка хранится у связи;
+ * при постановке запоминаются отпечаток и путь — по ним слежение узнаёт «изменён при блокировке».
+ */
+export async function setLinkLock(prisma: any, input: { itemId: string; linkId: string; locked: boolean }, actorId: string): Promise<DocLinkDto> {
+  return inTransaction(prisma, async (db) => {
+    const link = await db.docFileLink.findUnique({ where: { id: input.linkId } });
+    if (!link || link.itemId !== input.itemId) throw new LinkError('Связь не найдена', 404);
+    if (link.unlinkedAt) throw new LinkError('Связь снята: замок не меняется', 409);
+    if ((link.locked !== false) === input.locked) return toDto(link);
+    const log = (() => { try { const v = JSON.parse(link.lockLog || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } })();
+    const now = new Date();
+    log.push({ at: now.toISOString(), by: actorId, action: input.locked ? 'lock' : 'unlock' });
+    const data = input.locked
+      ? { locked: true, lockedAt: now, lockedById: actorId, lockedSha256: link.sha256 || '', lockedPath: link.relativePath, lockLog: JSON.stringify(log.slice(-20)) }
+      : { locked: false, unlockedAt: now, unlockedById: actorId, lockLog: JSON.stringify(log.slice(-20)) };
+    const done = await db.docFileLink.updateMany({ where: { id: link.id, updatedAt: link.updatedAt, locked: link.locked, unlinkedAt: null }, data });
+    if (done.count !== 1) throw new LinkError('Связь уже изменили. Обновите реестр.', 409);
+    return toDto(await db.docFileLink.findUnique({ where: { id: link.id } }), undefined, new Map([[actorId, '']]));
+  });
 }
 
 /** Отвязка: запись остаётся историей. Замечания, привязанные к отвязанному файлу, отвязываются вместе с ним. */
@@ -273,7 +300,7 @@ export async function listLinks(prisma: any, input: { projectId?: string; itemId
   const projectId = input.projectId || items[0]?.projectId || rows[0]?.projectId;
   const { config } = await readSettings(prisma, projectId || '');
   const registers: any[] = await prisma.docRegister.findMany({ where: { id: { in: [...new Set(items.map((i) => i.registerId))] } } });
-  const assigneeIds = [...new Set(items.map((i) => i.assigneeId).filter(Boolean))];
+  const assigneeIds = [...new Set([...items.map((i) => i.assigneeId), ...rows.flatMap((r) => [r.lockedById, r.unlockedById])].filter(Boolean))];
   const users: any[] = assigneeIds.length ? await prisma.user.findMany({ where: { id: { in: assigneeIds } }, select: { id: true, name: true } }) : [];
   const userName = new Map(users.map((u) => [u.id, u.name]));
   const byItem = new Map(items.map((i) => [i.id, i]));
@@ -282,7 +309,7 @@ export async function listLinks(prisma: any, input: { projectId?: string; itemId
   for (const r of rows) {
     const item = byItem.get(r.itemId);
     const mismatch = item && !r.unlinkedAt ? await mismatchOf(config, { item, register: byRegister.get(item.registerId), projectId: item.projectId, tags: codesOfItem(item.equipmentTags) }, r) : undefined;
-    links.push(toDto(r, mismatch));
+    links.push(toDto(r, mismatch, userName));
   }
   return { links, items: Object.fromEntries(items.map((i) => [i.id, briefOf(i, config, userName.get(i.assigneeId) || '')])), issues: await issuesOf(prisma, itemIds, rows) };
 }

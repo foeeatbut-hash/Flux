@@ -2,7 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { getPrisma, broadcast, notifyUser } from '../context.js';
 import { isAdminActor } from '../projectAccess.js';
 import { canSeeProject } from './members.js';
-import { LinkError, createLink, itemContext, listLinks, planLink, trackLink, unlinkLink } from '../docflowLinks.js';
+import { LinkError, createLink, itemContext, listLinks, planLink, setLinkLock, trackLink, unlinkLink } from '../docflowLinks.js';
 
 // ── Документооборот: связь файлов папки проекта со строками ВДР ──
 // Права — общая таблица server/vdrPermissions.ts: чтение — docflow.view,
@@ -57,6 +57,21 @@ export function registerDocflowLinkRoutes(app: Express): void {
       const links = await unlinkLink(prisma, { itemId, linkId: text(req.body?.linkId), reason: text(req.body?.reason) }, String(actorOf(req)?.id || ''));
       announce(projectId);
       res.json({ links });
+    } catch (err) { fail(res, err); }
+  });
+
+  // Замочек связанного файла: право docflow.files, как у назначения; проект строки сверяется здесь же
+  app.post('/api/docflow/links/lock', async (req: Request, res: Response) => {
+    try {
+      const prisma = getPrisma();
+      const me = actorOf(req);
+      const itemId = text(req.body?.itemId);
+      const { projectId } = await itemContext(prisma, itemId);
+      if (!isAdminActor(me) && !(await canSeeProject(String(me?.id), projectId, false))) throw new LinkError('Нет доступа к данным проекта', 403);
+      if (typeof req.body?.locked !== 'boolean') throw new LinkError('Не указано, ставить или снимать замок', 400);
+      const link = await setLinkLock(prisma, { itemId, linkId: text(req.body?.linkId), locked: req.body.locked }, String(me?.id || ''));
+      announce(projectId);
+      res.json({ link });
     } catch (err) { fail(res, err); }
   });
 

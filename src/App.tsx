@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import LinkLockSync from './components/explorer/LinkLockSync';
 import React, { Suspense, lazy } from 'react';
 import { HashRouter as Router, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from './store/store';
@@ -395,6 +396,7 @@ export default function App() {
             <ServerGate>
               <LicenseGate>
                 <EntityIdMigrationSync />
+                <LinkLockSync />
                 <AnimatedRoutes />
                 <TagNavigationPanel />
                 <AutomaticIncidentWatcher />

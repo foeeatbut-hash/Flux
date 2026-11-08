@@ -120,7 +120,7 @@ export default function IssueDialog({ projectId, docs, bindings, itemIds, onClos
                   <tr key={f.id} data-issue-row={f.id} className="border-t border-slate-200 align-top dark:border-slate-700">
                     <td className="py-1.5 pr-2"><strong className="font-medium">{f.item?.cipher || '—'}</strong><br /><span className="text-slate-500">{f.item?.title} · {statusLabel(f.item?.status || '')}</span></td>
                     <td className="pr-2">{f.item?.revision}</td>
-                    <td className="max-w-56 break-all pr-2">{f.link?.fileName || '—'}<br /><span className="font-mono text-[10px] text-slate-500" data-issue-hash>{loc?.sha256 ? `${loc.sha256.slice(0, 16)}…` : ''}</span></td>
+                    <td className="max-w-56 break-all pr-2">{f.link?.fileName || '—'}<br /><span className="font-mono text-xs text-slate-500" data-issue-hash>{loc?.sha256 ? `${loc.sha256.slice(0, 16)}…` : ''}</span></td>
                     <td className="pr-2"><Select value={reasons[f.id] ?? defaultReason(f.item?.revision || '')} onChange={(v) => { setReasons((s) => ({ ...s, [f.id]: v })); setPlan(null); }} options={config.reasons.map((x) => ({ value: x.code, label: x.code }))} /></td>
                     <td className="pr-2"><Input type="date" aria-label="Дата выпуска" value={dates[f.id] ?? localToday()} onChange={(e) => { setDates((s) => ({ ...s, [f.id]: e.target.value })); setPlan(null); }} /></td>
                     <td>{!plan && !problems.length ? <span className="text-slate-500">Проверяется…</span>

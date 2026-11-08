@@ -15,7 +15,7 @@ import AddToRegistryDialog from '../docflow/AddToRegistryDialog';
 import IssueDialog from '../docflow/IssueDialog';
 import DocDetails from '../files/DocDetails';
 import { docInfoOf, matchesDocFilter, type DocEntryInfo, type DocFilter } from '../files/docEntryInfo';
-import { OffMaskBadge, docCell } from '../files/DocColumns';
+import { LockBadge, OffMaskBadge, docCell } from '../files/DocColumns';
 import { entryKey } from '../files/useSelection';
 import { entryRef } from '../files/fileOps';
 import type { FolderColumn } from '../files/viewModel';
@@ -103,7 +103,7 @@ export function useExplorerDocflow(input: {
             const here = group.entries.find((e) => linkLookupKey(group.folderKey, [group.dir, e.name].filter(Boolean).join('/')) === key);
             // Файл на месте: пометка «не найден» снимается; изменился размер — отпечаток обновляется.
             // Выданный файл сверяется по отпечатку всегда: замена файла того же размера иначе осталась бы незамеченной
-            const issuedLink = ctx.issues.some((i) => i.linkId === link.id);
+            const issuedLink = link.locked || ctx.issues.some((i) => i.linkId === link.id);
             if (here && (link.lostAt || (link.size && here.size !== link.size) || (issuedLink && hashed < 20))) {
               if (issuedLink) hashed++;
               const hash = await windowsFilesRequest<{ sha256: string; size: number }>({ action: 'fileHash', ref: entryRef(here, rootId) });
@@ -141,6 +141,11 @@ export function useExplorerDocflow(input: {
       open();
     });
   };
+  /** Причина, по которой выбранные файлы нельзя менять: хотя бы один связан со строкой и заблокирован. Пусто — можно. */
+  const lockReason = (picked: WindowsFileEntry[]): string => {
+    const hit = picked.map((entry) => ({ entry, link: infoOf(entry)?.link })).find((x) => x.link?.locked && !x.link.unlinkedAt);
+    return hit ? `Файл «${hit.entry.name}» заблокирован: он связан со строкой документооборота. Снимите замок в строке реестра (столбец «Файл»).` : '';
+  };
   const unlink = async (info: DocEntryInfo) => {
     if (!info.link) return;
     const answer = await unlinkLink(info.link.itemId, info.link.id, 'отвязан в Проводнике');
@@ -172,7 +177,7 @@ export function useExplorerDocflow(input: {
 
   const doc = React.useMemo(() => ({
     cell: (entry: WindowsFileEntry, column: FolderColumn) => { const info = infoOf(entry); return docCell(info, column, info ? docs[info.projectId]?.config : undefined); },
-    badge: (entry: WindowsFileEntry) => { const info = infoOf(entry); return info && !info.ignored ? <OffMaskBadge problems={info.offMask} /> : null; },
+    badge: (entry: WindowsFileEntry) => { const info = infoOf(entry); return info && !info.ignored ? <><LockBadge info={info} /><OffMaskBadge problems={info.offMask} /></> : null; },
   }), [infoOf, docs]);
 
   /** Блок «Документооборот» для правой панели «Сведения». */
@@ -193,5 +198,5 @@ export function useExplorerDocflow(input: {
     return <AssignFileDialog role={dialog.kind === 'link' ? 'file' : 'remarks'} projectId={dialog.info.projectId} docs={ctx} bindings={bindings} file={file} renameOffer={false} onClose={() => setDialog(null)} onDone={done} />;
   })() : null;
 
-  return { active, infoOf, details, doc, filter, setFilter, visible, menuItems, folderMenuItems, element, docs };
+  return { active, infoOf, lockReason, details, doc, filter, setFilter, visible, menuItems, folderMenuItems, element, docs };
 }
