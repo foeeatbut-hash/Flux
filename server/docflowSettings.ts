@@ -8,6 +8,7 @@
  * прежних значений — до записи, отмена — одним действием и только если после
  * переноса никто ничего не менял.
  */
+import { planCatalogCopy, applyCatalogCopy, undoCatalogCopy } from './docflowCatalogCopy.js';
 import { validateDocflowReferences } from './docflowConfigRefs.js';
 import { DocflowPlanError } from './docflowPlans.js';
 import { DOCFLOW_SECTIONS, diffSections, mergeSections, normalizeDocflowConfig, type DocflowConfig } from '../shared/docflow/config.js';
@@ -22,7 +23,7 @@ export interface SettingsView {
   /** Есть ли у проекта своя запись; нет — показываются настройки его стандарта или по умолчанию. */
   stored: boolean; updatedAt: string | null; canUndo: boolean; undoLabel: string;
 }
-interface UndoSnapshot { config: string | null; source: string; label: string; afterUpdatedAt: string; at: string; by: string }
+interface UndoSnapshot { config: string | null; source: string; label: string; afterUpdatedAt: string; at: string; by: string; catalog?: any[] }
 
 const parse = <T>(raw: string | null | undefined, fallback: T): T => { try { return raw ? JSON.parse(raw) : fallback; } catch { return fallback; } };
 const iso = (d: any) => (d ? new Date(d).toISOString() : null);
@@ -91,12 +92,12 @@ export async function projectConfig(prisma: any, projectId: string): Promise<Doc
  */
 export async function writeSettings(prisma: any, input: {
   projectId: string; config: DocflowConfig; expected: string | null | undefined; actorId: string;
-  source?: SettingsSource | null; undoLabel?: string;
+  source?: SettingsSource | null; undoLabel?: string; catalogUndo?: any[]; transaction?: any;
 }): Promise<SettingsView> {
   if (input.expected === undefined) throw new DocflowSettingsConflict('Не указана версия настроек: обновите окно и повторите', 400);
   await validateDocflowReferences(prisma, input.config);
   const config = JSON.stringify(normalizeDocflowConfig(input.config));
-  await prisma.$transaction(async (tx: any) => {
+  const write = async (tx: any) => {
     if (!await tx.project.findUnique({ where: { id: input.projectId }, select: { id: true } })) throw new DocflowPlanError('Проект не найден', 404);
     await validateDocflowReferences(tx, input.config);
     const row = await tx.docflowSettings.findUnique({ where: { projectId: input.projectId } });
@@ -110,7 +111,7 @@ export async function writeSettings(prisma: any, input: {
     const now = new Date(Math.max(Date.now(), row ? new Date(row.updatedAt).getTime() + 1 : 0));
     const snapshot: UndoSnapshot | null = input.undoLabel ? {
       config: row ? row.config : null, source: row ? row.source : '', label: input.undoLabel,
-      afterUpdatedAt: now.toISOString(), at: now.toISOString(), by: input.actorId,
+      afterUpdatedAt: now.toISOString(), at: now.toISOString(), by: input.actorId, ...(input.catalogUndo ? { catalog: input.catalogUndo } : {}),
     } : null;
     const data: any = { config, updatedById: input.actorId, updatedAt: now, undo: snapshot ? JSON.stringify(snapshot) : '' };
     if (input.source !== undefined) data.source = input.source ? JSON.stringify(input.source) : '';
@@ -125,8 +126,9 @@ export async function writeSettings(prisma: any, input: {
         throw err;
       }
     }
-  });
-  return readSettings(prisma, input.projectId);
+  };
+  if (input.transaction) await write(input.transaction); else await prisma.$transaction(write);
+  return readSettings(input.transaction || prisma, input.projectId);
 }
 
 /** Откуда переносить: другой проект или шаблон. */
@@ -143,15 +145,15 @@ export async function sourceConfig(prisma: any, from: { projectId?: string; temp
   return { config: view.config, source: { kind: 'project', name: project.name, at: dateRu() } };
 }
 
-export function validSections(raw: unknown): string[] {
+export function validSections(raw: unknown, allowEmpty = false): string[] {
   const keys = DOCFLOW_SECTIONS.map((s) => s.key);
   const list = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string' && keys.includes(x)) : [];
-  if (!list.length) throw new DocflowSettingsConflict('Не отмечено ни одного раздела', 400);
+  if (!list.length && !allowEmpty) throw new DocflowSettingsConflict('Не отмечено ни одного раздела', 400);
   return list;
 }
 
 /** План переноса: что станет с каждым отмеченным разделом. Ничего не пишет. */
-export async function copyPlan(prisma: any, projectId: string, from: { projectId?: string; templateId?: string }, sections: string[]) {
+export async function copyPlan(prisma: any, projectId: string, from: { projectId?: string; templateId?: string }, sections: string[], includeCatalog = false) {
   if (!await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })) throw new DocflowPlanError('Проект не найден', 404);
   await validateDocflowReferences(prisma, await rawSettingsConfig(prisma, projectId));
   if (sections.some(section => ['equipmentClasses', 'kits'].includes(section))) {
@@ -168,25 +170,47 @@ export async function copyPlan(prisma: any, projectId: string, from: { projectId
   const src = await sourceConfig(prisma, from);
   const after = mergeSections(target.config, src.config, sections);
   await validateDocflowReferences(prisma, after);
-  return { source: src.source, expected: target.updatedAt, sections: diffSections(target.config, after, sections), after };
+  const catalog = includeCatalog ? await planCatalogCopy(prisma, from.projectId || '', projectId) : null;
+  if (includeCatalog && from.templateId) throw new DocflowSettingsConflict('Каталог можно перенести только из проекта', 400);
+  const diffs = diffSections(target.config, after, sections);
+  if (catalog) diffs.push({ key: 'catalog', label: 'Каталог проекта', lines: catalog.changes.map(c => `${c.before ? 'Обновить' : 'Добавить'}: ${c.data.code}`) });
+  return { source: src.source, expected: target.updatedAt, sections: diffs, after, catalogToken: catalog?.token };
 }
 
-export async function applyCopy(prisma: any, input: { projectId: string; from: { projectId?: string; templateId?: string }; sections: string[]; expected: string | null | undefined; actorId: string }) {
-  const plan = await copyPlan(prisma, input.projectId, input.from, input.sections);
-  const what = input.from.templateId ? `шаблона «${plan.source.name}»` : `проекта «${plan.source.name}»`;
-  return writeSettings(prisma, {
-    projectId: input.projectId, config: plan.after, expected: input.expected, actorId: input.actorId,
-    source: plan.source, undoLabel: `перенос из ${what}`,
-  });
+export async function applyCopy(prisma: any, input: { projectId: string; from: { projectId?: string; templateId?: string }; sections: string[]; expected: string | null | undefined; actorId: string; includeCatalog?: boolean; catalogToken?: string }) {
+  if (!input.includeCatalog) {
+    const plan = await copyPlan(prisma, input.projectId, input.from, input.sections);
+    const what = input.from.templateId ? `шаблона «${plan.source.name}»` : `проекта «${plan.source.name}»`;
+    return writeSettings(prisma, { projectId: input.projectId, config: plan.after, expected: input.expected, actorId: input.actorId, source: plan.source, undoLabel: `перенос из ${what}` });
+  }
+  if (!input.catalogToken) throw new DocflowSettingsConflict('Сначала покажите различия каталога', 400);
+  await prisma.$transaction(async (tx: any) => {
+    const plan = await copyPlan(tx, input.projectId, input.from, input.sections, true);
+    if (plan.catalogToken !== input.catalogToken) throw new DocflowSettingsConflict('Каталог изменился после предпросмотра');
+    const catalog = await planCatalogCopy(tx, input.from.projectId || '', input.projectId);
+    const catalogUndo = await applyCatalogCopy(tx, catalog, input.actorId);
+    await writeSettings(tx, { projectId: input.projectId, config: plan.after, expected: input.expected, actorId: input.actorId, source: plan.source, undoLabel: `перенос из проекта «${plan.source.name}»`, catalogUndo, transaction: tx });
+  }, { timeout: 120000, isolationLevel: 'Serializable' });
+  return readSettings(prisma, input.projectId);
+}
+
+export async function undoNeedsCatalog(prisma: any, projectId: string): Promise<boolean> {
+  const row = await prisma.docflowSettings.findUnique({ where: { projectId } });
+  return Array.isArray(parse<UndoSnapshot | null>(row?.undo, null)?.catalog);
 }
 
 /** Отмена последнего переноса — только пока после него ничего не меняли. */
-export async function undoLast(prisma: any, projectId: string, actorId: string): Promise<SettingsView> {
+export async function undoLast(prisma: any, projectId: string, actorId: string, mayUndoCatalog = false): Promise<SettingsView> {
   await prisma.$transaction(async (tx: any) => {
     const row = await tx.docflowSettings.findUnique({ where: { projectId } });
     const undo = row ? parse<UndoSnapshot | null>(row.undo, null) : null;
     if (!row || !undo) throw new DocflowSettingsConflict('Отменять нечего', 404);
     if (undo.afterUpdatedAt !== iso(row.updatedAt)) throw new DocflowSettingsConflict('После переноса настройки уже меняли — отмена закрыта, чтобы не затереть эти правки');
+    if (undo.catalog) {
+      if (!mayUndoCatalog) throw new DocflowSettingsConflict('Нет права на каталог проекта', 403);
+      if (Date.now() - new Date(undo.at).getTime() > 30 * 86400000) throw new DocflowSettingsConflict('Срок отмены переноса истёк');
+      await undoCatalogCopy(tx, projectId, undo.catalog);
+    }
     if (undo.config === null) {
       const gone = await tx.docflowSettings.deleteMany({ where: { id: row.id, updatedAt: row.updatedAt } });
       if (gone.count !== 1) throw new DocflowSettingsConflict('Настройки проекта уже изменили');

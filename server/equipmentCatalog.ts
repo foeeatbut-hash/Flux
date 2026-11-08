@@ -8,7 +8,8 @@ import { withDefaults, type Catalog, type Component, type Family, type FamilySta
 import { checkConfig } from '../catalog/rules.js';
 import { parseDesignation } from '../catalog/designation.js';
 import { catalogCodesForEquipment, catalogSnapshotIsStale, catalogValuesByAddress, familySpecs, matchPublishedFamily, sourceGroups, resolveCatalogSpecs, type CatalogBinding } from '../equipment/catalogSpecs.js';
-import { ensureCatalog, readCatalog } from './routes/catalog.js';
+import { ensureCatalog } from './routes/catalog.js';
+import { catalogForElement, catalogForProject, elementProjectId } from './projectCatalogData.js';
 
 export const bindingKey = (id: string) => `equipment_catalog_binding:${id}`;
 export const catalogRevision = (c: Component | Family) => createHash('sha256').update(JSON.stringify(c)).digest('hex');
@@ -20,10 +21,10 @@ export const publishedRevision = (value: unknown, fallback: string) => {
   }
   return fallback;
 };
-export interface EquipmentCatalog extends Catalog { meta?: Record<string, { updatedAt?: string }> }
+export interface EquipmentCatalog extends Catalog { meta?: any; projectId?: string; hasProjectCatalog?: boolean }
 export async function equipmentCatalog(p = getPrisma()): Promise<EquipmentCatalog> {
   await ensureCatalog(p);
-  return readCatalog(p) as Promise<EquipmentCatalog>;
+  return catalogForProject(p);
 }
 /** Kept for the component binding route's existing selector contract. */
 export async function catalogModels(p = getPrisma()): Promise<Component[]> {
@@ -133,7 +134,8 @@ export function componentMatchesEquipment(el: any, component: Component, catalog
 
 /** Предпросмотр читает закреплённый снимок кандидата и не создаёт привязку. */
 export async function previewCatalogSource(el: any, modelId: string, sourceType: 'component' | 'family', requestedValues?: unknown, models?: EquipmentCatalog) {
-  const all = models || await equipmentCatalog();
+  if (!models) await ensureCatalog(getPrisma());
+  const all = models || await catalogForElement(getPrisma(), el);
   const stored = await getPrisma().appSetting.findFirst({ where: { key: bindingKey(el.id), userId: null } });
   const current = await sourceInfo(el, all, stored || null);
   let model: Component | Family | undefined;
@@ -177,9 +179,10 @@ async function freezeFirstMatch(el: any, choice: EquipmentCatalogChoice, all: Eq
   const manufacturer = choice.sourceType === 'family' && !Array.isArray(all)
     ? all.manufacturers.find(item => item.id === (snapshot as Family).manufacturerId)?.name || ''
     : (snapshot as Component).manufacturer || '';
-  const binding: CatalogBinding = {
+  const binding: CatalogBinding & { catalogueSource?: 'common' | 'project' } = {
     mode: 'hybrid', modelId: snapshot.id, code: snapshot.code, manufacturer,
     sourceType: choice.sourceType, values: choice.sourceType === 'family' ? choice.parsedValues : undefined,
+    catalogueSource: !Array.isArray(all) && all.meta?.[snapshot.id]?.projectId ? 'project' : 'common',
     revision: randomUUID(), catalogRevision: catalogRevision(snapshot), sourceRevision,
     at: new Date().toISOString(), snapshot,
   };
@@ -200,7 +203,9 @@ async function freezeFirstMatch(el: any, choice: EquipmentCatalogChoice, all: Eq
   return parseBinding(winner);
 }
 export async function sourceInfo(el: any, models?: EquipmentCatalog | Component[], stored?: any) {
-  const all = models || await equipmentCatalog();
+  const prisma = getPrisma();
+  if (!models) await ensureCatalog(prisma);
+  const all = models || await catalogForElement(prisma, el);
   let record = stored === undefined ? await getPrisma().appSetting.findFirst({ where: { key: bindingKey(el.id), userId: null } }) : stored;
   let binding = parseBinding(record);
   const matches = matchesFor(el, all);
@@ -223,11 +228,14 @@ export async function sourceInfo(el: any, models?: EquipmentCatalog | Component[
   if (!selected && mode !== 'xml') warnings.push(matches.length > 1 ? 'Несколько изготовителей или моделей. Выберите точную модель.' : matches.length === 1 ? 'Не удалось сохранить снимок каталога; XML и ручные значения сохранены.' : 'Модель не найдена в каталоге. XML и ручные значения сохранены.');
   if (selected?.status === 'partial') warnings.push('Карточка каталога заполнена частично; проверьте источник перед выпуском.');
   if (binding?.snapshot) {
-    const current = Array.isArray(all) ? all.find(c => c.id === binding.modelId) : binding.sourceType === 'family'
-      ? all.families.find(c => c.id === binding.modelId) : all.components.find(c => c.id === binding.modelId);
+    const bindingSource = (binding as any).catalogueSource;
+    const bindingCatalog = bindingSource === 'common' && (!Array.isArray(all) && all.projectId)
+      ? await catalogForProject(prisma, all.projectId, 'common') : all;
+    const current = Array.isArray(bindingCatalog) ? bindingCatalog.find(c => c.id === binding.modelId) : binding.sourceType === 'family'
+      ? bindingCatalog.families.find(c => c.id === binding.modelId) : bindingCatalog.components.find(c => c.id === binding.modelId);
     if (!current) warnings.push('Модель удалена из каталога. Используется сохранённый снимок.');
     else {
-      const currentPublishedRevision = Array.isArray(all) ? catalogRevision(current) : publishedRevision(all.meta?.[current.id]?.updatedAt, catalogRevision(current));
+      const currentPublishedRevision = Array.isArray(bindingCatalog) ? catalogRevision(current) : publishedRevision(bindingCatalog.meta?.[current.id]?.updatedAt, catalogRevision(current));
       const currentRevision = binding.sourceRevision ? currentPublishedRevision : catalogRevision(current);
       if (catalogSnapshotIsStale(binding, currentRevision)) {
         warnings.push('Каталог обновлён. Снимок проекта сохраняется до вашего обновления.');
@@ -242,21 +250,30 @@ export async function sourceInfo(el: any, models?: EquipmentCatalog | Component[
   const snapshotSpecs = binding?.snapshot && 'positions' in binding.snapshot
     ? familySpecs(binding.snapshot, binding.values || {}) : binding?.snapshot?.specs || [];
   const bindingView = binding ? { ...binding, snapshot: { ...binding.snapshot, effectiveSpecs: snapshotSpecs } } : undefined;
-  return { mode, binding: bindingView, matches, updateAvailable, ...resolved, warnings, originalSpecs: el.specs };
+  const projectId = models ? (!Array.isArray(all) ? all.projectId : undefined) : await elementProjectId(prisma, el);
+  const hasProjectCatalog = !Array.isArray(all) && !!all.hasProjectCatalog;
+  const scopedMatches = matches.map(match => ({ ...match, catalogueSource: !Array.isArray(all) && all.meta?.[match.id]?.projectId ? 'project' : 'common' }));
+  return { mode, binding: bindingView, matches: scopedMatches, updateAvailable, ...resolved, warnings, originalSpecs: el.specs, projectId, hasProjectCatalog };
 }
 
 /** Одна загрузка справочника и привязок на весь срез, без N запросов на позицию. */
 export async function enrichEquipment(systems: any[]): Promise<void> {
   const prisma = getPrisma();
-  const models = await equipmentCatalog(prisma);
+  await ensureCatalog(prisma);
   const elements = systems.flatMap(s => s.monoblocks.flatMap((m: any) => m.components));
   const keys = elements.map(e => bindingKey(e.id));
   const saved = keys.length ? await prisma.appSetting.findMany({ where: { key: { in: keys }, userId: null } }) : [];
   const byKey = new Map(saved.map((r: any) => [r.key, r]));
-  for (const el of elements) {
+  const catalogs = new Map<string, EquipmentCatalog>();
+  for (const sys of systems) {
+    if (!sys.projectId) throw Object.assign(new Error('Проект оборудования неизвестен'), { status: 400 });
+    if (!catalogs.has(sys.projectId)) catalogs.set(sys.projectId, await catalogForProject(prisma, sys.projectId));
+    const models = catalogs.get(sys.projectId)!;
+    for (const el of sys.monoblocks.flatMap((m: any) => m.components)) {
     const info = await sourceInfo(el, models, byKey.get(bindingKey(el.id)) || null);
     el.originalSpecs = el.specs; el.specs = JSON.stringify({ groups: info.groups });
     el.catalogSource = { mode: info.mode, binding: info.binding, effective: info.effective, warnings: info.warnings, discrepancies: info.discrepancies };
+    }
   }
   for (const sys of systems) {
     const parents = new Map(displayParentLinks(sys.monoblocks.flatMap((m: any) => m.components) as any[]).map(e => [e.id, e.parentElementId]));

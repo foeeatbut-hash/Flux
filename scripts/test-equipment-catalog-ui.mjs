@@ -17,16 +17,25 @@ const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME 
 const page = await browser.newPage({ viewport: { width: 880, height: 900 } });
 const failures = [];
 let saved = null;
+let storedBinding = null;
 let previewValues = null;
+let previewRequest = null;
 let published = false;
+const requests = { project: 0, common: 0 };
 page.on('pageerror', error => failures.push(error.message));
 page.on('response', response => { if (response.status() >= 400) failures.push(`HTTP ${response.status()} ${response.url()}`); });
 page.route('**/api/equipment/component/catalog-fixture/catalog-source', async route => {
-  if (route.request().method() === 'PUT') { saved = route.request().postDataJSON(); return route.fulfill({ json: { ok: true, binding: { modelId: 'vf20' } } }); }
-  return route.fulfill({ json: { mode: 'hybrid', ...(published ? { binding: {
+  if (route.request().method() === 'PUT') {
+    saved = route.request().postDataJSON();
+    const model = saved.catalogueSource === 'common' ? commonFamily : catalogFamily;
+    storedBinding = { modelId: model.id, code: model.code, manufacturer: 'Завод', sourceType: 'family', catalogueSource: saved.catalogueSource, revision: 'binding-1', sourceRevision: '2026-10-01T00:00:00.000Z', values: saved.values, snapshot: model };
+    return route.fulfill({ json: { ok: true, binding: storedBinding } });
+  }
+  return route.fulfill({ json: { projectId: 'fixture-project', hasProjectCatalog: true, mode: 'hybrid', ...(published ? { binding: {
     modelId: 'vf20', code: 'VF-20', manufacturer: 'Завод', sourceType: 'family', sourceRevision: '2026-10-01T00:00:00.000Z',
     values: { drive: 'electric' }, snapshot: { ...catalogFamily, sourceType: 'family', sourceRevision: '2026-10-01T00:00:00.000Z' },
-  }, updateAvailable: { ...catalogFamily, sourceType: 'family', sourceRevision: '2026-10-02T00:00:00.000Z', specs: [{ label: { ru: 'Расход воздуха' }, value: { ru: '130' }, unit: 'м³/ч' }] } } : {}), matches: [], effective: [
+    catalogueSource: 'project', revision: 'binding-1',
+  }, updateAvailable: { ...catalogFamily, sourceType: 'family', sourceRevision: '2026-10-02T00:00:00.000Z', specs: [{ label: { ru: 'Расход воздуха' }, value: { ru: '130' }, unit: 'м³/ч' }] } } : storedBinding ? { binding: storedBinding } : {}), matches: [], effective: [
     { group: 'Параметры', key: 'Расход воздуха', value: '100', unit: 'м³/ч', source: 'xml' },
     { group: 'Параметры', key: 'Привод', value: 'ручной', source: 'xml' },
   ], discrepancies: [], warnings: [] } });
@@ -37,13 +46,20 @@ const catalogFamily = { id: 'vf20', classId: 'valves', manufacturerId: 'maker', 
     { key: 'size', label: { ru: 'Размер' }, kind: 'number' }],
   tables: [{ id: 'sizes', rows: [{ verified: true, values: { size: 100 } }, { verified: true, values: { size: 200 } }] }],
   specs: [{ label: { ru: 'Расход воздуха' }, value: { ru: '120' }, unit: 'м³/ч' }, { label: { ru: 'Привод' }, value: { ru: 'электрический' } }], positions: [] };
-page.route('**/api/catalog', route => route.fulfill({ json: {
+const commonFamily = { ...catalogFamily, id: 'vf-common', code: 'CM-20', title: { ru: 'Общий клапан CM-20' } };
+page.route('**/api/catalog**', route => {
+  const parsed = new URL(route.request().url());
+  const project = parsed.pathname === '/api/catalog/project';
+  if (project && (parsed.searchParams.get('projectId') !== 'fixture-project' || parsed.searchParams.get('source') !== 'project')) throw new Error(`unexpected project catalog query: ${parsed.search}`);
+  requests[project ? 'project' : 'common']++;
+  return route.fulfill({ json: {
   classes: [{ id: 'valves', code: 'valve', title: { ru: 'Клапаны' } }], manufacturers: [{ id: 'maker', name: 'Завод' }], components: [],
-  families: [published ? { ...catalogFamily, title: { ru: 'Клапан VF-20 новая ревизия' } } : catalogFamily],
-  meta: { vf20: { updatedAt: published ? '2026-10-02T00:00:00.000Z' : '2026-10-01T00:00:00.000Z' } },
-} }));
+  families: project ? [published ? { ...catalogFamily, title: { ru: 'Клапан VF-20 новая ревизия' } } : catalogFamily] : [commonFamily],
+  meta: { vf20: { updatedAt: published ? '2026-10-02T00:00:00.000Z' : '2026-10-01T00:00:00.000Z' }, 'vf-common': { updatedAt: '2026-10-01T00:00:00.000Z' } },
+} }); });
 page.route('**/api/equipment/component/catalog-fixture/catalog-source/preview', async route => {
   const request = route.request().postDataJSON();
+  previewRequest = request;
   previewValues = request.values;
   const electric = request.values?.drive === 'electric';
   return route.fulfill({ json: { code: 'VF-20', manufacturer: 'Завод', changes: [
@@ -53,43 +69,80 @@ page.route('**/api/equipment/component/catalog-fixture/catalog-source/preview', 
 });
 try {
   await page.goto(url);
+  const source = page.getByLabel('Каталог', { exact: true });
+  await source.waitFor();
+  if (await source.inputValue() !== 'project') throw new Error('project catalog is not selected by default');
   await page.getByRole('textbox', { name: 'Поиск модели каталога' }).fill('VF-20');
+  await page.getByRole('button', { name: /VF-20/ }).first().waitFor();
+  await source.selectOption('common');
+  await page.getByRole('textbox', { name: 'Поиск модели каталога' }).fill('CM-20');
+  const commonPreview = page.waitForResponse(response => response.url().endsWith('/catalog-source/preview') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: /CM-20/ }).first().click();
+  await commonPreview;
+  if (await page.getByRole('button', { name: /VF-20/ }).count()) throw new Error('project search results survived the switch to common');
+  if (previewRequest?.catalogueSource !== 'common' || previewRequest?.modelId !== 'vf-common' || saved) throw new Error(`common preview wrote data or used the wrong source: ${JSON.stringify(previewRequest)}`);
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent?.includes('Принять все различия') && !button.disabled));
+  const commonSave = page.waitForResponse(response => response.url().endsWith('/catalog-source') && response.request().method() === 'PUT');
+  await page.getByRole('button', { name: 'Принять все различия' }).click();
+  await commonSave;
+  if (saved?.catalogueSource !== 'common' || saved?.modelId !== 'vf-common') throw new Error(`common apply used the wrong source: ${JSON.stringify(saved)}`);
+  await page.reload();
+  await page.getByLabel('Каталог', { exact: true }).waitFor();
+  if (await page.getByLabel('Каталог', { exact: true }).inputValue() !== 'common') throw new Error('reload lost the saved common source');
+  await page.getByLabel('Выбранная модель').getByText('CM-20').waitFor();
+  saved = null; storedBinding = null;
+  await page.reload();
+  await page.getByLabel('Каталог', { exact: true }).waitFor();
+  if (await page.getByLabel('Каталог', { exact: true }).inputValue() !== 'project') throw new Error('project source was not restored for an unbound position');
+  await page.getByRole('textbox', { name: 'Поиск модели каталога' }).fill('VF-20');
+  const projectPreview = page.waitForResponse(response => response.url().endsWith('/catalog-source/preview') && response.request().method() === 'POST');
   await page.getByRole('button', { name: /VF-20/ }).first().click();
+  await projectPreview;
+  if (await page.getByRole('button', { name: /CM-20/ }).count()) throw new Error('common search results survived the switch to project');
+  if (previewRequest?.catalogueSource !== 'project') throw new Error('project preview omitted catalogueSource');
+  if (requests.project < 2 || requests.common < 1) throw new Error(`catalog cache did not change with source: ${JSON.stringify(requests)}`);
   if (saved) throw new Error('selecting a catalog family wrote data before explicit apply');
   await page.getByRole('button', { name: 'Характеристики' }).click();
   const sizeSelect = page.getByRole('combobox', { name: 'Размер' });
   if (await sizeSelect.inputValue() !== '') throw new Error('unset family parameter pretends to have a value');
   if ((await sizeSelect.locator('option:checked').textContent()) !== 'Выберите…') throw new Error('unset family parameter shows a variant instead of the placeholder');
+  const variantPreview = page.waitForResponse(response => response.url().endsWith('/catalog-source/preview') && response.request().method() === 'POST' && response.request().postDataJSON().values?.drive === 'electric');
   await page.getByRole('combobox', { name: 'Привод' }).selectOption('electric');
+  await variantPreview;
   await page.getByText('Изменения относительно карточки').waitFor();
-  const previewDeadline = Date.now() + 5000;
-  while (previewValues?.drive !== 'electric' && Date.now() < previewDeadline) await new Promise(resolve => setTimeout(resolve, 20));
   if (previewValues?.drive !== 'electric') throw new Error('variant preview did not include the chosen family value');
   if (saved) throw new Error('changing a family variant wrote data before explicit apply');
-  for (const theme of ['light', 'dark']) {
-    await page.evaluate(value => document.documentElement.classList.toggle('dark', value === 'dark'), theme);
-    const bounds = await page.locator('main').evaluate(element => { const box = element.getBoundingClientRect(); return { width: box.width, right: box.right, viewport: innerWidth, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }; });
+  for (const width of [1440, 1024]) for (const theme of ['light', 'dark']) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(value => { document.documentElement.classList.toggle('dark', value === 'dark'); document.body.style.backgroundColor = value === 'dark' ? '#0f172a' : '#ffffff'; }, theme);
+    const bounds = await page.locator('main').evaluate(element => { const box = element.getBoundingClientRect(); const selector = element.querySelector('select'); const rect = selector?.getBoundingClientRect(); const style = selector && getComputedStyle(selector); return { width: box.width, right: box.right, viewport: innerWidth, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth, documentScrollWidth: document.documentElement.scrollWidth, selector: rect && { width: rect.width, height: rect.height, left: rect.left, right: rect.right, fontSize: style?.fontSize, fontWeight: style?.fontWeight } }; });
     if (bounds.scrollWidth > bounds.clientWidth + 1) throw new Error(`catalog content overflows horizontally in ${theme}: ${JSON.stringify(bounds)}`);
     if (bounds.right > bounds.viewport + 1) throw new Error(`catalog panel overflows in ${theme}: ${JSON.stringify(bounds)}`);
-    await page.screenshot({ path: path.join('/tmp', `flux-equipment-catalog-ui-${theme}.png`) });
+    if (bounds.documentScrollWidth > width + 1 || !bounds.selector || bounds.selector.width <= 0 || bounds.selector.height <= 0 || bounds.selector.right > bounds.right + 1) throw new Error(`catalog selector overflows in ${width}/${theme}: ${JSON.stringify(bounds)}`);
+    console.log(JSON.stringify({ width, theme, bounds }));
+    await page.screenshot({ path: path.join('/tmp', `flux-equipment-catalog-ui-${width}-${theme}.png`), omitBackground: false });
   }
+  const singleSave = page.waitForResponse(response => response.url().endsWith('/catalog-source') && response.request().method() === 'PUT');
   await page.getByRole('button', { name: 'Принять параметр' }).first().click();
-  const saveDeadline = Date.now() + 5000;
-  while (!saved && Date.now() < saveDeadline) await new Promise(resolve => setTimeout(resolve, 20));
+  await singleSave;
   if (!Array.isArray(saved?.acceptedCatalogParams) || saved.acceptedCatalogParams.length !== 1 || saved.acceptedCatalogParams[0] !== 'Параметры||Расход воздуха') throw new Error(`single-parameter apply wrote an invalid accepted address: ${JSON.stringify(saved)}`);
   if (saved.expectedPublishedRevision !== '2026-10-01T00:00:00.000Z') throw new Error(`single-parameter apply omitted its preview revision: ${JSON.stringify(saved)}`);
+  if (saved.catalogueSource !== 'project') throw new Error(`project apply omitted catalogueSource: ${JSON.stringify(saved)}`);
   saved = null;
   await page.reload();
+  await page.getByLabel('Выбранная модель').getByText('VF-20').waitFor();
+  if (await page.getByLabel('Каталог', { exact: true }).inputValue() !== 'project') throw new Error('reload lost the saved project source');
   await page.getByRole('textbox', { name: 'Поиск модели каталога' }).fill('VF-20');
   await page.getByRole('button', { name: /VF-20/ }).first().click();
   await page.getByRole('button', { name: 'Характеристики' }).click();
   previewValues = null;
+  const allPreview = page.waitForResponse(response => response.url().endsWith('/catalog-source/preview') && response.request().method() === 'POST' && response.request().postDataJSON().values?.drive === 'electric');
   await page.getByRole('combobox', { name: 'Привод' }).selectOption('electric');
-  const allPreviewDeadline = Date.now() + 5000;
-  while (previewValues?.drive !== 'electric' && Date.now() < allPreviewDeadline) await new Promise(resolve => setTimeout(resolve, 20));
+  await allPreview;
+  if (previewValues?.drive !== 'electric') throw new Error('all-parameter preview omitted the chosen family value');
+  const allSave = page.waitForResponse(response => response.url().endsWith('/catalog-source') && response.request().method() === 'PUT');
   await page.getByRole('button', { name: 'Принять все различия' }).click();
-  const allSaveDeadline = Date.now() + 5000;
-  while (!saved && Date.now() < allSaveDeadline) await new Promise(resolve => setTimeout(resolve, 20));
+  await allSave;
   if (saved.expectedPublishedRevision !== '2026-10-01T00:00:00.000Z') throw new Error(`all-parameter apply omitted its preview revision: ${JSON.stringify(saved)}`);
   await page.reload();
   await page.getByRole('textbox', { name: 'Поиск модели каталога' }).fill('VF-20');
@@ -117,4 +170,4 @@ try {
 if (!saved) throw new Error('explicit catalog acceptance did not persist');
 if (saved.expectedVersion !== 1 || saved.values?.drive !== 'electric' || saved.acceptedCatalogParams?.length !== 2) throw new Error(`variant or version was not persisted: ${JSON.stringify(saved)}`);
 if (failures.length) throw new Error(`browser errors: ${failures.join('; ')}`);
-console.log(JSON.stringify({ previewOnlyBeforeAccept: true, singleAndAllApply: true, publicationRefreshPreservesSnapshotAndSelection: true, accepted: saved.acceptedCatalogParams, expectedVersion: saved.expectedVersion, variant: saved.values, screenshots: ['light', 'dark'].map(theme => `/tmp/flux-equipment-catalog-ui-${theme}.png`) }, null, 2));
+console.log(JSON.stringify({ previewOnlyBeforeAccept: true, singleAndAllApply: true, publicationRefreshPreservesSnapshotAndSelection: true, accepted: saved.acceptedCatalogParams, expectedVersion: saved.expectedVersion, variant: saved.values, screenshots: [1440, 1024].flatMap(width => ['light', 'dark'].map(theme => `/tmp/flux-equipment-catalog-ui-${width}-${theme}.png`)) }, null, 2));

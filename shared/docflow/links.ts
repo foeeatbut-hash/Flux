@@ -87,6 +87,7 @@ export function relativePathProblem(relativePath: string, fileName: string): str
   if (/[\u0000-\u001f]/.test(relativePath) || /^[\\/]/.test(relativePath) || /^[A-Za-z]:/.test(relativePath)) return 'Путь файла должен быть внутри папки проекта';
   const parts = relativePath.split(/[\\/]+/);
   if (parts.some((p) => !p || p === '.' || p === '..')) return 'Путь файла содержит недопустимые сегменты';
+  if (parts.some((p) => /[<>:"|?*]/.test(p) || /[. ]$/.test(p) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(p))) return 'Путь файла содержит недопустимое для Windows имя сегмента';
   if (typeof fileName !== 'string' || parts[parts.length - 1].toLowerCase() !== fileName.toLowerCase()) return 'Имя файла не совпадает с концом пути';
   return null;
 }

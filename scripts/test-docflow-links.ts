@@ -42,6 +42,10 @@ async function main() {
   check('путь за пределами цепочки — пусто', relativeInBinding('a.pdf', 3) === '' && relativeInBinding('a.pdf', 0) === '');
   check('ключ поиска не зависит от регистра и вида слэша', linkLookupKey(WORK, 'E02\\X.PDF') === linkLookupKey(WORK, 'e02/x.pdf'));
   check('«..» и абсолютный путь отвергаются', !!relativePathProblem('../x.pdf', 'x.pdf') && !!relativePathProblem('C:/x.pdf', 'x.pdf') && !!relativePathProblem('/x.pdf', 'x.pdf'));
+  for (const segment of ['CON', 'prn.txt', 'AUX', 'nul.log', 'COM1', 'com9.pdf', 'LPT1', 'lpt9.txt', 'папка.', 'папка ']) {
+    check(`Windows не принимает сегмент «${segment}»`, !!relativePathProblem(`${segment}/x.pdf`, 'x.pdf') && !!relativePathProblem(segment, segment));
+  }
+  check('похожие допустимые имена не блокируются', relativePathProblem('console/COM10.txt', 'COM10.txt') === null);
   check('имя должно быть концом пути', !!relativePathProblem('a/b.pdf', 'c.pdf') && relativePathProblem('a/B.PDF', 'b.pdf') === null);
 
   // ── Права и общий страж проекта ──

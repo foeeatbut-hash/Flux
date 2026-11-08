@@ -11,7 +11,8 @@ import { oncePerDatabase } from '../schemaRuntime.js';
 import { registerCatalogAssetRoutes } from './catalogAssets.js';
 import { registerCatalogUsageRoutes } from './catalogUsage.js';
 import { registerCatalogWorkspaceRoutes } from './catalogWorkspace.js';
-import { catalogSetting } from '../catalogWorkspace.js';
+import { registerProjectCatalogRoutes } from './projectCatalog.js';
+import { catalogSetting, assertGlobalFamily } from '../catalogWorkspace.js';
 import { syncCatalogSeed } from '../catalogSeed.js';
 
 /**
@@ -38,12 +39,17 @@ const TABLES: TableSpec[] = [
   {
     table: 'CatalogFamily',
     cols: base([
+      txt('projectId'), txt('basedOnFamilyId'), txt('basedOnRevision'), long('baseDataJson'), long('overridesJson'),
       txt('classId', { notNull: true, indexed: true }), txt('manufacturerId', { notNull: true }), txt('code', { notNull: true }), long('dataJson'),
       txt('status', { notNull: true, def: 'draft' }), { name: 'seedVersion', kind: 'int', notNull: true, def: 0 },
       { name: 'edited', kind: 'bool', notNull: true, def: false }, { name: 'sort', kind: 'int', notNull: true, def: 0 },
       txt('updatedById'), time('deletedAt', false),
     ]),
-    indexes: [{ name: 'CatalogFamily_classId_idx', cols: ['classId'] }],
+    indexes: [
+      { name: 'CatalogFamily_classId_idx', cols: ['classId'] },
+      { name: 'CatalogFamily_projectId_idx', cols: ['projectId'] },
+      { name: 'CatalogFamily_projectId_basedOnFamilyId_key', cols: ['projectId', 'basedOnFamilyId'], unique: true },
+    ],
   },
   { table: 'CatalogComponent', cols: base([txt('classId', { notNull: true, indexed: true }), txt('kind', { notNull: true, def: 'other' }), txt('code', { notNull: true }), long('dataJson')]), indexes: [{ name: 'CatalogComponent_classId_idx', cols: ['classId'] }] },
   { table: 'CatalogTagRule', cols: base([txt('classId', { notNull: true, indexed: true }), txt('code', { notNull: true }), long('dataJson')]), indexes: [{ name: 'CatalogTagRule_classId_idx', cols: ['classId'] }] },
@@ -93,7 +99,7 @@ export async function readCatalog(prisma: any, withDeleted = false): Promise<Cat
   const [classes, mfs, fams, comps, rules] = await Promise.all([
     prisma.catalogClass.findMany({ orderBy: { sort: 'asc' } }),
     prisma.catalogManufacturer.findMany({ orderBy: { name: 'asc' } }),
-    prisma.catalogFamily.findMany({ where: withDeleted ? {} : { deletedAt: null }, orderBy: [{ sort: 'asc' }, { code: 'asc' }] }),
+    prisma.catalogFamily.findMany({ where: { projectId: null, ...(withDeleted ? {} : { deletedAt: null }) }, orderBy: [{ sort: 'asc' }, { code: 'asc' }] }),
     prisma.catalogComponent.findMany({ orderBy: { code: 'asc' } }),
     prisma.catalogTagRule.findMany({ orderBy: { code: 'asc' } }),
   ]);
@@ -113,7 +119,7 @@ export async function readCatalog(prisma: any, withDeleted = false): Promise<Cat
 async function stampOf(prisma: any): Promise<string> {
   const publication = await catalogSetting(prisma, 'catalog_publication', { number: 0 });
   const parts = await Promise.all([
-    prisma.catalogFamily.aggregate({ _max: { updatedAt: true }, _count: true }),
+    prisma.catalogFamily.aggregate({ where: { projectId: null }, _max: { updatedAt: true }, _count: true }),
     prisma.catalogComponent.aggregate({ _max: { updatedAt: true }, _count: true }),
     prisma.catalogTagRule.aggregate({ _max: { updatedAt: true }, _count: true }),
     prisma.catalogClass.aggregate({ _max: { updatedAt: true }, _count: true }),
@@ -127,6 +133,7 @@ async function snapshot(prisma: any, entity: string, entityId: string, action: s
 }
 
 export function registerCatalogRoutes(app: Express, can: (user: any, feature: string) => boolean): void {
+  registerProjectCatalogRoutes(app);
   registerCatalogAssetRoutes(app, { ensure: ensureCatalog, read: readCatalog, can });
   registerCatalogWorkspaceRoutes(app, { ensure: ensureCatalog, read: readCatalog, can });
   registerCatalogSpreadsheetRoutes(app, { ensure: ensureCatalog, readCatalog, can });
@@ -152,12 +159,13 @@ export function registerCatalogRoutes(app: Express, can: (user: any, feature: st
     try {
       const prisma = getPrisma();
       await ensureCatalog(prisma);
+      await assertGlobalFamily(prisma, String(req.params.entity), String(req.params.id));
       const rows = await prisma.catalogRevision.findMany({
         where: { entity: String(req.params.entity), entityId: String(req.params.id) },
         orderBy: { createdAt: 'desc' }, take: 50,
       });
       res.json({ revisions: rows.map((r: any) => ({ id: r.id, action: r.action, userId: r.userId, createdAt: r.createdAt })) });
-    } catch (err: any) { sendError(res, err); }
+    } catch (err: any) { sendError(res, err, err.status || 500); }
   });
 
   // Экспорт всегда содержит только опубликованные данные.
@@ -180,7 +188,9 @@ export function registerCatalogRoutes(app: Express, can: (user: any, feature: st
         where: req.query.classId ? { classId: String(req.query.classId) } : {},
         orderBy: { updatedAt: 'desc' }, take: 5000,
       });
-      res.json({ learned: rows.map((r: any) => ({ id: r.id, classId: r.classId, signature: r.signature, familyId: r.familyId, values: parse(r.valuesJson, {}), count: r.count, updatedAt: r.updatedAt })) });
+      const globalFamilies = await prisma.catalogFamily.findMany({ where: { projectId: null, id: { in: rows.map((r: any) => r.familyId) } }, select: { id: true } });
+      const allowedIds = new Set(globalFamilies.map((r: any) => r.id));
+      res.json({ learned: rows.filter((r: any) => allowedIds.has(r.familyId)).map((r: any) => ({ id: r.id, classId: r.classId, signature: r.signature, familyId: r.familyId, values: parse(r.valuesJson, {}), count: r.count, updatedAt: r.updatedAt })) });
     } catch (err: any) { sendError(res, err); }
   });
 

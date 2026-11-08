@@ -273,6 +273,17 @@
       ],
       "prerequisites": [],
       "timeoutMs": 90000
+    },
+    {
+      "id": "docflow-catalog-copy",
+      "path": "scripts/test-docflow-catalog-copy.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
     }
   ],
   "actions": [
@@ -609,6 +620,33 @@
           "layer": "component",
           "claims": [
             "Создание подтверждается человеком; повтор и отмена учитывают состояние сервера и изменения файла"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "docflow.copy-project-catalog",
+      "program": "docflow",
+      "label": "Перенос настроек с каталогом проекта",
+      "sources": [
+        "server/docflowCatalogCopy.ts"
+      ],
+      "triggers": [
+        "POST /api/docflow/settings/copy-plan",
+        "POST /api/docflow/settings/copy-apply",
+        "POST /api/docflow/settings/undo"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Перенос каталога требует прав и доступа к обоим проектам, предпросмотра и безопасной отмены одной транзакцией"
+      ],
+      "checks": [
+        {
+          "suite": "docflow-catalog-copy",
+          "layer": "api-db",
+          "claims": [
+            "Права, изоляция, ремап ссылок, версии, повтор и атомарная отмена проверяются на SQLite"
           ]
         }
       ],

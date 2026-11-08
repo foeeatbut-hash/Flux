@@ -2,7 +2,7 @@
 import type { Express, Request, Response } from 'express';
 import { randomUUID, createHash } from 'node:crypto';
 import { getPrisma, sendError } from '../context.js';
-import { catalogAllowed, catalogFailure, catalogSetting, putCatalogSetting } from '../catalogWorkspace.js';
+import { catalogAllowed, assertGlobalFamily, catalogFailure, catalogSetting, putCatalogSetting } from '../catalogWorkspace.js';
 interface Deps { ensure: (db: any) => Promise<void>; read: (db: any) => Promise<any>; can: (user: any, feature: string) => boolean }
 const CHUNK = 256 * 1024; const MAX = 32 * 1024 * 1024;
 export function registerCatalogAssetRoutes(app: Express, deps: Deps) {
@@ -70,7 +70,7 @@ export function registerCatalogAssetRoutes(app: Express, deps: Deps) {
     await putCatalogSetting(db, `catalog_asset:${meta.id}`, { ...meta, mime, complete: true }); res.json({ ok: true, assetId: meta.id });
   }));
   app.get('/api/catalog/assets/:id', run(async (req, res, db, user) => {
-    const meta = await metaOf(db, String(req.params.id)); if (!meta.complete) catalogFailure(409, 'Загрузка не завершена');
+    const meta = await metaOf(db, String(req.params.id)); if (meta.familyId) await assertGlobalFamily(db, 'family', meta.familyId); if (!meta.complete) catalogFailure(409, 'Загрузка не завершена');
     const catalog = await deps.read(db);
     const references = (f: any) => f.catalog?.assetId === meta.id || f.documents?.some((d: any) => d.assetId === meta.id)
       || f.sections?.some((s: any) => s.source?.assetId === meta.id) || f.tables?.some((t: any) => t.source?.assetId === meta.id);
@@ -78,9 +78,12 @@ export function registerCatalogAssetRoutes(app: Express, deps: Deps) {
     let previouslyPublished = false;
     if (!published && !await catalogAllowed(db, user, 'edit', meta.scope, deps.can)) {
       // Старые проекты сохраняют доступ к своему опубликованному исходнику.
-      const historical = await db.catalogRevision.findMany({ where: { entity: { in: ['family', 'component'] }, action: { in: ['published', 'before-publication'] }, snapshotJson: { contains: meta.id } }, select: { snapshotJson: true }, take: 100 });
+      const historical = await db.catalogRevision.findMany({ where: { entity: { in: ['family', 'component'] }, action: { in: ['published', 'before-publication'] }, snapshotJson: { contains: meta.id } }, select: { snapshotJson: true, entity: true, entityId: true }, take: 100 });
+      const projectFamilies = await db.catalogFamily.findMany({ where: { projectId: { not: null }, id: { in: historical.filter((r: any) => r.entity === 'family').map((r: any) => r.entityId) } }, select: { id: true } });
+      const projectIds = new Set(projectFamilies.map((r: any) => r.id));
       previouslyPublished = historical.some((row: any) => {
-        const snapshot = JSON.parse(row.snapshotJson); const doc = JSON.parse(snapshot.dataJson || '{}');
+        if (row.entity === 'family' && projectIds.has(row.entityId)) return false;
+        const snapshot = JSON.parse(row.snapshotJson); if (snapshot.projectId != null) return false; const doc = JSON.parse(snapshot.dataJson || '{}');
         return references(doc);
       });
       if (!previouslyPublished) catalogFailure(403, 'Исходник ещё не опубликован');

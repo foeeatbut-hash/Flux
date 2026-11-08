@@ -1,9 +1,10 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, broadcast } from '../context.js';
-import { isAdminActor } from '../projectAccess.js';
-import { canSeeProject } from './members.js';
+import { actorMay, isAdminActor }  from '../projectAccess.js';
+import { canSeeProject, roleGrantsOf } from './members.js';
+import { docflowScope } from '../docflowScope.js';
 import {
-  DocflowSettingsConflict, readSettings, rawSettingsConfig, writeSettings, copyPlan, applyCopy, undoLast, validSections,
+  DocflowSettingsConflict, readSettings, rawSettingsConfig, writeSettings, copyPlan, applyCopy, undoLast, undoNeedsCatalog, validSections,
   listTemplates, saveTemplate, migrationPlan, applyMigration, undoMigration,
 } from '../docflowSettings.js';
 import { DocflowPlanError } from '../docflowPlans.js';
@@ -18,6 +19,7 @@ import { maskErrors } from '../../shared/docflow/nameMask.js';
 
 const actorOf = (req: Request) => (req as any).authUser || null;
 const fail = (res: Response, err: any) => {
+  if (err?.code === 'P2034') return res.status(409).json({ error: 'Данные изменились одновременно. Обновите предпросмотр.', conflict: true });
   if (err instanceof DocflowSettingsConflict || err instanceof DocflowPlanError) return res.status(err.status).json({ error: err.message, conflict: err.status === 409 });
   res.status(500).json({ error: err?.message || 'Ошибка настроек документооборота' });
 };
@@ -74,7 +76,8 @@ export function registerDocflowRoutes(app: Express): void {
     try {
       const { projectId, from } = req.body || {};
       if (!(await mayReadSource(req, from || {}))) return res.status(403).json({ error: 'Нет доступа к проекту-источнику' });
-      res.json(await copyPlan(getPrisma(), String(projectId), from || {}, validSections(req.body?.sections)));
+      if (req.body?.includeCatalog) { await docflowScope(req, 'docflow.settings'); if (!await actorMay(actorOf(req), roleGrantsOf, 'catalog.project')) return res.status(403).json({ error: 'Нет права на каталог проекта' }); }
+      res.json(await copyPlan(getPrisma(), String(projectId), from || {}, validSections(req.body?.sections, req.body?.includeCatalog === true), req.body?.includeCatalog === true));
     } catch (err) { fail(res, err); }
   });
 
@@ -82,9 +85,10 @@ export function registerDocflowRoutes(app: Express): void {
     try {
       const { projectId, from } = req.body || {};
       if (!(await mayReadSource(req, from || {}))) return res.status(403).json({ error: 'Нет доступа к проекту-источнику' });
+      if (req.body?.includeCatalog) { await docflowScope(req, 'docflow.settings'); if (!await actorMay(actorOf(req), roleGrantsOf, 'catalog.project')) return res.status(403).json({ error: 'Нет права на каталог проекта' }); }
       const view = await applyCopy(getPrisma(), {
-        projectId: String(projectId), from: from || {}, sections: validSections(req.body?.sections),
-        expected: expectedOf(req.body?.expectedUpdatedAt), actorId: String(actorOf(req)?.id || ''),
+        projectId: String(projectId), from: from || {}, sections: validSections(req.body?.sections, req.body?.includeCatalog === true),
+        expected: expectedOf(req.body?.expectedUpdatedAt), actorId: String(actorOf(req)?.id || ''), includeCatalog: req.body?.includeCatalog === true, catalogToken: req.body?.catalogToken,
       });
       announce(String(projectId));
       res.json(view);
@@ -94,7 +98,9 @@ export function registerDocflowRoutes(app: Express): void {
   app.post('/api/docflow/settings/undo', async (req: Request, res: Response) => {
     try {
       const projectId = String(req.body?.projectId || '');
-      const view = await undoLast(getPrisma(), projectId, String(actorOf(req)?.id || ''));
+      const mayUndoCatalog = await actorMay(actorOf(req), roleGrantsOf, 'catalog.project');
+      if (mayUndoCatalog || await undoNeedsCatalog(getPrisma(), projectId)) { await docflowScope(req, 'docflow.settings'); if (!mayUndoCatalog) return res.status(403).json({ error: 'Нет права на каталог проекта' }); }
+      const view = await undoLast(getPrisma(), projectId, String(actorOf(req)?.id || ''), mayUndoCatalog);
       announce(projectId);
       res.json(view);
     } catch (err) { fail(res, err); }

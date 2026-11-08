@@ -35,10 +35,10 @@ export const getSettings = (projectId: string) => docflowCall<SettingsView>('GET
 export const putSettings = (projectId: string, config: DocflowConfig, expectedUpdatedAt: string | null) =>
   docflowCall<SettingsView & { current?: SettingsView }>('PUT', '/api/docflow/settings', { projectId, config, expectedUpdatedAt });
 export type CopySource = { projectId?: string; templateId?: string };
-export const copyPlan = (projectId: string, from: CopySource, sections: string[]) =>
-  docflowCall<{ source: SettingsSourceView; expected: string | null; sections: Array<{ key: string; label: string; lines: string[] }> }>('POST', '/api/docflow/settings/copy-plan', { projectId, from, sections });
-export const copyApply = (projectId: string, from: CopySource, sections: string[], expectedUpdatedAt: string | null) =>
-  docflowCall<SettingsView>('POST', '/api/docflow/settings/copy-apply', { projectId, from, sections, expectedUpdatedAt });
+export const copyPlan = (projectId: string, from: CopySource, sections: string[], includeCatalog = false) =>
+  docflowCall<{ source: SettingsSourceView; expected: string | null; sections: Array<{ key: string; label: string; lines: string[] }>; catalogToken?: string }>('POST', '/api/docflow/settings/copy-plan', { projectId, from, sections, includeCatalog });
+export const copyApply = (projectId: string, from: CopySource, sections: string[], expectedUpdatedAt: string | null, includeCatalog = false, catalogToken?: string) =>
+  docflowCall<SettingsView>('POST', '/api/docflow/settings/copy-apply', { projectId, from, sections, expectedUpdatedAt, includeCatalog, catalogToken });
 export const undoSettings = (projectId: string) => docflowCall<SettingsView>('POST', '/api/docflow/settings/undo', { projectId });
 export const listTemplates = () => docflowCall<{ templates: TemplateView[] }>('GET', '/api/docflow/templates');
 export const saveTemplate = (projectId: string, name: string) => docflowCall<{ template: { id: string; name: string } }>('POST', '/api/docflow/templates', { projectId, name });

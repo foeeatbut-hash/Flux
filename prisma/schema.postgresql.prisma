@@ -1853,6 +1853,13 @@ model CatalogManufacturer {
 
 model CatalogFamily {
   id             String    @id @default(uuid())
+  /// Пусто — общий каталог; проектная позиция читается только в своём проекте.
+  projectId       String?
+  basedOnFamilyId String?
+  basedOnRevision String?
+  /// Закреплённый снимок общего и явная разница; dataJson — действующий документ.
+  baseDataJson    String    @default("{}")
+  overridesJson   String    @default("{}")
   classId        String
   manufacturerId String
   code           String
@@ -1870,6 +1877,8 @@ model CatalogFamily {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  @@unique([projectId, basedOnFamilyId])
+  @@index([projectId])
   @@index([classId])
 }
 

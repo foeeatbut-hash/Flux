@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, sendError } from '../context.js';
 import { canSeeProject } from './members.js';
+import { assertGlobalFamily } from '../catalogWorkspace.js';
 import { isAdminActor } from '../projectAccess.js';
 
 /**
@@ -30,6 +31,7 @@ export function registerCatalogUsageRoutes(app: Express): void {
       if (!actor?.id) return res.status(401).json({ error: 'Нужно войти в программу' });
       const prisma = getPrisma();
       const familyId = String(req.params.id);
+      await assertGlobalFamily(prisma, 'family', familyId);
       let items: any[] = [];
       try {
         items = await prisma.selectionItem.findMany({ where: { familyId, deletedAt: null }, select: { listId: true, projectId: true, dataJson: true } });
@@ -59,6 +61,6 @@ export function registerCatalogUsageRoutes(app: Express): void {
       }
       const usage = [...byProject.values()].filter((p) => p.items > 0).sort((a, b) => b.items - a.items || a.projectName.localeCompare(b.projectName, 'ru'));
       res.json({ usage, total: { projects: usage.length, items: usage.reduce((s, p) => s + p.items, 0), qty: usage.reduce((s, p) => s + p.qty, 0) } });
-    } catch (err: any) { sendError(res, err); }
+    } catch (err: any) { sendError(res, err, err.status || 500); }
   });
 }

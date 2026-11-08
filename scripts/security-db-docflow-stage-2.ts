@@ -13,6 +13,8 @@ import { registerEquipmentClassRoutes } from '../server/routes/equipmentClasses.
 import { registerDocflowKitRoutes } from '../server/routes/docflowKits.js';
 import { registerDocflowCreateFileRoutes } from '../server/routes/docflowCreateFiles.js';
 import { registerProjectFolderBindingRoutes } from '../server/routes/projectFolderBindings.js';
+import { planProjectFamily, applyProjectFamily, undoProjectFamily } from '../server/projectCatalogPlans.js';
+import { familyDocument, projectFamilyRevision } from '../server/projectCatalogData.js';
 
 const require = createRequire(import.meta.url);
 assert.equal(process.env.FLUX_TEST_FIXTURE_DOCFLOW_STAGE2, '1', 'нужен marker одноразовой fixture');
@@ -145,6 +147,56 @@ async function main() {
     assert.equal((await fileCall('undo', { projectId: 'a', planId: fileWinner.plan.body.id }, fileWinner.actor)).status, 200);
     assert.equal(await db.docFileLink.count({ where: { unlinkedAt: null } }), 0); assert.equal(await db.docFileLink.count(), 1);
     console.log(`✓ ${provider}: создание файла, конкурентный резерв, повтор и отмена`);
+
+    // Все действия проходят через те же планы и транзакции, что HTTP-маршрут.
+    await db.catalogManufacturer.create({ data: { id: 'maker', name: 'Изготовитель' } });
+    const commonDocument = { id: 'common-family', classId: 'class', manufacturerId: 'maker', code: 'COMMON', title: { ru: 'Модель' }, typeLabel: { ru: 'Тип' }, kind: 'fan', shapes: [], match: { kinds: [] }, status: 'partial', designationMode: 'free', params: [], positions: [], specs: [], rules: [] };
+    const common = await db.catalogFamily.create({ data: { id: commonDocument.id, classId: 'class', manufacturerId: 'maker', code: commonDocument.code, status: commonDocument.status, dataJson: JSON.stringify(commonDocument) } });
+    const scope = { prisma: db, projectId: 'a', actorId: 'admin' };
+    const snapshot = (id: string) => db.catalogFamily.findUnique({ where: { id } });
+    const preview = (input: any) => planProjectFamily(scope, input);
+    const take = await preview({ operation: 'take', familyId: common.id });
+    const familyId = take.rows[0].id;
+    assert.equal(await snapshot(familyId), null, 'предпросмотр не создаёт позицию');
+    await applyProjectFamily(scope, take.id);
+    let project = await snapshot(familyId);
+    assert.equal(project.basedOnRevision, projectFamilyRevision(common));
+    assert.equal(project.baseDataJson, JSON.stringify(familyDocument(project)), 'зафиксирован исходный документ');
+    const duplicate = { ...project, id: 'duplicate-project-family' };
+    delete duplicate.createdAt; delete duplicate.updatedAt;
+    await assert.rejects(db.catalogFamily.create({ data: duplicate }), 'SQL уникальность проекта и общей позиции');
+    const localDocument = { ...familyDocument(project), code: 'PROJECT-OVERRIDE' };
+    const edit = await preview({ operation: 'edit', familyId, expectedRevision: projectFamilyRevision(project), document: localDocument });
+    await applyProjectFamily(scope, edit.id);
+    project = await snapshot(familyId);
+    assert.equal(familyDocument(project).code, 'PROJECT-OVERRIDE');
+    const pinned = project.baseDataJson;
+    const modifiedCommon = { ...familyDocument(common), code: 'COMMON-CHANGED' };
+    await db.catalogFamily.update({ where: { id: common.id }, data: { code: modifiedCommon.code, dataJson: JSON.stringify(modifiedCommon), updatedAt: new Date(common.updatedAt.getTime() + 1000) } });
+    const changedCommon = await snapshot(common.id);
+    project = await snapshot(familyId);
+    assert.equal(project.baseDataJson, pinned, 'общая правка не меняет закреплённую основу');
+    assert.equal(familyDocument(project).code, 'PROJECT-OVERRIDE');
+    assert.notEqual(project.basedOnRevision, projectFamilyRevision(changedCommon));
+    const update = await preview({ operation: 'update', familyId, expectedRevision: projectFamilyRevision(project) });
+    assert.ok(update.rows[0].conflicts.some((x: any) => x.path.join('.') === 'code'), 'показан конфликт изменений');
+    await applyProjectFamily(scope, update.id);
+    project = await snapshot(familyId);
+    assert.equal(project.basedOnRevision, projectFamilyRevision(changedCommon));
+    assert.equal(familyDocument(project).code, 'PROJECT-OVERRIDE', 'переопределение сохранено');
+    const reset = await preview({ operation: 'reset', familyId, expectedRevision: projectFamilyRevision(project) });
+    await applyProjectFamily(scope, reset.id);
+    project = await snapshot(familyId);
+    assert.equal(familyDocument(project).code, 'COMMON-CHANGED', 'сброс к закреплённой основе');
+    await assert.rejects(undoProjectFamily(scope, update.id), 'отмена не затирает последующий сброс');
+    await undoProjectFamily(scope, reset.id);
+    project = await snapshot(familyId);
+    assert.equal(familyDocument(project).code, 'PROJECT-OVERRIDE', 'отмена восстанавливает локальную правку');
+    await assert.rejects(planProjectFamily({ ...scope, projectId: 'b' }, { operation: 'take', familyId }), 'проектная позиция не может быть общей основой');
+    await assert.rejects(planProjectFamily({ ...scope, projectId: 'b' }, { operation: 'edit', familyId, expectedRevision: projectFamilyRevision(project), document: familyDocument(project) }), 'чужой проект не меняет позицию');
+    assert.equal((await snapshot(common.id)).dataJson, JSON.stringify(modifiedCommon), 'проектные действия не изменили общий документ');
+    console.log(`✓ ${provider}: каталог проекта, закрепление, обновление, SQL уникальность и безопасная отмена`);
+
 
 
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); await db.$disconnect(); if (local) fs.rmSync(tmp, { recursive: true, force: true }); }

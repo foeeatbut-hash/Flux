@@ -80,6 +80,13 @@ async function main() {
     const noTemplate = await post('plan', { ...payload, format: 'xlsx', useTemplates: false });
     check('отказ от шаблона использует выбранный формат', noTemplate.status === 200 && noTemplate.body.rows.every((row: any) => row.template === '' && row.format === 'xlsx' && row.fileName.endsWith('_A.xlsx')));
     for (const format of ['pdf', 'txt']) { const candidate = await post('plan', { ...payload, format, useTemplates: false }); check(`выбранный ${format} сохраняется`, candidate.status === 200 && candidate.body.rows.every((row: any) => row.format === format && row.fileName.endsWith(`_A.${format}`))); }
+    const settingsBefore = await db.docflowSettings.findUnique({ where: { projectId: 'a' } });
+    for (const segment of ['CON', 'prn.txt', 'AUX', 'nul.log', 'COM1', 'com9.pdf', 'LPT1', 'lpt9.txt', 'папка.', 'папка ']) {
+      await db.docflowSettings.update({ where: { projectId: 'a' }, data: { config: JSON.stringify({ ...JSON.parse(settingsBefore.config), folders: { work: segment } }) } });
+      const invalid = await post('plan', payload);
+      check(`недопустимая папка «${segment}» отклоняется до создания файлов`, invalid.status === 422 && /путь|сегмент|имя/i.test(invalid.body.error || ''));
+    }
+    await db.docflowSettings.update({ where: { projectId: 'a' }, data: { config: settingsBefore.config } });
     const plan = await post('plan', payload);
     check('план доступен с files без edit', plan.status === 200 && typeof plan.body.id === 'string' && plan.body.rows.length === 2);
     check('план не создаёт ссылки', await db.docFileLink.count() === 0 && plan.body.rows.every((row: any) => row.action === 'create' && row.folderKey === WORK && row.fileName.endsWith('_A.docx')));
