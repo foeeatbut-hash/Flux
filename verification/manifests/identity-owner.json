@@ -254,6 +254,27 @@
       ],
       "prerequisites": [],
       "timeoutMs": 180000
+    },
+    {
+      "id": "identity-review-auth-unit",
+      "path": "scripts/test-review-auth.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 60000
+    },
+    {
+      "id": "identity-review-auth-live",
+      "path": "scripts/test-review-auth-live.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "loopback-http",
+        "synthetic-sqlite"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 240000
     }
   ],
   "actions": [

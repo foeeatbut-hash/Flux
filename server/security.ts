@@ -8,6 +8,7 @@
  * промежуточного слоя server.ts их можно проверить только живым запросом.
  */
 import crypto from 'crypto';
+import path from 'node:path';
 import { authTokenFromRequest } from './authCookies.js';
 import type { Request, Response, NextFunction } from 'express';
 
@@ -382,4 +383,22 @@ export async function dropRevokedSockets(io: any, userId: string, getUser: (id: 
   try {
     if (accountRefusal(await getUser(userId))) io.in(`user:${userId}`).disconnectSockets(true);
   } catch (_) { /* база недоступна — проверит следующее рукопожатие */ }
+}
+
+// ── Раздача собранного окна ─────────────────────────────────────────────────
+
+/**
+ * Папка сборки — та, где лежит сам сервер (dist/server.cjs). Опора на рабочий
+ * каталог ломалась у службы Windows, чей cwd — System32: окно отвечало 404.
+ */
+export function distDirectory(serverDir: string): string {
+  return serverDir.includes('app.asar') || path.basename(serverDir) === 'dist' ? serverDir : path.join(serverDir, 'dist');
+}
+
+/**
+ * Окну отдаётся только страница. Пропавший файл (/assets/old.js, /favicon.ico)
+ * должен быть 404, а не index.html со статусом 200 под видом скрипта.
+ */
+export function spaFallbackAllowed(requestPath: string, accept: string | undefined): boolean {
+  return !path.extname(requestPath || '') && String(accept || '').includes('text/html');
 }

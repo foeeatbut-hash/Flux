@@ -104,8 +104,9 @@ import { registerProjectEntityGuard } from './server/projectEntityAccess.js';
 import { protectSessionSockets } from './server/sessionSockets.js';
 import { authTokenFromRequest, createCookieAuth } from './server/authCookies.js';
 import { permRuleFor } from './server/permRoutes.js';
+import { describeApiError } from './server/apiErrors.js';
 import { createTrustedTime, fetchNetworkTimeMs, registerTimeAnchorRoutes } from './server/trustedTime.js';
-import { corsMiddleware, socketAllowRequest, blockPrivateBuildFiles, earlyBodyGate, staticUploadOptions, chatFileGate, setLinkSecret, hashLegacyPasswords, listenHost, dropRevokedSockets } from './server/security.js';
+import { corsMiddleware, socketAllowRequest, blockPrivateBuildFiles, earlyBodyGate, staticUploadOptions, chatFileGate, setLinkSecret, hashLegacyPasswords, listenHost, dropRevokedSockets, distDirectory, spaFallbackAllowed } from './server/security.js';
 
 // ── Пароли: хеширование (scrypt) с обратной совместимостью ────────────────────
 // Формат хранения: "scrypt$<saltHex>$<hashHex>". Открытые записи прежних версий
@@ -1181,27 +1182,7 @@ async function startServer() {
   app.use((err: any, req: Request, res: Response, next: any) => {
     // Ответ уже начат (например, соединение оборвано после 413): второй ответ невозможен
     if (res.headersSent) return next(err);
-    const rawMsg = String(err?.message || err || 'Internal server error');
-    // Берем суть ошибки Prisma — последняя строка вместо простыни с код-фреймом
-    const lines = rawMsg.split('\n').map(l => l.trim()).filter(Boolean);
-    let friendly = lines[lines.length - 1] || rawMsg;
-    // Ошибки разбора запроса (битый JSON, слишком большое тело) — вина клиента, а не сервера
-    const clientStatus = Number(err?.status ?? err?.statusCode);
-    let status = Number.isInteger(clientStatus) && clientStatus >= 400 && clientStatus < 500 && err?.expose !== false ? clientStatus : 500;
-    if (status === 400 && err?.type === 'entity.parse.failed') friendly = 'Запрос содержит некорректный JSON.';
-    else if (status === 413) friendly = 'Слишком большой запрос';
-    if (rawMsg.includes('malformed') || rawMsg.includes('disk image')) {
-      friendly = 'База данных повреждена (database disk image is malformed). Flux сохранил исходную базу и журналы SQLite.';
-    } else if (err?.code === 'P2003' && /^(userId|authorId|ownerId|createdBy|actorId)/i.test(String(err?.meta?.field_name || err?.meta?.constraint || ''))) {
-      // Ссылка на несуществующего пользователя — сессия устарела. Любой другой
-      // внешний ключ (удаление записи с дочерними, неверный родитель) — не она
-      friendly = 'Сессия устарела: текущий пользователь отсутствует в базе данных. Выйдите из профиля и войдите заново.';
-    } else if (err?.code === 'P2003') {
-      status = 409;
-      friendly = 'Запись связана с другими данными. Сначала уберите или перенесите связанные записи.';
-    } else if (!prisma || !isPrismaAvailable) {
-      friendly = 'База данных не инициализирована: клиент Prisma не был создан при старте. Подробности в backend-init.log.';
-    }
+    const { status, message: friendly } = describeApiError(err, { databaseReady: !!prisma && isPrismaAvailable });
     logInit(`[API ERROR] ${req.method} ${req.originalUrl}: ${friendly}`);
     if (status >= 500) console.error('Unhandled error:', err);
     res.status(status).json({ error: friendly, message: friendly });
@@ -1234,16 +1215,10 @@ async function startServer() {
       console.error('[Vite Setup] Error initializing dynamic Vite middleware in dev env:', viteErr.message || viteErr);
     }
   } else {
-    // Папка сборки — та, где лежит сам сервер (dist/server.cjs): опора на рабочий
-    // каталог ломалась у службы Windows, чей cwd — System32
-    const distPath = __dirname.includes('app.asar') || path.basename(__dirname) === 'dist'
-       ? __dirname
-       : path.join(__dirname, 'dist');
+    const distPath = distDirectory(__dirname);
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
-      // Окну отдаётся только страница: пропавший файл (/assets/old.js, /favicon.ico)
-      // должен быть 404, а не index.html со статусом 200 под видом скрипта
-      if (path.extname(req.path) || !String(req.headers.accept || '').includes('text/html')) return res.status(404).end();
+      if (!spaFallbackAllowed(req.path, req.headers.accept)) return res.status(404).end();
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

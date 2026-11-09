@@ -13,6 +13,8 @@ import { createTrustedTime, databaseClockMs, registerTimeAnchorRoutes } from '..
 import { isMutatingOfficeChannel } from '../server/sessionSockets';
 import { requiresOwner } from '../server/accessPolicy';
 import { sendError } from '../server/context';
+import { describeApiError } from '../server/apiErrors';
+import { distDirectory, spaFallbackAllowed } from '../server/security';
 
 let passed = 0;
 const check = (label: string, condition: unknown, detail?: unknown) => { assert.ok(condition, `${label}${detail === undefined ? '' : `: ${JSON.stringify(detail)}`}`); passed++; console.log('✓', label); };
@@ -39,6 +41,26 @@ check('сброс якоря времени доступен только вла
   sendError(fresh, new Error('x'), 404);
   check('sendError отвечает, пока ответа нет', calls === 404);
 }
+
+// ── 40, 41: ответы об ошибках ──
+{
+  const ready = { databaseReady: true };
+  const bad = describeApiError(Object.assign(new SyntaxError('Unexpected token'), { status: 400, type: 'entity.parse.failed' }), ready);
+  check('битый JSON клиента — 400, а не 500', bad.status === 400 && /JSON/.test(bad.message), bad);
+  check('слишком большое тело — 413', describeApiError(Object.assign(new Error('request entity too large'), { status: 413 }), ready).status === 413);
+  check('обычный сбой остаётся 500', describeApiError(new Error('boom'), ready).status === 500);
+  const stale = describeApiError(Object.assign(new Error('Foreign key constraint violated'), { code: 'P2003', meta: { field_name: 'userId' } }), ready);
+  check('внешний ключ на пользователя — «сессия устарела»', /Сессия устарела/.test(stale.message), stale);
+  const linked = describeApiError(Object.assign(new Error('Foreign key constraint violated on the constraint: `Equipment_projectId_fkey`'), { code: 'P2003', meta: { field_name: 'Equipment_projectId_fkey' } }), ready);
+  check('любой другой внешний ключ — 409 «запись связана», а не «сессия устарела»', linked.status === 409 && !/Сессия/.test(linked.message), linked);
+  check('клиент Prisma не создан — своё сообщение', /не инициализирована/.test(describeApiError(new Error('x'), { databaseReady: false }).message));
+}
+// ── 42, 43: раздача окна ──
+check('служба: папка сборки — рядом с server.cjs, а не рабочий каталог', distDirectory('/opt/Flux/dist') === '/opt/Flux/dist');
+check('из корня репозитория — подпапка dist', distDirectory('/srv/flux') === '/srv/flux/dist');
+check('пропавший скрипт — не страница', !spaFallbackAllowed('/assets/old.js', 'text/html') && !spaFallbackAllowed('/favicon.ico', '*/*'));
+check('запрос страницы получает index.html', spaFallbackAllowed('/projects/p1', 'text/html,application/xhtml+xml'));
+check('запрос без Accept: text/html — не страница', !spaFallbackAllowed('/projects/p1', 'application/json') && !spaFallbackAllowed('/projects', undefined));
 
 // ── 99: изменяющие каналы редактора при истёкшей лицензии ──
 for (const channel of ['pdf:save', 'workbook:save', 'workbook:setCellValue', 'workbook:set-cell-value', 'pdf:insert-page', 'workbook:applyFormat', 'workbook:pasteRange', 'pdf:annotate']) {

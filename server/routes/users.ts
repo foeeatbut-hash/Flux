@@ -588,6 +588,9 @@ app.post('/api/users', async (req: Request, res: Response) => {
     const actor = (req as any).authUser;
     if (!administratorPermission(actor, 'admin.users.create')) return res.status(403).json({ message: 'Нет права создавать сотрудников' });
     const { password } = req.body;
+    // Нечитаемые права отвергаются первыми: иначе проверка «не выдаёт ли он права администратора» отвечала бы 403 на мусор
+    const unreadablePermissions = permissionsError(req.body.permissions);
+    if (unreadablePermissions) return res.status(400).json({ message: unreadablePermissions });
     if (String(req.body.symbol || '').trim().toLowerCase() === 'flux.owner') return res.status(403).json({ message: 'Логин владельца зарезервирован' });
     if (String(req.body.role || '').trim().toUpperCase() === 'OWNER') return res.status(403).json({ message: 'Профиль владельца создается только при входе по ключу' });
     if (actor.role !== 'OWNER' && administrativeGrants(req.body.permissions)) return res.status(403).json({ message: 'Администратора и его права назначает только владелец' });
@@ -612,8 +615,6 @@ app.post('/api/users', async (req: Request, res: Response) => {
     // Срок и права разбираются до записи: мусор — явная ошибка, а не Invalid Date из Prisma
     const createdUntil = parseUserDate(validUntil);
     if (createdUntil === undefined) return res.status(400).json({ message: 'Некорректная дата срока действия профиля.' });
-    const badPermissions = permissionsError(permissions);
-    if (badPermissions) return res.status(400).json({ message: badPermissions });
     if (typeof password === 'string' && password && password.length < MIN_PASSWORD) return res.status(400).json({ message: `Пароль не короче ${MIN_PASSWORD} символов.` });
     // Подразделение: одно, из справочника; без него человек остаётся «без подразделения»
     const departmentId = req.body.departmentId ? String(req.body.departmentId) : null;
@@ -678,6 +679,10 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Сотрудник не найден в базе данных.' });
     }
 
+    if (permissions !== undefined) {
+      const unreadable = permissionsError(permissions);
+      if (unreadable) return res.status(400).json({ success: false, message: unreadable });
+    }
     const legacyBootstrap = isLegacyBootstrapAdmin(target);
     if (legacyBootstrap) {
       // Explicit owner-authorized migration keeps the row id and all related
@@ -708,9 +713,6 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
       }
       nextSymbol = checked.symbol;
     }
-    const badPermissions = permissions === undefined ? null : permissionsError(permissions);
-    if (badPermissions) return res.status(400).json({ success: false, message: badPermissions });
-
     // Свой пароль меняют, зная текущий: украденная сессия не должна давать вечный вход.
     // Чужой пароль администратор задаёт без старого (сброс забытого). Хеш считается
     // раньше, чем что-либо пишется.
