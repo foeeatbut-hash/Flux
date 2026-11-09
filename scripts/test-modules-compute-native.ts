@@ -92,6 +92,12 @@ async function main() {
   ].join('\n'));
   await hostile('sqrt-patch-py', 'python', 'import math\ndef compute(i):\n    math.sqrt = lambda x: -1.0\n    n = 0\n    for k in range(6000000):\n        n += k\n    return {"state": {}, "calc": {"out": {"patched": math.sqrt(4.0), "n": n}}}\n');
   await hostile('sqrt-victim-py', 'python', 'import math\ndef compute(i):\n    return {"state": {}, "calc": {"out": {"v": math.sqrt(4.0)}}}\n');
+  // Общий счётчик в среде Pyodide: numpy один на все подпрограммы, поэтому тик, который ставит одна, видит другая.
+  // Расчёт, которого не перебивали, видит свой вход и выход подряд (выход = вход + 1)
+  const tick = (spin: number) => ['import numpy as np', 'def compute(i):', '    t = getattr(np, "flux_tick", 0) + 1', '    np.flux_tick = t', '    enter = t', `    n = 0`, `    for k in range(${spin}):`, '        n += k',
+    '    t = np.flux_tick + 1', '    np.flux_tick = t', '    return {"state": {}, "calc": {"out": {"enter": enter, "exit": t}}}'].join('\n');
+  await hostile('tick-a-py', 'python', tick(4000000));
+  await hostile('tick-b-py', 'python', tick(1));
   await hostile('loop-wasm', 'wasm', fluxModule({ run: [OP.loop, 0x40, OP.br, 0, OP.end, OP.i32const, 1] }));
   await hostile('grow-wasm', 'wasm', fluxModule({ memory: { min: 1, max: 16 },
     run: [OP.loop, 0x40, OP.i32const, 1, ...OP.memoryGrow, OP.i32const, ...wasmSleb(-1), 0x47, OP.brIf, 0, OP.end, OP.unreachable] }));
@@ -226,7 +232,16 @@ async function main() {
     }, input);
     console.log(`  два Python-расчёта разом: первый держал среду ${pair.aEnd.toFixed(0)} мс, второй дождался и закончил на ${pair.bEnd.toFixed(0)} мс`);
     check('вторая подпрограмма получает верный результат (sqrt(4)=2), хотя первая подменила math.sqrt', pair.a.patched === -1 && pair.b.v === 2);
-    check('и идёт строго после первой, а не вместе с ней', pair.bEnd >= pair.aEnd);
+    // Порядок прихода не гарантия, гарантия — «не одновременно»: часов не берём, сравниваем тики общего счётчика
+    const ticks = await page.evaluate(async i => {
+      const run = (id: string) => (window as any).__compute.compute({ moduleId: id, version: '1.0.0', language: 'python' }, i, 'active').then((o: any) => o.calc.out);
+      const [a, b] = await Promise.all([run('tick-a-py'), run('tick-b-py')]);
+      return { a, b };
+    }, input);
+    const all = [ticks.a.enter, ticks.a.exit, ticks.b.enter, ticks.b.exit].sort((x, y) => x - y);
+    console.log(`  тики общего счётчика: A ${ticks.a.enter}→${ticks.a.exit}, B ${ticks.b.enter}→${ticks.b.exit}`);
+    check('два расчёта в одной среде не перекрываются: у каждого выход сразу за входом, тики другого не между ними',
+      ticks.a.exit === ticks.a.enter + 1 && ticks.b.exit === ticks.b.enter + 1 && all.every((v, k) => k === 0 || v === all[k - 1] + 1));
 
     // Изоляция: даже при побеге из фильтра импортов Python остаётся в песочнице
     const hostFrame = page.frames().find(f => f.url().startsWith('flux-module://_compute/'))!;

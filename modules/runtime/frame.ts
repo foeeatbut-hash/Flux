@@ -1,8 +1,9 @@
 import {
   resources, themeKeys,
-  type HostMessage, type ComputeHostMessage, type ModuleOutput, type Resource, type ReadData, type ModuleFailureKind,
+  type HostMessage, type ComputeHostMessage, type ConnectHostMessage, type ModuleOutput, type Resource, type ReadData, type ModuleFailureKind,
 } from '../contract';
 import type { ComputeErrorCode } from '../engine/types';
+import type { ConnectCall } from '../connections/model';
 import { validMessage } from '../schemas';
 import { renderForm, type ModuleForm } from './form';
 import { readFormBindings } from './bindings';
@@ -20,6 +21,8 @@ const pending = new Map<string, {
   timer: ReturnType<typeof setTimeout>;
 }>();
 const computing = new Map<string, { resolve: (value: ModuleOutput) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+// Вызовы подключений не отменяются сменой контекста и темой: идущий запрос к внешней программе не должен пропадать от «changed»
+const connecting = new Map<string, { resolve: (value: unknown) => void; reject: (reason: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 let nextId = 0;
 let epoch = 0;
 let contextKey = '';
@@ -57,7 +60,20 @@ const COMPUTE_NOTES: Partial<Record<ComputeErrorCode, string>> = {
   CONTROLS: 'Подпрограмма не запускается: контрольные примеры на этом компьютере не сошлись.',
   DENIED: 'Расчёт отменён.',
 };
+/** Сквозной вызов подключения: окно Flux проверяет разрешение по подписанному манифесту и отвечает данными программы как есть */
+export function connect(connection: string, call: ConnectCall): Promise<unknown> {
+  if (connecting.size >= 8) return Promise.reject(new Error('LIMIT'));
+  const id = `n-${++nextId}`;
+  return new Promise((resolve, reject) => {
+    // Предел одного вызова 15–25 с задаёт главный процесс; запас — на очередь окна
+    const timer = setTimeout(() => { connecting.delete(id); reject(new Error('TIMEOUT')); }, 40_000);
+    connecting.set(id, { resolve, reject, timer });
+    parent.postMessage({ flux: 'module', v: 1, session, id, type: 'connect', connection, call }, '*');
+  });
+}
 function reset() {
+  for (const item of connecting.values()) { clearTimeout(item.timer); item.reject(new Error('CONTEXT_CHANGED')); }
+  connecting.clear();
   epoch++;
   client?.dispose();
   client = null;
@@ -95,8 +111,17 @@ function note(text: string) {
 
 window.addEventListener('message', async event => {
   if (event.source !== parent || event.data?.session !== session) return;
-  const message = event.data as HostMessage | ComputeHostMessage;
-  if (!['result', 'error', 'event', 'compute-result', 'compute-error'].includes(message.type) || !validMessage(message.type, message)) return;
+  const message = event.data as HostMessage | ComputeHostMessage | ConnectHostMessage;
+  if (!['result', 'error', 'event', 'compute-result', 'compute-error', 'connect-result', 'connect-error'].includes(message.type) || !validMessage(message.type, message)) return;
+  if (message.type === 'connect-result' || message.type === 'connect-error') {
+    const item = connecting.get(message.id);
+    if (!item) return;
+    connecting.delete(message.id);
+    clearTimeout(item.timer);
+    if (message.type === 'connect-error') item.reject(Object.assign(new Error(message.code), { code: message.code }));
+    else item.resolve(message.data);
+    return;
+  }
   if (message.type === 'compute-result' || message.type === 'compute-error') {
     const item = computing.get(message.id);
     if (!item) return;
@@ -172,7 +197,8 @@ window.addEventListener('message', async event => {
   try {
     if (!client) {
       const created = createModuleWorker(__MODULE_WORKER__, {
-        read, initial: output,
+        read, connect, initial: output,
+        log: (level, text) => parent.postMessage({ flux: 'module', v: 1, session, type: 'log', level, text }, '*'),
         onRestart: reason => {
           if (client !== created) return;
           if (reason !== 'WORKER_RECYCLED') reportFailure(reason);

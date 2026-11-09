@@ -1,5 +1,6 @@
 import * as logic from 'module-logic';
 import type { ModuleApi, ReadData, Resource } from '../contract';
+import type { ConnectCall } from '../connections/model';
 import { checkedOutput } from './output';
 
 let nextId = 0;
@@ -9,6 +10,33 @@ const pending = new Map<string, {
   resolve: (value: any) => void;
   reject: (error: Error) => void;
 }>();
+/** Короткие обёртки над одним сквозным вызовом: адрес и права проверяет главный процесс, здесь только форма вызова */
+function connectApi(): ModuleApi['connect'] {
+  const call = (connection: string, body: ConnectCall): Promise<any> => {
+    const id = `connect-${++nextId}`;
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      postMessage({ type: 'connect', id, connection, call: body });
+    });
+  };
+  return {
+    call,
+    http: (connection, request) => call(connection, { op: 'http', ...request }),
+    ws: {
+      open: async (connection, path) => (await call(connection, { op: 'ws-open', path })).socket,
+      send: async (connection, socket, data, encoding) => { await call(connection, { op: 'ws-send', socket, data, ...(encoding ? { encoding } : {}) }); },
+      recv: (connection, socket, timeoutMs) => call(connection, { op: 'ws-recv', socket, ...(timeoutMs !== undefined ? { timeoutMs } : {}) }),
+      close: async (connection, socket) => { await call(connection, { op: 'ws-close', socket }); },
+    },
+    com: {
+      open: async connection => (await call(connection, { op: 'com-open' })).handle,
+      call: async (connection, handle, name, args) => (await call(connection, { op: 'com-call', handle, name, ...(args ? { args } : {}) })).value,
+      get: async (connection, handle, name, args) => (await call(connection, { op: 'com-get', handle, name, ...(args ? { args } : {}) })).value,
+      set: async (connection, handle, name, value, args) => { await call(connection, { op: 'com-set', handle, name, value, ...(args ? { args } : {}) }); },
+      release: async (connection, handle) => { await call(connection, { op: 'com-release', handle }); },
+    },
+  };
+}
 const api: ModuleApi = {
   flux: {
     read<R extends Resource>(resource: R, entityId?: string): Promise<ReadData[R]> {
@@ -23,6 +51,12 @@ const api: ModuleApi = {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+  },
+  connect: connectApi(),
+  log: {
+    info: text => postMessage({ type: 'log', level: 'info', text: String(text).slice(0, 200) }),
+    warn: text => postMessage({ type: 'log', level: 'warn', text: String(text).slice(0, 200) }),
+    error: text => postMessage({ type: 'log', level: 'error', text: String(text).slice(0, 200) }),
   },
   state: {},
   calc: { out: {} },
@@ -57,7 +91,7 @@ onmessage = async ({ data }) => {
     } catch (_) { postMessage({ type: 'failed', code: 'STATE_LIMIT' }); }
     return;
   }
-  if (data?.type === 'read-result') {
+  if (data?.type === 'read-result' || data?.type === 'connect-result') {
     const request = pending.get(data.id);
     if (!request) return;
     pending.delete(data.id);

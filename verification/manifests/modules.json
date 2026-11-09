@@ -79,7 +79,24 @@
         "src/workers/moduleWasm.worker.ts",
         "electron/moduleControls.ts",
         "modules/runtime/prologue.ts",
-        "modules/engine/serial.ts"
+        "modules/engine/serial.ts",
+        "modules/connections/model.ts",
+        "modules/connections/address.ts",
+        "modules/journal/model.ts",
+        "electron/moduleNet.ts",
+        "electron/moduleCom.ts",
+        "electron/moduleConnections.ts",
+        "electron/moduleConnectionsIpc.ts",
+        "electron/moduleGrants.ts",
+        "electron/moduleJournal.ts",
+        "server/moduleJournal.ts",
+        "src/services/moduleConnections.ts",
+        "src/services/moduleJournalClient.ts",
+        "src/services/moduleConnectionPolicy.ts",
+        "src/components/modules/ConnectionPrompt.tsx",
+        "src/components/store/ConnectionGrants.tsx",
+        "src/components/store/ModuleJournalView.tsx",
+        "scripts/fixtures/fakeCom.ts"
       ]
     }
   ],
@@ -323,6 +340,33 @@
       "path": "scripts/test-modules-controls.ts",
       "layer": "unit",
       "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-connections",
+      "path": "scripts/test-modules-connections.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-journal",
+      "path": "scripts/test-modules-journal.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-connections-native",
+      "path": "scripts/test-modules-connections-native.ts",
+      "layer": "windows-native",
+      "platform": "win32",
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 900000

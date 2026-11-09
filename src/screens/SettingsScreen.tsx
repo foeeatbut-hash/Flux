@@ -9,9 +9,10 @@ import SignatureSection from '../components/settings/SignatureSection';
 import { useToastStore } from '../store/toastStore';
 import { useLogStore } from '../store/logStore';
 import NotificationSettings from '../components/NotificationSettings';
+import ConnectionGrants from '../components/store/ConnectionGrants';
 import TranslateEngineSection from '../components/settings/TranslateEngineSection';
 import {
-  Settings, Database, Terminal, Bell, Briefcase, Fan, Tag, Archive, ShieldCheck, PenLine, Languages, Globe,
+  Settings, Database, Terminal, Bell, Briefcase, Fan, Tag, Archive, ShieldCheck, PenLine, Languages, Globe, Puzzle,
 } from 'lucide-react';
 import { isOwner } from '../lib/roles';
 import { canAdmin } from '../lib/permissions';
@@ -32,7 +33,7 @@ import { canSeeSettingsSection, settingsSectionFromQuery } from '../lib/settings
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'license' | 'general' | 'signature' | 'management' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'tagrules';
+type SectionId = 'modules' | 'license' | 'general' | 'signature' | 'management' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'tagrules';
 
 // Настройки делятся ровно так же, как остальные данные программы (см.
 // src/lib/projectScope.ts): часть общая для всей программы, часть — своя у
@@ -61,6 +62,7 @@ const SECTIONS: Array<{
   { id: 'tags', label: 'Теги', icon: Tag, desc: 'Схема связей', scope: 'global' },
   { id: 'notifications', label: 'Уведомления', icon: Bell, desc: 'Какие события показывать', scope: 'global' },
   { id: 'translate', label: 'Переводчик', icon: Languages, desc: 'Чем переводим', scope: 'global' },
+  { id: 'modules', label: 'Подпрограммы', icon: Puzzle, desc: 'Разрешения подключений', scope: 'global' },
   { id: 'browser', label: 'Браузер', icon: Globe, desc: 'Куда разрешено ходить', scope: 'global' },
   { id: 'database', label: 'База данных', icon: Database, desc: 'Подключение сервера к БД', scope: 'global', ownerOnly: true },
   { id: 'license', label: 'Лицензии сотрудников', icon: ShieldCheck, desc: 'Запрос и активация лицензий', scope: 'global', adminFeature: 'admin.license.activate' },
@@ -192,6 +194,11 @@ export default function SettingsScreen() {
         {displayedSection === 'browser' && (
           <SectionShell title="Браузер" desc="Отделён от программы; список адресов ведёт администратор.">
             <BrowserSection />
+          </SectionShell>
+        )}
+        {displayedSection === 'modules' && (
+          <SectionShell title="Подпрограммы" desc="Какие подпрограммы могут подключаться к внешним программам. Выбор действует на этом компьютере.">
+            <ConnectionGrants />
           </SectionShell>
         )}
         {displayedSection === 'license' && <LicenseSection />}

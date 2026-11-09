@@ -11,6 +11,7 @@
  * Без зависимостей: считает и окно владельца, и сервер.
  */
 import { bundleText, type BundleFiles } from './bundle';
+import { connectionsOf, grantKey } from '../connections/model';
 
 export type DiffLine = { op: ' ' | '+' | '-'; text: string };
 export interface FileDiff { path: string; status: 'added' | 'removed' | 'changed' | 'same'; binary: boolean; lines: DiffLine[] }
@@ -72,6 +73,8 @@ const PERMISSION_FIELDS = ['reads', 'entries', 'connections'] as const;
 export interface PermissionDiff { isNew: boolean; added: Record<string, string[]>; removed: Record<string, string[]>; widened: boolean }
 
 const listOf = (manifest: Record<string, unknown> | null, field: string): string[] => {
+  // Подключения сравниваются по адресу и виду доступа: новый адрес или «читать → изменять» — новое подключение, смена текста — нет
+  if (field === 'connections') return connectionsOf(manifest as { connections?: unknown } | null).map(grantKey);
   const value = manifest?.[field];
   return Array.isArray(value) ? value.map((v) => (typeof v === 'string' ? v : JSON.stringify(v))) : [];
 };

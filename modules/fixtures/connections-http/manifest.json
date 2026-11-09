@@ -1,0 +1,21 @@
+{
+  "id": "connections-http",
+  "name": "Расчёт на сервере",
+  "version": "1.0.0",
+  "author": "Flux",
+  "contractVersion": 1,
+  "entries": ["start"],
+  "reads": ["project"],
+  "logic": "logic/main.ts",
+  "connections": [
+    {
+      "id": "api",
+      "kind": "http",
+      "url": "http://127.0.0.1:18123",
+      "pathPrefix": "/api",
+      "app": "Сервер расчётов",
+      "does": "Отправляет на сервер расчётов номер проекта и получает ответ",
+      "access": "send"
+    }
+  ]
+}

@@ -8,13 +8,15 @@ import { useRealTimeSync } from '../SocketProvider';
 import { useStore } from '../../store/store';
 import { flushModuleCrashes } from '../../services/moduleCrashQueue';
 import { refreshStore } from '../../services/moduleStoreActions';
+import { syncJournal } from '../../services/moduleJournalClient';
+import { syncConnectionPolicy } from '../../services/moduleConnectionPolicy';
 
 export default function StoreSync() {
   const { socket } = useRealTimeSync();
   const userId = (useStore((s) => s.user) as any)?.id;
   useEffect(() => {
     if (!userId) return;
-    const run = () => { void refreshStore(); void flushModuleCrashes(); };
+    const run = () => { void refreshStore(); void flushModuleCrashes(); void syncJournal(); void syncConnectionPolicy(); };
     run();
     const timer = setInterval(run, 10 * 60 * 1000);
     window.addEventListener('focus', run);
@@ -23,7 +25,7 @@ export default function StoreSync() {
   }, [userId]);
   useEffect(() => {
     if (!socket || !userId) return;
-    const run = () => { void refreshStore(); void flushModuleCrashes(); };
+    const run = () => { void refreshStore(); void flushModuleCrashes(); void syncJournal(); void syncConnectionPolicy(); };
     const events = ['modules:released', 'modules:revoked', 'modules:installs', 'modules:channels'];
     events.forEach((e) => socket.on(e, run));
     return () => { events.forEach((e) => socket.off(e, run)); };
