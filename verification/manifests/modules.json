@@ -60,7 +60,26 @@
         "server/feedback/moduleRoutes.ts",
         "server/feedback/moduleSignals.ts",
         "server/feedback/reports.ts",
-        "server/feedback/actions.ts"
+        "server/feedback/actions.ts",
+        "modules/engine/types.ts",
+        "modules/engine/json.ts",
+        "modules/engine/controls.ts",
+        "modules/engine/wasmInspect.ts",
+        "modules/trust/execution.ts",
+        "modules/engine/wasm.ts",
+        "modules/engine/python.ts",
+        "modules/engine/pythonHarness.ts",
+        "modules/compute/pythonWorker.ts",
+        "modules/compute/hostFrame.ts",
+        "scripts/fixtures/moduleLanguages.ts",
+        "modules/engine/scheduler.ts",
+        "src/services/moduleCompute.ts",
+        "src/services/moduleComputeHost.ts",
+        "src/services/moduleControlsGate.ts",
+        "src/workers/moduleWasm.worker.ts",
+        "electron/moduleControls.ts",
+        "modules/runtime/prologue.ts",
+        "modules/engine/serial.ts"
       ]
     }
   ],
@@ -234,6 +253,78 @@
           "name": "FLUX_CHROME"
         }
       ],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-languages",
+      "path": "scripts/test-modules-languages.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-wasm",
+      "path": "scripts/test-modules-wasm.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-python",
+      "path": "scripts/test-modules-python.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-parity",
+      "path": "scripts/test-modules-parity.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-scheduler",
+      "path": "scripts/test-modules-scheduler.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-compute",
+      "path": "scripts/test-modules-compute.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-compute-native",
+      "path": "scripts/test-modules-compute-native.ts",
+      "layer": "windows-native",
+      "platform": "win32",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-controls",
+      "path": "scripts/test-modules-controls.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
       "timeoutMs": 900000
     }
   ],

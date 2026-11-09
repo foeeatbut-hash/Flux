@@ -1,0 +1,15 @@
+{
+  "id": "stats-python",
+  "name": "Статистика параметров (Python)",
+  "version": "1.0.0",
+  "author": "Flux",
+  "contractVersion": 1,
+  "entries": [
+    "equipment"
+  ],
+  "reads": [
+    "equipment"
+  ],
+  "logic": "logic/main.py",
+  "language": "python"
+}

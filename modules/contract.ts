@@ -1,3 +1,4 @@
+import type { ModuleLanguage, ModulePlatform, SourceLanguage, ComputeErrorCode } from './engine/types';
 export const CONTRACT_VERSION = 1 as const;
 export const resources = ['project', 'equipment', 'tag', 'specification', 'catalog'] as const;
 export type Resource = typeof resources[number];
@@ -30,6 +31,12 @@ export interface ModuleManifest {
   entries: Array<'start' | 'equipment' | 'tag'>;
   reads: Resource[];
   logic: string;
+  /** Язык логики; без поля — TypeScript. Python и WebAssembly: см. modules/engine */
+  language?: ModuleLanguage;
+  /** Для WebAssembly: на чём написан исходник (C, C++, Rust, Go, C#) */
+  sourceLanguage?: SourceLanguage;
+  /** Где выпуск работает; без поля — на любой ОС */
+  platform?: ModulePlatform;
   store?: ModuleStoreBlock;
 }
 export interface Parameter { group: string; key: string; value: string; unit: string }
@@ -50,12 +57,16 @@ export interface ReadRequest {
   flux: 'module'; v: 1; session: string; id: string; type: 'read';
   resource: Resource; entityId?: string;
 }
-export type ModuleFailureKind = 'crash' | 'timeout' | 'memory' | 'bridge';
+export type ModuleFailureKind = 'crash' | 'timeout' | 'memory' | 'bridge' | 'controls';
 export type BridgeError = 'READ_ONLY' | 'DENIED' | 'NO_PROJECT' | 'FAILED' | 'LIMIT';
 export type HostMessage =
   | { flux: 'module'; v: 1; session: string; type: 'event'; event: 'opened' | 'project-changed' | 'changed'; context: LaunchContext; theme: ThemeTokens }
   | { flux: 'module'; v: 1; session: string; type: 'result'; id: string; resource: Resource; data: ReadData[Resource] }
   | { flux: 'module'; v: 1; session: string; type: 'error'; id: string; code: BridgeError };
+/** Расчёт на любом языке (modules/engine): модуль присылает вход, оболочка отвечает выходом или кодом ошибки */
+export type ComputeHostMessage =
+  | { flux: 'module'; v: 1; session: string; type: 'compute-result'; id: string; output: ModuleOutput }
+  | { flux: 'module'; v: 1; session: string; type: 'compute-error'; id: string; code: ComputeErrorCode };
 export type ThemeTokens = Record<
   '--flux-surface' | '--flux-bg' | '--flux-hover' | '--flux-sel' | '--flux-line' | '--flux-text' | '--flux-text-muted' | '--flux-accent',
   string

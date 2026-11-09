@@ -59,3 +59,8 @@ genoffice-server/
 # Assembled from checksum-verified catalog/manual-assets parts.
 /public/catalog-documents/*.pdf
 /public/catalog-documents/*.tmp
+
+# Сборочные каталоги примеров логики на Rust и C# (modules/fixtures/*): готовые .wasm лежат в logic/
+modules/fixtures/rust/target/
+modules/fixtures/csharp/bin/
+modules/fixtures/csharp/obj/

@@ -1,0 +1,16 @@
+{
+  "id": "stats-rust",
+  "name": "Статистика параметров (Rust)",
+  "version": "1.0.0",
+  "author": "Flux",
+  "contractVersion": 1,
+  "entries": [
+    "equipment"
+  ],
+  "reads": [
+    "equipment"
+  ],
+  "logic": "logic/main.wasm",
+  "language": "wasm",
+  "sourceLanguage": "rust"
+}

@@ -23,6 +23,12 @@ on:
       - src/services/moduleDataService.ts
       - scripts/test-modules-*.ts
       - scripts/fixtures/modules-*.ts*
+      - scripts/fixtures/moduleLanguages.ts
+      - scripts/fixtures/wasmBuilder.ts
+      - src/workers/moduleWasm.worker.ts
+      - src/services/moduleCompute*.ts
+      - src/services/moduleControlsGate.ts
+      - verification/**
       - vite.config.ts
       - package*.json
       - .github/workflows/verify-modules.yml
@@ -53,7 +59,7 @@ jobs:
         run: |
           node_modules/.bin/tsc --noEmit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($suite in @('modules-contract', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'architecture')) {
+          foreach ($suite in @('modules-contract', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'modules-languages', 'modules-wasm', 'modules-python', 'modules-parity', 'modules-scheduler', 'modules-compute', 'modules-controls', 'architecture')) {
             node --import tsx "scripts/test-$suite.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
@@ -71,6 +77,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force artifacts | Out-Null
           node --import tsx scripts/test-modules-native.ts 2>&1 | Tee-Object artifacts/modules-native.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Python и WebAssembly в Electron на Windows
+        shell: pwsh
+        run: |
+          node --import tsx scripts/test-modules-compute-native.ts 2>&1 | Tee-Object artifacts/modules-compute-native.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Пуск и карточки в полном Flux, обе темы
         shell: pwsh

@@ -17,6 +17,7 @@ import {
 } from './claims';
 import { unpackBundle } from './bundle';
 import { bundleManifest, describeBundle } from './verify';
+import { languageOf, platformOf } from '../engine/types';
 
 export function buildReleaseClaim(p: {
   requestId: string; requestSignature: string; bundle: Uint8Array; channel: ModuleChannel; notBefore: number; now?: number;
@@ -31,6 +32,8 @@ export function buildReleaseClaim(p: {
   const claim = parseReleaseClaim({
     v: 1, moduleId: request.moduleId, version: request.version, contractVersion: manifest.contractVersion, channel: p.channel,
     notBefore: Math.max(0, Math.floor(p.notBefore || 0)), request: p.requestId, author: request.author, iat: p.now ?? Date.now(), ...digest,
+    // Язык и платформа берутся из манифеста пакета, а не из слов окна: владелец подписывает то, что в байтах
+    ...(manifest.language || manifest.platform ? { language: languageOf(manifest), platform: platformOf(manifest) } : {}),
   });
   if (!claim) throw new Error('Описание выпуска не прошло проверку');
   return claim;

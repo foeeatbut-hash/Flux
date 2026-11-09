@@ -26,6 +26,8 @@ class RealWorker {
       const {parentPort} = require('node:worker_threads');
       globalThis.postMessage = value => parentPort.postMessage(value);
       parentPort.on('message', data => globalThis.onmessage({data}));
+      // В браузере Worker и SharedWorker есть в любом Worker'е; здесь они подставные, чтобы проверить пролог
+      globalThis.Worker = class {}; globalThis.SharedWorker = class {};
       ${sources.get(url)}
     `, { eval: true });
     this.thread.on('message', data => this.onmessage?.({ data }));
@@ -126,6 +128,14 @@ async function main() {
     const restored = await recycled.run();
     check('срок жизни очищает globalThis с восстановлением только state', recycledReason === 'WORKER_RECYCLED'
       && restored.state.starts === 2 && restored.calc.out.heap === 1);
+    // Пролог убирает конструкторы Worker до кода модуля: вложенные потоки вне очереди и пределов не запустить
+    const nested = client(await source(`export function setup({state}) {
+      try { new Worker('x'); state.worker = 'created'; } catch (e) { state.worker = 'blocked'; }
+      try { new SharedWorker('x'); state.shared = 'created'; } catch (e) { state.shared = 'blocked'; }
+      try { globalThis.Worker = class {}; new globalThis.Worker('x'); state.restored = 'created'; } catch (e) { state.restored = 'blocked'; }
+    }`));
+    const probe = (await nested.run()).state;
+    check('из Worker подпрограммы нельзя создать Worker, SharedWorker и вернуть конструктор', probe.worker === 'blocked' && probe.shared === 'blocked' && probe.restored === 'blocked');
     complete = true;
     console.log(`${passed} проверок пройдено`);
   } finally {

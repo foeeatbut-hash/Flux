@@ -126,7 +126,7 @@ export class ModuleCache {
     for (const version of versions) {
       const dir = this.releaseDir(moduleId, version);
       const [signature, bundle] = await Promise.all([fs.readFile(path.join(dir, 'release.sig'), 'utf8').catch(() => ''), fs.readFile(path.join(dir, 'bundle.bin')).catch(() => null)]);
-      const checked = verifyRelease({ signature, chunks: bundle ? splitChunks(new Uint8Array(bundle)) : [], rootHex: this.rootHex, revoked, now: this.now(), moduleId, version, caps, promotions });
+      const checked = verifyRelease({ signature, chunks: bundle ? splitChunks(new Uint8Array(bundle)) : [], rootHex: this.rootHex, revoked, now: this.now(), moduleId, version, caps, promotions, hostPlatform: process.platform });
       if (!checked.ok) { out.push({ version, why: checked.why }); continue; }
       const channel = effectiveChannel(checked.claim, signature, promotions);
       if (!channels.includes(channel)) { out.push({ version, why: `Выпуск в канале «${channel}»` }); continue; }

@@ -1,7 +1,8 @@
 import {
   resources, themeKeys,
-  type HostMessage, type ModuleOutput, type Resource, type ReadData, type ModuleFailureKind,
+  type HostMessage, type ComputeHostMessage, type ModuleOutput, type Resource, type ReadData, type ModuleFailureKind,
 } from '../contract';
+import type { ComputeErrorCode } from '../engine/types';
 import { validMessage } from '../schemas';
 import { renderForm, type ModuleForm } from './form';
 import { readFormBindings } from './bindings';
@@ -9,6 +10,8 @@ import { createModuleWorker } from './runner';
 
 declare const __MODULE_FORM__: ModuleForm;
 declare const __MODULE_WORKER__: string;
+/** typescript — Worker с логикой внутри этого окна; python и wasm — расчёт делает окно Flux (modules/engine) */
+declare const __MODULE_LANGUAGE__: 'typescript' | 'python' | 'wasm';
 const session = location.hash.slice(1);
 const root = document.getElementById('module-root')!;
 const pending = new Map<string, {
@@ -16,6 +19,7 @@ const pending = new Map<string, {
   reject: (reason: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }>();
+const computing = new Map<string, { resolve: (value: ModuleOutput) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 let nextId = 0;
 let epoch = 0;
 let contextKey = '';
@@ -28,7 +32,31 @@ function cancelReads() {
     item.reject(new Error('CONTEXT_CHANGED'));
   }
   pending.clear();
+  for (const item of computing.values()) {
+    clearTimeout(item.timer);
+    item.reject(new Error('CONTEXT_CHANGED'));
+  }
+  computing.clear();
 }
+/** Вход на Python/WebAssembly уходит окну Flux, оно выбирает механизм по подписанному манифесту и отвечает выходом по схеме договора */
+function compute(input: Record<string, unknown>): Promise<ModuleOutput> {
+  const id = `c-${++nextId}`;
+  return new Promise((resolve, reject) => {
+    // Окно Flux ограничивает расчёт 30 секундами; запас — на очередь и запуск среды
+    const timer = setTimeout(() => { computing.delete(id); reject(new Error('TIMEOUT')); }, 120_000);
+    computing.set(id, { resolve, reject, timer });
+    parent.postMessage({ flux: 'module', v: 1, session, id, type: 'compute', input }, '*');
+  });
+}
+const COMPUTE_NOTES: Partial<Record<ComputeErrorCode, string>> = {
+  TIMEOUT: 'Расчёт остановлен по времени.',
+  MEMORY: 'Расчёту не хватило памяти. Он остановлен.',
+  NUMBER: 'Расчёт вернул число вне допустимого диапазона (NaN, бесконечность или целое больше 2^53).',
+  BUSY: 'Сейчас идёт много расчётов. Повторите чуть позже.',
+  UNAVAILABLE: 'Расчёт сейчас недоступен.',
+  CONTROLS: 'Подпрограмма не запускается: контрольные примеры на этом компьютере не сошлись.',
+  DENIED: 'Расчёт отменён.',
+};
 function reset() {
   epoch++;
   client?.dispose();
@@ -67,8 +95,17 @@ function note(text: string) {
 
 window.addEventListener('message', async event => {
   if (event.source !== parent || event.data?.session !== session) return;
-  const message = event.data as HostMessage;
-  if (!['result', 'error', 'event'].includes(message.type) || !validMessage(message.type, message)) return;
+  const message = event.data as HostMessage | ComputeHostMessage;
+  if (!['result', 'error', 'event', 'compute-result', 'compute-error'].includes(message.type) || !validMessage(message.type, message)) return;
+  if (message.type === 'compute-result' || message.type === 'compute-error') {
+    const item = computing.get(message.id);
+    if (!item) return;
+    computing.delete(message.id);
+    clearTimeout(item.timer);
+    if (message.type === 'compute-error') item.reject(Object.assign(new Error(message.code), { code: message.code }));
+    else item.resolve(message.output);
+    return;
+  }
   if (message.type === 'result' || message.type === 'error') {
     const item = pending.get(message.id);
     if (!item) return;
@@ -115,6 +152,21 @@ window.addEventListener('message', async event => {
     if (generation === epoch) root.textContent = error instanceof Error && error.message === 'UNKNOWN_BINDING'
       ? 'Ошибка формы модуля: неизвестная привязка Flux.'
       : 'Данные недоступны. Проверьте подключение и права во Flux.';
+    return;
+  }
+  if (__MODULE_LANGUAGE__ !== 'typescript') {
+    try {
+      // Вход один для всех языков: данные Flux, которые читает форма, и сохранённое состояние окна
+      const calculated = await compute({ v: 1, context: message.context, flux: snapshot, state: output.state });
+      if (generation !== epoch) return;
+      output = { state: calculated.state, calc: calculated.calc };
+      render();
+    } catch (error) {
+      if (generation !== epoch) return;
+      render();
+      const code = (error as { code?: ComputeErrorCode }).code;
+      note((code && COMPUTE_NOTES[code]) || 'Не удалось выполнить расчёт модуля.');
+    }
     return;
   }
   try {
