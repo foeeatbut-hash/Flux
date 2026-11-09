@@ -97,6 +97,19 @@ const sliceBase64 = async (file: UploadFile, from: number, to: number): Promise<
  * мегабайт — это минуты, и полоса, которая дёргается раз на файл, о них не
  * говорит ничего.
  */
+/** SHA-256 байт куска (по его base64) в hex; пусто, если браузер не умеет */
+async function chunkSha256(b64: string): Promise<string> {
+  try {
+    const subtle = (globalThis as any).crypto?.subtle;
+    if (!subtle) return '';
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const digest = new Uint8Array(await subtle.digest('SHA-256', bytes));
+    return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
+  } catch (_) { return ''; }
+}
+
 async function sendContent(
   fileId: string,
   file: UploadFile,
@@ -108,9 +121,12 @@ async function sendContent(
     const to = Math.min(file.size, from + piece);
     const data = await sliceBase64(file, from, to);
     if (data === null) return 'не удалось прочитать файл';
+    // Контрольная сумма куска: сервер сверит с тем, что дошло. subtle есть только
+    // в защищённом контексте (https/localhost); без него кусок уходит как раньше
+    const sum = await chunkSha256(data);
     const res = await fetch(`/api/files/${encodeURIComponent(fileId)}/chunk`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(sum ? { 'X-Chunk-SHA256': sum } : {}) },
       body: JSON.stringify({ idx, data }),
     });
     if (!res.ok) {

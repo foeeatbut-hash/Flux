@@ -18,7 +18,7 @@ import { setBroadcaster, setPrisma, sendError, AppError } from '../server/contex
 import { registerChatRoutes } from '../server/routes/chat.js';
 import { registerFileChunkRoutes } from '../server/routes/fileChunks.js';
 import { chatFileGate, setLinkSecret, signLink } from '../server/security.js';
-import { cleanOrphanChatFiles, ORPHAN_GRACE_MS } from '../server/services/chatFiles.js';
+import { cleanOrphanChatFiles, resetSweepCursor, ORPHAN_GRACE_MS } from '../server/services/chatFiles.js';
 import { intParam } from '../server/queryParams.js';
 
 const require = createRequire(import.meta.url);
@@ -46,6 +46,8 @@ async function main() {
     app.get('/boom-status', (_req, res) => sendError(res, new AppError(409, 'занято')));
     app.get('/boom-plain', (_req, res) => sendError(res, Object.assign(new Error('x'), { status: 423 })));
     app.get('/boom-prisma', (_req, res) => sendError(res, Object.assign(new Error('Invalid `prisma.user.findMany()` invocation'), { code: 'P2025' })));
+    app.get('/boom-401-lib', (_req, res) => sendError(res, Object.assign(new Error('внешняя библиотека'), { status: 401 })));
+    app.get('/boom-401-own', (_req, res) => sendError(res, new AppError(401, 'Требуется вход')));
     app.get('/boom-started', (res0, res) => { res.write('часть'); sendError(res, new Error('сбой на середине')); });
     server = await new Promise<any>(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
     const origin = `http://127.0.0.1:${server.address().port}`;
@@ -60,6 +62,8 @@ async function main() {
     // ── sendError ────────────────────────────────────────────────────────────
     check('sendError: AppError отдаёт свой код', (await send('GET', '/boom-status')).status === 409);
     check('sendError: err.status уважается', (await send('GET', '/boom-plain')).status === 423);
+    check('sendError: 401 чужой библиотеки не разлогинивает (502)', (await send('GET', '/boom-401-lib')).status === 502);
+    check('sendError: свой AppError(401) остаётся 401', (await send('GET', '/boom-401-own')).status === 401);
     const pr = await send('GET', '/boom-prisma');
     check('sendError: текст драйвера базы не уходит человеку', pr.status === 500 && !/prisma/i.test(pr.json.error));
     let aborted = false;
@@ -119,14 +123,36 @@ async function main() {
     const fresh = await db.fileNode.create({ data: { name: 'fresh.txt', type: 'CHAT_FILE', filePath: '/chat/alice/fresh.txt', content: 'QQ==', size: 1 } });
     const holder = await db.chatMessage.create({ data: { senderId: 'alice', receiverId: 'bob', content: 'держит', attachments: { create: [{ fileName: 'keep.txt', filePath: `/chat_files/${keep.id}/keep.txt`, fileSize: 1 }] } } });
     const logs: string[] = [];
+    resetSweepCursor();
     const swept = await cleanOrphanChatFiles(db, { log: m => logs.push(m) });
     check('сирота старше суток убран', !(await db.fileNode.findUnique({ where: { id: old.id } })) && swept.removed >= 1);
     check('файл со ссылкой не тронут', !!(await db.fileNode.findUnique({ where: { id: keep.id } })));
     check('свежая загрузка не тронута', !!(await db.fileNode.findUnique({ where: { id: fresh.id } })));
     check('удаление записано в журнал', logs.some(l => l.includes(old.id)));
     for (let i = 0; i < 5; i++) await db.fileNode.create({ data: { name: `o${i}`, type: 'CHAT_FILE', filePath: '/chat/alice/o', content: 'QQ==', size: 1, createdAt: new Date(Date.now() - 2 * ORPHAN_GRACE_MS) } });
+    resetSweepCursor();
     check('уборка ограничена пределом за проход', (await cleanOrphanChatFiles(db, { limit: 2, log: () => {} })).removed === 2);
     await db.chatMessage.delete({ where: { id: holder.id } });
+
+    // устаревшая загрузка прежней версии и уже стёртый файл: «загрузите заново», а не отказ в доступе
+    const legacy = await db.fileNode.create({ data: { name: 'l.txt', type: 'CHAT_FILE', filePath: '/chat/l.txt', content: 'QQ==', size: 1 } });
+    check('старая загрузка без владельца — 404', (await send('POST', '/api/chat/messages', { senderId: 'alice', receiverId: 'bob', content: 'x', attachments: [{ filePath: `/chat_files/${legacy.id}/l.txt` }] })).status === 404);
+    check('стёртый файл — 404', (await send('POST', '/api/chat/messages', { senderId: 'alice', receiverId: 'bob', content: 'x', attachments: [{ filePath: '/chat_files/net-takogo/z.txt' }] })).status === 404);
+
+    // уборка сирот не застревает на прикреплённых: больше 2000 старых с ссылками, сирота в хвосте
+    resetSweepCursor();
+    const oldAt = new Date(Date.now() - 2 * ORPHAN_GRACE_MS);
+    const ids = Array.from({ length: 2100 }, (_, i) => `m${String(i).padStart(5, '0')}`);
+    await db.fileNode.createMany({ data: [...ids, 'zz-orphan'].map(id => ({ id, name: `${id}.txt`, type: 'CHAT_FILE', filePath: '/chat/alice/x', content: 'QQ==', size: 1, createdAt: oldAt })) });
+    const bulk = await db.chatMessage.create({ data: { senderId: 'alice', receiverId: 'bob', content: 'много' } });
+    await db.chatAttachment.createMany({ data: ids.map(id => ({ messageId: bulk.id, fileName: `${id}.txt`, filePath: `/chat_files/${id}/${id}.txt`, fileSize: 1 })) });
+    const firstPass = await cleanOrphanChatFiles(db, { log: () => {} });
+    check('первый проход ограничен 2000 просмотренных', firstPass.scanned === 2000);
+    for (let pass = 0; pass < 3; pass++) await cleanOrphanChatFiles(db, { log: () => {} });
+    check('сирота в хвосте после 2000 прикреплённых убирается за несколько проходов', !(await db.fileNode.findUnique({ where: { id: 'zz-orphan' } })));
+    check('прикреплённые не тронуты', await db.fileNode.count({ where: { id: { startsWith: 'm0' } } }) === 2100);
+    await db.chatAttachment.deleteMany({ where: { messageId: bulk.id } });
+    await db.chatMessage.delete({ where: { id: bulk.id } });
 
     // ── файлы кусками ────────────────────────────────────────────────────────
     const mk = async (name: string) => (await db.fileNode.create({ data: { name, type: 'FILE', filePath: `/x/${name}`, createdById: 'alice' } })).id;

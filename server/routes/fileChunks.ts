@@ -214,7 +214,11 @@ export function registerFileChunkRoutes(app: Express, deps: FileChunkDeps): void
           if (res.destroyed) return;
           sent++;
           last = p.idx;
-          if (!res.write(Buffer.from(p.data))) await once(res, 'drain');
+          // Клиент мог уйти: 'drain' тогда не придёт никогда, а once на 'close' не выходит
+          if (!res.write(Buffer.from(p.data))) {
+            const gone = new AbortController();
+            await Promise.race([once(res, 'drain', { signal: gone.signal }), once(res, 'close', { signal: gone.signal })]).catch(() => {}).finally(() => gone.abort());
+          }
         }
       }
       if (sent) return res.end();

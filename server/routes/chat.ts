@@ -356,8 +356,11 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       // только если на них больше никто не ссылается: пересланные копии держат тот же файл
       const atts = await prisma.chatAttachment.findMany({ where: { messageId: id }, select: { filePath: true } });
       // Записи вложений убираем явно, не полагаясь на каскад базы: по ним решается, на что ещё есть ссылки
-      await prisma.chatAttachment.deleteMany({ where: { messageId: id } });
-      await prisma.chatMessage.delete({ where: { id } });
+      // одной транзакцией: сбой между шагами не оставит живое сообщение без вложений
+      await prisma.$transaction([
+        prisma.chatAttachment.deleteMany({ where: { messageId: id } }),
+        prisma.chatMessage.delete({ where: { id } }),
+      ]);
       try { await releaseChatFiles(prisma, atts.map((a: any) => a.filePath)); } catch (e: any) { console.error('[Чат] уборка файлов вложений:', e?.message); }
       await emitChat('chat:message_deleted', msg as any, { id });
       res.json({ success: true });
@@ -704,8 +707,10 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
         return res.status(403).json({ success: false, message: 'Удалить может только владелец или администратор' });
       }
       const paths = await collectAttachmentPaths(prisma, { chatGroupId: id });
-      await prisma.chatAttachment.deleteMany({ where: { message: { chatGroupId: id } } });
-      await prisma.chatGroup.delete({ where: { id } });
+      await prisma.$transaction([
+        prisma.chatAttachment.deleteMany({ where: { message: { chatGroupId: id } } }),
+        prisma.chatGroup.delete({ where: { id } }),
+      ]);
       await releaseChatFilesSafe(prisma, paths);
       res.json({ success: true });
     } catch (err: any) {
@@ -838,8 +843,10 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
         const group = await prisma.chatGroup.findUnique({ where: { id: groupId }, select: { ownerId: true, projectId: true } });
         if (!group || !mayEditGroup(actorId(req), isPrivilegedUser((req as any).authUser), group.ownerId) || !(await isGroupMember(actorId(req), groupId))) return res.status(403).json({ error: 'Очистить группу может её владелец или администратор-участник' });
         const paths = await collectAttachmentPaths(prisma, { chatGroupId: groupId });
-        await prisma.chatAttachment.deleteMany({ where: { message: { chatGroupId: groupId } } });
-        const r = await prisma.chatMessage.deleteMany({ where: { chatGroupId: groupId } });
+        const [, r] = await prisma.$transaction([
+          prisma.chatAttachment.deleteMany({ where: { message: { chatGroupId: groupId } } }),
+          prisma.chatMessage.deleteMany({ where: { chatGroupId: groupId } }),
+        ]);
         await releaseChatFilesSafe(prisma, paths);
         return res.json({ success: true, deleted: r.count });
       }
@@ -847,8 +854,10 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
         if (actorId(req) !== a && actorId(req) !== b) return res.status(403).json({ error: 'Это чужая переписка' });
         const where = { OR: [{ senderId: a, receiverId: b }, { senderId: b, receiverId: a }] };
         const paths = await collectAttachmentPaths(prisma, where);
-        await prisma.chatAttachment.deleteMany({ where: { message: where } });
-        const r = await prisma.chatMessage.deleteMany({ where });
+        const [, r] = await prisma.$transaction([
+          prisma.chatAttachment.deleteMany({ where: { message: where } }),
+          prisma.chatMessage.deleteMany({ where }),
+        ]);
         await releaseChatFilesSafe(prisma, paths);
         return res.json({ success: true, deleted: r.count });
       }

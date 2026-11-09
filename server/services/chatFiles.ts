@@ -40,7 +40,11 @@ export async function resolveNewAttachments(prisma: any, actor: string, raw: unk
     seen.add(id);
     const node = await prisma.fileNode.findUnique({ where: { id }, select: { id: true, name: true, size: true, type: true, filePath: true } });
     // Чужой и несуществующий файл неотличимы: номер файла не подтверждаем
-    if (!node || node.type !== 'CHAT_FILE' || !String(node.filePath || '').startsWith(`/chat/${actor}/`)) {
+    // Уже стёртый уборкой или загруженный старой версией: прикрепить нечего, надо загрузить заново
+    if (!node || node.type !== 'CHAT_FILE') throw new AppError(404, 'Файл не найден или устарел: загрузите его заново');
+    if (!String(node.filePath || '').startsWith(`/chat/${actor}/`)) {
+      // `/chat/<имя>` без владельца — загрузка прежней версии: прикрепить её уже нельзя
+      if (String(node.filePath || '').split('/').length === 3) throw new AppError(404, 'Файл устарел: загрузите его заново');
       throw new AppError(403, 'Прикрепить можно только файл, который вы сами загрузили в чат');
     }
     if (await prisma.chatAttachment.count({ where: { filePath: { startsWith: `/chat_files/${id}/` } } })) {
@@ -82,7 +86,10 @@ export async function cleanOrphanChatFiles(prisma: any, opts: { now?: number; li
   const before = new Date(now - ORPHAN_GRACE_MS);
   let scanned = 0;
   let removed = 0;
-  let cursor: string | undefined;
+  // Проход продолжается с того места, где остановился прошлый: иначе первые
+  // `scan` прикреплённых файлов заслоняли бы собой сирот в хвосте списка
+  let cursor = sweepState.cursor;
+  let wrapped = false;
   while (scanned < scan && removed < limit) {
     const page = await prisma.fileNode.findMany({
       where: { type: 'CHAT_FILE', createdAt: { lt: before }, ...(cursor ? { id: { gt: cursor } } : {}) },
@@ -90,10 +97,11 @@ export async function cleanOrphanChatFiles(prisma: any, opts: { now?: number; li
       orderBy: { id: 'asc' },
       take: 200,
     });
-    if (!page.length) break;
+    if (!page.length) { cursor = ''; wrapped = true; break; }
     for (const n of page) {
+      if (scanned >= scan || removed >= limit) break;
       scanned++;
-      if (removed >= limit) break;
+      cursor = n.id;
       const refs = await prisma.chatAttachment.count({ where: { filePath: { startsWith: `/chat_files/${n.id}/` } } });
       if (refs) continue;
       const r = await prisma.fileNode.deleteMany({ where: { id: n.id, type: 'CHAT_FILE' } });
@@ -102,10 +110,14 @@ export async function cleanOrphanChatFiles(prisma: any, opts: { now?: number; li
         log(`[Чат] удалён файл-сирота ${n.id} «${n.name}», ${n.size} байт, загружен ${n.createdAt?.toISOString?.() || ''}`);
       }
     }
-    cursor = page[page.length - 1].id;
   }
+  sweepState.cursor = wrapped ? '' : cursor;
   return { scanned, removed };
 }
+
+/** Где остановилась уборка; в памяти процесса: после перезапуска идёт с начала */
+const sweepState = { cursor: '' };
+export const resetSweepCursor = () => { sweepState.cursor = ''; };
 
 /** Предел длины текста одного сообщения */
 export const CHAT_TEXT_MAX = 20000;
