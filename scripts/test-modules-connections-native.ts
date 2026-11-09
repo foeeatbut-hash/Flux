@@ -212,6 +212,57 @@ async function main() {
     const pending: any = await ipc('modules:journal-pending', {});
     check('журнал ждёт отправки на сервер пачкой, подтверждение убирает из очереди', pending.entries.length > 0 && (await ipc('modules:journal-ack', { upTo: pending.entries[pending.entries.length - 1].seq }), (await ipc('modules:journal-pending', {}) as any).entries.length === 0));
 
+    // ── 4а. Скорость COM: 1000 вызовов по одному и пакетами через настоящий путь (окно → главный процесс → помощник) ──
+    await page.evaluate('globalThis.__name = (fn) => fn');
+    const bench: any = await page.evaluate(async () => {
+      const ipc = (window as any).electron.ipcRenderer;
+      const call = (call: unknown) => ipc.invoke('modules:connect', { moduleId: 'connections-com', version: '1.0.0', session: 'bench', connection: 'fso', call });
+      const open = await call({ op: 'com-open' });
+      const handle = open.data.handle;
+      const names = Array.from({ length: 1000 }, (_, i) => `C:\\Проекты\\схема-${i}.dwg`);
+      let started = performance.now();
+      let single = 0;
+      let waited = 0;
+      for (const name of names) {
+        let r = await call({ op: 'com-call', handle, name: 'GetBaseName', args: [name] });
+        // Быстрый COM упирается в предел 1000 вызовов в секунду: подпрограмма ждёт окно и повторяет, время ожидания учитывается отдельно
+        if (!r.ok && r.code === 'LIMIT') { const w = performance.now(); await new Promise(res => setTimeout(res, 1100)); waited += performance.now() - w; r = await call({ op: 'com-call', handle, name: 'GetBaseName', args: [name] }); }
+        if (r.ok && r.data.value.startsWith('схема-')) single++;
+      }
+      const singleMs = performance.now() - started - waited;
+      started = performance.now();
+      let batched = 0;
+      for (let from = 0; from < 1000; from += 200) {
+        const r = await call({ op: 'com-batch', calls: names.slice(from, from + 200).map(name => ({ kind: 'call', handle, name: 'GetBaseName', args: [name] })) });
+        if (r.ok) batched += r.data.results.filter((x: any) => typeof x.value === 'string' && x.value.startsWith('схема-')).length;
+      }
+      const batchMs = performance.now() - started;
+      await call({ op: 'com-release', handle });
+      return { single, singleMs, batched, batchMs };
+    });
+    console.log(`  COM, 1000 вызовов GetBaseName (${process.platform === 'win32' ? 'настоящий Scripting.FileSystemObject' : 'поддельный COM'}): по одному — ${bench.singleMs.toFixed(0)} мс, пакетами по 200 — ${bench.batchMs.toFixed(0)} мс`);
+    check('1000 вызовов COM по одному проходят без LIMIT и дают верный ответ', bench.single === 1000);
+    check('1000 вызовов COM пакетами по 200 — тот же результат', bench.batched === 1000 && bench.batchMs <= bench.singleMs + 500);
+    if (process.platform === 'win32') {
+      // Настоящий помощник напрямую: опасный тип в ответе, перезапуск и номера
+      const { PowerShellComBackend } = await import('../electron/moduleCom');
+      const helper = new PowerShellComBackend();
+      let exits = 0; helper.onExit(() => { exits++; });
+      const fso = await helper.open('Scripting.FileSystemObject');
+      const folder = await helper.invoke(fso, 'call', 'GetFolder', ['C:\\']) as any;
+      check('настоящий COM: объект в ответе приходит номером подпрограммы', typeof folder?.$com === 'number' && folder.$com !== fso);
+      let denied = '';
+      try { await helper.invoke(fso, 'call', 'GetFolder', ['C:\\'], undefined, ['^(I)?Folder\\d*$']); } catch (error) { denied = (error as Error).message; }
+      check('настоящий COM: объект запрещённого типа не выдаётся, ошибка', denied.length > 0);
+      const results = await helper.batch([{ handle: fso, kind: 'call', name: 'GetBaseName', args: ['C:\\a\\б.txt'] }, { handle: fso, kind: 'call', name: 'НетТакого', args: [] }, { handle: fso, kind: 'call', name: 'BuildPath', args: ['a', 'b'] }]);
+      check('настоящий COM: пакет останавливается на первой ошибке', results.length === 2 && results[0].ok && (results[0] as any).value === 'б' && !results[1].ok);
+      await helper.shutdown();
+      await new Promise(r => setTimeout(r, 500));
+      let stale = '';
+      try { await helper.invoke(fso, 'get', 'Drives', []); } catch (error) { stale = (error as any).code; }
+      check('настоящий COM: после завершения помощника старый номер недействителен, подпрограмме сообщено', exits === 1 && stale === 'DENIED');
+    }
+
     // ── 6. Разрешения и журнал на экране, обе темы ──
     await page.goto(`${url}/?view=grants`);
     await page.waitForSelector('[data-testid="grants-row"]', { timeout: 30000 });

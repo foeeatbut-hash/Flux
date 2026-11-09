@@ -62,7 +62,9 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
   const selection = new ModuleSelection(path.join(dir, 'selection.json'));
   const controls = new ModuleControls(path.join(dir, 'controls.json'), process.versions.electron);
   let runnable = new Map<string, RunnableRelease>();
+  const resolved = new Map<string, { value: VerifiedModule; release: RunnableRelease } | null>();
   const refresh = async () => {
+    resolved.clear();
     try { runnable = await cache.resolve(selection.versions(), selection.channels); }
     catch (e: any) { console.error('[Модули] Кэш выпусков не прочитан:', e?.message); }
     // Встроенный пример с тем же именем остаётся встроенным: выпуск его не подменяет
@@ -106,14 +108,19 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
   setupModuleSigning();
 
   // Подключения к внешним программам: проверенный выпуск — единственный источник разрешения
+  const controlsBlocked = (release: RunnableRelease) => controls.blocked(release);
   const resolve = async (moduleId: string, version: string): Promise<VerifiedModule | null> => {
     await ready;
     const bundled = bundledModules.find(m => m.id === moduleId && m.version === version);
     if (bundled) return { manifest: bundled, version, author: bundled.author, verifiedAt: 0 };
     if (!selection.installed[moduleId]) return null;
-    const release = (await cache.available(moduleId, selection.channels)).find(r => r.claim.version === version);
-    if (!release || controls.blocked(release)) return null;
-    return { manifest: release.manifest, version, author: release.claim.author, verifiedAt: release.claim.iat };
+    // Проверка подписей и чтение кэша дороги (десятки мс): результат держится до следующего обновления проверенных выпусков
+    const key = `${moduleId}@${version}`;
+    if (resolved.has(key)) { const hit = resolved.get(key)!; return hit && !controlsBlocked(hit.release) ? hit.value : null; }
+    const release = runnable.get(moduleId)?.claim.version === version ? runnable.get(moduleId)! : (await cache.available(moduleId, selection.channels)).find(r => r.claim.version === version);
+    const value = release ? { manifest: release.manifest, version, author: release.claim.author, verifiedAt: release.claim.iat } : null;
+    resolved.set(key, value && release ? { value, release } : null);
+    return release && !controls.blocked(release) ? value : null;
   };
   const service = new ModuleConnections({ resolve, userId: () => selection.active, grants, journal, comFor: options.com ? () => options.com! : () => defaultComBackend(), lookup: options.lookup });
   registerConnectionsIpc({
