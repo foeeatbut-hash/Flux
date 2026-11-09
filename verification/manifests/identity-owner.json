@@ -67,7 +67,7 @@
     },
     {
       "id": "owner",
-      "label": "Flux-Owner",
+      "label": "Flux Studio — Владелец (перенесённый Flux Owner)",
       "routes": [],
       "sources": [
         "studio/owner/src/main.cjs",

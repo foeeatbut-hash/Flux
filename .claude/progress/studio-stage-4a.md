@@ -11,8 +11,8 @@
 - [x] 2. Серверный вход Studio (server/routes/studio.ts) + набор
 - [x] 3. Оболочка разработчика (main/preload/renderer, studio/shell) + сборка (scripts/build-studio.cjs)
 - [x] 4. Сборка владельца: owner подключается как раздел, окно владельца открывается из оболочки
-- [ ] 5. Проверка бандла разработчика + мутация; снимки окон
-- [ ] 6. Workflows (build-studio, build-studio-owner dispatch), verification manifest, удалить build-owner.yml
+- [x] 5. Проверка бандла разработчика + мутация; снимки окон
+- [x] 6. Workflows (build-studio, build-studio-owner dispatch), verification manifest, удалить build-owner.yml
 - [ ] 7. Документы и таблица переноса; PR; CI
 
-Остановились: шаги 1-4 и проверка бандла (scripts/check-studio-bundle.ts, test-studio-*) готовы, tsc зелёный. Дальше: снимки окон (тест UI), workflows, manifest, документы, PR. Локально клиент prisma-sqlite пересобран в рабочей копии (общий устарел): запуск через node -r scratchpad/prisma-local.cjs
+Остановились: код, проверки, workflows, manifest готовы. Дальше: документы (шаг 7), таблица переноса, push, PR-черновик, CI, запуск владельца по [build-owner], потом убрать временный push-триггер в build-studio-owner.yml.

@@ -44,7 +44,7 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--focus); out
 .primary { background: var(--accent); color: var(--accent-text); font-weight: 600; }
 .secondary { background: transparent; color: var(--text); border-color: var(--border); }
 button:disabled { opacity: .55; cursor: default; }
-.error { margin: 12px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--danger-bg); color: var(--danger); }
+.error { margin: 12px 0; padding: 8px 12px; border-radius: 8px; background: var(--danger-bg); color: var(--danger); }
 .hint { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 table { width: 100%; border-collapse: collapse; margin-top: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }

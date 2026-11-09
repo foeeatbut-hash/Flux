@@ -1,0 +1,54 @@
+# FluxStudio-Владелец.exe — сборка владельца. Только по ручному запуску
+# (workflow_dispatch): в общие выпуски и в обновления разработчиков она не попадает,
+# файл остаётся артефактом запуска с коротким сроком хранения. Закрытых ключей в
+# сборке нет: хранилище ключей лежит на компьютере владельца (~/.flux-owner).
+# Номер версии тот же, что у Flux и FluxStudio.exe, — из корневого package.json.
+name: Flux Studio — Владелец (ручной запуск)
+
+on:
+  workflow_dispatch:
+  # ВРЕМЕННО, на время приёмки этапа 4а: проверить сборку из ветки по метке в коммите.
+  # Убирается тем же PR перед слиянием.
+  push:
+    branches: [studio/stage-4a]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  owner:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-owner]') }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+      - name: Проверки раздела владельца
+        run: npm run test:studio-owner
+      - name: Пакет владельца
+        run: npm run build:studio-owner
+      - name: Portable FluxStudio-Владелец.exe
+        run: node studio/build.cjs owner --pack
+      - name: Версия и файл
+        id: meta
+        shell: bash
+        run: |
+          set -e
+          VERSION=$(node -p "require('./package.json').version")
+          test -f "release-studio/FluxStudio-Владелец.exe"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Flux Studio — Владелец $VERSION: $(du -h "release-studio/FluxStudio-Владелец.exe" | cut -f1)"
+      - name: Файл сборки (не выпуск)
+        uses: actions/upload-artifact@v4
+        with:
+          name: FluxStudio-Владелец-${{ steps.meta.outputs.version }}
+          path: release-studio/FluxStudio-Владелец.exe
+          if-no-files-found: error
+          retention-days: 7
