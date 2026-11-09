@@ -66,7 +66,12 @@ const Database = require('better-sqlite3');
       fileNode: {
         findMany: async (q: any) => {
           if (q?.select?.content) contentSelectedForAll = true;
-          return files.filter(f => !f.deletedAt && f.type !== 'CHAT_FILE').map(({ content, ...rest }) => rest);
+          // Фильтр применяется только если запрос его просит: так проверяется сам запрос, а не подделка базы
+          const w = q?.where || {};
+          return files
+            .filter(f => w.deletedAt !== null || !f.deletedAt)
+            .filter(f => !w.type?.not || f.type !== w.type.not)
+            .map(({ content, ...rest }) => rest);
         },
         findUnique: async (q: any) => ({ content: files.find(f => f.id === q.where.id)?.content ?? null }),
       },
