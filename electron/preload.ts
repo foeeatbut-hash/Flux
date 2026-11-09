@@ -290,6 +290,12 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('browser:open-download', path, reveal),
   },
 
+  // Вложения чата: главный процесс сохраняет файл в «Загрузки» и называет путь
+  chat: {
+    saveAttachment: (url: string, name: string) => ipcRenderer.invoke('chat:save-attachment', url, name),
+    reveal: (path: string) => ipcRenderer.invoke('chat:reveal-download', path),
+  },
+
   // Уведомления системы: показываются, когда окно свёрнуто или не в фокусе
   notify: {
     system: (payload: { title: string; body: string; route?: string }) =>

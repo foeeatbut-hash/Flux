@@ -318,6 +318,27 @@
       ],
       "prerequisites": [],
       "timeoutMs": 240000
+    },
+    {
+      "id": "identity-password-section-ui",
+      "path": "scripts/test-password-section-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "loopback-http",
+        "browser-chromium"
+      ],
+      "prerequisites": [
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/password-section-ui.html"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/password-section-ui.tsx"
+        }
+      ],
+      "timeoutMs": 180000
     }
   ],
   "actions": [

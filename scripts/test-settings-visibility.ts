@@ -25,3 +25,7 @@ check('unrestricted and missing section queries retain normal settings behavior'
   settingsSectionFromQuery('backup', ordinary) === 'backup' && settingsSectionFromQuery(null, ordinary) === 'general');
 
 console.log('Settings visibility checks passed.');
+
+check("раздел «Пароль» виден сотруднику и администратору, владельцу — нет (у него резервный вход)",
+  canSeeSettingsSection("password", ordinary) && canSeeSettingsSection("password", admin) && !canSeeSettingsSection("password", owner)
+  && settingsSectionFromQuery("password", owner) === "general" && settingsSectionFromQuery("password", ordinary) === "password");

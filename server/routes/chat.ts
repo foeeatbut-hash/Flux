@@ -11,7 +11,8 @@ import { sanitizeGuideReplies } from '../services/guideReplies.js';
 import { registerChatHistoryRoutes } from './chatHistory.js';
 import { actorId, canReadChatMessage, isChatParticipant, isDirectConversationMessage, isGroupMember, sanitizeProjectReferences } from '../services/chatAccess.js';
 import { SERVICE_USER_ID } from '../services/guideF.js';
-import { resolveNewAttachments, releaseChatFiles, checkMessageText, uploaderPath, CHAT_FILE_MAX_BYTES } from '../services/chatFiles.js';
+import { resolveNewAttachments, releaseChatFiles, checkMessageText, uploaderPath, CHAT_SINGLE_UPLOAD_MAX_BYTES } from '../services/chatFiles.js';
+import { registerChatUploadRoutes, streamChatChunks } from './chatUploads.js';
 
 // Корпоративный мессенджер: личные и групповые чаты, вложения, реакции,
 // закрепы, пересылка и подсказки по тегам.
@@ -22,6 +23,8 @@ import { resolveNewAttachments, releaseChatFiles, checkMessageText, uploaderPath
 interface ChatDeps {
   /** Сокет-сервер живёт в server.ts: события чата уходят по его комнатам */
   io: SocketIOServer;
+  /** Размер куска вложения под предел пакета базы; без него — осторожные 512 КБ */
+  chunkBytes?: () => Promise<number>;
 }
 
 // Помощникам ниже сокет нужен вне обработчиков, поэтому он лежит на уровне модуля
@@ -233,6 +236,7 @@ async function audienceForTarget(groupId: string | null, peerId: string | null, 
 
 export function registerChatRoutes(app: Express, deps: ChatDeps): void {
   io = deps.io;
+  registerChatUploadRoutes(app, { chunkBytes: deps.chunkBytes || (async () => 512 * 1024) });
   // --- CORPORATE MESSENGER CHAT API ---
 
   registerChatHistoryRoutes(app);
@@ -390,7 +394,7 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64) || b64.length % 4 !== 0) return res.status(400).json({ error: 'Файл передан в неверной кодировке' });
       const size = Buffer.from(b64, 'base64').length;
       if (!size) return res.status(400).json({ error: 'Файл пустой' });
-      if (size > CHAT_FILE_MAX_BYTES) return res.status(413).json({ error: `Файл больше ${Math.round(CHAT_FILE_MAX_BYTES / 1048576)} МБ: положите его в Проводник и отправьте ссылкой` });
+      if (size > CHAT_SINGLE_UPLOAD_MAX_BYTES) return res.status(413).json({ error: `Так больше ${Math.round(CHAT_SINGLE_UPLOAD_MAX_BYTES / 1048576)} МБ не отправить: обновите программу — новая версия шлёт большие файлы кусками` });
 
       const node = await prisma.fileNode.create({
         data: {
@@ -444,7 +448,7 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
     const prisma = getPrisma();
     try {
       const node = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
-      if (!node || node.type !== 'CHAT_FILE' || !node.content) {
+      if (!node || node.type !== 'CHAT_FILE') {
         return res.status(404).json({ error: 'Файл не найден' });
       }
       // Личность здесь не нужна и не известна: адрес идёт через chatFileGate и
@@ -454,13 +458,15 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
       // и не отправленный файл по ссылке не отдаётся
       const attached = await prisma.chatAttachment.count({ where: { filePath: { startsWith: `/chat_files/${node.id}/` } } });
       if (!attached) return res.status(404).json({ error: 'Файл не найден' });
-      const buffer = Buffer.from(node.content, 'base64');
       const ext = path.extname(node.name).toLowerCase();
       const type = CHAT_MIME[ext] || 'application/octet-stream';
       res.setHeader('Content-Type', type);
       res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(node.name)}`);
       hardenFileResponse(res, type);
-      res.send(buffer);
+      // Новые вложения лежат кусками и уходят потоком; прежние — строкой в записи
+      if (await streamChatChunks(res, node)) return;
+      if (!node.content) return res.status(404).json({ error: 'Файл не найден' });
+      res.send(Buffer.from(node.content, 'base64'));
     } catch (err: any) {
       sendError(res, err);
     }

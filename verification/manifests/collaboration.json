@@ -840,6 +840,50 @@
         }
       ],
       "timeoutMs": 900000
+    },
+    {
+      "id": "collab-chat-upload-chunks",
+      "path": "scripts/test-chat-upload-chunks.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture",
+        "loopback-http"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 180000
+    },
+    {
+      "id": "collab-chat-download",
+      "path": "scripts/test-chat-download.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "collab-chat-files-ui",
+      "path": "scripts/test-chat-files-ui.ts",
+      "layer": "component",
+      "platform": "any",
+      "resources": [
+        "loopback-http",
+        "browser-chromium"
+      ],
+      "prerequisites": [
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/chat-files-ui.html"
+        },
+        {
+          "kind": "file",
+          "path": "scripts/fixtures/chat-files-ui.tsx"
+        }
+      ],
+      "timeoutMs": 180000
     }
   ],
   "actions": [

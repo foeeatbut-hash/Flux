@@ -6,13 +6,14 @@ import LogsSection from '../components/settings/LogsSection';
 import BrowserSection from '../components/settings/BrowserSection';
 import GeneralSection from '../components/settings/GeneralSection';
 import SignatureSection from '../components/settings/SignatureSection';
+import PasswordSection from '../components/settings/PasswordSection';
 import { useToastStore } from '../store/toastStore';
 import { useLogStore } from '../store/logStore';
 import NotificationSettings from '../components/NotificationSettings';
 import ConnectionGrants from '../components/store/ConnectionGrants';
 import TranslateEngineSection from '../components/settings/TranslateEngineSection';
 import {
-  Settings, Database, Terminal, Bell, Briefcase, Fan, Tag, Archive, ShieldCheck, PenLine, Languages, Globe, Puzzle,
+  Settings, Database, Terminal, Bell, Briefcase, Fan, Tag, Archive, ShieldCheck, PenLine, Languages, Globe, Puzzle, KeyRound,
 } from 'lucide-react';
 import { isOwner } from '../lib/roles';
 import { canAdmin } from '../lib/permissions';
@@ -33,7 +34,7 @@ import { canSeeSettingsSection, settingsSectionFromQuery } from '../lib/settings
 // Windows/iOS), содержимое выбранной категории справа. Сюда перенесены
 // настройки из профиля и из отдельных разделов.
 
-type SectionId = 'modules' | 'license' | 'general' | 'signature' | 'management' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'tagrules';
+type SectionId = 'modules' | 'license' | 'general' | 'signature' | 'password' | 'management' | 'equipment' | 'tags' | 'notifications' | 'translate' | 'browser' | 'database' | 'backup' | 'logs' | 'tagrules';
 
 // Настройки делятся ровно так же, как остальные данные программы (см.
 // src/lib/projectScope.ts): часть общая для всей программы, часть — своя у
@@ -55,6 +56,8 @@ const SECTIONS: Array<{
   // Подпись — настройка человека, и место ей здесь. До этого она пряталась
   // значком в подвале Пуска: найти её мог только тот, кто знал, что она там
   { id: 'signature', label: 'Моя подпись', icon: PenLine, desc: 'Чем подписаны документы', scope: 'global' },
+  // Свой пароль человек меняет сам; у владельца входа по паролю нет (см. settingsVisibility)
+  { id: 'password', label: 'Пароль', icon: KeyRound, desc: 'Смена пароля для входа', scope: 'global' },
   { id: 'management', label: 'Менеджмент', icon: Briefcase, desc: 'Этапы закупки', scope: 'global' },
   { id: 'equipment', label: 'Оборудование', icon: Fan, desc: 'Категории оборудования', scope: 'global' },
   // «Теги» здесь — про способ соединять теги на холсте, а не про сами теги:
@@ -178,6 +181,7 @@ export default function SettingsScreen() {
       <div className="flex-1 min-w-0 overflow-y-auto px-4 @[700px]:px-8 py-4">
         {displayedSection === 'general' && <GeneralSection theme={theme} toggleTheme={toggleTheme} density={density} setDensity={setDensity} addToast={addToast} user={user} />}
         {displayedSection === 'signature' && <SignatureSection />}
+        {displayedSection === 'password' && <PasswordSection />}
         {displayedSection === 'management' && <ManagementSection isAdmin={isAdmin} addToast={addToast} />}
         {displayedSection === 'equipment' && <EquipmentSection isAdmin={isAdmin} addToast={addToast} />}
         {displayedSection === 'tags' && <TagsSection addToast={addToast} />}

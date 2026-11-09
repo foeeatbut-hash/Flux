@@ -99,6 +99,8 @@ async function main() {
     const changed = await call(admin2, 'PUT', '/api/users/rv-admin2', { password: 'new-password-1', currentPassword: password });
     check('с верным текущим пароль меняется', changed.status === 200, changed);
     check('вход с новым паролем работает, со старым — нет', (await login('rv-admin2', 'new-password-1')).status === 200 && (await login('rv-admin2', password)).status === 401);
+    // Форма «Сменить пароль» говорит человеку, что сессии завершены везде, в том числе текущая: сервер обязан это делать
+    check('после смены пароля прежняя сессия завершена (форма так и обещает)', (await call(admin2, 'GET', '/api/auth/me')).status === 401);
     check('чужой пароль администратор меняет без старого', (await call(admin, 'PUT', '/api/users/rv-other', { password: 'reset-by-admin-1' })).status === 200 && (await login('rv-other', 'reset-by-admin-1')).status === 200);
 
     check('чужой пароль короче 8 символов — 400', (await call(admin, 'PUT', '/api/users/rv-other', { password: 'abc' })).status === 400);

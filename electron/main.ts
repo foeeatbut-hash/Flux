@@ -9,6 +9,7 @@ import { setupDraftsShortcut } from './draftsShortcut';
 import { setupFeedbackCapture } from './feedbackCapture';
 import { setupWindowThumb } from './windowThumb';
 import { setupBrowser, disposeBrowserFor } from './browser';
+import { setupChatDownload } from './chatDownload';
 import { setupLogs, appendLog, appendLogNow, logsDir } from './logs';
 import { diagnosticsWriter, setupDiagnostics } from './diagnostics';
 import { setupOwnerLogin } from './ownerLogin';
@@ -187,6 +188,7 @@ app.whenReady().then(async () => {
 
   // Браузер внутри программы: вкладки страницами того же движка
   setupBrowser();
+  setupChatDownload();
 
   // Журналы: папка на рабочем столе, файл на день, уборка старше месяца
   setupLogs();

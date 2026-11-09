@@ -7,8 +7,16 @@
 // стереть чужой файл. Теперь сервер сам решает, что можно прикрепить.
 import { AppError } from '../context.js';
 
-/** Предел файла в чате: сам файл лежит строкой в базе, большие уходят в Проводник */
-export const CHAT_FILE_MAX_BYTES = 25 * 1024 * 1024;
+/**
+ * Предел файла в чате. Файл едет кусками и лежит кусками (FileChunk), поэтому
+ * предел — не потолок запроса или пакета базы, а решение о месте в базе:
+ * 500 МБ — это 250 кусков по 2 МБ, а память сервера от размера не зависит.
+ */
+export const CHAT_FILE_MAX_BYTES = 500 * 1024 * 1024;
+/** Предел старой загрузки одной строкой (/api/chat/upload): её потолок — тело запроса */
+export const CHAT_SINGLE_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+/** Метка записи файла, в который ещё едут куски; после завершения — department='CHAT' */
+export const CHAT_UPLOADING = 'CHAT_UPLOAD';
 /** Вложений в одном сообщении */
 export const CHAT_ATTACHMENTS_MAX = 20;
 /** Сколько загруженный, но не отправленный файл ждёт, прежде чем считаться сиротой */
@@ -38,10 +46,11 @@ export async function resolveNewAttachments(prisma: any, actor: string, raw: unk
     if (!id) throw new AppError(400, 'Вложение не найдено: загрузите файл заново');
     if (seen.has(id)) throw new AppError(400, 'Один и тот же файл прикреплён дважды');
     seen.add(id);
-    const node = await prisma.fileNode.findUnique({ where: { id }, select: { id: true, name: true, size: true, type: true, filePath: true } });
+    const node = await prisma.fileNode.findUnique({ where: { id }, select: { id: true, name: true, size: true, type: true, filePath: true, department: true } });
     // Чужой и несуществующий файл неотличимы: номер файла не подтверждаем
     // Уже стёртый уборкой или загруженный старой версией: прикрепить нечего, надо загрузить заново
     if (!node || node.type !== 'CHAT_FILE') throw new AppError(404, 'Файл не найден или устарел: загрузите его заново');
+    if (node.department === CHAT_UPLOADING) throw new AppError(400, 'Файл ещё не догрузился: дождитесь конца загрузки');
     if (!String(node.filePath || '').startsWith(`/chat/${actor}/`)) {
       // `/chat/<имя>` без владельца — загрузка прежней версии: прикрепить её уже нельзя
       if (String(node.filePath || '').split('/').length === 3) throw new AppError(404, 'Файл устарел: загрузите его заново');
@@ -66,6 +75,8 @@ export async function releaseChatFiles(prisma: any, filePaths: string[]): Promis
   for (const id of ids) {
     const still = await prisma.chatAttachment.count({ where: { filePath: { startsWith: `/chat_files/${id}/` } } });
     if (still) continue;
+    // Куски стираем сами: на SQLite через драйвер-адаптер каскад внешнего ключа не включён, и сотни мегабайт остались бы сиротами
+    await prisma.fileChunk.deleteMany({ where: { fileId: id } });
     const r = await prisma.fileNode.deleteMany({ where: { id, type: 'CHAT_FILE' } });
     removed += r.count;
   }
@@ -104,6 +115,7 @@ export async function cleanOrphanChatFiles(prisma: any, opts: { now?: number; li
       cursor = n.id;
       const refs = await prisma.chatAttachment.count({ where: { filePath: { startsWith: `/chat_files/${n.id}/` } } });
       if (refs) continue;
+      await prisma.fileChunk.deleteMany({ where: { fileId: n.id } });
       const r = await prisma.fileNode.deleteMany({ where: { id: n.id, type: 'CHAT_FILE' } });
       if (r.count) {
         removed++;
