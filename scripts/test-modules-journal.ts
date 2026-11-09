@@ -15,6 +15,7 @@ import { ensureRemoteSchema } from '../server/schema-sync';
 import { registerModulePublishingRoutes } from '../server/routes/modulePublishing';
 import { expireJournal } from '../server/moduleJournal';
 import { JOURNAL_LIMITS } from '../modules/journal/model';
+import { safeModuleDiagnostics, validateModuleContext } from '../feedback/moduleContext';
 import { certificateEnvelope, hexOf, moduleBundle, newKey, releaseEnvelope, requestEnvelope } from './fixtures/moduleTrust';
 
 const Database = require('better-sqlite3');
@@ -129,6 +130,12 @@ async function main() {
   await call('admin', '/api/modules/connection-policy/rules', 'PUT', { rules: [{ moduleId: 'conn-a', connection: 'api', roles: ['ENGINEER_AUTO'] }, { moduleId: 'conn-a', connection: 'e3', roles: [] }] });
   const annPolicy = (await call('ann', '/api/modules/connection-policy')).body.denied, bobPolicy = (await call('bob', '/api/modules/connection-policy')).body.denied;
   ok('запрет роли действует на её людей, запрет без ролей — на всех', annPolicy.length === 2 && bobPolicy.length === 1 && bobPolicy[0].connection === 'e3');
+
+  console.log('Журнал в обращении');
+  const ctx = (journal: unknown) => validateModuleContext({ moduleId: 'conn-a', moduleVersion: '1.0.0', moduleChannel: 'production', moduleDiagnostics: { journal } });
+  ok('к обращению принимается до 30 строк журнала', ctx(Array.from({ length: 30 }, (_, i) => `строка ${i}`)).ok && !ctx(Array.from({ length: 31 }, () => 'x')).ok);
+  ok('длинная строка и не строка отвергаются', !ctx(['я'.repeat(241)]).ok && !ctx([1]).ok);
+  ok('управляющие символы в приложенном журнале вычищаются', safeModuleDiagnostics({ journal: ['а\u0000б\nв'] }).journal?.[0] === 'а б в');
 
   server.close();
   console.log(`\nПройдено проверок: ${passed}`);

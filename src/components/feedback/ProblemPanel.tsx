@@ -169,6 +169,20 @@ function PanelBody({ userId, appVersion, anchor, sectionKey, modules, activeId, 
       .catch(() => { if (current) setSimilarError('Похожие обращения не загрузились'); });
     return () => { current = false; };
   }, [recipient]);
+  // Журнал подпрограммы к обращению: человек видит строки и сам решает, прикладывать ли их (по умолчанию нет)
+  const [journalLines, setJournalLines] = useState<string[]>([]);
+  const [attachJournal, setAttachJournal] = useState(false);
+  useEffect(() => {
+    let current = true;
+    setJournalLines([]); setAttachJournal(false);
+    const ipc = (window as any).electron?.ipcRenderer;
+    if (recipient && ipc) void ipc.invoke('modules:journal-recent', { limit: 500 }).then((reply: any) => {
+      if (!current || !reply?.ok) return;
+      const rows = (reply.entries as any[]).filter((e) => e.moduleId === recipient).slice(0, 30);
+      setJournalLines(rows.map((e) => `${new Date(e.at).toLocaleString('ru-RU')} ${e.category} ${e.event}${e.detail ? ` · ${e.detail}` : ''}${e.outcome ? ` → ${e.outcome}` : ''}${e.ms ? ` (${e.ms} мс)` : ''}`.slice(0, 240)));
+    }).catch(() => {});
+    return () => { current = false; };
+  }, [recipient]);
   const text = fields.description;
   const [queued, setQueued] = useState<QueueItem | null>(null);
   const [complaint, setComplaint] = useState('');
@@ -231,7 +245,7 @@ function PanelBody({ userId, appVersion, anchor, sectionKey, modules, activeId, 
         title: titleFrom(clean), description: clean, technicalEvents: true, appContext: true,
         moduleId: selected?.manifest.id || fallback?.id, moduleVersion: selected?.version || fallback?.version, moduleChannel: selected?.channel || fallback?.channel,
         moduleApiVersion: selected ? String(selected.manifest.contractVersion) : fallback?.apiVersion,
-        moduleDeveloper: selected?.author || fallback?.developer, moduleDiagnostics: recipient === activeId ? moduleDiagnostics : undefined,
+        moduleDeveloper: selected?.author || fallback?.developer, moduleDiagnostics: recipient === activeId || (attachJournal && recipient) ? { ...(recipient === activeId ? moduleDiagnostics : {}), ...(attachJournal && journalLines.length ? { journal: journalLines } : {}) } : undefined,
       });
       if (refused) setComplaint(refused); else setSentText(clean);
     } finally { setSubmitting(false); }
@@ -338,6 +352,13 @@ function PanelBody({ userId, appVersion, anchor, sectionKey, modules, activeId, 
                            focus:border-emerald-400 resize-none disabled:opacity-60" />
             </label>
             {similarError && <p className="text-xs text-rose-600 dark:text-rose-400">{similarError}</p>}
+            {recipient && recipient === (selected?.manifest.id || fallback?.id) && journalLines.length > 0 && <div className="space-y-1 text-xs text-slate-700 dark:text-slate-300" data-testid="journal-attach">
+              <label className="flex items-center gap-2"><input type="checkbox" checked={attachJournal} disabled={busy} onChange={(e) => setAttachJournal(e.target.checked)} />
+                Приложить журнал подпрограммы (последние {journalLines.length} записей)</label>
+              <details><summary className="cursor-pointer">Что именно уйдёт</summary>
+                <pre className="m-0 mt-1 max-h-32 overflow-auto whitespace-pre-wrap font-mono text-[11px]">{journalLines.join('\n')}</pre>
+                <p className="m-0 mt-1">Только вид событий, время и итог. Данных проектов, содержимого вызовов и вашего имени в записях нет.</p></details>
+            </div>}
             {similar.length > 0 && <div className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
               <p>Похожие известные проблемы</p>
               {similar.map((one) => <div key={one.id} className="border-t border-slate-200 dark:border-slate-800 pt-2">

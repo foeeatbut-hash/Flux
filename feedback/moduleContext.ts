@@ -2,7 +2,10 @@ import { MODULE_ID, MODULE_VERSION } from '../modules/trust/claims';
 
 export const MODULE_FAILURES = ['crash', 'timeout', 'memory', 'bridge', 'controls', 'connection'] as const;
 export type ModuleFailure = typeof MODULE_FAILURES[number];
-export interface ModuleDiagnostics { code?: ModuleFailure; frames?: string[] }
+/** `journal` — строки журнала подпрограммы, которые человек сам приложил к обращению (до 30 строк, без людей и проектов) */
+export const JOURNAL_ATTACH_LINES = 30;
+export const JOURNAL_ATTACH_LINE = 240;
+export interface ModuleDiagnostics { code?: ModuleFailure; frames?: string[]; journal?: string[] }
 export interface ModuleFeedbackContext {
   moduleId?: string;
   moduleVersion?: string;
@@ -22,7 +25,9 @@ export function safeModuleDiagnostics(raw: unknown): ModuleDiagnostics {
   const frames = Array.isArray(r.frames) ? r.frames.filter((x): x is string => typeof x === 'string').slice(0, 12)
     .map((x) => x.match(/(?:^|[/\\(\s])([a-zA-Z0-9_.-]+\.(?:js|ts|tsx|py|wasm)):(\d{1,8}):(\d{1,8})(?:\)?$)/))
     .filter(Boolean).map((m) => `${m![1]}:${m![2]}:${m![3]}`) : [];
-  return { ...(code ? { code } : {}), ...(frames.length ? { frames } : {}) };
+  const journal = Array.isArray(r.journal) ? r.journal.filter((x): x is string => typeof x === 'string').slice(0, JOURNAL_ATTACH_LINES)
+    .map((x) => x.replace(/[\u0000-\u001f\u007f]+/g, ' ').slice(0, JOURNAL_ATTACH_LINE)) : [];
+  return { ...(code ? { code } : {}), ...(frames.length ? { frames } : {}), ...(journal.length ? { journal } : {}) };
 }
 
 export function validateModuleContext(r: Record<string, unknown>): { ok: boolean; value?: ModuleFeedbackContext; error?: string } {
@@ -37,9 +42,10 @@ export function validateModuleContext(r: Record<string, unknown>): { ok: boolean
   if (r.moduleDeveloper !== undefined && (typeof r.moduleDeveloper !== 'string' || r.moduleDeveloper.length > 200)) return { ok: false, error: 'Неверное имя разработчика' };
   if (r.moduleDiagnostics !== undefined) {
     const d = r.moduleDiagnostics as any;
-    if (!d || typeof d !== 'object' || Array.isArray(d) || Object.keys(d).some((k) => !['code', 'frames'].includes(k))
+    if (!d || typeof d !== 'object' || Array.isArray(d) || Object.keys(d).some((k) => !['code', 'frames', 'journal'].includes(k))
       || (d.code !== undefined && !MODULE_FAILURES.includes(d.code))
-      || (d.frames !== undefined && (!Array.isArray(d.frames) || d.frames.length > 12 || d.frames.some((f: unknown) => typeof f !== 'string' || f.length > 1000)))) {
+      || (d.frames !== undefined && (!Array.isArray(d.frames) || d.frames.length > 12 || d.frames.some((f: unknown) => typeof f !== 'string' || f.length > 1000)))
+      || (d.journal !== undefined && (!Array.isArray(d.journal) || d.journal.length > JOURNAL_ATTACH_LINES || d.journal.some((f: unknown) => typeof f !== 'string' || f.length > JOURNAL_ATTACH_LINE)))) {
       return { ok: false, error: 'Диагностика подпрограммы содержит неизвестные данные' };
     }
   }
