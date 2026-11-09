@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { checkBundle, OWNER_MARKERS } from './check-studio-bundle';
+import { checkBundle, OUTSIDE_MARKERS, OWNER_MARKERS } from './check-studio-bundle';
 
 const { buildStudio, TARGETS } = require('../studio/build.cjs');
 const root = path.resolve(__dirname, '..');
@@ -43,12 +43,32 @@ async function main() {
     const dead = OWNER_MARKERS.filter((marker) => !ownerText.includes(marker));
     ok(`каждая метка есть в сборке владельца (нет: ${dead.join(', ') || '—'})`, dead.length === 0);
 
+    const stale = Object.entries(OUTSIDE_MARKERS).filter(([marker, file]) => !fs.readFileSync(path.join(root, file), 'utf8').includes(marker));
+    ok(`метки кода владельца вне studio/owner живы (устарели: ${stale.map(([m]) => m).join(', ') || '—'})`, stale.length === 0);
+
     console.log('Мутации: проверка должна падать');
     const mutated = path.join(temp, 'mutated');
     await buildStudio({ target: 'developer', outDir: mutated, extraMain: path.join(root, 'studio/owner/src/signing.cjs') });
     const mutationProblems = checkBundle(mutated);
     ok('модуль владельца подключён в сборку разработчика — проверка падает по карте сборки', mutationProblems.some((p) => /studio\/owner\/src\/signing\.cjs/.test(p)));
     ok('и по тексту пакета — называет метку подписи', mutationProblems.some((p) => /метка кода владельца «(signUpdate|issueLicense)»/.test(p)));
+    // Общий импорт кода владельца: по пути исходника (сам файл) и копией с другим именем файла и функций
+    const pathOnly = path.join(temp, 'path-only');
+    const sharedImport = path.join(temp, 'shared-import.ts');
+    fs.writeFileSync(sharedImport, `import * as owner from ${JSON.stringify(path.join(root, 'modules/trust/owner.ts'))}; (globalThis as any).x = owner;`);
+    await buildStudio({ target: 'developer', outDir: pathOnly, extraMain: sharedImport });
+    ok('общий импорт modules/trust/owner.ts ловится по пути исходника', checkBundle(pathOnly).some((p) => /файл владельца: modules\/trust\/owner\.ts/.test(p)));
+    // Копия лежит в репозитории (нужны её соседи по импорту) под другим именем и с переименованными функциями
+    const mutant = path.join(root, 'modules/trust/__studio_mutant.ts');
+    try {
+      fs.writeFileSync(mutant, fs.readFileSync(path.join(root, 'modules/trust/owner.ts'), 'utf8').replace(/build(\w+)Claim/g, 'make$1Entry'));
+      fs.writeFileSync(sharedImport, `import * as owner from ${JSON.stringify(mutant)}; (globalThis as any).x = owner;`);
+      const copy = path.join(temp, 'copy');
+      await buildStudio({ target: 'developer', outDir: copy, extraMain: sharedImport });
+      const copyProblems = checkBundle(copy);
+      ok('копия с другим именем файла и функций не названа по пути', !copyProblems.some((p) => /в карте сборки/.test(p)));
+      ok('но проверка падает по тексту: переименование функций не прячет код владельца', copyProblems.some((p) => /метка кода владельца «(Описание правки не прошло проверку|Запрос разработчика повреждён)»/.test(p)));
+    } finally { fs.rmSync(mutant, { force: true }); }
     const tampered = path.join(temp, 'tampered');
     await buildStudio({ target: 'developer', outDir: tampered });
     fs.appendFileSync(path.join(tampered, 'app/renderer/renderer.js'), '\n// issueLicense\n');

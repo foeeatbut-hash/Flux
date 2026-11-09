@@ -50,9 +50,12 @@ async function main() {
     req.authUser = Object.values(people).find((p) => `Bearer token-${p.id}-long-enough` === req.headers.authorization);
     return req.authUser ? next() : res.status(401).json({ error: 'Нужен вход.' });
   });
-  const fakeDb = { moduleRequest: { findMany: async ({ where }: any) => where.authorId === 'dev'
-    ? [{ moduleId: 'alpha', version: '1.0.0', state: 'pending', createdAt: new Date() }] : [] } };
-  registerStudioRoutes(app, { getPrisma: () => fakeDb, can: (user, feature) => user.perms.includes(feature) });
+  const row = { moduleId: 'alpha', version: '1.0.0', state: 'pending', createdAt: new Date() };
+  const fakeDb = { moduleRequest: {
+    groupBy: async ({ where }: any) => where.authorId === 'dev' ? [{ moduleId: 'alpha', _count: { _all: 1 }, _max: { createdAt: row.createdAt } }] : [],
+    findFirst: async () => row,
+  } };
+  registerStudioRoutes(app, { getPrisma: () => fakeDb, permissionsOf: async (user) => Object.fromEntries(user.perms.map((f: string) => [f, { enabled: true }])) });
   const server = await new Promise<http.Server>((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const origin = `http://127.0.0.1:${(server.address() as any).port}`;
 

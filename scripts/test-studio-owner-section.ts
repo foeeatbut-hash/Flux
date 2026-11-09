@@ -111,7 +111,6 @@ async function main() {
     ok('созданное хранилище открывается заново', (await call2('unlock', { password: 'новая-фраза-пароль-1' })).value.unlocked === true);
 
     console.log('Сборка разработчика');
-    for (const key of Object.keys(require.cache)) if (key.includes('build-owner')) delete require.cache[key];
     const developer = await run('developer', home);
     const devState = (await developer.shellCall('state')).value;
     ok('в сборке разработчика разделов владельца нет', devState.sections.length === 0 && devState.build === 'developer');

@@ -31,16 +31,26 @@ async function main() {
   const db = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: `file:${file}` }) });
   await ensureRemoteSchema(db, 'sqlite', fs.readFileSync(path.join(__dirname, '..', 'prisma', 'schema.prisma'), 'utf8'), () => {});
 
-  const people: Record<string, { id: string; name: string; role: string; perms: string[] }> = {
-    owner: { id: 'flux-owner', name: 'Владелец', role: 'OWNER', perms: [] },
-    dev: { id: 'dev', name: 'Разработчик', role: 'MODULE_DEVELOPER', perms: ['module.develop'] },
-    other: { id: 'other', name: 'Другой', role: 'MODULE_DEVELOPER', perms: ['module.develop'] },
-    admin: { id: 'admin', name: 'Админ', role: 'ADMIN', perms: [] },
-    plain: { id: 'plain', name: 'Инженер', role: 'ENGINEER_VENT', perms: [] },
+  // Права — как на сервере: личные поверх прав должности. Общая проверка userCan отдаёт администратору
+  // любое не-admin.* право, поэтому Studio её не использует; здесь администраторы проверяются отдельно.
+  const grant = (until?: string) => JSON.stringify({ 'module.develop': { enabled: true, ...(until ? { until } : {}) } });
+  const positionRights: Record<string, Record<string, any>> = { MODULE_DEVELOPER: { 'module.develop': { enabled: true } } };
+  const people: Record<string, any> = {
+    owner: { id: 'flux-owner', name: 'Владелец', role: 'OWNER' },
+    dev: { id: 'dev', name: 'Разработчик', role: 'MODULE_DEVELOPER' },
+    other: { id: 'other', name: 'Другой', role: 'MODULE_DEVELOPER' },
+    personal: { id: 'personal', name: 'Личное право', role: 'ENGINEER_VENT', permissions: grant() },
+    expired: { id: 'expired', name: 'Просрочено', role: 'ENGINEER_VENT', permissions: grant('2000-01-01') },
+    off: { id: 'off', name: 'Отключён', role: 'MODULE_DEVELOPER', isActive: false },
+    disabled: { id: 'disabled', name: 'Выключено', role: 'ENGINEER_VENT', permissions: JSON.stringify({ 'module.develop': { enabled: false } }) },
+    admin: { id: 'admin', name: 'Админ', role: 'ADMIN', permissions: '{}' },
+    adminGranted: { id: 'adminGranted', name: 'Админ с правом', role: 'ADMIN', permissions: grant() },
+    heavy: { id: 'heavy', name: 'Много', role: 'MODULE_DEVELOPER' },
+    plain: { id: 'plain', name: 'Инженер', role: 'ENGINEER_VENT' },
   };
   const app = express();
   app.use('/api', (req: any, res, next) => { req.authUser = people[String(req.headers.authorization || '').replace(/^Bearer /, '')]; return req.authUser ? next() : res.status(401).end(); });
-  registerStudioRoutes(app, { getPrisma: () => db, can: (user, feature) => user.perms.includes(feature) });
+  registerStudioRoutes(app, { getPrisma: () => db, permissionsOf: async (user) => ({ ...(positionRights[user.role] || {}), ...JSON.parse(user.permissions || '{}') }) });
   const server = await new Promise<import('http').Server>((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const origin = `http://127.0.0.1:${(server.address() as any).port}`;
   const call = async (who: string, route: string) => {
@@ -52,7 +62,11 @@ async function main() {
   ok('без токена вход закрыт', (await fetch(`${origin}/api/studio/session`)).status === 401);
   ok('сотрудник без права: 403 с подсказкой, что просить', (await call('plain', '/api/studio/session')).status === 403
     && /Разработка подпрограмм/.test((await call('plain', '/api/studio/session')).body.error));
-  ok('администратор без права разработки тоже не входит', (await call('admin', '/api/studio/session')).status === 403);
+  ok('администратор без явного права не входит (общая проверка прав пустила бы его)', (await call('admin', '/api/studio/session')).status === 403 && (await call('admin', '/api/studio/modules')).status === 403);
+  ok('администратор с явно выданным правом входит', (await call('adminGranted', '/api/studio/session')).status === 200);
+  ok('личное право без должности пускает', (await call('personal', '/api/studio/session')).status === 200);
+  ok('право должности пускает', (await call('dev', '/api/studio/session')).status === 200);
+  ok('просроченное, выключенное и отключённого профиля право не пускает', [(await call('expired', '/api/studio/session')).status, (await call('disabled', '/api/studio/session')).status, (await call('off', '/api/studio/session')).status].every((x) => x === 403));
   ok('список подпрограмм без права закрыт так же', (await call('plain', '/api/studio/modules')).status === 403);
   const dev = await call('dev', '/api/studio/session');
   ok('разработчик с module.develop входит, как не владелец', dev.status === 200 && dev.body.ok === true && dev.body.owner === false);
@@ -78,6 +92,9 @@ async function main() {
   for (let i = 0; i < STUDIO_MODULE_LIMIT + 5; i++) await add('other', `mass-${i}`, '1.0.0');
   const big = (await call('other', '/api/studio/modules')).body.modules;
   ok(`список не длиннее ${STUDIO_MODULE_LIMIT}`, big.length === STUDIO_MODULE_LIMIT);
+  for (let i = 0; i < 1100; i++) await add('heavy', 'many', `1.0.${i}`);
+  const many = (await call('heavy', '/api/studio/modules')).body.modules.find((m: any) => m.moduleId === 'many');
+  ok('число отправок честное и при тысяче с лишним запросов', many.requests === 1100);
 
   server.close();
   await db.$disconnect();

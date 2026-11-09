@@ -45,11 +45,14 @@ IPC-канала `owner:action`. Проверка `scripts/check-studio-bundle.t
 выпуска (`Flux-<версия>-x64.exe`) — он запускает локальный обработчик на
 loopback (`studio/shared/database-runtime.cjs`, общий с разделом владельца).
 Вход — логин и пароль Flux. **Право проверяет сервер** (`server/routes/studio.ts`,
-`GET /api/studio/session`): пускает `module.develop` или вход владельца; без
-права, в том числе администратора, — 403 и подсказка. Токен сессии живёт только
+`GET /api/studio/session`): пускает только вход владельца или пользователя с
+**явным** правом `module.develop` (личным или от должности, действующим и не
+просроченным). Общая проверка прав Flux (`userCan`) здесь намеренно не
+используется: она отдаёт администратору любое право, кроме `admin.*`, а в Studio
+администратор без явно выданного права получает 403 и подсказку. Токен сессии живёт только
 в главном процессе, окно его не видит. Раздел «Подпрограммы» показывает свои
 подпрограммы (последняя версия, состояние последней отправки, число отправок),
-не больше 200.
+не больше 200; число отправок считает база.
 
 ## Окно
 
@@ -74,3 +77,27 @@ loopback (`studio/shared/database-runtime.cjs`, общий с разделом �
 
 Не проверено в контейнере: запуск `.exe` на Windows с настоящим хранилищем
 владельца и настоящей общей базой — у владельца.
+
+## Перенос Flux Owner: функция → где теперь → чем проверено
+
+| Функция Flux Owner | Где теперь | Чем проверено |
+|---|---|---|
+| Подключение к общей базе по URI, без сохранения пароля | `studio/shared/database-runtime.cjs`, действие `connect` в `studio/owner/src/main.cjs` | `studio/shared/test-database-runtime.cjs`, `studio/owner/scripts/test.cjs` |
+| Локальный API на loopback (`Flux-<версия>-x64.exe --flux-company-server`) | там же; версия Flux = версия Studio | те же + `studio/owner/scripts/test-network.cjs` |
+| Хранилище ключей (создание, пароли, запасной ключ, импорт, экспорт, полная копия) | `studio/owner/src/vault.cjs`, `setup.cjs`; путь `~/.flux-owner/vault.flux-owner`, формат `FLUXOWNER1` | `test.cjs`; `scripts/test-studio-owner-section.ts` (хранилище прежнего кода открывается теми же ключами); `scripts/test-verification-identity-owner.ts` |
+| Вход владельца (подпись одноразового вызова) | `connect` → `/api/owner/challenge`, `/api/owner/login` | `test.cjs`, `scripts/test-owner-auth.ts` |
+| Лицензии: выпуск, отзыв, запрос | `signing.cjs`, `vendor/license-core.ts`; `request`, `issue`, `revoke`, `publishRevocation` | `test.cjs` |
+| Публикация подписанных обновлений Flux, отзыв версии | `signing.cjs`, `vendor/updateSignature.ts`; `chooseExe`, `signUpdate`, `publish`, `withdrawUpdate` | `test.cjs`, `scripts/test-updates.ts` |
+| Назначение обновлений компьютерам | `authorizeUpdates` (`signUpdateDelegation`) | `test.cjs` |
+| Закрепление открытых ключей в исходниках Flux | `public-config.cjs`; `publicExport`, `publicApply` | `test.cjs` |
+| Диагностика | `diagnostics.cjs`; `exportDiagnostics`, `reportDiagnostic` | `studio/owner/scripts/test-diagnostics.cjs` |
+| Открыть Flux как владелец | `openFlux` | `test.cjs`, вручную у владельца |
+| Окно, изоляция, список действий | `preload.cjs` (побайтно прежний), `ui/` | `scripts/test-studio-owner-section.ts` |
+| Первичная настройка | `setup`, `verifySetup`, `showSetupFolder`, `chooseSetupFolder`, `openBackup` | `test.cjs` |
+| Сборка отдельного portable Flux-Owner и релиз `owner-v…` | заменена `build-studio-owner.yml` (только ручной запуск, не выпуск) | `scripts/test-studio-bundle.ts`, CI |
+
+Список из 30 действий главного процесса прежний; их проверки живут в перенесённом
+`studio/owner/scripts/test.cjs` (он собирает настоящий `main.cjs` и вызывает действия).
+Намеренные изменения: закрытие окна владельца только запирает хранилище, программа
+остаётся; окно открывается из меню Studio. Оболочка и раздел подключаются к базе каждый
+своим локальным обработчиком — это осознанно: у них независимые сессии и отключение.

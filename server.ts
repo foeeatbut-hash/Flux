@@ -969,7 +969,7 @@ registerUpdateRoutes(app, {
   can: userCan,
 });
 // Вход в Flux Studio: право разработки или вход владельца проверяет сервер
-registerStudioRoutes(app, { getPrisma: () => prisma, can: userCan });
+registerStudioRoutes(app, { getPrisma: () => prisma, permissionsOf: effectivePermsOf });
 
 // Насколько большой файл примет эта база — server/limits.ts. Окно спрашивает
 // заранее, чтобы отказ звучал до переноса, а не после получаса ожидания
