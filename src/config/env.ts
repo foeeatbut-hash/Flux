@@ -135,7 +135,9 @@ if (typeof window !== 'undefined') {
       const apiOrigin = new URL(SERVER_BASE_URL || window.location.origin).origin;
       isApi = target.origin === apiOrigin && target.pathname.startsWith('/api/');
     } catch (_) {}
-    const shortUrl = urlForLog.replace(/^https?:\/\/[^/]+/, '').replace(/^.*\/api\//, '/api/');
+    const shortUrl = urlForLog.replace(/^https?:\/\/[^/]+/, '').replace(/^.*\/api\//, '/api/')
+      // Подписи и токены в строке запроса (?s=, ?token=) в журнал не попадают
+      .replace(/([?&](?:s|sig|signature|token|access_token|key|auth)=)[^&#]*/gi, '$1***');
     let sentToken = false;
     if (isApi) {
       const token = getAuthToken();
