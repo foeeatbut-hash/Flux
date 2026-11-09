@@ -24,7 +24,9 @@ import { extraPositionCodes, isNonPositionCode, stripAdminPermissions } from '..
 // передаются один раз при подключении маршрутов.
 
 interface UserDeps {
-  hashPassword: (plain: string) => string;
+  hashPassword: (plain: string) => string | Promise<string>;
+  /** Сверка пароля с хешем; нужна смене собственного пароля. Без неё (проверки) сравнивается хеш той же функцией */
+  verifyPassword?: (plain: string, stored: string | null | undefined) => boolean | Promise<boolean>;
   /** Сбросить кэш прав роли: изменение должно действовать сразу */
   invalidateRolePerms: () => void;
   /** Сбросить кэш сессии пользователя (или всех, если без аргумента) */
@@ -74,7 +76,43 @@ async function hasEmployeeImportDependencies(tx: any, id: string): Promise<boole
   return files > 0 || folders > 0 || markups > 0 || messages > 0 || !!membership || !!ownedGroups || notes > 0;
 }
 
-const hashPassword = (plain: string) => deps.hashPassword(plain);
+const hashPassword = async (plain: string): Promise<string> => deps.hashPassword(plain);
+const verifyPassword = async (plain: string, stored: string | null | undefined): Promise<boolean> =>
+  deps.verifyPassword ? !!(await deps.verifyPassword(plain, stored)) : !!stored && (await deps.hashPassword(plain)) === stored;
+
+const MIN_PASSWORD = 8;
+
+/**
+ * Логин нового или переименованного сотрудника. Вход обрезает пробелы и
+ * сравнивает без регистра, поэтому и здесь: строка, без пробелов по краям,
+ * непустая, без «@», не логин владельца и не дубль с точностью до регистра.
+ * Раньше POST принимал что угодно (undefined превращался в 'undefined', «Ivan»
+ * и «ivan» жили вместе, а логин с пробелом по краям войти уже не мог).
+ */
+async function checkedSymbol(prisma: any, raw: unknown, exceptId: string | null): Promise<{ ok: true; symbol: string } | { ok: false; status: number; message: string }> {
+  if (typeof raw !== 'string') return { ok: false, status: 400, message: 'Укажите табельный номер (логин).' };
+  const symbol = raw.trim();
+  if (!symbol) return { ok: false, status: 400, message: 'Укажите табельный номер (логин).' };
+  if (symbol.length > 64) return { ok: false, status: 400, message: 'Логин не длиннее 64 символов.' };
+  if (symbol.includes('@')) return { ok: false, status: 400, message: 'Логин не может содержать символ @.' };
+  if (symbol.toLowerCase() === 'flux.owner') return { ok: false, status: 403, message: 'Логин владельца зарезервирован' };
+  const all = await prisma.user.findMany({ select: { id: true, symbol: true } });
+  if (all.some((u: any) => u.id !== exceptId && String(u.symbol || '').trim().toLowerCase() === symbol.toLowerCase())) {
+    return { ok: false, status: 400, message: 'Ошибка: сотрудник с таким табельным номером уже внесен в базу данных!' };
+  }
+  return { ok: true, symbol };
+}
+
+/** Права хранятся строкой JSON-объекта; всё остальное нечитаемо для проверки доступа и ломает экран прав. */
+function permissionsError(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  let parsed: unknown = value;
+  if (typeof value === 'string') { try { parsed = JSON.parse(value); } catch (_) { return 'Права сотрудника заданы некорректно (ожидается JSON-объект).'; } }
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? null : 'Права сотрудника заданы некорректно (ожидается JSON-объект).';
+}
+
+/** Поля, которые администратор может менять у самого себя: роль, права и срок — только владелец. */
+const SELF_EDIT_FIELDS = ['name', 'password', 'currentPassword', 'lastName', 'firstName', 'middleName', 'gender', 'birthDate'] as const;
 const invalidateRolePerms = () => deps.invalidateRolePerms();
 const invalidateAuthUser = (userId?: string) => deps.invalidateAuthUser(userId);
 
@@ -549,8 +587,8 @@ app.post('/api/users', async (req: Request, res: Response) => {
   try {
     const actor = (req as any).authUser;
     if (!administratorPermission(actor, 'admin.users.create')) return res.status(403).json({ message: 'Нет права создавать сотрудников' });
-    const { symbol, password } = req.body;
-    if (String(symbol || '').trim().toLowerCase() === 'flux.owner') return res.status(403).json({ message: 'Логин владельца зарезервирован' });
+    const { password } = req.body;
+    if (String(req.body.symbol || '').trim().toLowerCase() === 'flux.owner') return res.status(403).json({ message: 'Логин владельца зарезервирован' });
     if (String(req.body.role || '').trim().toUpperCase() === 'OWNER') return res.status(403).json({ message: 'Профиль владельца создается только при входе по ключу' });
     if (actor.role !== 'OWNER' && administrativeGrants(req.body.permissions)) return res.status(403).json({ message: 'Администратора и его права назначает только владелец' });
     // Должность обязательна; уровень «администратор» назначает только владелец
@@ -564,24 +602,29 @@ app.post('/api/users', async (req: Request, res: Response) => {
     if (!name) {
       return res.status(400).json({ message: 'Укажите фамилию и имя сотрудника.' });
     }
-    const existing = await prisma.user.findUnique({
-      where: { symbol: String(symbol) }
-    });
-    if (existing) {
-      return res.status(400).json({ 
-        code: 'P2002', 
-        message: 'Ошибка: сотрудник с таким табельным номером уже внесен в базу данных!' 
-      });
+    const login = await checkedSymbol(prisma, req.body.symbol, null);
+    if (login.ok === false) {
+      return res.status(login.status).json({ ...(login.status === 400 && /уже внесен/.test(login.message) ? { code: 'P2002' } : {}), message: login.message });
     }
+    const symbol = login.symbol;
 
     const { validUntil, isActive, permissions } = req.body;
+    // Срок и права разбираются до записи: мусор — явная ошибка, а не Invalid Date из Prisma
+    const createdUntil = parseUserDate(validUntil);
+    if (createdUntil === undefined) return res.status(400).json({ message: 'Некорректная дата срока действия профиля.' });
+    const badPermissions = permissionsError(permissions);
+    if (badPermissions) return res.status(400).json({ message: badPermissions });
+    if (typeof password === 'string' && password && password.length < MIN_PASSWORD) return res.status(400).json({ message: `Пароль не короче ${MIN_PASSWORD} символов.` });
     // Подразделение: одно, из справочника; без него человек остаётся «без подразделения»
     const departmentId = req.body.departmentId ? String(req.body.departmentId) : null;
     if (departmentId) await assertAssignable(prisma, departmentId);
-    const newUser = await prisma.user.create({
+    const passwordHash = await hashPassword(String(password || randomBytes(18).toString('base64url')));
+    // Профиль и первая запись истории подразделения — одним действием: иначе сбой
+    // между ними оставлял человека в подразделении без истории
+    const created = await prisma.$transaction(async (tx: any) => { const newUser = await tx.user.create({
       data: {
         departmentId,
-        symbol: String(symbol),
+        symbol,
         name,
         lastName: parts.lastName,
         firstName: parts.firstName,
@@ -591,9 +634,9 @@ app.post('/api/users', async (req: Request, res: Response) => {
         role: decision.role,
         positionCode: decision.positionCode,
         extraPositions: decision.extraPositions,
-        password: hashPassword(String(password || randomBytes(18).toString('base64url'))),
+        password: passwordHash,
         isActive: typeof isActive === 'boolean' ? isActive : true,
-        validUntil: validUntil ? new Date(validUntil) : null,
+        validUntil: createdUntil,
         // По умолчанию сотруднику доступно всё, кроме управления проектами
         // (src/lib/permissions.ts): начинать с нуля значило, что новый человек
         // первый день не может ничего и ходит к администратору за каждой
@@ -604,11 +647,14 @@ app.post('/api/users', async (req: Request, res: Response) => {
           : JSON.stringify(defaultPermissions()),
       }
     });
-    if (departmentId) await prisma.userDepartmentHistory.create({ data: { userId: newUser.id, fromId: null, toId: departmentId, by: String(actor.id), reason: 'Создание сотрудника' } });
-    const { password: _pw, ...safeNewUser } = newUser as any;
+    if (departmentId) await tx.userDepartmentHistory.create({ data: { userId: newUser.id, fromId: null, toId: departmentId, by: String(actor.id), reason: 'Создание сотрудника' } });
+    return newUser; });
+    const { password: _pw, ...safeNewUser } = created as any;
     res.json(safeNewUser);
   } catch (error: any) {
     if (error instanceof DepartmentError) return res.status(error.status).json({ message: error.message, error: error.message });
+    // Два одновременных создания с одним логином: проверка дубля прошла у обоих, уникальный индекс — у одного
+    if (error?.code === 'P2002') return res.status(400).json({ code: 'P2002', message: 'Ошибка: сотрудник с таким табельным номером уже внесен в базу данных!' });
     res.status(500).json({ error: error.message });
   }
 });
@@ -618,6 +664,13 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   try {
     const { id } = req.params;
+    const actor = (req as any).authUser;
+    // Администратор правит у себя только имя, пол, дату рождения и пароль. Раньше
+    // он упирался в «администратора меняет только владелец» даже на собственном
+    // профиле, а срез тела делался лишь для не-администраторов (server.ts).
+    // Срез здесь, а не только в шлюзе: правило должно держаться без него.
+    const selfAdmin = actor?.role === 'ADMIN' && actor.id === id;
+    if (selfAdmin) req.body = Object.fromEntries(SELF_EDIT_FIELDS.map((key) => [key, req.body?.[key]]).filter(([, value]) => value !== undefined));
     const { name, role, password, isActive, validUntil, symbol, permissions } = req.body;
 
     const target = await prisma.user.findUnique({ where: { id } });
@@ -625,20 +678,18 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, message: 'Сотрудник не найден в базе данных.' });
     }
 
-    const actor = (req as any).authUser;
     const legacyBootstrap = isLegacyBootstrapAdmin(target);
     if (legacyBootstrap) {
       // Explicit owner-authorized migration keeps the row id and all related
       // records intact while replacing the blocked login credentials.
       const migrationError = legacyBootstrapMigrationError(actor?.role, target.symbol, symbol, password);
       if (migrationError) return res.status(actor?.role === 'OWNER' ? 400 : 403).json({ message: migrationError });
-      const loginTaken = (await prisma.user.findMany({ select: { id: true, symbol: true } }))
-        .some((user: any) => user.id !== id && String(user.symbol || '').trim().toLowerCase() === symbol.trim().toLowerCase());
-      if (loginTaken) return res.status(400).json({ message: 'Такой логин уже занят другим профилем' });
+      const migrated = await checkedSymbol(prisma, symbol, id);
+      if (migrated.ok === false) return res.status(migrated.status).json({ message: migrated.status === 400 && /уже внесен/.test(migrated.message) ? 'Такой логин уже занят другим профилем' : migrated.message });
     }
     if (target.role === 'OWNER') return res.status(403).json({ message: 'Профиль владельца защищен; обычный маршрут его не изменяет' });
     if (String(role ?? '').trim().toUpperCase() === 'OWNER') return res.status(403).json({ message: 'Роль владельца не назначается через сотрудников' });
-    if (actor?.role !== 'OWNER' && (target.role === 'ADMIN' || String(role ?? '').trim().toUpperCase() === 'ADMIN' || req.body.accessLevel === 'ADMIN' || administrativeGrants(permissions))) return res.status(403).json({ message: 'Администратора и его права меняет только владелец' });
+    if (actor?.role !== 'OWNER' && !selfAdmin && (target.role === 'ADMIN' || String(role ?? '').trim().toUpperCase() === 'ADMIN' || req.body.accessLevel === 'ADMIN' || administrativeGrants(permissions))) return res.status(403).json({ message: 'Администратора и его права меняет только владелец' });
     if (actor?.id !== id && !administratorPermission(actor, 'admin.users.manage')) return res.status(403).json({ message: 'Нет права управлять сотрудниками' });
     if (actor?.role !== 'OWNER' && actor?.role !== 'ADMIN' && (role !== undefined || permissions !== undefined || isActive !== undefined || validUntil !== undefined || symbol !== undefined)) return res.status(403).json({ message: 'Сотрудник не меняет собственные права доступа' });
     // Должности и уровень доступа: обязательная основная должность, дополнительные без дублей;
@@ -648,15 +699,31 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
 
     if (typeof symbol === 'string' && symbol.trim().toLowerCase() === 'flux.owner') return res.status(403).json({ message: 'Логин владельца зарезервирован' });
 
-    // Смена логина (табельного номера) — проверяем уникальность
+    // Смена логина (табельного номера) — те же правила, что при создании, и уникальность без учёта регистра
+    let nextSymbol: string | null = null;
     if (typeof symbol === 'string' && symbol.trim() && symbol.trim() !== target.symbol) {
-      if (symbol.includes('@')) {
-        return res.status(400).json({ success: false, message: 'Логин не может содержать символ @.' });
+      const checked = await checkedSymbol(prisma, symbol, id);
+      if (checked.ok === false) {
+        return res.status(checked.status).json({ success: false, message: checked.status === 400 && /уже внесен/.test(checked.message) ? 'Такой табельный номер (логин) уже занят другим сотрудником.' : checked.message });
       }
-      const dup = await prisma.user.findUnique({ where: { symbol: symbol.trim() } });
-      if (dup && dup.id !== id) {
-        return res.status(400).json({ success: false, message: 'Такой табельный номер (логин) уже занят другим сотрудником.' });
+      nextSymbol = checked.symbol;
+    }
+    const badPermissions = permissions === undefined ? null : permissionsError(permissions);
+    if (badPermissions) return res.status(400).json({ success: false, message: badPermissions });
+
+    // Свой пароль меняют, зная текущий: украденная сессия не должна давать вечный вход.
+    // Чужой пароль администратор задаёт без старого (сброс забытого). Хеш считается
+    // раньше, чем что-либо пишется.
+    let nextPasswordHash: string | null = null;
+    if (typeof password === 'string' && password) {
+      if (actor?.id === id) {
+        if (password.length < MIN_PASSWORD) return res.status(400).json({ success: false, message: `Пароль не короче ${MIN_PASSWORD} символов.` });
+        const current = req.body.currentPassword;
+        if (typeof current !== 'string' || !current || !(await verifyPassword(current, target.password))) {
+          return res.status(403).json({ success: false, message: 'Для смены своего пароля введите текущий пароль.' });
+        }
       }
+      nextPasswordHash = await hashPassword(password);
     }
 
     // Разбор срока действия: null/'' — снять срок, отсутствие поля — не трогать,
@@ -698,11 +765,11 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
       if (b === undefined) return res.status(400).json({ success: false, message: 'Некорректная дата рождения.' });
       data.birthDate = b;
     }
-    if (typeof symbol === 'string' && symbol.trim()) data.symbol = symbol.trim();
+    if (nextSymbol) data.symbol = nextSymbol;
     if (!('unchanged' in decision)) {
       data.role = decision.role; data.positionCode = decision.positionCode; data.extraPositions = decision.extraPositions;
     }
-    if (typeof password === 'string' && password) data.password = hashPassword(password);
+    if (nextPasswordHash) data.password = nextPasswordHash;
     if (typeof isActive === 'boolean') data.isActive = isActive;
     if (validUntil !== undefined) data.validUntil = parsedValidUntil;
     if (permissions !== undefined) {

@@ -38,6 +38,8 @@ export async function resolveProjectId(raw: string | undefined | null): Promise<
 
 // Единый ответ об ошибке (сохраняет привычный формат { error }).
 export function sendError(res: Response, err: any, code = 500): void {
+  // Ответ уже начат (поток, оборванное соединение): второй вызов status/json бросал бы исключение
+  if (res.headersSent) return;
   res.status(code).json({ error: err?.message || String(err) });
 }
 

@@ -31,8 +31,20 @@ export function validCsrf(value: string, token: string, secret: string): boolean
   const parts = value.split('.');
   return parts.length === 2 && /^[a-f0-9]{48}$/.test(parts[0]) && same(parts[1], csrfSignature(parts[0], token, secret));
 }
+/**
+ * Маршруты входа: у них нет сессии, которую можно угнать, поэтому проверка
+ * CSRF-подписи к ним не применяется (Origin при cookie-входе проверяется ниже).
+ * Путь приводится так же, как в шлюзе server.ts: Express принимает другой
+ * регистр и хвостовой слеш, и защита обязана видеть тот же маршрут.
+ */
+const normalRoute = (path: string) => String(path || '').toLowerCase().replace(/\/+$/, '');
+const isLoginRoute = (path: string) => ['/api/login', '/api/owner/login'].includes(normalRoute(path));
+
 export function createCookieAuth(secret: string) {
-  const options = (req: Request) => ({ path: '/', httpOnly: true, sameSite: 'lax' as const, secure: req.secure, maxAge: MAX_AGE });
+  // За TLS-прокси, чей адрес не loopback, req.secure остаётся false: флаг
+  // Secure для cookie можно включить явно (FLUX_COOKIE_SECURE=1)
+  const forceSecure = process.env.FLUX_COOKIE_SECURE === '1';
+  const options = (req: Request) => ({ path: '/', httpOnly: true, sameSite: 'lax' as const, secure: forceSecure || req.secure, maxAge: MAX_AGE });
   const issue = (req: Request, res: Response, token: string) => {
     const nonce = crypto.randomBytes(24).toString('hex');
     const csrf = `${nonce}.${csrfSignature(nonce, token, secret)}`;
@@ -48,14 +60,14 @@ export function createCookieAuth(secret: string) {
   const middleware: RequestHandler = (req, res, next) => {
     const cookie = requestCookie(req, AUTH_COOKIE);
     const mutation = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-    if (cookie && !req.headers.authorization && mutation) {
+    if (cookie && !req.headers.authorization && mutation && !isLoginRoute(req.path)) {
       const csrf = requestCookie(req, CSRF_COOKIE);
       const header = String(req.headers['x-flux-csrf'] || '');
       if (!csrf || !same(csrf, header) || !validCsrf(csrf, cookie, secret)) {
         res.status(403).json({ error: 'Проверка безопасности сессии не пройдена. Обновите страницу.' }); return;
       }
     }
-    if (req.path === '/api/login' || req.path === '/api/owner/login') {
+    if (isLoginRoute(req.path)) {
       const transport = String(req.headers['x-flux-auth-transport'] || '');
       if (transport === 'cookie') {
         // A custom header cannot be sent by a cross-site HTML form. Reject an

@@ -7,6 +7,8 @@ import { recordServerError } from './diagnostics.js';
 import { positionPermissionsString } from './positionPermissions.js';
 import { extraPositionCodes, primaryPositionCode } from '../shared/positions.js';
 
+/** Отказ выдать сессию по существу (профиль отключён, вход только по ключу): его текст можно показать человеку. */
+export class SessionRefused extends Error { constructor(message: string) { super(message); this.name = 'SessionRefused'; } }
 export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 interface Claims { v: 2; uid: string; iat: number; exp: number; stamp: string; sid: string }
 interface SessionDeps { secret: string; getUser?: (id: string) => Promise<any> }
@@ -122,9 +124,9 @@ export function createAuthSessions(deps: SessionDeps) {
   };
   const issueSession = async (userId: string, owner: boolean): Promise<string> => {
     const user = await getUser(userId);
-    if (!user || user.isActive === false) throw new Error('Профиль недоступен');
-    if (isLegacyBootstrapAdmin(user)) throw new Error(LEGACY_BOOTSTRAP_REFUSAL);
-    if ((user.role === 'OWNER') !== owner) throw new Error('Для владельца требуется вход по ключу');
+    if (!user || user.isActive === false) throw new SessionRefused('Профиль недоступен');
+    if (isLegacyBootstrapAdmin(user)) throw new SessionRefused(LEGACY_BOOTSTRAP_REFUSAL);
+    if ((user.role === 'OWNER') !== owner) throw new SessionRefused('Для владельца требуется вход по ключу');
     const now = Date.now();
     for (const [sid, grant] of ownerGrants) if (grant.exp <= now) ownerGrants.delete(sid);
     if (owner && ownerGrants.size >= 1000) throw new Error('Достигнут предел активных входов владельца');

@@ -5,6 +5,29 @@ import { licenseForUser } from './licenseService.js';
 
 const READ_EVENTS = new Set(['presence:list', 'play:hello', 'play:heartbeat', 'play:snapshot', 'office:join', 'office:leave', 'office:y-want', 'office:x-want', 'office:y-aware', 'office:host-open', 'office:host-close']);
 
+/**
+ * Вызов редактора, меняющий документ или общую модель, а не читающий.
+ *
+ * Раньше смотрели подстроку save|write|export|delete|create|rename, и при
+ * истёкшей лицензии оставались доступны изменяющие каналы вроде
+ * workbook:setCellValue. Теперь канал разбирается на слова (camelCase и
+ * разделители) и отказ даёт любое изменяющее слово: «offset» от этого не
+ * страдает, а «setCellValue» и «pdf:insert-page» — да. Полный белый список
+ * чтений потребовал бы описи всех каналов GenOffice, которой в репозитории нет.
+ */
+const MUTATING_WORDS = new Set([
+  'save', 'write', 'export', 'delete', 'create', 'rename', 'set', 'add', 'insert', 'remove', 'update', 'apply', 'edit',
+  'paste', 'cut', 'merge', 'clear', 'replace', 'move', 'sort', 'fill', 'import', 'upload', 'commit', 'undo', 'redo',
+  'put', 'patch', 'annotate', 'redact', 'sign', 'flatten', 'rotate', 'crop', 'split', 'resize', 'format', 'protect',
+  'unprotect', 'drop', 'append', 'reorder', 'submit', 'attach', 'embed', 'stamp', 'fix', 'toggle', 'push', 'send',
+]);
+export function isMutatingOfficeChannel(channel: string): boolean {
+  const text = String(channel || '');
+  if (/save|write|export|delete|create|rename/i.test(text)) return true;
+  const words = text.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().match(/[a-z0-9]+/g) || [];
+  return words.some((word) => MUTATING_WORDS.has(word));
+}
+
 /** Открытая вкладка не сохраняет отозванные права или лицензию до следующего входа. */
 export function protectSessionSockets(io: Server, sessions: ReturnType<typeof createAuthSessions>): void {
   io.use(async (socket, next) => {
@@ -29,7 +52,7 @@ export function protectSessionSockets(io: Server, sessions: ReturnType<typeof cr
           const event = String(packet[0]);
           // Чтение книги использует тот же IPC, что запись. Сохранение и изменения
           // общей модели запрещаем отдельно; локальный просмотр остаётся доступен.
-          const ipcRead = event === 'office:ipc' && !/save|write|export|delete|create|rename/i.test(String(packet[1]?.channel || ''));
+          const ipcRead = event === 'office:ipc' && !isMutatingOfficeChannel(String(packet[1]?.channel || ''));
           if (state.readOnly && !READ_EVENTS.has(event) && !ipcRead) {
             const ack = packet[packet.length - 1];
             if (typeof ack === 'function') ack({ error: 'Лицензия истекла. Доступно только чтение.' });

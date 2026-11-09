@@ -3,7 +3,11 @@
  * подписанные ссылки, лимит входа, пароль базы в ответах, адрес прослушивания,
  * мост окна и запуск файлов из программы.
  */
+import express from 'express';
+import http from 'node:http';
+import { createCookieAuth, validCsrf, AUTH_COOKIE } from '../server/authCookies';
 import {
+  earlyBodyGate, blockPrivateBuildFiles,
   corsOriginAllowed, isPrivateBuildFile, setLinkSecret, signLink, linkValid,
   loginWait, loginFailed, loginSucceeded, resetLoginLimits,
   maskDbUrl, unmaskDbUrl, DB_PASSWORD_MASK, listenHost, accountRefusal,
@@ -57,15 +61,24 @@ for (let i = 0; i < 4; i++) loginFailed('Ivanov', '10.0.0.5', t0);
 eq('четыре промаха — ещё без паузы', loginWait('Ivanov', '10.0.0.5', t0), 0);
 loginFailed('Ivanov', '10.0.0.5', t0);
 eq('пятый промах — пауза', loginWait('Ivanov', '10.0.0.5', t0) > 0, true);
-eq('логин не чувствителен к регистру и в счёте', loginWait('IVANOV', '10.0.0.9', t0) > 0, true);
-eq('другой логин с другого адреса не задет', loginWait('Petrov', '10.0.0.9', t0), 0);
+eq('логин не чувствителен к регистру и в счёте', loginWait('IVANOV', '10.0.0.5', t0) > 0, true);
+eq('форма записи адреса ::ffff: — тот же адрес', loginWait('Ivanov', '::ffff:10.0.0.5', t0) > 0, true);
+eq('тот же логин с другого адреса не заперт (один адрес не блокирует всех)', loginWait('Ivanov', '10.0.0.9', t0), 0);
+eq('другой логин с того же адреса не задет', loginWait('Petrov', '10.0.0.5', t0), 0);
 loginFailed('Ivanov', '10.0.0.5', t0 + 61_000);
 eq('пауза растёт с каждым промахом', loginWait('Ivanov', '10.0.0.5', t0 + 61_000) > 61_000, true);
-loginSucceeded('Ivanov');
-eq('удачный вход снимает счёт по логину', loginWait('Ivanov', '10.0.0.7', t0 + 61_000), 0);
+loginSucceeded('Ivanov', '10.0.0.5');
+eq('удачный вход снимает счёт пары', loginWait('Ivanov', '10.0.0.5', t0 + 61_000), 0);
 resetLoginLimits();
-for (let i = 0; i < 20; i++) loginFailed(`user${i}`, '10.0.0.66', t0);
+for (let i = 0; i < 100; i++) loginFailed(`user${i}`, '10.0.0.66', t0);
 eq('перебор разных логинов с одного адреса тоже тормозится', loginWait('someone', '10.0.0.66', t0) > 0, true);
+resetLoginLimits();
+// Адрес общий (прокси): один недоброжелатель по одному логину не запирает остальных
+for (let i = 0; i < 12; i++) loginFailed('Sidorov', '127.0.0.1', t0);
+eq('за общим адресом чужие входы не заперты', loginWait('Petrov', '127.0.0.1', t0), 0);
+resetLoginLimits();
+for (let i = 0; i < 30; i++) loginFailed('Victim', `10.1.0.${i}`, t0);
+eq('перебор одного логина с множества адресов тормозится по логину', loginWait('Victim', '10.9.9.9', t0) > 0, true);
 resetLoginLimits();
 
 // ── Пароль базы ──
@@ -119,9 +132,68 @@ eq('отключённый профиль не пропускается', !!acco
 eq('удалённый профиль не пропускается', !!accountRefusal(null), true);
 eq('просроченный профиль не пропускается', !!accountRefusal({ validUntil: '2000-01-01' }), true);
 
+// ── Ссылки, адреса, пути ──
+setLinkSecret('проверочный-секрет');
+let threw = false; try { signLink('/chat_files/a.pdf?x=1'); } catch (_) { threw = true; }
+eq('путь с query в подписанную ссылку не принимается', threw, true);
+eq('адрес без изменений в пароле: ?host= меняет получателя — пароль не подставляется',
+  unmaskDbUrl(`postgresql://flux:${encodeURIComponent(DB_PASSWORD_MASK)}@db.local:5432/flux?host=evil`, url).includes('S3cret'), false);
+eq('битая запись %E0%A4%A в пути не бросает исключение', (() => { try { return isPrivateBuildFile('/%E0%A4%A'); } catch (_) { return 'бросило'; } })(), false);
+
+// ── Шлюз тела, вход и cookie: на настоящем express ──
+const app = express();
+const cookieAuth = createCookieAuth('test-secret');
+app.use(cookieAuth.middleware, blockPrivateBuildFiles);
+app.use(earlyBodyGate(r => r === '/api/login', t => t === 'good-token', 1024));
+app.use(express.json({ limit: '50mb' }));
+app.post('/api/login', (req, res) => res.json({ success: true, token: 'tok', got: JSON.stringify(req.body).length }));
+app.post('/api/other', (req, res) => res.json({ got: JSON.stringify(req.body).length }));
+app.use((err: any, _req: any, res: any, next: any) => res.headersSent ? next(err) : res.status(err.status || 500).json({ error: String(err.message) }));
+
+const rawRequest = (port: number, path: string, headers: Record<string, string>, chunks: string[]) => new Promise<{ status: number; body: string; headers: any }>((resolve) => {
+  const r = http.request({ port, host: '127.0.0.1', method: 'POST', path, headers, agent: false }, (res) => {
+    let b = ''; res.on('data', (d) => (b += d)); res.on('end', () => resolve({ status: res.statusCode || 0, body: b, headers: res.headers }));
+  });
+  r.on('error', () => resolve({ status: -1, body: '', headers: {} }));
+  chunks.forEach((c) => r.write(c)); r.end();
+});
+
+async function httpChecks() {
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((r) => server.once('listening', r));
+  const port = (server.address() as any).port;
+  const big = JSON.stringify({ x: 'a'.repeat(4000) });
+  const J = { 'Content-Type': 'application/json' };
+  // Без Content-Length (chunked) мегабайтный лимит обходился: теперь считаются фактические байты
+  const chunked = await rawRequest(port, '/api/login', { ...J, 'Transfer-Encoding': 'chunked' }, [big.slice(0, 2000), big.slice(2000)]);
+  eq('chunked-тело больше лимита без входа — 413', chunked.status, 413);
+  const small = await rawRequest(port, '/api/login', { ...J, 'Transfer-Encoding': 'chunked' }, ['{"a":', '1}']);
+  eq('малое chunked-тело проходит', small.status, 200);
+  const authed = await rawRequest(port, '/api/other', { ...J, Authorization: 'Bearer good-token', 'Transfer-Encoding': 'chunked' }, [big.slice(0, 3000), big.slice(3000)]);
+  eq('после входа большое тело принимается', authed.status, 200);
+  const anon = await rawRequest(port, '/api/other', { ...J, 'Transfer-Encoding': 'chunked' }, [big]);
+  eq('без входа большое тело закрытого маршрута — 413', anon.status, 413);
+
+  // 24, 26: вход при «залежавшейся» cookie сессии и без csrf-куки; другой регистр пути
+  const staleCookie = { ...J, Cookie: `${AUTH_COOKIE}=stale-token` };
+  eq('вход при устаревшей cookie сессии не получает 403 от CSRF', (await rawRequest(port, '/api/login', staleCookie, ['{}'])).status, 200);
+  eq('то же на /API/LOGIN/ (регистр и слеш)', (await rawRequest(port, '/API/LOGIN/', staleCookie, ['{}'])).status, 200);
+  eq('обычная мутация с cookie без csrf по-прежнему 403', (await rawRequest(port, '/api/other', staleCookie, ['{}'])).status, 403);
+  const cookieLogin = await rawRequest(port, '/API/Login', { ...J, 'X-Flux-Auth-Transport': 'cookie', Origin: 'http://evil.example' }, ['{}']);
+  eq('cookie-вход с чужим Origin на другом регистре пути — 403', cookieLogin.status, 403);
+  const okLogin = await rawRequest(port, '/API/Login', { ...J, 'X-Flux-Auth-Transport': 'cookie' }, ['{}']);
+  eq('cookie-вход на другом регистре пути: токен уходит в cookie, не в тело', okLogin.status === 200 && !okLogin.body.includes('tok') && String(okLogin.headers['set-cookie'] || '').includes(AUTH_COOKIE), true);
+  // 33
+  const bad = await new Promise<number>((resolve) => http.get({ port, host: '127.0.0.1', path: '/%E0%A4%A' }, (res) => { res.resume(); resolve(res.statusCode || 0); }));
+  eq('битая запись в пути — 400, а не 500', bad, 400);
+  server.close();
+}
+
 // ── Цитата письма ──
 const compose = fs.readFileSync(path.join(__dirname, '..', 'server', 'routes', 'mailCompose.ts'), 'utf-8');
 eq('имя отправителя в цитате экранируется', /escapeHtml\(src\.fromName\)/.test(compose), true);
 
-console.log(`\n${ok} проверок пройдено, ${fail} провалено`);
-process.exit(fail ? 1 : 0);
+httpChecks().then(() => {
+  console.log(`\n${ok} проверок пройдено, ${fail} провалено`);
+  process.exit(fail ? 1 : 0);
+}).catch((e) => { console.error(e); process.exit(1); });
