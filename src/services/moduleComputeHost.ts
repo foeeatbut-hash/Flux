@@ -6,6 +6,7 @@ import { ComputeScheduler, slotsFor } from '../../modules/engine/scheduler';
 import { COMPUTE_ERROR_CODES, ComputeError, type ComputeErrorCode } from '../../modules/engine/types';
 import { MODULE_SANDBOX } from '../../modules/protocol';
 import { loadWasm, MemoryCompileCache } from '../../modules/engine/wasm';
+import { SerialLane } from '../../modules/engine/serial';
 import { ModuleCompute, type PythonRunner, type WasmRunner } from './moduleCompute';
 import { recordModuleCrash } from './moduleCrashQueue';
 
@@ -73,6 +74,8 @@ export function createWasmRunner(): WasmRunner {
 export function createPythonRunner(): PythonRunner {
   let frame: HTMLIFrameElement | null = null;
   let ready: Promise<HTMLIFrameElement> | null = null;
+  // Строго по одному: следующий расчёт уходит в среду, только когда предыдущий закончился (в том числе остановкой по времени)
+  const lane = new SerialLane();
   const waiting = new Map<string, { resolve: (value: any) => void; reject: (error: ComputeError) => void; timer: ReturnType<typeof setTimeout> }>();
   let counter = 0;
 
@@ -115,7 +118,11 @@ export function createPythonRunner(): PythonRunner {
   }
   return {
     get loaded() { return !!frame; },
-    async run(key, source, input, seed, timeoutMs) {
+    get queued() { return lane.pending; },
+    run(key, source, input, seed, timeoutMs) { return lane.run(() => send(key, source, input, seed, timeoutMs)); },
+    unload,
+  };
+  async function send(key: string, source: string, input: string, seed: number, timeoutMs: number): Promise<{ output: string; bootMs: number }> {
       const host = await open();
       const id = `p-${++counter}`;
       return new Promise((resolve, reject) => {
@@ -124,9 +131,7 @@ export function createPythonRunner(): PythonRunner {
         waiting.set(id, { resolve, reject, timer });
         host.contentWindow!.postMessage({ flux: 'compute-host', v: 1, op: 'run', id, key, source, input, seed, timeoutMs }, '*');
       });
-    },
-    unload,
-  };
+  }
 }
 
 let shared: ModuleCompute | null = null;

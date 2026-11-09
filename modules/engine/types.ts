@@ -39,7 +39,7 @@ export const LIMITS = {
   wasmMaxPages: 1024,
   /** Среде .NET (WASI-команда) нужно больше: 128 МиБ */
   wasmCommandMaxPages: 2048,
-  /** Pyodide без numpy занимает ~30 МиБ; 512 МиБ — потолок роста до MemoryError */
+  /** Pyodide занимает ~30 МиБ (с numpy больше); 512 МиБ — потолок роста до MemoryError */
   pythonMaxPages: 8192,
   jsonDepth: 32,
   wasmFileBytes: 8 * 1024 * 1024,

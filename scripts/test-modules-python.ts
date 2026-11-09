@@ -14,6 +14,8 @@ import { parseComputeOutput, parseJson } from '../modules/engine/json';
 import { runControls } from '../modules/engine/controls';
 import { ComputeError, LIMITS } from '../modules/engine/types';
 import { statsControls } from './fixtures/moduleLanguages';
+import os from 'node:os';
+import { createHash } from 'node:crypto';
 
 const require = createRequire(import.meta.url);
 let passed = 0;
@@ -127,6 +129,42 @@ async function main() {
     ok('кириллица и индексы не портятся', unicode.calc.out.t === 'Расход, м³/ч');
     const nodict = await codeOf(async () => parseComputeOutput(await env.run('nd@1', 'def compute(i):\n    return [1, 2]\n', input())));
     ok('результат не по схеме договора отклонён', nodict.startsWith('BAD_OUTPUT|'));
+  }
+
+  console.log('numpy из колеса в сборке, без сети');
+  {
+    // Каталог «как в сборке»: файлы Pyodide + колесо из vendor/pyodide (сверка SHA-256 с pyodide-lock.json, как в modules/build.ts)
+    const lock = JSON.parse(fs.readFileSync(path.join(pyodideDir, 'pyodide-lock.json'), 'utf8')).packages.numpy;
+    const wheel = path.join(__dirname, '..', 'vendor', 'pyodide', lock.file_name);
+    ok('колесо numpy из vendor совпадает по SHA-256 с pyodide-lock.json', createHash('sha256').update(fs.readFileSync(wheel)).digest('hex') === lock.sha256);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-pyodide-'));
+    for (const f of ['pyodide.js', 'pyodide.asm.js', 'pyodide.asm.wasm', 'python_stdlib.zip', 'pyodide-lock.json']) fs.copyFileSync(path.join(pyodideDir, f), path.join(dir, f));
+    fs.copyFileSync(wheel, path.join(dir, lock.file_name));
+    const { loadPyodide } = require('pyodide');
+    const withNumpy = new PythonEnvironment(await loadPyodide({ indexURL: dir + path.sep, stdout: () => {}, stderr: () => {} }));
+    const source = [
+      'import numpy as np',
+      'def compute(i):',
+      '    a = np.array([[3.0, 1.0], [1.0, 2.0]])',
+      '    x = np.linalg.solve(a, np.array([9.0, 8.0]))',
+      '    rng = np.random.default_rng(7)',
+      '    return {"state": {}, "calc": {"out": {"x": [float(v) for v in x], "mean": float(np.mean([1200.0, 3.5, 0.25])), "dot": float(np.dot([1.0, 2.0, 3.0], [4.0, 5.0, 6.0])),',
+      '      "rng": float(rng.random()), "legacy": float(np.random.rand()), "ver": np.__version__}}}',
+    ].join('\n');
+    const t = performance.now();
+    const first = parseComputeOutput(await withNumpy.run('np@1', source, input(), 11)).calc.out as any;
+    console.log(`  первый расчёт с numpy (загрузка колеса): ${ms(t)}`);
+    ok('numpy считает: решение системы, среднее, скалярное произведение', Math.abs(first.x[0] - 2) < 1e-12 && Math.abs(first.x[1] - 3) < 1e-12 && first.mean === 401.25 && first.dot === 32 && first.ver === '2.2.5');
+    const again = parseComputeOutput(await withNumpy.run('np@1', source, input(), 11)).calc.out as any;
+    ok('генератор с зерном и глобальный numpy.random повторяются от зерна', again.rng === first.rng && again.legacy === first.legacy);
+    ok('другое зерно входа меняет глобальный numpy.random', parseComputeOutput(await withNumpy.run('np@1', source, input(), 12)).calc.out.legacy !== first.legacy);
+    const bad = await codeOf(() => withNumpy.run('npos@1', 'import numpy as np\nimport os\ndef compute(i):\n    return {}\n', input()));
+    ok('рядом с numpy остальные запреты на месте (os по-прежнему недоступен)', bad.startsWith('CRASH|') && bad.includes('недоступен'));
+    const missing = new PythonEnvironment(py);
+    const none = await codeOf(() => missing.run('np2@1', source, input()));
+    console.log('  без колеса:', none.slice(0, 200));
+    ok('без колеса в каталоге Pyodide — понятная ошибка UNAVAILABLE, а не обращение к сети', none.startsWith('UNAVAILABLE|'));
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 
   console.log('Память: максимум Pyodide сжимается до предела');

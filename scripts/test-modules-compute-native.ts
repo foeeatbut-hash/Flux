@@ -83,6 +83,15 @@ async function main() {
     '        seen["cookie"] = "none"',
     '    return {"state": {}, "calc": {"out": seen}}',
   ].join('\n'));
+  await hostile('numpy-py', 'python', [
+    'import numpy as np',
+    'def compute(i):',
+    '    a = np.array([[3.0, 1.0], [1.0, 2.0]])',
+    '    x = np.linalg.solve(a, np.array([9.0, 8.0]))',
+    '    return {"state": {}, "calc": {"out": {"x": [float(v) for v in x], "mean": float(np.mean([1200.0, 3.5, 0.25])), "ver": np.__version__}}}',
+  ].join('\n'));
+  await hostile('sqrt-patch-py', 'python', 'import math\ndef compute(i):\n    math.sqrt = lambda x: -1.0\n    n = 0\n    for k in range(6000000):\n        n += k\n    return {"state": {}, "calc": {"out": {"patched": math.sqrt(4.0), "n": n}}}\n');
+  await hostile('sqrt-victim-py', 'python', 'import math\ndef compute(i):\n    return {"state": {}, "calc": {"out": {"v": math.sqrt(4.0)}}}\n');
   await hostile('loop-wasm', 'wasm', fluxModule({ run: [OP.loop, 0x40, OP.br, 0, OP.end, OP.i32const, 1] }));
   await hostile('grow-wasm', 'wasm', fluxModule({ memory: { min: 1, max: 16 },
     run: [OP.loop, 0x40, OP.i32const, 1, ...OP.memoryGrow, OP.i32const, ...wasmSleb(-1), 0x47, OP.brIf, 0, OP.end, OP.unreachable] }));
@@ -200,6 +209,24 @@ async function main() {
     check('прожорливый Python (2 ГиБ) останавливается как MEMORY, окно живо', hog.code === 'MEMORY' && await page.evaluate(() => document.readyState) === 'complete');
     const afterHog = await page.evaluate(async i => (await (window as any).__compute.compute({ moduleId: 'stats-python', version: '1.0.0', language: 'python' }, i, 'active')).calc.out.count, input);
     check('и после нехватки памяти Python отвечает', afterHog === 3);
+
+    await page.evaluate('globalThis.__name = (fn) => fn');
+    // numpy из колеса в сборке: загрузка лениво, при закрытой сети (CSP хоста разрешает только его собственный адрес)
+    const np = await page.evaluate(async i => { const t = performance.now(); const o = await (window as any).__compute.compute({ moduleId: 'numpy-py', version: '1.0.0', language: 'python' }, i, 'active'); return { out: o.calc.out, ms: performance.now() - t }; }, input);
+    console.log(`  numpy: первый расчёт (загрузка колеса) ${np.ms.toFixed(0)} мс`);
+    check('numpy работает в Electron без сети: решение системы, среднее, версия 2.2.5', Math.abs(np.out.x[0] - 2) < 1e-12 && Math.abs(np.out.x[1] - 3) < 1e-12 && np.out.mean === 401.25 && np.out.ver === '2.2.5');
+
+    // Два Python-расчёта разом: одна подпрограмма подменяет math.sqrt и держит среду, вторая считает — строго по очереди
+    const pair = await page.evaluate(async i => {
+      const run = (id: string) => { const t = performance.now(); return (window as any).__compute.compute({ moduleId: id, version: '1.0.0', language: 'python' }, i, 'active').then((o: any) => ({ o, end: performance.now() - t })); };
+      const t0 = performance.now();
+      const holder = run('sqrt-patch-py'), victim = run('sqrt-victim-py');
+      const [a, b] = await Promise.all([holder, victim]);
+      return { a: a.o.calc.out, b: b.o.calc.out, aEnd: a.end, bEnd: b.end, total: performance.now() - t0 };
+    }, input);
+    console.log(`  два Python-расчёта разом: первый держал среду ${pair.aEnd.toFixed(0)} мс, второй дождался и закончил на ${pair.bEnd.toFixed(0)} мс`);
+    check('вторая подпрограмма получает верный результат (sqrt(4)=2), хотя первая подменила math.sqrt', pair.a.patched === -1 && pair.b.v === 2);
+    check('и идёт строго после первой, а не вместе с ней', pair.bEnd >= pair.aEnd);
 
     // Изоляция: даже при побеге из фильтра импортов Python остаётся в песочнице
     const hostFrame = page.frames().find(f => f.url().startsWith('flux-module://_compute/'))!;

@@ -7,6 +7,8 @@
 import assert from 'node:assert/strict';
 import { ComputeScheduler, MAX_PER_KEY, MAX_QUEUE, slotsFor } from '../modules/engine/scheduler';
 import { ComputeError } from '../modules/engine/types';
+import { SerialLane } from '../modules/engine/serial';
+import { PythonEnvironment, type PyodideApi } from '../modules/engine/python';
 
 let passed = 0;
 const ok = (name: string, value: unknown) => { assert.ok(value, name); passed++; };
@@ -85,6 +87,33 @@ async function main() {
     g.open();
     await Promise.all([...all, wasm]);
     ok('все Python-расчёты выполнены, пик — один', pyPeak === 1 && s.stats.running === 0);
+  }
+
+  console.log('Python: два расчёта в одной среде никогда не идут одновременно');
+  {
+    const lane = new SerialLane();
+    let inside = 0, peak = 0; const order: string[] = [];
+    const job = (name: string, ms: number, fail = false) => lane.run(async () => {
+      inside++; peak = Math.max(peak, inside); order.push(`+${name}`);
+      await sleep(ms); inside--; order.push(`-${name}`);
+      if (fail) throw new ComputeError('TIMEOUT');
+    }).catch(e => (e as ComputeError).code);
+    const results = await Promise.all([job('a', 30, true), job('b', 5), job('c', 5), job('d', 1)]);
+    ok('никогда не больше одной задачи внутри, порядок прихода сохранён', peak === 1 && order.join(' ') === '+a -a +b -b +c -c +d -d');
+    ok('остановка по времени первой не пропускает вторую вперёд и не ломает цепочку', results[0] === 'TIMEOUT' && results.slice(1).every(r => r === undefined) && lane.pending === 0);
+
+    // Среда с настоящими точками await (загрузка пакета): без обёртки расчёт B вклинился бы в расчёт A
+    const events: string[] = [];
+    const fake: PyodideApi = {
+      runPython: () => undefined,
+      loadPackage: async () => { await sleep(20); },
+      globals: { get: (name: string) => name === 'flux_call' ? (key: string) => { events.push(`call ${key}`); return '{"state":{},"calc":{"out":{}}}'; } : () => undefined },
+    };
+    const env = new PythonEnvironment(fake);
+    const withNumpy = 'import numpy\ndef compute(i):\n    return {}\n', plain = 'def compute(i):\n    return {}\n';
+    const wait: number[] = []; const started = Date.now();
+    await Promise.all([env.run('A', withNumpy, '{}').then(() => events.push('done A')), env.run('B', plain, '{}').then(() => { wait.push(Date.now() - started); events.push('done B'); })]);
+    ok('расчёт B начинается только после полного окончания A, включая загрузку пакета', events.join(' | ') === 'call A | done A | call B | done B' && env.queued === 0);
   }
 
   console.log('Пределы очереди');

@@ -21,6 +21,10 @@
  *   получает зерно из входа (по умолчанию 0), «случайность» повторяется, настоящей нет;
  *   через стандартный `random._os` до `sys.modules['time']` добраться нельзя.
  *
+ * numpy отдаётся настоящий (его подмодули — linalg, random — нужны), один на все подпрограммы:
+ * глобальный `numpy.random` получает зерно перед каждым расчётом, а `default_rng()` без
+ * зерна случаен — пишите `default_rng(seed)`.
+ *
  * Чего это НЕ закрывает: функции стандартной библиотеки (`json.dumps`, `re.compile`…)
  * остаются общими, и через `func.__globals__` из них достижим настоящий `sys`. Закрыть
  * интроспекцию Python нельзя; граница безопасности — песочница, а расчёт без злого умысла
@@ -29,7 +33,7 @@
 export const PYTHON_ALLOWED_MODULES = [
   'math', 'cmath', 'json', 're', 'statistics', 'decimal', 'fractions', 'itertools', 'functools', 'collections',
   'operator', 'string', 'textwrap', 'dataclasses', 'typing', 'enum', 'random', 'bisect', 'heapq', 'array',
-  'numbers', 'copy', 'abc', 'contextlib',
+  'numbers', 'copy', 'abc', 'contextlib', 'numpy',
 ] as const;
 
 /** Собственные модули: исполняются в словаре, где из модулей есть только math */
@@ -192,6 +196,7 @@ import builtins as _b
 import json as _json
 import math as _real_math
 import types as _types
+import sys as _sys
 
 _ALLOWED = frozenset(${JSON.stringify(PYTHON_ALLOWED_MODULES)})
 _BLOCKED_BUILTINS = frozenset(('open', 'input', 'breakpoint', 'help', 'exit', 'quit', 'copyright', 'credits', 'license', 'memoryview'))
@@ -227,6 +232,8 @@ def _make_builtins(seed):
 
     def _flux_import(name, globals=None, locals=None, fromlist=(), level=0):
         root = name.split('.')[0]
+        if root == 'numpy' and not level:
+            return _real_import(name, globals, locals, fromlist, 0)
         if level or root not in _ALLOWED or ('.' in name and name != 'collections.abc'):
             raise ImportError('Модуль «%s» недоступен во Flux: у подпрограммы нет часов, сети, процессов и файлов' % name)
         facade = _facade(root)
@@ -244,6 +251,11 @@ def _fresh(key, seed=0):
     exec(_modules[key], ns)
     return ns
 
+def _seed_numpy(seed):
+    np = _sys.modules.get('numpy')
+    if np is not None:
+        np.random.seed(int(seed) & 0xFFFFFFFF)
+
 def flux_load(key, source):
     _modules[key] = compile(source, '<' + key + '>', 'exec')
     if not callable(_fresh(key).get('compute')):
@@ -254,6 +266,7 @@ def flux_drop(key):
     _modules.pop(key, None)
 
 def flux_call(key, text, seed):
+    _seed_numpy(seed)
     out = _fresh(key, seed)['compute'](_json.loads(text))
     try:
         return _json.dumps(out, allow_nan=False, separators=(',', ':'), ensure_ascii=False)

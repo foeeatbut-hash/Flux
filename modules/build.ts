@@ -1,5 +1,6 @@
 import { build } from 'esbuild';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { bundledModules } from './bundled';
 import { validManifest } from './schemas';
@@ -71,6 +72,13 @@ export async function buildModuleAssets(css: string, fonts: Record<string, strin
 export const PYODIDE_FILES = ['pyodide.js', 'pyodide.asm.js', 'pyodide.asm.wasm', 'python_stdlib.zip', 'pyodide-lock.json'] as const;
 
 /**
+ * Пакеты Pyodide, которые кладутся в сборку. Колесо лежит в репозитории (vendor/pyodide) — из полного
+ * выпуска Pyodide той же версии; при сборке его SHA-256 сверяется с pyodide-lock.json пакета npm,
+ * поэтому подмена файла или несовпадение версий останавливают сборку. Во время работы Flux сети нет.
+ */
+export const PYODIDE_PACKAGES = ['numpy'] as const;
+
+/**
  * Хост общей среды Python (`flux-module://_compute/`): страница, скрипт хоста со
  * встроенным Worker'ом и файлы Pyodide из пакета npm. Pyodide кладётся в
  * сборку, а не берётся из интернета: сеть подпрограммам закрыта, а Flux
@@ -91,6 +99,15 @@ export async function buildComputeAssets(): Promise<Record<string, string | Uint
     const source = path.join(pyodide, file);
     if (!fs.existsSync(source)) throw new Error(`Нет ${file} в node_modules/pyodide: выполните npm ci`);
     assets[`${prefix}pyodide/${file}`] = fs.readFileSync(source);
+  }
+  const lock = JSON.parse(fs.readFileSync(path.join(pyodide, 'pyodide-lock.json'), 'utf8')).packages;
+  for (const name of PYODIDE_PACKAGES) {
+    const entry = lock[name];
+    const wheel = path.resolve('vendor/pyodide', entry.file_name);
+    if (!fs.existsSync(wheel)) throw new Error(`Нет vendor/pyodide/${entry.file_name}: колесо ${name} берётся из полного выпуска Pyodide той же версии`);
+    const bytes = fs.readFileSync(wheel);
+    if (createHash('sha256').update(bytes).digest('hex') !== entry.sha256) throw new Error(`SHA-256 колеса ${entry.file_name} не совпадает с pyodide-lock.json`);
+    assets[`${prefix}pyodide/${entry.file_name}`] = bytes;
   }
   return assets;
 }

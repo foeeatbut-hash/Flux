@@ -27,7 +27,7 @@ export function guardModuleNavigation(contents: WebContents) {
 }
 const contentType = (file: string) => file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8'
   : file.endsWith('.woff2') ? 'font/woff2' : file.endsWith('.wasm') ? 'application/wasm' : file.endsWith('.json') ? 'application/json'
-  : file.endsWith('.zip') ? 'application/zip' : file.endsWith('.py') ? 'text/plain; charset=utf-8' : 'text/html; charset=utf-8';
+  : file.endsWith('.zip') || file.endsWith('.whl') ? 'application/zip' : file.endsWith('.py') ? 'text/plain; charset=utf-8' : 'text/html; charset=utf-8';
 
 /** Только для проверок: свой корень доверия, каталог и проверка отправителя IPC. В выпуске не передаётся никогда */
 export interface ModuleProtocolOptions {

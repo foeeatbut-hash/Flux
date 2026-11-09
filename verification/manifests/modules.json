@@ -78,7 +78,8 @@
         "src/services/moduleControlsGate.ts",
         "src/workers/moduleWasm.worker.ts",
         "electron/moduleControls.ts",
-        "modules/runtime/prologue.ts"
+        "modules/runtime/prologue.ts",
+        "modules/engine/serial.ts"
       ]
     }
   ],

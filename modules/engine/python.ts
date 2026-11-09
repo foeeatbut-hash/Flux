@@ -11,6 +11,7 @@
  */
 import { ComputeError, LIMITS } from './types';
 import { PYTHON_HARNESS } from './pythonHarness';
+import { SerialLane } from './serial';
 
 /** Часть API Pyodide, которой пользуется Flux */
 export interface PyodideApi {
@@ -37,8 +38,13 @@ export function clampWasmMemory(maxPages: number): () => void {
   return () => { (WebAssembly as any).Memory = Original; };
 }
 
+const NUMPY = /^\s*(?:import\s+numpy|from\s+numpy\b)/m;
+
 export class PythonEnvironment {
   private loaded = new Map<string, string>();
+  private numpy = false;
+  /** Два расчёта в одной среде не идут одновременно, даже между await'ами загрузки пакетов */
+  private lane = new SerialLane();
 
   constructor(private py: PyodideApi) {
     py.runPython(PYTHON_HARNESS);
@@ -46,10 +52,17 @@ export class PythonEnvironment {
 
   /** Сколько подпрограмм сейчас держат пространство имён в среде */
   get namespaces() { return this.loaded.size; }
+  get queued() { return this.lane.pending; }
 
   private async prepare(key: string, source: string) {
     // Подпрограмма загружается один раз; изменившийся исходник (новая версия) перезагружается
     if (this.loaded.get(key) === source) return;
+    // numpy грузится лениво, только когда подпрограмма его импортирует; колесо лежит рядом с Pyodide, сеть не нужна
+    if (NUMPY.test(source) && !this.numpy) {
+      // loadPackage не бросает, если колеса нет, — поэтому после него numpy импортируется по-настоящему
+      try { await this.py.loadPackage('numpy'); this.py.runPython("__import__('numpy')"); } catch { throw new ComputeError('UNAVAILABLE', 'numpy не загружен'); }
+      this.numpy = true;
+    }
     try { this.py.globals.get('flux_load')(key, source); } catch (e: any) {
       throw new ComputeError('CRASH', `logic/main.py не загружается: ${firstLine(e)}`);
     }
@@ -57,7 +70,11 @@ export class PythonEnvironment {
   }
 
   /** Один расчёт: `key` — подпрограмма (ид и версия), `source` — её logic/main.py */
-  async run(key: string, source: string, input: string, seed = 0): Promise<string> {
+  run(key: string, source: string, input: string, seed = 0): Promise<string> {
+    return this.lane.run(() => this.runNow(key, source, input, seed));
+  }
+
+  private async runNow(key: string, source: string, input: string, seed: number): Promise<string> {
     if (input.length > LIMITS.inputBytes) throw new ComputeError('BAD_INPUT', 'вход больше предела');
     await this.prepare(key, source);
     try {

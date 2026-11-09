@@ -42,6 +42,8 @@ export interface PythonRunner {
   /** Выгрузить среду целиком */
   unload(): void;
   readonly loaded: boolean;
+  /** Сколько расчётов ждут или идут в среде (всегда идёт не больше одного) */
+  readonly queued?: number;
 }
 export interface ComputeDeps {
   scheduler: ComputeScheduler;
