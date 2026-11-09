@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, utilityProcess, safeStorage } from 'electron';
+import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, utilityProcess, safeStorage, shell } from 'electron';
 import path from 'path';
 import { licenseStatus, activateLicense } from './license';
 import { isRunnableFile, RUNNABLE_REFUSAL } from './runnable';
@@ -87,6 +87,23 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
     }
+  });
+
+  // Главное окно не уходит со своей страницы и не плодит окон: ссылка с
+  // target=_blank или переход по <a> иначе открыл бы чужой сайт в окне с
+  // доступом к preload (оболочка, сессия). Внешние ссылки уходят в браузер
+  // системы, остальное отбрасывается — как в browser.ts и nativeApps.ts
+  const openOutside = (raw: string) => {
+    try {
+      if (['http:', 'https:', 'mailto:'].includes(new URL(raw).protocol)) void shell.openExternal(raw);
+    } catch (_) { /* не ссылка — игнорируем */ }
+  };
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => { openOutside(url); return { action: 'deny' }; });
+  mainWindow.webContents.on('will-navigate', (navigation, next) => {
+    const here = mainWindow?.webContents.getURL().split('#')[0];
+    if (next.split('#')[0] === here) return;
+    navigation.preventDefault();
+    openOutside(next);
   });
 
   if (process.env.NODE_ENV === 'development') {
@@ -684,7 +701,8 @@ app.whenReady().then(async () => {
     try {
       let raw = String(url || '').trim();
       // Ссылка без схемы трактуется как http(s)
-      if (raw && !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) raw = 'https://' + raw;
+      // «localhost:3000» — это хост с портом, а не схема «localhost:»
+      if (raw && !/^[a-zA-Z][a-zA-Z0-9+.-]*:(?!\d+(\/|$))/.test(raw)) raw = 'https://' + raw;
       const parsed = new URL(raw);
       // Разрешаем только безопасные протоколы (не file:, не пользовательские схемы)
       if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) {
@@ -706,7 +724,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('print:to-pdf', async (_event, { html, title, landscape, headerTemplate, footerTemplate, pageSize }: {
     html: string; title?: string; landscape?: boolean; headerTemplate?: string; footerTemplate?: string; pageSize?: 'A4' | 'A3';
   }) => {
-    const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+    // Печатный вид — готовая разметка без скриптов: скрипты в окне печати выключены,
+    // а запросы в сеть и к файлам отсекаются (картинки бланков приходят как data:)
+    const pdfWin = new BrowserWindow({ show: false,
+      // partition без persist: — своя сессия в памяти, чтобы запрет сети не задел главное окно
+      webPreferences: { sandbox: true, javascript: false, partition: 'flux-print' } });
+    pdfWin.webContents.session.webRequest.onBeforeRequest((details, callback) => {
+      callback({ cancel: !/^(data|about|blob):/i.test(details.url) });
+    });
     try {
       await pdfWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(String(html || '')));
       const hasHf = !!(headerTemplate || footerTemplate);
