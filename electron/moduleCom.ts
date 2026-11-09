@@ -77,7 +77,7 @@ function FromCom($v, $depth) {
   $v = Unwrap $v
   if ($null -eq $v) { return $null }
   if ($v -is [string] -or $v -is [bool]) { return $v }
-  if ($v -is [int] -or $v -is [long] -or $v -is [short] -or $v -is [byte] -or $v -is [uint32] -or $v -is [uint16]) { return $v }
+  if ($v -is [int] -or $v -is [long] -or $v -is [int16] -or $v -is [byte] -or $v -is [uint32] -or $v -is [uint16]) { return $v }
   if ($v -is [double] -or $v -is [single] -or $v -is [decimal]) { $d = [double]$v; if ([double]::IsNaN($d) -or [double]::IsInfinity($d)) { return $null }; return $d }
   if ($v -is [datetime]) { return $v.ToString('o') }
   if ($v -is [System.Array]) { if ($depth -gt 4) { return $null }; $r = @(); foreach ($e in $v) { $r += ,(FromCom $e ($depth + 1)) }; return ,$r }
