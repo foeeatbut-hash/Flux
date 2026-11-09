@@ -1,3 +1,4 @@
+import { setSecretDataDir } from './server/mail/secret.js';
 import { buildDatabaseClient } from './server/databaseClient.js';
 import 'express-async-errors';
 import { ensureUserProfileSchema } from './server/userProfileSchema.js';
@@ -182,6 +183,7 @@ function getVentAppDataPath(): string {
 }
 
 const ventAppDataPath = process.env.VENT_APP_DATA || getVentAppDataPath();
+setSecretDataDir(ventAppDataPath);
 const logFilePath = path.join(ventAppDataPath, 'backend-init.log');
 
 function logInit(message: string) {

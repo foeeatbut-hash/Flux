@@ -77,6 +77,9 @@ function makeClient(c: MailCreds): ImapFlow {
     host: c.imapHost,
     port: c.imapPort || 993,
     secure: c.imapSecure !== false,
+    // Без неявного TLS шифрование через STARTTLS обязательно: ImapFlow иначе
+    // продолжил бы без него и отправил пароль открытым текстом
+    doSTARTTLS: c.imapSecure === false && !/^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/i.test(c.imapHost) ? true : undefined,
     auth: { user: c.login, pass: c.password },
     // Своего журнала не ведём: в него попал бы пароль
     logger: false,

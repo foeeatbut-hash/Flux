@@ -138,11 +138,13 @@ export interface SmtpConn {
 /**
  * Параметры соединения с SMTP.
  *
- * На порту 587 шифрование включается командой STARTTLS уже после приветствия.
- * Без `requireTLS` nodemailer при отказе сервера от STARTTLS молча продолжил
+ * Без неявного TLS (порт 587) шифрование включается командой STARTTLS уже
+ * после приветствия. Без `requireTLS` nodemailer при отказе сервера от STARTTLS молча продолжил
  * бы и отправил логин с паролем открытым текстом; здесь он вместо этого
  * остановится с понятной ошибкой.
  */
+const isLocalHost = (h: string) => /^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/i.test(String(h || '').trim());
+
 export function smtpTransportOptions(c: SmtpConn, timeouts: { connection: number; socket: number }) {
   const secure = c.smtpSecure !== false;
   const port = c.smtpPort || (secure ? 465 : 587);
@@ -150,7 +152,10 @@ export function smtpTransportOptions(c: SmtpConn, timeouts: { connection: number
     host: c.smtpHost,
     port,
     secure,
-    requireTLS: !secure && port === 587,
+    // Без неявного TLS шифрование обязательно на любом порту: иначе сервер, не
+    // предложивший STARTTLS, получил бы логин и пароль открытым текстом
+    // (кроме своего компьютера: локальный ретранслятор наружу ничего не передаёт)
+    requireTLS: !secure && !isLocalHost(c.smtpHost),
     auth: { user: c.login, pass: c.password },
     connectionTimeout: timeouts.connection,
     greetingTimeout: 15000,
