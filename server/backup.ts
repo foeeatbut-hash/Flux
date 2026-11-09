@@ -15,6 +15,7 @@ import { administratorPermission, requireOwnerMiddleware } from './accessPolicy.
 import fs from 'fs';
 import { fileBytes } from './routes/fileChunks.js';
 import path from 'path';
+const fsp = fs.promises;
 import crypto from 'crypto';
 import type { Express, Request, Response } from 'express';
 import * as XLSX from 'xlsx';
@@ -37,10 +38,27 @@ interface BackupSettings {
 const DEFAULTS: BackupSettings = { enabled: true, dir: '', keep: 14 };
 const SETTINGS_KEY = 'backup_settings';
 
-// Имя файла/папки, безопасное для Windows
-function sanitizeName(name: string, fallback: string): string {
-  const clean = String(name || '').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/, '').trim();
+// Имена, которые Windows не даёт создать как файл или папку (с любым расширением)
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
+
+// Имя файла/папки, безопасное для Windows. Длину режем: полный путь в Windows
+// ограничен, а один слишком длинный файл раньше обрывал весь архив
+export function sanitizeName(name: string, fallback: string): string {
+  let clean = String(name || '').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/, '').trim();
+  if (WINDOWS_RESERVED.test(clean)) clean = `_${clean}`;
+  if (clean.length > 120) {
+    const ext = path.extname(clean);
+    clean = clean.slice(0, 120 - Math.min(ext.length, 20)) + (ext.length <= 20 ? ext : '');
+  }
   return clean || fallback;
+}
+
+// Ввод «сколько хранить»: только целое число. Пусто, null и мусор раньше
+// превращались в 0, а затем в 1, и ротация стирала все прежние архивы
+export function parseKeep(raw: unknown): number | null {
+  if (typeof raw === 'string' && raw.trim() !== '') raw = Number(raw);
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return null;
+  return Math.min(90, Math.max(1, Math.round(raw)));
 }
 
 function dateStamp(d = new Date()): string {
@@ -48,16 +66,33 @@ function dateStamp(d = new Date()): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-function dirSize(dir: string): number {
+async function dirSize(dir: string): Promise<number> {
   let total = 0;
   try {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    for (const e of await fsp.readdir(dir, { withFileTypes: true })) {
       const p = path.join(dir, e.name);
-      if (e.isDirectory()) total += dirSize(p);
-      else { try { total += fs.statSync(p).size; } catch (_) {} }
+      if (e.isDirectory()) total += await dirSize(p);
+      else { try { total += (await fsp.stat(p)).size; } catch (_) {} }
     }
   } catch (_) {}
   return total;
+}
+
+// Уникальные имена проектов без учёта регистра: два «Цех» не должны затирать
+// друг друга ни в папке Проводника, ни в книге Excel
+export function uniqueProjectNames(projects: any[]): Map<string, string> {
+  const result = new Map<string, string>();
+  const taken = new Set<string>();
+  for (const p of projects) {
+    const base = sanitizeName(p.name, 'Проект');
+    let name = base;
+    if (taken.has(name.toLowerCase())) name = `${base} (${String(p.id).slice(0, 8)})`;
+    let n = 1;
+    while (taken.has(name.toLowerCase())) name = `${base} (${String(p.id).slice(0, 8)}-${++n})`;
+    taken.add(name.toLowerCase());
+    result.set(p.id, name);
+  }
+  return result;
 }
 
 export function initBackups(deps: BackupDeps) {
@@ -65,10 +100,16 @@ export function initBackups(deps: BackupDeps) {
   let running = false;
 
   async function loadSettings(): Promise<BackupSettings> {
-    try {
-      const s = await getPrisma().appSetting.findFirst({ where: { key: SETTINGS_KEY, userId: null } });
-      if (s?.value) return { ...DEFAULTS, ...JSON.parse(s.value) };
-    } catch (_) {}
+    // Ошибку чтения базы не прячем: иначе при её недоступности архив шёл бы по
+    // умолчаниям (включён, своя папка), а не по настройкам владельца
+    const s = await getPrisma().appSetting.findFirst({ where: { key: SETTINGS_KEY, userId: null } });
+    if (s?.value) {
+      try {
+        const parsed = JSON.parse(s.value);
+        const keep = parseKeep(parsed?.keep);
+        return { ...DEFAULTS, ...parsed, keep: keep ?? DEFAULTS.keep };
+      } catch (_) { /* испорченное значение настройки — берём умолчания */ }
+    }
     return { ...DEFAULTS };
   }
 
@@ -114,11 +155,20 @@ export function initBackups(deps: BackupDeps) {
   }
 
   // ── Архив Проводника: файлы в родных форматах по папкам ──
-  async function exportExplorer(destRoot: string): Promise<{ files: number; skipped: number }> {
+  // Один плохой файл (имя CON, слишком длинный путь, сбой записи) не обрывает
+  // архив: он пропускается и попадает в отчёт, иначе при вечной ошибке
+  // часовая проверка не создавала бы архивов вообще
+  async function exportExplorer(destRoot: string, projectName: Map<string, string>): Promise<{ files: number; skipped: number; failed: { name: string; error: string }[] }> {
     const prisma = getPrisma();
-    const projects = await prisma.project.findMany();
     const folders = await prisma.folder.findMany();
-    const files = await prisma.fileNode.findMany();
+    // content (base64 старых файлов) не тянем разом для всех: читаем точечно
+    const files = await prisma.fileNode.findMany({
+      where: { deletedAt: null, type: { not: 'CHAT_FILE' } },
+      select: { id: true, name: true, folderId: true, scope: true, ownerId: true },
+    });
+    const owners = new Map<string, string>(
+      (await prisma.user.findMany({ select: { id: true, name: true } })).map((u: any) => [u.id, sanitizeName(u.name, 'Сотрудник')]),
+    );
 
     // путь папки = цепочка родителей
     const folderById = new Map<string, any>(folders.map((f: any) => [f.id, f]));
@@ -132,48 +182,57 @@ export function initBackups(deps: BackupDeps) {
       }
       return parts;
     };
-    const projectName = new Map<string, string>(projects.map((p: any) => [p.id, sanitizeName(p.name, 'Проект')]));
 
     let written = 0, skipped = 0;
+    const failed: { name: string; error: string }[] = [];
     const usedNames = new Set<string>();
     for (const f of files) {
       try {
         // Байты берём общим путём: у файла, положенного новой версией, они
         // лежат кусками, у старого — строкой. Зеркала документов Flux Office и
         // пустышки не имеют ни того, ни другого — их и пропускаем
-        const bytes = await fileBytes(f);
+        let bytes = await fileBytes(f);
+        if (!bytes.length) {
+          const row = await prisma.fileNode.findUnique({ where: { id: f.id }, select: { content: true } });
+          bytes = await fileBytes({ id: f.id, content: row?.content });
+        }
         if (!bytes.length) { skipped++; continue; }
         const folder = f.folderId ? folderById.get(f.folderId) : null;
         const projName = folder ? (projectName.get(folder.projectId) || 'Проект') : 'Без проекта';
-        const dir = path.join(destRoot, 'Проводник', projName, ...(folder ? folderPath(f.folderId) : [f.scope === 'PERSONAL' ? 'Личные' : 'Общие']));
-        fs.mkdirSync(dir, { recursive: true });
-        let name = sanitizeName(f.name, 'файл');
-        // дубликаты имён в одной папке — нумеруем
+        // Личные файлы корня раздела кладём по владельцам: чужие личные не
+        // должны смешиваться в одну папку «Личные»
+        const rootDir = f.scope === 'PERSONAL' ? ['Личные', (f.ownerId && owners.get(f.ownerId)) || 'Без владельца'] : ['Общие'];
+        const dir = path.join(destRoot, 'Проводник', projName, ...(folder ? folderPath(f.folderId) : rootDir));
+        await fsp.mkdir(dir, { recursive: true });
+        const name = sanitizeName(f.name, 'файл');
+        // дубликаты имён в одной папке — нумеруем; регистр не различаем (Windows)
         let full = path.join(dir, name);
         let n = 1;
-        while (usedNames.has(full)) {
+        while (usedNames.has(full.toLowerCase())) {
           const ext = path.extname(name);
           full = path.join(dir, `${path.basename(name, ext)} (${++n})${ext}`);
         }
-        usedNames.add(full);
-        fs.writeFileSync(full, bytes);
+        usedNames.add(full.toLowerCase());
+        await fsp.writeFile(full, bytes);
         written++;
       } catch (error: any) {
-        throw new Error(`Не удалось сохранить файл Проводника «${f.name}»: ${error.message}`);
+        failed.push({ name: String(f.name), error: String(error?.message || error) });
+        log(`[Backup] Файл Проводника «${f.name}» пропущен: ${error?.message}`);
       }
     }
-    return { files: written, skipped };
+    return { files: written, skipped, failed };
   }
 
   // ── Данные проекта в Excel: теги + закупки, оборудование ──
-  async function exportDataXlsx(destRoot: string): Promise<number> {
+  async function exportDataXlsx(destRoot: string, projects: any[], projectName: Map<string, string>): Promise<{ count: number; failed: { name: string; error: string }[] }> {
     const prisma = getPrisma();
-    const projects = await prisma.project.findMany();
     const dir = path.join(destRoot, 'Данные');
-    fs.mkdirSync(dir, { recursive: true });
+    await fsp.mkdir(dir, { recursive: true });
     let count = 0;
+    const failed: { name: string; error: string }[] = [];
 
     for (const proj of projects) {
+     try {
       const wb = XLSX.utils.book_new();
 
       // Теги (+ закупки из metadata.procurement)
@@ -219,11 +278,24 @@ export function initBackups(deps: BackupDeps) {
       }
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(eqRows.length ? eqRows : [{ 'Установка': '' }]), 'Оборудование');
 
-      const file = path.join(dir, `${sanitizeName(proj.name, 'Проект')}.xlsx`);
+      const file = path.join(dir, `${projectName.get(proj.id) || sanitizeName(proj.name, 'Проект')}.xlsx`);
       XLSX.writeFile(wb, file);
       count++;
+     } catch (error: any) {
+      failed.push({ name: String(proj.name), error: String(error?.message || error) });
+      log(`[Backup] Книга проекта «${proj.name}» пропущена: ${error?.message}`);
+     }
     }
-    return count;
+    return { count, failed };
+  }
+
+  // Каталоги .pending-* — только временные папки незавершённых архивов
+  async function cleanPending(base: string) {
+    try {
+      for (const n of await fsp.readdir(base)) {
+        if (n.startsWith('.pending-')) await fsp.rm(path.join(base, n), { recursive: true, force: true });
+      }
+    } catch (_) {}
   }
 
   // ── Полный архив ──
@@ -238,13 +310,18 @@ export function initBackups(deps: BackupDeps) {
       const stamp = dateStamp();
       let dest = path.join(base, `АРХИВ-${stamp}`);
       if (fs.existsSync(dest)) dest += `-${crypto.randomUUID()}`;
-      fs.mkdirSync(base, { recursive: true });
+      await fsp.mkdir(base, { recursive: true });
+      // Остатки прерванных запусков (процесс убит посреди архива) не копим
+      await cleanPending(base);
       // Незавершённая папка не считается архивом и не блокирует повторную попытку.
-      pending = fs.mkdtempSync(path.join(base, '.pending-'));
+      pending = await fsp.mkdtemp(path.join(base, '.pending-'));
 
       const dbOk = await copyDatabase(path.join(pending, 'database.sqlite'));
-      const explorer = await exportExplorer(pending);
-      const xlsxCount = await exportDataXlsx(pending);
+      const projects = await getPrisma().project.findMany();
+      const projectName = uniqueProjectNames(projects);
+      const explorer = await exportExplorer(pending, projectName);
+      const xlsx = await exportDataXlsx(pending, projects, projectName);
+      const xlsxCount = xlsx.count;
 
       const manifest = {
         when: new Date().toISOString(),
@@ -252,23 +329,29 @@ export function initBackups(deps: BackupDeps) {
         database: dbOk ? 'database.sqlite' : 'Внешняя база: здесь только выгрузка файлов и таблиц; полная копия создаётся средствами СУБД',
         explorerFiles: explorer.files,
         explorerSkipped: explorer.skipped,
+        // Что не удалось сохранить: архив считается готовым, но владелец это увидит
+        explorerFailed: explorer.failed,
+        dataFailed: xlsx.failed,
+        dbIncluded: dbOk,
         dataWorkbooks: xlsxCount,
+        sizeBytes: 0,
         tookMs: Date.now() - startedAt,
       };
-      fs.writeFileSync(path.join(pending, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf-8');
-      fs.renameSync(pending, dest);
+      manifest.sizeBytes = await dirSize(pending);
+      await fsp.writeFile(path.join(pending, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf-8');
+      await fsp.rename(pending, dest);
 
       // Ротация суточных архивов
       try {
         const entries = fs.readdirSync(base).filter(n => n.startsWith('АРХИВ-') && fs.existsSync(path.join(base, n, 'manifest.json')))
           .sort((a, b) => fs.statSync(path.join(base, a, 'manifest.json')).mtimeMs - fs.statSync(path.join(base, b, 'manifest.json')).mtimeMs);
         for (const old of entries.slice(0, Math.max(0, entries.length - Math.max(1, settings.keep)))) {
-          fs.rmSync(path.join(base, old), { recursive: true, force: true });
+          await fsp.rm(path.join(base, old), { recursive: true, force: true });
           log(`[Backup] Ротация: удалён старый архив ${old}`);
         }
       } catch (_) {}
 
-      log(`[Backup] Архив готов (${reason}): ${dest} — файлов Проводника: ${explorer.files}, книг данных: ${xlsxCount}, БД: ${dbOk ? 'да' : 'нет'}, ${manifest.tookMs} мс`);
+      log(`[Backup] Архив готов (${reason}): ${dest} — файлов Проводника: ${explorer.files} (пропущено с ошибкой: ${explorer.failed.length}), книг данных: ${xlsxCount}, БД: ${dbOk ? 'да' : 'нет'}, ${manifest.tookMs} мс`);
       return { dest, ...manifest };
     } finally {
       // Удаляется только собственная временная папка: исходные данные и готовые архивы не затрагиваются.
@@ -277,17 +360,21 @@ export function initBackups(deps: BackupDeps) {
     }
   }
 
-  function listBackups(base: string) {
+  // Размер берём из манифеста (записан при создании); обход папок — только для старых архивов
+  async function listBackups(base: string) {
     try {
-      return fs.readdirSync(base)
+      const names = fs.readdirSync(base)
         .filter(n => n.startsWith('АРХИВ-') && fs.existsSync(path.join(base, n, 'manifest.json')))
-        .sort().reverse()
-        .map(name => {
-          const p = path.join(base, name);
-          let manifest: any = null;
-          try { manifest = JSON.parse(fs.readFileSync(path.join(p, 'manifest.json'), 'utf-8')); } catch (_) {}
-          return { name, path: p, size: dirSize(p), manifest };
-        });
+        .sort().reverse();
+      const out = [];
+      for (const name of names) {
+        const p = path.join(base, name);
+        let manifest: any = null;
+        try { manifest = JSON.parse(await fsp.readFile(path.join(p, 'manifest.json'), 'utf-8')); } catch (_) {}
+        const size = typeof manifest?.sizeBytes === 'number' && manifest.sizeBytes > 0 ? manifest.sizeBytes : await dirSize(p);
+        out.push({ name, path: p, size, manifest });
+      }
+      return out;
     } catch (_) { return []; }
   }
 
@@ -296,7 +383,7 @@ export function initBackups(deps: BackupDeps) {
     try {
       const settings = await loadSettings();
       const base = resolveBaseDir(settings);
-      const list = listBackups(base);
+      const list = await listBackups(base);
       res.json({ settings, dir: base, running, backups: list });
     } catch (e: any) { res.status(500).json({ error: e?.message }); }
   });
@@ -318,7 +405,7 @@ export function initBackups(deps: BackupDeps) {
       const next: BackupSettings = {
         enabled: typeof req.body?.enabled === 'boolean' ? req.body.enabled : cur.enabled,
         dir: typeof req.body?.dir === 'string' ? req.body.dir : cur.dir,
-        keep: Number.isFinite(Number(req.body?.keep)) ? Math.min(90, Math.max(1, Number(req.body.keep))) : cur.keep,
+        keep: parseKeep(req.body?.keep) ?? cur.keep,
       };
       await saveSettings(next);
       res.json({ success: true, settings: next });
@@ -331,7 +418,9 @@ export function initBackups(deps: BackupDeps) {
   const ready = startupSafetyCopy();
   const dailyCheck = async () => {
     try {
+      // Если настройки прочитать не удалось, архив не запускаем (исключение уйдёт в журнал)
       const settings = await loadSettings();
+      if (!running) await cleanPending(resolveBaseDir(settings));
       if (!settings.enabled) return;
       const base = resolveBaseDir(settings);
       const today = `АРХИВ-${dateStamp()}`;
