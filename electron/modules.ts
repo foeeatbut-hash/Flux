@@ -12,6 +12,12 @@ import { ModuleSelection } from './moduleSelection';
 import { registerModuleStoreIpc } from './moduleStoreIpc';
 import { setupModuleSigning } from './moduleSigning';
 import { ModuleControls, registerModuleControlsIpc } from './moduleControls';
+import { ModuleConnections, type VerifiedModule } from './moduleConnections';
+import { registerConnectionsIpc } from './moduleConnectionsIpc';
+import { ModuleGrants } from './moduleGrants';
+import { ModuleJournal } from './moduleJournal';
+import { defaultComBackend, type ComBackend } from './moduleCom';
+import type { Lookup } from './moduleNet';
 
 export function registerModuleScheme() {
   // fetch нужен окну Flux (файлы логики из проверенного выпуска) и хосту Python (файлы Pyodide); подпрограммам его закрывает
@@ -34,6 +40,9 @@ export interface ModuleProtocolOptions {
   rootHex?: string;
   dir?: string;
   trusted?: (event: Electron.IpcMainInvokeEvent) => boolean;
+  /** Подключения: поддельный COM и своё разрешение имён для проверок; в выпуске не передаются */
+  com?: ComBackend;
+  lookup?: Lookup;
 }
 
 /**
@@ -53,14 +62,18 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
   const selection = new ModuleSelection(path.join(dir, 'selection.json'));
   const controls = new ModuleControls(path.join(dir, 'controls.json'), process.versions.electron);
   let runnable = new Map<string, RunnableRelease>();
+  const resolved = new Map<string, { value: VerifiedModule; release: RunnableRelease } | null>();
   const refresh = async () => {
+    resolved.clear();
     try { runnable = await cache.resolve(selection.versions(), selection.channels); }
     catch (e: any) { console.error('[Модули] Кэш выпусков не прочитан:', e?.message); }
     // Встроенный пример с тем же именем остаётся встроенным: выпуск его не подменяет
     for (const id of bundledIds) runnable.delete(id);
     return runnable;
   };
-  const ready = Promise.all([selection.load(), controls.load()]).then(refresh);
+  const grants = new ModuleGrants(path.join(dir, 'grants.json'));
+  const journal = new ModuleJournal(path.join(dir, 'journal.json'));
+  const ready = Promise.all([selection.load(), controls.load(), grants.load(), journal.load()]).then(refresh);
 
   protocol.handle(MODULE_SCHEME, async request => {
     await ready;
@@ -93,4 +106,27 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
   registerModuleStoreIpc({ cache, selection, bundledIds, ready, refresh, runnable: () => runnable });
   registerModuleControlsIpc(controls, () => runnable, ready, options.trusted);
   setupModuleSigning();
+
+  // Подключения к внешним программам: проверенный выпуск — единственный источник разрешения
+  const controlsBlocked = (release: RunnableRelease) => controls.blocked(release);
+  const resolve = async (moduleId: string, version: string): Promise<VerifiedModule | null> => {
+    await ready;
+    const bundled = bundledModules.find(m => m.id === moduleId && m.version === version);
+    if (bundled) return { manifest: bundled, version, author: bundled.author, verifiedAt: 0 };
+    if (!selection.installed[moduleId]) return null;
+    // Проверка подписей и чтение кэша дороги (десятки мс): результат держится до следующего обновления проверенных выпусков
+    const key = `${moduleId}@${version}`;
+    if (resolved.has(key)) { const hit = resolved.get(key)!; return hit && !controlsBlocked(hit.release) ? hit.value : null; }
+    const release = runnable.get(moduleId)?.claim.version === version ? runnable.get(moduleId)! : (await cache.available(moduleId, selection.channels)).find(r => r.claim.version === version);
+    const value = release ? { manifest: release.manifest, version, author: release.claim.author, verifiedAt: release.claim.iat } : null;
+    resolved.set(key, value && release ? { value, release } : null);
+    return release && !controls.blocked(release) ? value : null;
+  };
+  const service = new ModuleConnections({ resolve, userId: () => selection.active, grants, journal, comFor: options.com ? () => options.com! : () => defaultComBackend(), lookup: options.lookup });
+  registerConnectionsIpc({
+    service, grants, journal, resolve, ready, userId: () => selection.active, trusted: options.trusted,
+    installed: async () => { await ready; return [...runnable.values()].filter(r => selection.installed[r.manifest.id]).map(r => ({ manifest: r.manifest, version: r.claim.version, author: r.claim.author, verifiedAt: r.claim.iat })); },
+  });
+  app.on('before-quit', () => { void service.shutdown(); void journal.flush(); });
+  return { service, journal, grants };
 }

@@ -41,7 +41,7 @@ export interface Fields {
   moduleChannel?: 'test' | 'production';
   moduleApiVersion?: string;
   moduleDeveloper?: string;
-  moduleDiagnostics?: { code?: string; frames?: string[] };
+  moduleDiagnostics?: { code?: string; frames?: string[]; journal?: string[] };
 }
 
 export const emptyFields = (sectionKey = '', type: ReportType = 'BUG'): Fields => ({

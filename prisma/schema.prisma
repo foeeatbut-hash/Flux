@@ -2390,6 +2390,30 @@ model ModuleInstall {
   @@index([moduleId])
 }
 
+/// Журнал подпрограмм: что они делали на компьютерах людей. Только метаданные — без содержимого вызовов и данных проектов.
+/// id задаёт компьютер (повторная отправка пачки не даёт дублей); срок и число строк ограничены уборкой (server/moduleJournal.ts)
+model ModuleJournal {
+  id         String   @id
+  userId     String
+  userName   String   @default("")
+  moduleId   String
+  version    String
+  category   String
+  level      String
+  event      String
+  detail     String   @default("")
+  outcome    String   @default("")
+  ms         Int      @default(0)
+  bytesIn    Int      @default(0)
+  bytesOut   Int      @default(0)
+  at         DateTime
+  receivedAt DateTime @default(now())
+
+  @@index([moduleId, at])
+  @@index([userId, at])
+  @@index([at])
+}
+
 /// Журнал Store: кто что поставил, обновил, вернул, удалил, решил
 model ModuleStoreLog {
   id          String   @id @default(uuid())

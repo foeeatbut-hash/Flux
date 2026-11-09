@@ -5,7 +5,7 @@
  */
 import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Download, Home, LayoutGrid, Library, Search, Shield } from 'lucide-react';
+import { Download, Home, LayoutGrid, Library, ScrollText, Search, Shield } from 'lucide-react';
 import '../components/store/store.css';
 import { categoryName, searchListings, STORE_CATEGORIES, updateAvailable, type StoreListing } from '../../modules/store/model';
 import { moduleHref } from '../../modules/launch';
@@ -18,8 +18,10 @@ import StoreAdmin from '../components/store/StoreAdmin';
 import StoreDialogs, { type StoreDialog } from '../components/store/StoreDialogs';
 import { ModuleIcon, type ActionKind } from '../components/store/StoreParts';
 import { Chip } from '../components/ui';
+import ModuleJournalView from '../components/store/ModuleJournalView';
+import { moduleStoreApi } from '../services/moduleStoreService';
 
-type View = 'home' | 'apps' | 'downloads' | 'library' | 'admin';
+type View = 'home' | 'apps' | 'downloads' | 'library' | 'admin' | 'journal';
 
 export default function StoreScreen() {
   const navigate = useNavigate();
@@ -32,6 +34,9 @@ export default function StoreScreen() {
   const [suggest, setSuggest] = useState(false);
   const [dialog, setDialog] = useState<StoreDialog>(null);
   const [toast, setToast] = useState('');
+  // Разработчик видит журнал своих подпрограмм (без людей); право проверяет сервер, здесь только показ пункта
+  const [develop, setDevelop] = useState(false);
+  React.useEffect(() => { void moduleStoreApi.me().then((m) => setDevelop(!!m.develop)).catch(() => setDevelop(false)); }, []);
   const scroller = useRef<HTMLDivElement>(null);
   const isAdmin = user?.role === 'OWNER' || user?.role === 'ADMIN';
   const openId = params.get('module');
@@ -67,6 +72,7 @@ export default function StoreScreen() {
           : <div className="stx-note">В категории «{categoryName(category)}» пока пусто.</div>}</>;
     }
     if (view === 'admin' && isAdmin) return <StoreAdmin />;
+    if (view === 'journal' && develop && !isAdmin) return <ModuleJournalView moduleNames={Object.fromEntries(listings.map((l) => [l.moduleId, l.name]))} />;
     return <StoreLibrary key={view} initialTab={view === 'downloads' ? 'updates' : 'installed'} listings={listings} onOpen={open} onAct={onAct} onRemove={(l) => setDialog({ kind: 'remove', listing: l })} />;
   };
 
@@ -76,6 +82,7 @@ export default function StoreScreen() {
       {nav('apps', 'Подпрограммы', <LayoutGrid />)}
       <span className="stx-rail-sp" />
       {isAdmin && nav('admin', 'Админ', <Shield />)}
+      {develop && !isAdmin && nav('journal', 'Журнал', <ScrollText />)}
       {nav('downloads', 'Загрузки', <Download />, downloads)}
       {nav('library', 'Библиотека', <Library />)}
     </nav>

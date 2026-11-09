@@ -1,0 +1,21 @@
+{
+  "id": "connections-com",
+  "name": "Имена файлов Windows",
+  "version": "1.0.0",
+  "author": "Flux",
+  "contractVersion": 1,
+  "entries": ["start"],
+  "reads": ["project"],
+  "logic": "logic/main.ts",
+  "connections": [
+    {
+      "id": "fso",
+      "kind": "com",
+      "progId": "Scripting.FileSystemObject",
+      "allowDangerous": true,
+      "app": "Файловые имена Windows",
+      "does": "Разбирает имена файлов на части, не читая и не записывая диск",
+      "access": "read"
+    }
+  ]
+}

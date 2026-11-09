@@ -25,6 +25,7 @@ import { effectiveChannel, readPromotions } from '../../modules/trust/promotion.
 import { channelsFor, promotionsOf } from '../moduleChannels.js';
 import { registerModuleChannelRoutes } from './moduleChannels.js';
 import { registerModuleStoreRoutes } from './moduleStore.js';
+import { registerJournalRoutes } from '../moduleJournal.js';
 
 export interface ModulePublishingDeps {
   getPrisma: () => any;
@@ -263,4 +264,5 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
 
   registerModuleChannelRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, rootHex, can: deps.can });
   registerModuleStoreRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, rootHex });
+  registerJournalRoutes(app, { getPrisma: deps.getPrisma, can: deps.can, rootHex });
 }

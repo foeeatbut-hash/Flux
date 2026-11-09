@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "title": "Сервер расчётов",
+      "fields": [
+        { "label": "Проект", "bind": "flux.project.name" },
+        { "label": "Ответ сервера", "bind": "calc.out.answer" },
+        { "label": "Код ответа", "bind": "state.status" },
+        { "label": "Состояние", "bind": "state.problem" }
+      ]
+    }
+  ],
+  "tables": []
+}
