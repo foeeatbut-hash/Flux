@@ -5,6 +5,7 @@ import { authTokenFromRequest, createCookieAuth } from './authCookies.js';
 import { isLegacyBootstrapAdmin, LEGACY_BOOTSTRAP_REFUSAL } from './legacyIdentity.js';
 import { recordServerError } from './diagnostics.js';
 import { positionPermissionsString } from './positionPermissions.js';
+import { extraPositionCodes, primaryPositionCode } from '../shared/positions.js';
 
 export const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 interface Claims { v: 2; uid: string; iat: number; exp: number; stamp: string; sid: string }
@@ -32,13 +33,27 @@ export function sessionClaims(token: string, secret: string, now = Date.now()): 
     return c;
   } catch (_) { return null; }
 }
+/**
+ * Права должностей одним запросом на всех, а не по запросу на каждую: на пакет
+ * сокета проверка шла 3 запроса и ещё по одному на каждую дополнительную
+ * должность. Кэша нет намеренно — снятое право действует сразу, в том числе
+ * на втором сервере той же базы.
+ */
 async function rolePermissions(user: any): Promise<string | null> {
-  return positionPermissionsString(user, async (code) => {
-    const role = await getPrisma().role.findUnique({ where: { code }, select: { permissions: true } });
-    return role?.permissions || null;
-  });
+  if (!user?.role || user.role === 'OWNER') return null;
+  const codes = [...new Set([primaryPositionCode(user) ?? String(user.role), ...extraPositionCodes(user)])];
+  const found = await getPrisma().role.findMany({ where: { code: { in: codes } }, select: { code: true, permissions: true } });
+  const byCode = new Map<string, string | null>(found.map((r: any) => [String(r.code), r.permissions || null]));
+  return positionPermissionsString(user, async (code) => byCode.get(code) ?? null);
 }
-const revocationId = (c: Claims) => `auth.session.revoked.${crypto.createHash('sha256').update(c.sid).digest('hex')}`;
+// Ключ строки отзыва содержит хеш сессии: пара (key, userId) в AppSetting
+// уникальна, и общий ключ делал второй выход одного человека ошибкой P2002 —
+// отзыв не доходил до базы и жил только в памяти процесса.
+const REVOKED_PREFIX = 'auth.session.revoked';
+const revocationId = (c: Claims) => `${REVOKED_PREFIX}.${crypto.createHash('sha256').update(c.sid).digest('hex')}`;
+/** Запись отзыва нужна, пока жива сама сессия; запас часа на расхождение часов серверов. */
+const REVOCATION_KEEP_MS = SESSION_TTL_MS + 60 * 60 * 1000;
+const CLEANUP_EVERY_MS = 10 * 60 * 1000;
 
 /** Проверка подписи остаётся синхронной для раннего шлюза тела, права сверяются отдельно. */
 export function createAuthSessions(deps: SessionDeps) {
@@ -51,18 +66,26 @@ export function createAuthSessions(deps: SessionDeps) {
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let flushing = false;
   let databaseGeneration = 0;
-  onDatabaseSwapped(() => {
-    databaseGeneration++;
-    ownerGrants.clear(); localRevocations.clear(); pendingRevocations.clear();
-    if (retryTimer) clearTimeout(retryTimer);
-    retryTimer = null;
-  });
   const locallyRevoked = (claims: Claims) => {
     for (const [sid, exp] of localRevocations) if (exp <= Date.now()) localRevocations.delete(sid);
     return localRevocations.has(claims.sid);
   };
-  const writeRevocation = async (c: Claims) => getPrisma().appSetting.upsert({ where: { id: revocationId(c) },
-    create: { id: revocationId(c), key: 'auth.session.revoked', value: JSON.stringify({ until: c.exp }), userId: c.uid }, update: {} });
+  let lastCleanup = 0;
+  /** Просроченные записи отзыва (в том числе прежние, с общим ключом) не копятся в общей базе. */
+  const cleanupRevocations = async () => {
+    const nowMs = Date.now();
+    if (nowMs - lastCleanup < CLEANUP_EVERY_MS) return;
+    lastCleanup = nowMs;
+    try {
+      await getPrisma().appSetting.deleteMany({ where: { key: { startsWith: REVOKED_PREFIX }, updatedAt: { lt: new Date(nowMs - REVOCATION_KEEP_MS) } } });
+    } catch (error) { lastCleanup = 0; recordServerError('auth.revocations.cleanup', error); }
+  };
+  const writeRevocation = async (c: Claims) => {
+    const row = await getPrisma().appSetting.upsert({ where: { id: revocationId(c) },
+      create: { id: revocationId(c), key: revocationId(c), value: JSON.stringify({ until: c.exp }), userId: c.uid }, update: {} });
+    void cleanupRevocations();
+    return row;
+  };
   const scheduleRetry = () => {
     if (retryTimer || !pendingRevocations.size) return;
     retryTimer = setTimeout(() => { retryTimer = null; void flushRevocations(); }, 10000);
@@ -81,6 +104,17 @@ export function createAuthSessions(deps: SessionDeps) {
       }
     } finally { flushing = false; scheduleRetry(); }
   };
+  onDatabaseSwapped(() => {
+    databaseGeneration++;
+    // Локальные отзывы остаются (ключ — sid, срок не больше 8 ч): сессия, выход
+    // из которой не успел попасть в базу, не оживает после смены базы. Очередь
+    // недописанных отзывов уходит в НОВУЮ базу.
+    ownerGrants.clear();
+    lastCleanup = 0;
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+    scheduleRetry();
+  });
   const ownerConfirmed = (token: string, claims: Claims) => {
     const grant = ownerGrants.get(claims.sid);
     if (grant && grant.exp <= Date.now()) ownerGrants.delete(claims.sid);
@@ -108,10 +142,11 @@ export function createAuthSessions(deps: SessionDeps) {
     if (!c || locallyRevoked(c) || (c.uid === 'flux-owner' && !ownerConfirmed(token, c))) return null;
     return c.uid;
   };
-  const validate = async (token: string): Promise<any | null> => {
-    const c = sessionClaims(token, deps.secret);
-    if (!c) return null;
-    if (locallyRevoked(c)) return null;
+  // Пакеты одной сессии, пришедшие пока идёт проверка, ждут её результата, а не
+  // начинают свою: всплеск office:y-* давал по 3 запроса на каждый пакет.
+  // Результат не переживает проверку, поэтому отзыв по-прежнему действует сразу.
+  const inflight = new Map<string, Promise<any | null>>();
+  const checkSession = async (token: string, c: Claims): Promise<any | null> => {
     // Не кэшируем: два сервера на одной БД должны одновременно прекратить
     // принимать сессию после смены пароля, снятия права или выхода.
     const [user, revoked] = await Promise.all([getUser(c.uid), getPrisma().appSetting.findUnique({ where: { id: revocationId(c) }, select: { id: true } })]);
@@ -120,12 +155,28 @@ export function createAuthSessions(deps: SessionDeps) {
     if (!same(c.stamp, credentialStamp(user, await rolePermissions(user)))) return null;
     return user;
   };
+  const validate = async (token: string): Promise<any | null> => {
+    const c = sessionClaims(token, deps.secret);
+    if (!c) return null;
+    if (locallyRevoked(c)) return null;
+    const key = `${databaseGeneration}:${token}`;
+    const running = inflight.get(key);
+    if (running) return running;
+    const started = checkSession(token, c).finally(() => inflight.delete(key));
+    inflight.set(key, started);
+    return started;
+  };
   const revoke = async (token: string): Promise<boolean> => {
     const c = sessionClaims(token, deps.secret);
     if (!c) return false;
     // Reject replay on this process even if durable revocation is temporarily unavailable.
     locallyRevoked(c);
-    if (localRevocations.size >= 10000 && !localRevocations.has(c.sid)) throw new Error('Предел локальных отзывов сессии');
+    // При переполнении вытесняем самую раннюю запись, а не отказываем: отказ
+    // оставлял сессию неотозванной вовсе, тогда как отзыв в базу пишется всегда.
+    if (localRevocations.size >= 10000 && !localRevocations.has(c.sid)) {
+      const oldest = localRevocations.keys().next().value;
+      if (oldest !== undefined) localRevocations.delete(oldest);
+    }
     localRevocations.set(c.sid, c.exp);
     ownerGrants.delete(c.sid);
     try { await writeRevocation(c); pendingRevocations.delete(c.sid); }
