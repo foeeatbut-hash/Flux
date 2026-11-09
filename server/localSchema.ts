@@ -279,18 +279,6 @@ export function ensureSchemaColumns(dbPath: string, logInit: (message: string) =
         db.exec('ALTER TABLE "Tag" ADD COLUMN "updatedAt" DATETIME');
         logInit('[DB Migrate] Добавлена колонка Tag.updatedAt');
       }
-      // Уникальный код тега в проекте: без него два одновременных «создать по
-      // префиксу» получали один номер. Старые повторы не удаляем (чужие данные):
-      // при них индекс не ставится, а в журнал идёт список, чтобы владелец
-      // решил, какой тег оставить. Повтор при конфликте работает и без индекса
-      if (tagCols.length > 0) {
-        const dups = db.prepare('SELECT "projectId", "identifier", COUNT(*) AS n FROM "Tag" GROUP BY "projectId", "identifier" HAVING COUNT(*) > 1 LIMIT 20').all() as Array<{ projectId: string; identifier: string; n: number }>;
-        if (dups.length) {
-          logInit(`[DB Migrate] Индекс Tag(projectId, identifier) не создан: в базе есть повторяющиеся коды тегов (${dups.map(d => `${d.projectId}/${d.identifier}×${d.n}`).join('; ')}). Данные не тронуты; объедините или переименуйте повторы — индекс создастся при следующем запуске.`);
-        } else {
-          try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "Tag_projectId_identifier_key" ON "Tag"("projectId", "identifier")'); } catch (e: any) { logInit(`[DB Migrate] Индекс Tag(projectId, identifier) не создан: ${e?.message}`); }
-        }
-      }
 
       // Зеркала документов Конструктора в Проводнике
       const sysFolderCols = db.prepare('PRAGMA table_info("Folder")').all() as Array<{ name: string }>;

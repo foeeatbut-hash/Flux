@@ -398,10 +398,7 @@
       "path": "scripts/test-tag-sequence.ts",
       "layer": "unit",
       "platform": "any",
-      "resources": [
-        "synthetic-sqlite",
-        "synthetic-temp-files"
-      ],
+      "resources": [],
       "prerequisites": [],
       "timeoutMs": 90000
     },

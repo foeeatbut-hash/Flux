@@ -1,4 +1,4 @@
-import { nextTagIdentifier } from '../tagSequence.js';
+import { nextTagIdentifier, serializeByProject } from '../tagSequence.js';
 import { emitProjectEvent } from '../projectEvents.js';
 import { isPrivilegedUser } from '../accessPolicy.js';
 import type { Express, Request, Response } from 'express';
@@ -762,32 +762,23 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     if (suffix !== undefined && suffix !== null && typeof suffix !== 'string') return res.status(400).json({ error: 'Суффикс тега должен быть строкой' });
     if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
 
-    // Два одновременных запроса получали один номер. Уникальный индекс
-    // (projectId, identifier) не даёт записать второй, а мы пересчитываем номер
-    // заново. Если индекса в базе нет (старые повторы), занятость проверяется
-    // перед записью — гонка остаётся возможной лишь в узком окне между проверкой и записью.
-    let newTag: any = null;
-    for (let attempt = 0; attempt < 8 && !newTag; attempt++) {
+    // Два одновременных запроса получали один номер: считаем и пишем по очереди в рамках проекта
+    const newTag = await serializeByProject(projectId, async () => {
       const existingTags = await prisma.tag.findMany({
         where: { projectId, identifier: { startsWith: prefix } },
         select: { identifier: true },
       });
       const finalIdentifier = nextTagIdentifier(existingTags.map((t: any) => t.identifier), prefix, suffix || '');
-      try {
-        newTag = await prisma.tag.create({
-          data: {
-            id: await nextProjectEntityId(prisma, projectId, 'TAG'),
-            projectId,
-            identifier: finalIdentifier,
-            metadata: metadata ? JSON.stringify(metadata) : null
-          },
-          include: { equipment: true } // we just keep the include to match existing response
-        });
-      } catch (error: any) {
-        if (error?.code !== 'P2002') throw error;
-      }
-    }
-    if (!newTag) return res.status(409).json({ error: 'Не удалось выдать номер тега: его занимали другие запросы. Повторите.' });
+      return prisma.tag.create({
+        data: {
+          id: await nextProjectEntityId(prisma, projectId, 'TAG'),
+          projectId,
+          identifier: finalIdentifier,
+          metadata: metadata ? JSON.stringify(metadata) : null
+        },
+        include: { equipment: true } // we just keep the include to match existing response
+      });
+    });
     await recordTagCreated(prisma, tagChangeContext(req, projectId, TAG_SOURCE.tags), newTag);
     emitEntityChanged('tag', newTag.id, req);
 

@@ -31,3 +31,18 @@ export function nextTagIdentifier(existing: string[], prefix: string, suffix = '
   }
   return `${prefix}${String(maxSeq + 1).padStart(pad || DEFAULT_PAD, '0')}${suffix}`;
 }
+
+/**
+ * Одна выдача номера за раз на проект. Повторяющиеся коды тегов в проекте
+ * допустимы по замыслу (импорт «создать дубликат» выбирают осознанно), поэтому
+ * уникальный индекс невозможен — гонку двух запросов закрывает очередь внутри
+ * сервера: второй считает номер уже после записи первого.
+ */
+const queues = new Map<string, Promise<unknown>>();
+export async function serializeByProject<T>(projectId: string, job: () => Promise<T>): Promise<T> {
+  const previous = queues.get(projectId) || Promise.resolve();
+  const run = previous.then(job, job);
+  const tail = run.catch(() => undefined);
+  queues.set(projectId, tail);
+  try { return await run; } finally { if (queues.get(projectId) === tail) queues.delete(projectId); }
+}

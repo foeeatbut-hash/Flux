@@ -1,14 +1,8 @@
 /**
- * Нумерация тегов по префиксу и уникальный код тега в проекте (SQLite).
+ * Нумерация тегов по префиксу и очередь выдачи номеров.
  */
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
 import assert from 'node:assert/strict';
-import { nextTagIdentifier as next } from '../server/tagSequence';
-import { ensureSchemaColumns } from '../server/localSchema';
-
-const Database = require('better-sqlite3');
+import { nextTagIdentifier as next, serializeByProject } from '../server/tagSequence';
 
 // 76: разрядность — у тега с наибольшим номером, три знака только без тегов
 assert.equal(next([], 'P-'), 'P-001');
@@ -25,36 +19,20 @@ assert.equal(next(['K005B', 'K002'], 'K'), 'K003');
 assert.equal(next(['p-05'], 'P-'), 'P-001');
 console.log('✓ нумерация: разрядность, суффикс, регистр');
 
-// 78: индекс на SQLite создаётся, а при старых повторах — нет, и данные целы
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-tag-seq-'));
-try {
-  const mk = (name: string, rows: Array<[string, string, string]>) => {
-    const f = path.join(dir, name);
-    const db = new Database(f);
-    db.exec('CREATE TABLE "Tag" ("id" TEXT PRIMARY KEY NOT NULL, "identifier" TEXT NOT NULL, "projectId" TEXT NOT NULL)');
-    const ins = db.prepare('INSERT INTO "Tag" VALUES (?,?,?)');
-    for (const r of rows) ins.run(...r);
-    db.close();
-    return f;
-  };
-  const indexes = (f: string) => { const db = new Database(f, { readonly: true }); try { return db.prepare("PRAGMA index_list('Tag')").all().map((i: any) => i.name); } finally { db.close(); } };
-
-  const clean = mk('clean.sqlite', [['1', 'A-1', 'p'], ['2', 'A-1', 'q']]);
-  ensureSchemaColumns(clean, () => {});
-  assert(indexes(clean).includes('Tag_projectId_identifier_key'));
-  const db1 = new Database(clean);
-  assert.throws(() => db1.prepare('INSERT INTO "Tag" (id, identifier, projectId) VALUES (?,?,?)').run('3', 'A-1', 'p'), /UNIQUE/);
-  db1.close();
-
-  const logs: string[] = [];
-  const dup = mk('dup.sqlite', [['1', 'A-1', 'p'], ['2', 'A-1', 'p']]);
-  ensureSchemaColumns(dup, m => logs.push(m));
-  assert(!indexes(dup).includes('Tag_projectId_identifier_key'));
-  assert(logs.some(l => /повторяющиеся коды тегов/.test(l) && /p\/A-1/.test(l)));
-  const db2 = new Database(dup, { readonly: true });
-  assert.equal(db2.prepare('SELECT COUNT(*) AS n FROM "Tag"').get().n, 2, 'старые повторы не удалены');
-  db2.close();
-  console.log('✓ уникальный индекс: ставится в чистой базе, при повторах — только запись в журнал');
-} finally {
-  fs.rmSync(dir, { recursive: true, force: true });
-}
+// 78: выдача номеров по очереди — параллельные запросы получают разные номера
+(async () => {
+  const stored: string[] = [];
+  const gen = () => serializeByProject('p1', async () => {
+    const id = next(stored, 'T-');
+    await new Promise(r => setTimeout(r, 5)); // окно между чтением и записью
+    stored.push(id);
+    return id;
+  });
+  const got = await Promise.all([gen(), gen(), gen(), gen()]);
+  assert.equal(new Set(got).size, 4, `номера разные: ${got}`);
+  assert.deepEqual([...got].sort(), ['T-001', 'T-002', 'T-003', 'T-004']);
+  // сбой одного запроса не ломает очередь
+  await assert.rejects(serializeByProject('p1', async () => { throw new Error('x'); }));
+  assert.equal(await serializeByProject('p1', async () => 'ok'), 'ok');
+  console.log('✓ параллельная выдача номеров — по очереди, сбой не ломает очередь');
+})().catch(e => { console.error(e); process.exitCode = 1; });

@@ -481,8 +481,6 @@ model Tag {
   mainFiles         FileNode[]         @relation("FileMainTags")
   additionalFiles   FileNode[]         @relation("FileAdditionalTags")
   componentElements ComponentElement[]
-
-  @@unique([projectId, identifier])
 }
 
 model EquipmentSystem {
