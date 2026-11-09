@@ -58,7 +58,7 @@ async function runHttp() {
     ['manager', { id: 'manager', symbol: 'manager', role: 'ADMIN', permissions: JSON.stringify({ 'admin.users.create': { enabled: true }, 'admin.users.manage': { enabled: true } }) }],
   ]);
   const settings = new Map<string, any>();
-  setPrisma({
+  const prismaMock: any = {
     // Isolated schema metadata used by the profile-column preflight.
     // Метаданные схемы как у базы после миграций: колонки профиля и подразделения
     // в User и таблицы подразделений — из тех же описаний, что проверяет сервер
@@ -89,7 +89,10 @@ async function runHttp() {
       findFirst: async ({ where }: any) => [...settings.values()].find(s => s.key === where.key) || null,
       upsert: async ({ where, create }: any) => { const s = settings.get(where.id) || create; settings.set(where.id, s); return s; },
     },
-  });
+  };
+  // Создание сотрудника и запись истории подразделения идут одной транзакцией
+  prismaMock.$transaction = async (work: any) => work(prismaMock);
+  setPrisma(prismaMock);
   const app = express(); app.use(express.json());
   app.use((req: any, _res, next) => { req.authUser = users.get(String(req.headers['x-test-user'])); next(); });
   registerUserRoutes(app, { hashPassword: p => `hash-${p}`, invalidateRolePerms: () => {}, invalidateAuthUser: () => {} });
@@ -105,9 +108,9 @@ async function runHttp() {
     eq('ADMIN не назначает ADMIN', (await call('/api/users', 'POST', 'manager', { name: 'Инженер', symbol: 'n', role: 'ADMIN' })).status, 403);
     eq('никто не создает второго OWNER через пользователей', (await call('/api/users', 'POST', 'owner', { name: 'Владелец 2', symbol: 'other-owner', role: 'OWNER' })).status, 403);
     eq('ADMIN не выдает admin.* сотруднику', (await call('/api/users', 'POST', 'manager', { name: 'Инженер', symbol: 'n', permissions: { 'admin.users.create': { enabled: true } } })).status, 403);
-    eq('администратор с правом создает инженера', (await call('/api/users', 'POST', 'manager', { name: 'Инженер', symbol: 'new', positionCode: 'ENGINEER_VENT', password: 'qwerty' })).status, 200);
-    eq('без основной должности сотрудника не заводят', (await call('/api/users', 'POST', 'manager', { name: 'Инженер', symbol: 'no-position', password: 'qwerty' })).status, 400);
-    eq('владелец создает администратора', (await call('/api/users', 'POST', 'owner', { name: 'Администратор', symbol: 'new-admin', role: 'ADMIN', positionCode: 'ENGINEER_VENT', password: 'qwerty' })).status, 200);
+    eq('администратор с правом создает инженера', (await call('/api/users', 'POST', 'manager', { name: 'Инженер', symbol: 'new', positionCode: 'ENGINEER_VENT', password: 'qwerty12' })).status, 200);
+    eq('без основной должности сотрудника не заводят', (await call('/api/users', 'POST', 'manager', { name: 'Инженер', symbol: 'no-position', password: 'qwerty12' })).status, 400);
+    eq('владелец создает администратора', (await call('/api/users', 'POST', 'owner', { name: 'Администратор', symbol: 'new-admin', role: 'ADMIN', positionCode: 'ENGINEER_VENT', password: 'qwerty12' })).status, 200);
     eq('владелец не меняется обычным PUT', (await call('/api/users/owner', 'PUT', 'owner', { role: 'ENGINEER_VENT' })).status, 403);
     eq('владелец не удаляется обычным DELETE', (await call('/api/users/owner', 'DELETE', 'owner')).status, 403);
     eq('ADMIN не меняет права другого ADMIN', (await call('/api/users/admin', 'PUT', 'manager', { permissions: {} })).status, 403);

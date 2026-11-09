@@ -65,7 +65,7 @@ export function registerOwnerRoutes(app: Express, deps: { issueOwnerAuthToken: (
         update: { role: 'OWNER', password: '', isActive: true, validUntil: null, lastLoginAt: new Date() },
         create: { id: OWNER_ID, symbol: OWNER_SYMBOL, name: 'Владелец Flux', role: 'OWNER', password: '', isActive: true, validUntil: null, lastLoginAt: new Date() },
       });
-      loginSucceeded('owner');
+      loginSucceeded('owner', addr);
       deps.invalidateAuthUser?.(user.id);
       const { password: _password, ...safeUser } = user;
       res.json({ success: true, user: { ...safeUser, rolePermissions: '{}' }, token: await deps.issueOwnerAuthToken(user.id) });

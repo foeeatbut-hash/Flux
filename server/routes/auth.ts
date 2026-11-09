@@ -5,6 +5,14 @@ import { nextProjectId } from '../entityIds.js';
 import { loginWait, loginFailed, loginSucceeded, LOGIN_REFUSED, waitText } from '../security.js';
 import { isLegacyBootstrapAdmin, LEGACY_BOOTSTRAP_REFUSAL } from '../legacyIdentity.js';
 import { ensureUserProfileSchema } from '../userProfileSchema.js';
+import { SessionRefused } from '../authSessions.js';
+import { recordServerError } from '../diagnostics.js';
+
+/** Ошибка самой базы (недоступна, не та схема, заблокирована), а не отказ в доступе или сбой кода. */
+function isDatabaseError(error: any): boolean {
+  return /^PrismaClient/.test(String(error?.name || '')) || /^P\d{4}$/.test(String(error?.code || ''))
+    || /SQLITE_|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|no such table|no such column|Can't reach database|database is locked/i.test(String(error?.message || ''));
+}
 
 // Вход, проверка сессии и начальное заполнение базы.
 //
@@ -14,8 +22,8 @@ import { ensureUserProfileSchema } from '../userProfileSchema.js';
 // передаются при подключении.
 
 interface AuthDeps {
-  hashPassword: (plain: string) => string;
-  verifyPassword: (plain: string, stored: string | null | undefined) => boolean;
+  hashPassword: (plain: string) => string | Promise<string>;
+  verifyPassword: (plain: string, stored: string | null | undefined) => boolean | Promise<boolean>;
   /** Подписанный токен сессии: его клиент шлёт в Authorization */
   issueAuthToken: (userId: string) => string | Promise<string>;
   /** Права должностей (основной и дополнительных) отдаются вместе с профилем при входе */
@@ -35,15 +43,22 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
   } = deps;
 
   // Хеш-приманка для входа несуществующим логином: считается ради времени ответа
-  const DUMMY_HASH = hashPassword(crypto.randomBytes(16).toString('hex'));
+  const DUMMY_HASH = Promise.resolve(hashPassword(crypto.randomBytes(16).toString('hex')));
 
   // Users
   app.post('/api/login', async (req: Request, res: Response) => {
     const prisma = getPrisma();
-    const { symbol, password } = req.body;
+    const { symbol, password } = req.body || {};
+    // Не-строка (число, объект, пропуск поля) раньше превращалась в 'undefined'
+    // или '[object Object]' и шла в сравнение как будто так и введено
+    if (typeof symbol !== 'string' || typeof password !== 'string') {
+      return res.status(400).json({ success: false, message: 'Укажите логин и пароль.' });
+    }
 
-    const normSymbol = String(symbol || '').trim();
-    const addr = String(req.socket.remoteAddress || '');
+    const normSymbol = symbol.trim();
+    // req.ip учитывает доверенный прокси (trust proxy в server.ts): за ним у
+    // всех клиентов один адрес соединения, и счёт попыток шёл бы на всех разом
+    const addr = String(req.ip || req.socket.remoteAddress || '');
 
     // Перебор пароля: после нескольких промахов подряд ответ приходит только
     // через паузу, и пауза растёт (server/security.ts)
@@ -56,24 +71,26 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
     // Попытка авторизации через локальную БД, если БД вообще была создана/готова
     try {
       await ensureUserProfileSchema(prisma);
-      // Логин сравнивается без учёта регистра.
+      // Логин сравнивается без учёта регистра: точное совпадение, иначе поиск
+      // по нижнему регистру. Читаем только id и логин, а не все профили целиком
       let user = await prisma.user.findUnique({
         where: { symbol: normSymbol },
       });
       if (!user) {
-        const allUsers = await prisma.user.findMany();
-        user = allUsers.find((u: any) => String(u.symbol).toLowerCase() === normSymbol.toLowerCase()) || null;
+        const symbols = await prisma.user.findMany({ select: { id: true, symbol: true } });
+        const found = symbols.find((u: any) => String(u.symbol).toLowerCase() === normSymbol.toLowerCase());
+        user = found ? await prisma.user.findUnique({ where: { id: found.id } }) : null;
       }
       if (user && user.role !== 'OWNER') {
-        if (isLegacyBootstrapAdmin(user)) {
-          loginFailed(normSymbol, addr);
-          return res.status(403).json({ success: false, message: LEGACY_BOOTSTRAP_REFUSAL });
-        }
         // Принимается только хеш: открытые записи переведены при старте сервера
-        const isPasswordCorrect = verifyPassword(String(password), user.password);
+        const isPasswordCorrect = await verifyPassword(password, user.password);
 
         if (isPasswordCorrect) {
-          loginSucceeded(normSymbol);
+          // Особый ответ о начальной учётной записи — только тому, кто знает её
+          // пароль: иначе по нему видно, что такой логин в программе есть
+          if (isLegacyBootstrapAdmin(user)) {
+            return res.status(403).json({ success: false, message: LEGACY_BOOTSTRAP_REFUSAL });
+          }
           // Контроль доступа: профиль может быть отключен администратором или просрочен
           if (user.isActive === false) {
             return res.status(403).json({ success: false, message: 'Профиль отключен администратором. Обратитесь к администратору системы.' });
@@ -92,6 +109,8 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
             // Обновляем якорь времени и для бессрочных входов
             trustedNowSync();
           }
+          // Счёт попыток сбрасывается только когда вход действительно состоится
+          loginSucceeded(normSymbol, addr);
           // Отметка входа. Нужна не для порядка: в разделе «Сотрудники»
           // администратор видит, кто когда заходил, а присутствие помнит людей
           // только неделю — по нему «не заходил с мая» отличить от «не заходил
@@ -112,18 +131,27 @@ export function registerAuthRoutes(app: Express, deps: AuthDeps): void {
       } else {
         // Хеш считается и здесь: без него «нет такого логина» отвечал заметно
         // быстрее, чем «не тот пароль», и время ответа выдавало то же самое
-        verifyPassword(String(password), DUMMY_HASH);
+        await verifyPassword(password, await DUMMY_HASH);
         // Тот же ответ, что и на неверный пароль: разные ответы выдавали,
         // какие логины в программе есть, — половину подбора
         loginFailed(normSymbol, addr);
         return res.status(401).json({ success: false, message: LOGIN_REFUSED });
       }
-    } catch (dbErr: any) {
-      console.warn('[Login Backend] Database is probably not initialized or SQLite is locked:', dbErr.message);
-      return res.status(500).json({
-        success: false,
-        message: 'База данных еще не инициализирована или не подключена. Перезапустите приложение или настройте СУБД в настройках подключения.'
-      });
+    } catch (err: any) {
+      // Три разных случая раньше сливались в «база не инициализирована», и
+      // человек перезапускал программу из-за отказа в доступе или сбоя кода
+      if (err instanceof SessionRefused) {
+        return res.status(403).json({ success: false, message: err.message });
+      }
+      if (isDatabaseError(err)) {
+        console.warn('[Login Backend] Database is probably not initialized or SQLite is locked:', err.message);
+        return res.status(500).json({
+          success: false,
+          message: 'База данных еще не инициализирована или не подключена. Перезапустите приложение или настройте СУБД в настройках подключения.'
+        });
+      }
+      recordServerError('auth.login', err);
+      return res.status(500).json({ success: false, message: 'Не удалось выполнить вход. Повторите попытку; если ошибка повторяется, сообщите администратору.' });
     }
   });
 

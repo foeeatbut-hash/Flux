@@ -47,8 +47,23 @@ export function registerSockets(io: SocketIOServer, deps: SocketDeps): void {
     broadcastTo: (userId, roster) => io.to(`user:${userId}`).emit('presence:list', roster),
   });
 
+  // Подключение и отключение пишутся в консоль только при отладке: на каждое
+  // окно каждого сотрудника это сотни строк в день без пользы
+  const debug = process.env.FLUX_SOCKET_DEBUG === '1';
+
+  // Подключение и уход одного человека выполняются по очереди: без неё
+  // отложенная отметка «ушёл» могла записаться позже отметки «вернулся»
+  // и до ближайшего сердцебиения показывать вернувшегося офлайн
+  const presenceQueue = new Map<string, Promise<void>>();
+  const queuePresence = (userId: string, work: () => Promise<void>) => {
+    const next = (presenceQueue.get(userId) || Promise.resolve()).then(work).catch(() => {});
+    presenceQueue.set(userId, next);
+    void next.then(() => { if (presenceQueue.get(userId) === next) presenceQueue.delete(userId); });
+    return next;
+  };
+
   io.on('connection', (socket) => {
-    console.log(`[Socket] client connected: ${socket.id}`);
+    if (debug) console.log(`[Socket] client connected: ${socket.id}`);
 
     // Личная комната сокета. Без неё сообщения чата рассылались всем
     // подключённым: интерфейс чужую переписку прятал, но текст всё равно
@@ -76,8 +91,18 @@ export function registerSockets(io: SocketIOServer, deps: SocketDeps): void {
     // Пришедшему — весь список сразу: без него человек до первого чужого входа
     // видел бы всех офлайн. Список считается от его лица: себя скрывший видит
     const sendRoster = async () => socket.emit('presence:list', await rosterFromDb(uid || ''));
-    void (async () => { if (uid) await markPresence(uid); await sendRoster(); })();
-    socket.on('presence:list', () => { void sendRoster(); });
+    void (async () => { if (uid) await queuePresence(uid, () => markPresence(uid)); await sendRoster(); })();
+    // Список по запросу окна — не чаще раза в две секунды: каждый запрос читает
+    // базу, а вкладка в цикле могла бы читать её без остановки. Лишний запрос
+    // не теряется, а откладывается до конца окна (один отложенный на сокет)
+    let rosterAt = 0;
+    let rosterTimer: ReturnType<typeof setTimeout> | null = null;
+    socket.on('presence:list', () => {
+      const wait = rosterAt + 2000 - Date.now();
+      if (wait <= 0) { rosterAt = Date.now(); void sendRoster().catch(() => {}); return; }
+      if (rosterTimer) return;
+      rosterTimer = setTimeout(() => { rosterTimer = null; rosterAt = Date.now(); void sendRoster().catch(() => {}); }, wait);
+    });
 
     // Только подсказка о записанной сущности. Присланные текст, details и
     // projectId не транслируются: их могли подделать или взять из чужого проекта.
@@ -94,7 +119,8 @@ export function registerSockets(io: SocketIOServer, deps: SocketDeps): void {
     const office = setupOfficeSockets(io, socket, { getAuthUser, mayWriteFile });
 
     socket.on('disconnect', (reason) => {
-      console.log(`[Socket] client disconnected: ${socket.id}`);
+      if (debug) console.log(`[Socket] client disconnected: ${socket.id}`);
+      if (rosterTimer) { clearTimeout(rosterTimer); rosterTimer = null; }
       office.gone(String(reason || ''));
       if (uid) {
         const set = online.get(uid);
@@ -105,7 +131,8 @@ export function registerSockets(io: SocketIOServer, deps: SocketDeps): void {
           lastSeen.set(uid, at);
           // И в общей базе тоже: иначе на чужих машинах он останется «в сети»
           // до конца срока свежести отметки
-          void markGone(uid);
+          // Если человек успел вернуться (другая вкладка, переподключение), метка «ушёл» не пишется
+          void queuePresence(uid, async () => { if (!online.has(uid)) await markGone(uid); });
           // Скрытый и так числился ушедшим — событие о его уходе никому не нужно
           if (!isHidden(uid)) io.emit('presence:offline', { userId: uid, at });
         }

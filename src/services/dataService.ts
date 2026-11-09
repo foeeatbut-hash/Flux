@@ -470,7 +470,7 @@ export const dataService = {
     });
   },
 
-  async updateUser(id: string, data: { name?: string; lastName?: string; firstName?: string; middleName?: string; gender?: string; birthDate?: string | null; symbol?: string; role?: string; positionCode?: string; extraPositions?: string[]; accessLevel?: 'ADMIN' | 'EMPLOYEE'; password?: string; isActive?: boolean; validUntil?: string | null; permissions?: string | null; departmentId?: string | null }): Promise<{ success: boolean; user?: User; message?: string }> {
+  async updateUser(id: string, data: { name?: string; lastName?: string; firstName?: string; middleName?: string; gender?: string; birthDate?: string | null; symbol?: string; role?: string; positionCode?: string; extraPositions?: string[]; accessLevel?: 'ADMIN' | 'EMPLOYEE'; password?: string; isActive?: boolean; validUntil?: string | null; permissions?: string | null; departmentId?: string | null; currentPassword?: string }): Promise<{ success: boolean; user?: User; message?: string }> {
     return request(`/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
