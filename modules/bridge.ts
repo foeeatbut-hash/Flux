@@ -1,10 +1,11 @@
 import type {
-  BridgeError, ComputeHostMessage, HostMessage, LaunchContext, ModuleManifest, ModuleOutput, ReadData,
+  BridgeError, ComputeHostMessage, ConnectHostMessage, HostMessage, LaunchContext, ModuleManifest, ModuleOutput, ReadData,
   ReadRequest, Resource, ThemeTokens, ModuleFailureKind,
 } from './contract';
 import { validMessage } from './schemas';
 import { ComputeError, codeOf, type ComputeErrorCode } from './engine/types';
 import { encodeJson } from './engine/json';
+import type { ConnectCall, ConnectErrorCode } from './connections/model';
 
 export interface ModuleBridgeOptions {
   frame: () => Window | null;
@@ -22,6 +23,15 @@ export interface ModuleBridgeOptions {
   compute?: (input: Record<string, unknown>) => Promise<ModuleOutput>;
   /** Расчёт закончился ошибкой: окно показывает «подпрограмма остановилась»; счётчик сбоев пишет сам расчёт */
   onComputeError?: (code: ComputeErrorCode) => void;
+  /**
+   * Сквозной вызов подключения (src/services/moduleConnections.ts → главный процесс). Окно не решает, можно ли:
+   * разрешение, адрес и пределы проверяет главный процесс по подписанному манифесту выпуска.
+   */
+  connect?: (connection: string, call: ConnectCall) => Promise<{ ok: true; data: unknown } | { ok: false; code: ConnectErrorCode }>;
+  /** Подпрограмма закрыта: подключения, которые она открыла, закрываются (главный процесс сам держит их список) */
+  onClose?: () => void;
+  /** Строка из flux.log подпрограммы; окно пишет её в журнал */
+  onLog?: (level: 'info' | 'warn' | 'error', text: string) => void;
 }
 
 function messageBytes(message: unknown): number {
@@ -43,7 +53,10 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
   let budget = 100;
   let budgetAt = Date.now();
   const computing = new Set<string>();
-  function post(message: HostMessage | ComputeHostMessage) {
+  const connecting = new Set<string>();
+  let logAt = 0;
+  let logs = 0;
+  function post(message: HostMessage | ComputeHostMessage | ConnectHostMessage) {
     if (!disposed && validMessage(message.type, message)) {
       // Получатель — только сохранённое окно iframe. Его opaque origin
       // нельзя указать строкой targetOrigin, поэтому здесь нужен '*'.
@@ -74,6 +87,27 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       fail(code);
       options.onComputeError?.(code);
     } finally { computing.delete(message.id); }
+  }
+  async function runConnect(message: { id: string; connection: string; call: ConnectCall }) {
+    const fail = (code: ConnectErrorCode) => {
+      // Превышение пределов и обращение к необъявленному — признак неисправной подпрограммы: идёт в счётчики сбоев
+      if (code === 'LIMIT' || code === 'TIMEOUT' || code === 'DENIED') options.onFailure?.('connection');
+      post({ flux: 'module', v: 1, session: options.session, type: 'connect-error', id: message.id, code });
+    };
+    if (!options.connect) { fail('UNAVAILABLE'); return; }
+    // Объявление есть в манифесте, который окно получило от главного процесса; окончательно решает главный процесс
+    if (!(options.manifest.connections || []).some(c => c.id === message.connection)) { fail('DENIED'); return; }
+    if (connecting.size >= 8 || connecting.has(message.id)) { fail('LIMIT'); return; }
+    connecting.add(message.id);
+    try {
+      const reply = await options.connect(message.connection, message.call);
+      if (disposed) return;
+      if ('code' in reply) { fail(reply.code); return; }
+      const result: ConnectHostMessage = { flux: 'module', v: 1, session: options.session, type: 'connect-result', id: message.id, data: (reply as { data: unknown }).data };
+      if (messageBytes(result) > 1024 * 1024 || !validMessage('connect-result', result)) fail('LIMIT');
+      else post(result);
+    } catch (_) { if (!disposed) fail('FAILED'); }
+    finally { connecting.delete(message.id); }
   }
   function notify(event: 'opened' | 'project-changed' | 'changed') {
     generation++;
@@ -115,6 +149,13 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       return;
     }
     if (validMessage('compute', message)) { void runCompute(message); return; }
+    if (validMessage('connect', message)) { void runConnect(message); return; }
+    if (validMessage('log', message)) {
+      // Частота и длина ограничены здесь, до журнала: подпрограмма не раздует его (5 в секунду)
+      if (Date.now() - logAt >= 1000) { logAt = Date.now(); logs = 0; }
+      if (++logs <= 5) options.onLog?.(message.level, String(message.text).slice(0, 200));
+      return;
+    }
     if (!validMessage('read', message)) return;
     const request = message as ReadRequest;
     if (!options.manifest.reads.includes(request.resource)) { error(request.id, 'DENIED'); return; }
@@ -137,6 +178,6 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
   }
   return {
     handle, notify,
-    dispose: () => { disposed = true; generation++; pending.clear(); computing.clear(); },
+    dispose: () => { disposed = true; generation++; pending.clear(); computing.clear(); connecting.clear(); options.onClose?.(); },
   };
 }

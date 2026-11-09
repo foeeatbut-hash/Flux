@@ -1,6 +1,6 @@
 import { MODULE_ID, MODULE_VERSION } from '../modules/trust/claims';
 
-export const MODULE_FAILURES = ['crash', 'timeout', 'memory', 'bridge', 'controls'] as const;
+export const MODULE_FAILURES = ['crash', 'timeout', 'memory', 'bridge', 'controls', 'connection'] as const;
 export type ModuleFailure = typeof MODULE_FAILURES[number];
 export interface ModuleDiagnostics { code?: ModuleFailure; frames?: string[] }
 export interface ModuleFeedbackContext {

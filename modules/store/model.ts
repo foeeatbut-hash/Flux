@@ -9,6 +9,7 @@
  */
 import type { ModuleManifest, Resource } from '../contract';
 import { CONTRACT_VERSION } from '../contract';
+import { ACCESS_NAMES, connectionsOf, describeConnection } from '../connections/model';
 import { compareVersions } from '../../shared/versionCompare';
 
 export const STORE_CATEGORIES = [
@@ -81,8 +82,9 @@ export function permissionLines(manifest: ModuleManifest): PermissionLine[] {
   const lines: PermissionLine[] = (manifest.reads || []).map((r) => ({ kind: 'read', text: `Читает во Flux: ${RESOURCE_NAMES[r] || r}` }));
   if (!lines.length) lines.push({ kind: 'read', text: 'Не читает данные Flux' });
   lines.push({ kind: 'open', text: `Открывается ${(manifest.entries || []).map((e) => ENTRY_NAMES[e] || e).join(', ') || 'нигде'}` });
-  for (const c of Array.isArray((manifest as any).connections) ? (manifest as any).connections : []) {
-    lines.push({ kind: 'connect', text: `Подключается: ${typeof c === 'string' ? c : JSON.stringify(c)}` });
+  for (const c of connectionsOf(manifest)) {
+    // Человеку — имя программы, вид доступа и что будет делать; адрес мелко, в скобках: он же отличает «новый адрес» при обновлении
+    lines.push({ kind: 'connect', text: `Подключается к «${c.app}»: ${ACCESS_NAMES[c.access]}. ${c.does} (${describeConnection(c)})` });
   }
   lines.push({ kind: 'write', text: 'Ничего не записывает во Flux' });
   lines.push({ kind: 'run', text: 'Не запускает программы на компьютере' });

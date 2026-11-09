@@ -12,6 +12,12 @@ import { ModuleSelection } from './moduleSelection';
 import { registerModuleStoreIpc } from './moduleStoreIpc';
 import { setupModuleSigning } from './moduleSigning';
 import { ModuleControls, registerModuleControlsIpc } from './moduleControls';
+import { ModuleConnections, type VerifiedModule } from './moduleConnections';
+import { registerConnectionsIpc } from './moduleConnectionsIpc';
+import { ModuleGrants } from './moduleGrants';
+import { ModuleJournal } from './moduleJournal';
+import { defaultComBackend, type ComBackend } from './moduleCom';
+import type { Lookup } from './moduleNet';
 
 export function registerModuleScheme() {
   // fetch нужен окну Flux (файлы логики из проверенного выпуска) и хосту Python (файлы Pyodide); подпрограммам его закрывает
@@ -34,6 +40,9 @@ export interface ModuleProtocolOptions {
   rootHex?: string;
   dir?: string;
   trusted?: (event: Electron.IpcMainInvokeEvent) => boolean;
+  /** Подключения: поддельный COM и своё разрешение имён для проверок; в выпуске не передаются */
+  com?: ComBackend;
+  lookup?: Lookup;
 }
 
 /**
@@ -60,7 +69,9 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
     for (const id of bundledIds) runnable.delete(id);
     return runnable;
   };
-  const ready = Promise.all([selection.load(), controls.load()]).then(refresh);
+  const grants = new ModuleGrants(path.join(dir, 'grants.json'));
+  const journal = new ModuleJournal(path.join(dir, 'journal.json'));
+  const ready = Promise.all([selection.load(), controls.load(), grants.load(), journal.load()]).then(refresh);
 
   protocol.handle(MODULE_SCHEME, async request => {
     await ready;
@@ -93,4 +104,22 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
   registerModuleStoreIpc({ cache, selection, bundledIds, ready, refresh, runnable: () => runnable });
   registerModuleControlsIpc(controls, () => runnable, ready, options.trusted);
   setupModuleSigning();
+
+  // Подключения к внешним программам: проверенный выпуск — единственный источник разрешения
+  const resolve = async (moduleId: string, version: string): Promise<VerifiedModule | null> => {
+    await ready;
+    const bundled = bundledModules.find(m => m.id === moduleId && m.version === version);
+    if (bundled) return { manifest: bundled, version, author: bundled.author, verifiedAt: 0 };
+    if (!selection.installed[moduleId]) return null;
+    const release = (await cache.available(moduleId, selection.channels)).find(r => r.claim.version === version);
+    if (!release || controls.blocked(release)) return null;
+    return { manifest: release.manifest, version, author: release.claim.author, verifiedAt: release.claim.iat };
+  };
+  const service = new ModuleConnections({ resolve, userId: () => selection.active, grants, journal, com: options.com ?? defaultComBackend(), lookup: options.lookup });
+  registerConnectionsIpc({
+    service, grants, journal, resolve, ready, userId: () => selection.active, trusted: options.trusted,
+    installed: async () => { await ready; return [...runnable.values()].filter(r => selection.installed[r.manifest.id]).map(r => ({ manifest: r.manifest, version: r.claim.version, author: r.claim.author, verifiedAt: r.claim.iat })); },
+  });
+  app.on('before-quit', () => { void service.shutdown(); void journal.flush(); });
+  return { service, journal, grants };
 }

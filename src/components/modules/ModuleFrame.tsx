@@ -7,6 +7,11 @@ import { MODULE_SANDBOX } from '../../../modules/protocol';
 import { languageOf } from '../../../modules/engine/types';
 import { cancelModuleCompute, moduleCompute } from '../../services/moduleComputeHost';
 import { ensureControls, resetControls, type ControlsGate } from '../../services/moduleControlsGate';
+import { createConnector, type GrantChoice } from '../../services/moduleConnections';
+import { journalEvent } from '../../services/moduleJournalClient';
+import { bridge as hostBridge } from '../../services/moduleReleaseService';
+import type { GrantAsk } from '../../../modules/connections/model';
+import ConnectionPrompt from './ConnectionPrompt';
 import {
   themeKeys, type LaunchContext, type ModuleManifest, type ModuleReader, type ThemeTokens, type ModuleFailureKind,
 } from '../../../modules/contract';
@@ -32,6 +37,9 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
   const language = languageOf(manifest);
   const [gate, setGate] = useState<ControlsGate | 'checking'>(language === 'typescript' ? 'ok' : 'checking');
   const [recheck, setRecheck] = useState(0);
+  // Вопрос о подключении и отказ: вопрос показывает человеку окно Flux, ответ записывает главный процесс
+  const [asking, setAsking] = useState<{ ask: GrantAsk; resolve: (choice: GrantChoice) => void } | null>(null);
+  const [denied, setDenied] = useState<{ connection: string; app: string } | null>(null);
   useEffect(() => {
     if (language === 'typescript') return;
     let current = true;
@@ -45,14 +53,49 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
   const refreshRef = useRef<ReturnType<typeof subscribeModuleRefresh> | null>(null);
   useEffect(() => {
     let reader = latest.current.createReadCycle();
+    const opened = Date.now();
+    const base = { moduleId: manifest.id, version: manifest.version };
+    journalEvent({ ...base, category: 'lifecycle', event: 'open', detail: language });
+    let chain: Promise<void> = Promise.resolve();
+    const connector = createConnector({
+      moduleId: manifest.id, version: manifest.version, session,
+      apps: Object.fromEntries((manifest.connections || []).map(c => [c.id, c.app])),
+      // Вопросы по разным подключениям показываются по одному, друг друга не перекрывают
+      ask: ask => { const run = chain.then(() => new Promise<GrantChoice>(resolve => setAsking({ ask, resolve }))); chain = run.then(() => undefined, () => undefined); return run; },
+      onDenied: info => setDenied(info),
+    });
     const bridge = createModuleBridge({
       frame: () => frame.current?.contentWindow || null, session, manifest,
       context: () => latest.current.context, theme: themeTokens,
       beginReadCycle: () => { reader = latest.current.createReadCycle(); },
-      read: (resource, entityId) => reader(resource, entityId),
-      onFailure: kind => { recordModuleCrash(manifest.id, manifest.version, kind); setFailure(kind); },
-      compute: language === 'typescript' ? undefined : input => moduleCompute().compute({ moduleId: manifest.id, version: manifest.version, language }, input,
-        document.visibilityState === 'visible' ? 'active' : 'background'),
+      read: async (resource, entityId) => {
+        const started = Date.now();
+        try {
+          const data = await reader(resource, entityId);
+          // В журнал уходят вид данных и объём, но не содержимое
+          journalEvent({ ...base, category: 'read', event: 'read', detail: String(resource), outcome: 'ok', ms: Date.now() - started, bytesIn: JSON.stringify(data ?? null).length });
+          return data;
+        } catch (error) {
+          journalEvent({ ...base, category: 'read', level: 'warn', event: 'read', detail: String(resource), outcome: 'failed', ms: Date.now() - started });
+          throw error;
+        }
+      },
+      connect: (connection, call) => connector.connect(connection, call),
+      onLog: (level, text) => journalEvent({ ...base, category: 'log', level, event: 'message', detail: text }),
+      onFailure: kind => { journalEvent({ ...base, category: 'failure', level: 'error', event: kind, outcome: kind }); recordModuleCrash(manifest.id, manifest.version, kind); setFailure(kind); },
+      compute: language === 'typescript' ? undefined : async input => {
+        const started = Date.now();
+        try {
+          const output = await moduleCompute().compute({ moduleId: manifest.id, version: manifest.version, language }, input,
+            document.visibilityState === 'visible' ? 'active' : 'background');
+          journalEvent({ ...base, category: 'compute', event: 'compute', detail: language, outcome: 'ok', ms: Date.now() - started });
+          return output;
+        } catch (error) {
+          const code = String((error as { code?: string })?.code || 'CRASH');
+          journalEvent({ ...base, category: 'compute', level: 'error', event: 'compute', detail: language, outcome: code.toLowerCase(), ms: Date.now() - started });
+          throw error;
+        }
+      },
       // Счётчик сбоев пишет сам расчёт; здесь только плашка «подпрограмма остановилась»
       onComputeError: code => setFailure(code === 'TIMEOUT' ? 'timeout' : code === 'MEMORY' ? 'memory' : code === 'CRASH' || code === 'ABI' || code === 'BAD_OUTPUT' || code === 'NUMBER' ? 'crash' : null),
     });
@@ -62,6 +105,9 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
     const unsubscribe = subscribeModuleRefresh(() => bridge.notify('changed'), () => connected.current);
     refreshRef.current = unsubscribe;
     return () => {
+      journalEvent({ ...base, category: 'lifecycle', event: 'close', detail: language, ms: Date.now() - opened });
+      connector.close();
+      setAsking(current => { current?.resolve('never'); return null; });
       bridge.dispose(); bridgeRef.current = null;
       cancelModuleCompute(manifest.id);
       unsubscribe();
@@ -81,6 +127,15 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
       }}>Отправить отчёт</button>
       <button type="button" onClick={() => setFailure(null)}>Закрыть</button>
     </div>}
+    {denied && <div role="alert" className="flex items-center gap-3 border-b border-[var(--flux-line)] bg-[var(--flux-surface)] p-3 text-sm text-[var(--flux-text)]" data-testid="module-denied">
+      <span>Нет доступа к «{denied.app}»: подключение не разрешено. Подпрограмма работает без него.</span>
+      <button type="button" className="text-[var(--flux-accent)] underline" onClick={() => {
+        // Сброс решения делает главный процесс; следующий обмен данными снова спросит человека
+        void hostBridge()?.invoke('modules:grants-reset', { moduleId: manifest.id }).then(() => { setDenied(null); bridgeRef.current?.notify('changed'); });
+      }}>Разрешить…</button>
+      <button type="button" onClick={() => setDenied(null)}>Закрыть</button>
+    </div>}
+    {asking && <ConnectionPrompt ask={asking.ask} onChoose={choice => { asking.resolve(choice); setAsking(null); }} />}
     {gate === 'checking' && <div className="fx-empty"><div className="fx-empty-title">Проверка расчёта на этом компьютере…</div></div>}
     {(gate === 'failed' || gate === 'retry') && <div className="fx-empty" role="alert"><div className="fx-empty-title">Подпрограмма не запущена</div>
       <div className="fx-empty-text">{gate === 'failed' ? 'Контрольные примеры на этом компьютере не сошлись. Сообщение о сбое отправлено разработчику.'

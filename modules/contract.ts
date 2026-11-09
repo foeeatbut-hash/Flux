@@ -1,3 +1,4 @@
+import type { ConnectCall, ConnectErrorCode, ConnectionDecl, HttpMethod } from './connections/model';
 import type { ModuleLanguage, ModulePlatform, SourceLanguage, ComputeErrorCode } from './engine/types';
 export const CONTRACT_VERSION = 1 as const;
 export const resources = ['project', 'equipment', 'tag', 'specification', 'catalog'] as const;
@@ -38,6 +39,8 @@ export interface ModuleManifest {
   /** Где выпуск работает; без поля — на любой ОС */
   platform?: ModulePlatform;
   store?: ModuleStoreBlock;
+  /** Подключения к внешним программам (этап 3б): разрешение — само объявление в подписанном выпуске */
+  connections?: ConnectionDecl[];
 }
 export interface Parameter { group: string; key: string; value: string; unit: string }
 export interface TagData { id: string; identifier: string; name: string; parentId: string | null }
@@ -57,7 +60,11 @@ export interface ReadRequest {
   flux: 'module'; v: 1; session: string; id: string; type: 'read';
   resource: Resource; entityId?: string;
 }
-export type ModuleFailureKind = 'crash' | 'timeout' | 'memory' | 'bridge' | 'controls';
+/** Ответ HTTP как есть: код, заголовки (без set-cookie) и тело текстом либо base64 */
+export interface HttpReply { status: number; headers: Record<string, string>; body: string; encoding: 'utf8' | 'base64' }
+/** Сообщение WebSocket из очереди; `closed` — сокет закрыт, больше сообщений не будет; `empty` — за время ожидания ничего не пришло */
+export type WsReply = { data: string; encoding: 'utf8' | 'base64' } | { closed: true } | { empty: true };
+export type ModuleFailureKind = 'crash' | 'timeout' | 'memory' | 'bridge' | 'controls' | 'connection';
 export type BridgeError = 'READ_ONLY' | 'DENIED' | 'NO_PROJECT' | 'FAILED' | 'LIMIT';
 export type HostMessage =
   | { flux: 'module'; v: 1; session: string; type: 'event'; event: 'opened' | 'project-changed' | 'changed'; context: LaunchContext; theme: ThemeTokens }
@@ -67,6 +74,10 @@ export type HostMessage =
 export type ComputeHostMessage =
   | { flux: 'module'; v: 1; session: string; type: 'compute-result'; id: string; output: ModuleOutput }
   | { flux: 'module'; v: 1; session: string; type: 'compute-error'; id: string; code: ComputeErrorCode };
+/** Ответы на сквозные вызовы подключений (этап 3б): данные внешней программы как есть либо код отказа */
+export type ConnectHostMessage =
+  | { flux: 'module'; v: 1; session: string; type: 'connect-result'; id: string; data: unknown }
+  | { flux: 'module'; v: 1; session: string; type: 'connect-error'; id: string; code: ConnectErrorCode };
 export type ThemeTokens = Record<
   '--flux-surface' | '--flux-bg' | '--flux-hover' | '--flux-sel' | '--flux-line' | '--flux-text' | '--flux-text-muted' | '--flux-accent',
   string
@@ -78,6 +89,30 @@ export interface ModuleApi {
   flux: {
     read<R extends Resource>(resource: R, entityId?: string): Promise<ReadData[R]>;
     on(event: 'changed', listener: () => void | Promise<void>): () => void;
+  };
+  /** Журнал подпрограммы: строка до 200 знаков, не чаще 5 в секунду; данные проектов в него не пишутся */
+  log: { info(text: string): void; warn(text: string): void; error(text: string): void };
+  /**
+   * Подключения к внешним программам, объявленные в manifest.json. Вызов идёт как есть: Flux проверяет
+   * только разрешение, адрес в пределах объявленного и пишет журнал. Доступно в логике на TypeScript.
+   */
+  connect: {
+    /** Любой вызов в «сырой» форме: то, что ниже, — короткие обёртки над ним */
+    call(connection: string, call: ConnectCall): Promise<any>;
+    http(connection: string, request: { method: HttpMethod; path: string; headers?: Record<string, string>; body?: string; encoding?: 'utf8' | 'base64' }): Promise<HttpReply>;
+    ws: {
+      open(connection: string, path: string): Promise<string>;
+      send(connection: string, socket: string, data: string, encoding?: 'utf8' | 'base64'): Promise<void>;
+      recv(connection: string, socket: string, timeoutMs?: number): Promise<WsReply>;
+      close(connection: string, socket: string): Promise<void>;
+    };
+    com: {
+      open(connection: string): Promise<number>;
+      call(connection: string, handle: number, name: string, args?: unknown[]): Promise<unknown>;
+      get(connection: string, handle: number, name: string, args?: unknown[]): Promise<unknown>;
+      set(connection: string, handle: number, name: string, value: unknown, args?: unknown[]): Promise<void>;
+      release(connection: string, handle: number): Promise<void>;
+    };
   };
   state: Record<string, unknown>;
   calc: { out: Record<string, unknown> };

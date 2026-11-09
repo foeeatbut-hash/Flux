@@ -8,6 +8,10 @@ export const MODULE_WORKER_LEASE_MS = 60_000;
 interface WorkerOptions {
   timeoutMs?: number;
   read: (resource: string, entityId?: string) => Promise<unknown>;
+  /** Сквозной вызов подключения (modules/connections); нет — подключений у этого запуска нет */
+  connect?: (connection: string, call: any) => Promise<unknown>;
+  /** Сообщение подпрограммы в журнал */
+  log?: (level: string, text: string) => void;
   initial?: ModuleOutput;
   onRestart?: (reason: string) => void;
 }
@@ -58,6 +62,7 @@ export function createModuleWorker(source: string, options: WorkerOptions) {
       if (worker !== owner) return;
       if (data?.type === 'pong' && !active && data.id === pingId) { watchIdle(); return; }
       if (data?.type === 'failed') { stop(data.code === 'STATE_LIMIT' ? 'STATE_LIMIT' : 'WORKER_FAILED', true); return; }
+      if (data?.type === 'log') { options.log?.(String(data.level), String(data.text)); return; }
       const operation = active;
       if (!operation) return;
       if (data?.type === 'read' && typeof data.id === 'string') {
@@ -66,6 +71,15 @@ export function createModuleWorker(source: string, options: WorkerOptions) {
           if (worker === owner && active === operation) owner.postMessage({ type: 'read-result', id: data.id, data: value });
         } catch (_) {
           if (worker === owner && active === operation) owner.postMessage({ type: 'read-result', id: data.id, error: 'READ_FAILED' });
+        }
+      } else if (data?.type === 'connect' && typeof data.id === 'string') {
+        try {
+          if (!options.connect) throw Object.assign(new Error('UNAVAILABLE'), { code: 'UNAVAILABLE' });
+          const value = await options.connect(String(data.connection), data.call);
+          if (worker === owner && active === operation) owner.postMessage({ type: 'connect-result', id: data.id, data: value });
+        } catch (error) {
+          const code = typeof (error as { code?: unknown })?.code === 'string' ? (error as { code: string }).code : 'FAILED';
+          if (worker === owner && active === operation) owner.postMessage({ type: 'connect-result', id: data.id, error: code });
         }
       } else if (data?.type === 'done') {
         try { snapshot = checkedOutput(data.data); }

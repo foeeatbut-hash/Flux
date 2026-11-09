@@ -1,5 +1,6 @@
 import Ajv from 'ajv';
 import { resources, themeKeys } from './contract';
+import { parseConnections, HTTP_METHODS, CONNECT_ERROR_CODES } from './connections/model';
 import { COMPUTE_ERROR_CODES, LANGUAGES, PLATFORMS, SOURCE_LANGUAGES, LOGIC_FILES } from './engine/types';
 
 const text = { type: 'string', maxLength: 8192 };
@@ -22,10 +23,32 @@ export const dataSchemas = {
   catalog: object({ families: array(object({ id, name: text, code: text, classId: text })) }),
 };
 const envelope = { flux: { const: 'module' }, v: { const: 1 }, session: id };
+const encoding = { enum: ['utf8', 'base64'] };
+const socketId = { type: 'string', minLength: 1, maxLength: 64 };
+const memberName = { type: 'string', pattern: '^[A-Za-z_][A-Za-z0-9_]{0,127}$' };
+const comArgs = { type: 'array', maxItems: 32 };
+const handle = { type: 'integer', minimum: 1, maximum: 1_000_000 };
+const callSchema = (op: string, properties: Record<string, object>, required: string[] = []) =>
+  object({ op: { const: op }, ...properties }, ['op', ...required]);
+// Вызов подключения: ровно эти формы. Адрес в вызове не передаётся вовсе — только путь внутри объявленного префикса
+export const connectCallSchemas = [
+  callSchema('http', { method: { enum: [...HTTP_METHODS] }, path: { type: 'string', maxLength: 2048 }, headers: { type: 'object', maxProperties: 32 },
+    body: { type: 'string', maxLength: 700_000 }, encoding }, ['method', 'path']),
+  callSchema('ws-open', { path: { type: 'string', maxLength: 2048 } }, ['path']),
+  callSchema('ws-send', { socket: socketId, data: { type: 'string', maxLength: 700_000 }, encoding }, ['socket', 'data']),
+  callSchema('ws-recv', { socket: socketId, timeoutMs: { type: 'integer', minimum: 0, maximum: 25_000 } }, ['socket']),
+  callSchema('ws-close', { socket: socketId }, ['socket']),
+  callSchema('com-open', {}),
+  callSchema('com-call', { handle, name: memberName, args: comArgs }, ['handle', 'name']),
+  callSchema('com-get', { handle, name: memberName, args: comArgs }, ['handle', 'name']),
+  callSchema('com-set', { handle, name: memberName, value: {}, args: comArgs }, ['handle', 'name', 'value']),
+  callSchema('com-release', { handle }, ['handle']),
+];
+
 // Эти JSON Schema — источник проверки сообщений и будущих типов редактора Studio.
 export const messageSchemas = {
   ready: object({ ...envelope, type: { const: 'ready' } }),
-  failure: object({ ...envelope, type: { const: 'failure' }, kind: { enum: ['crash', 'timeout', 'memory', 'bridge', 'controls'] } }),
+  failure: object({ ...envelope, type: { const: 'failure' }, kind: { enum: ['crash', 'timeout', 'memory', 'bridge', 'controls', 'connection'] } }),
   read: object({ ...envelope, id, type: { const: 'read' }, resource: { enum: resources }, entityId: id }, ['flux', 'v', 'session', 'id', 'type', 'resource']),
   write: object(
     { ...envelope, id, type: { const: 'write' }, resource: { enum: resources }, entityId: id, data: {} },
@@ -41,6 +64,12 @@ export const messageSchemas = {
     ...envelope, id, type: { const: 'compute-result' },
     output: object({ state: { type: 'object' }, calc: object({ out: { type: 'object' } }) }),
   }),
+  // Сообщение самой подпрограммы в журнал (flux.log): уровень и короткая строка, ответа нет
+  log: object({ ...envelope, type: { const: 'log' }, level: { enum: ['info', 'warn', 'error'] }, text: { type: 'string', maxLength: 200 } }),
+  // Подключение к внешней программе (этап 3б): подключение названо по `id` из манифеста, сквозной вызов идёт как есть
+  connect: object({ ...envelope, id, type: { const: 'connect' }, connection: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,31}$' }, call: { oneOf: connectCallSchemas } }),
+  'connect-result': object({ ...envelope, id, type: { const: 'connect-result' }, data: {} }),
+  'connect-error': object({ ...envelope, id, type: { const: 'connect-error' }, code: { enum: [...CONNECT_ERROR_CODES] } }),
   'compute-error': object({ ...envelope, id, type: { const: 'compute-error' }, code: { enum: [...COMPUTE_ERROR_CODES] } }),
   error: object({ ...envelope, id, type: { const: 'error' }, code: { enum: ['READ_ONLY', 'DENIED', 'NO_PROJECT', 'FAILED', 'LIMIT'] } }),
   event: object({
@@ -73,6 +102,8 @@ export const manifestSchema = object({
   reads: { type: 'array', uniqueItems: true, items: { enum: resources } }, logic: { enum: Object.values(LOGIC_FILES) },
   language: { enum: [...LANGUAGES] }, sourceLanguage: { enum: [...SOURCE_LANGUAGES] }, platform: { enum: [...PLATFORMS] },
   store: storeBlock,
+  // Форма каждого подключения и запрет опасных объектов проверяет parseConnections (modules/connections/model.ts): схема тут только отсекает не массив
+  connections: { type: 'array', maxItems: 8, items: { type: 'object' } },
 }, ['id', 'name', 'author', 'version', 'contractVersion', 'entries', 'reads', 'logic']);
 // Файл логики обязан соответствовать языку: иначе подпись покрывала бы один файл, а запускался другой
 const languageIs = (language: string) => ({ required: ['language'], properties: { language: { const: language } } });
@@ -82,4 +113,7 @@ const languageIs = (language: string) => ({ required: ['language'], properties: 
   { if: { not: { required: ['language'], properties: { language: { enum: ['python', 'wasm'] } } } },
     then: { properties: { logic: { const: LOGIC_FILES.typescript } }, not: { required: ['sourceLanguage'] } } },
 ];
-export const validManifest = ajv.compile(manifestSchema);
+const validShape = ajv.compile(manifestSchema);
+/** Схема плюс разбор подключений: объявление с чужой схемой, путём в адресе или запрещённым COM-объектом манифестом не считается */
+export const validManifest = (value: unknown): boolean =>
+  !!validShape(value) && parseConnections((value as { connections?: unknown }).connections) !== null;
