@@ -16,7 +16,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { trustedAuthSender } from './authStorage';
-import { decrypt } from '../tools/flux-owner/src/vault.cjs';
+import { decrypt } from '../studio/owner/src/vault.cjs';
 import { UPDATE_PUBLIC_KEY_HEX } from './updateKey';
 import { publicHexOf, sealEnvelope, type EnvelopeKind } from '../modules/trust/envelope';
 import { buildCertificateClaim, buildOwnerRequestClaim, buildPinClaim, buildPromotionClaim, buildReleaseClaim, buildRevocationClaim } from '../modules/trust/owner';

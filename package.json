@@ -20,7 +20,11 @@
     "dist": "npm run build && npm run build:electron && npm run prepare:win-native && electron-builder --win portable -c.npmRebuild=false",
     "check:verification": "node --import tsx scripts/check-verification.ts",
     "check:coverage": "node --import tsx scripts/verification-inventory.ts",
-    "check:programs": "node --import tsx scripts/verify-programs.ts"
+    "check:programs": "node --import tsx scripts/verify-programs.ts",
+    "build:studio": "node studio/build.cjs developer",
+    "build:studio-owner": "node studio/build.cjs owner",
+    "check:studio-bundle": "node --import tsx scripts/check-studio-bundle.ts",
+    "test:studio-owner": "node studio/owner/scripts/test.cjs && node studio/shared/test-database-runtime.cjs && node studio/owner/scripts/test-diagnostics.cjs && node studio/owner/scripts/test-network.cjs"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "^7.8.0",

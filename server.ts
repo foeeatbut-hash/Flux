@@ -2,7 +2,7 @@ import { setSecretDataDir } from './server/mail/secret.js';
 import { buildDatabaseClient } from './server/databaseClient.js';
 import 'express-async-errors';
 import { ensureUserProfileSchema } from './server/userProfileSchema.js';
-import { traceRequest, traceDatabase, traceSockets } from './server/diagnostics.js';
+import { traceRequest, traceDatabase, traceSockets, recordServerError } from './server/diagnostics.js';
 import express, { Request, Response } from 'express';
 import path from 'path';
 import { PrismaClient } from '@prisma/client-sqlite';
@@ -13,10 +13,11 @@ import fs from 'fs';
 import os from 'os';
 import crypto from 'crypto';
 import { setPrisma, setNotifier, setBroadcaster, setUserPush, upsertSetting, setSessionForget } from './server/context.js';
-import { setDialect, dialectOf, ensureTables as ensureDbTables } from './server/ddl.js';
+import { setDialect, getDialect, dialectOf, ensureTables as ensureDbTables } from './server/ddl.js';
 import { readAppVersion } from './server/presence.js';
 import { registerSockets } from './server/sockets.js';
 import { registerUpdateRoutes } from './server/updates.js';
+import { registerStudioRoutes } from './server/routes/studio.js';
 import { registerLimitRoutes } from './server/limits.js';
 import { registerFeedbackRoutes } from './server/routes/feedback.js';
 import { registerPolicyRoutes } from './server/routes/policy.js';
@@ -104,17 +105,24 @@ import { configureLicenseService, licenseForUser, personLicenseMiddleware } from
 import { registerProjectEntityGuard } from './server/projectEntityAccess.js';
 import { protectSessionSockets } from './server/sessionSockets.js';
 import { authTokenFromRequest, createCookieAuth } from './server/authCookies.js';
-import { VDR_PERM_RULES } from './server/vdrPermissions.js';
-import { corsMiddleware, socketAllowRequest, blockPrivateBuildFiles, earlyBodyGate, staticUploadOptions, chatFileGate, setLinkSecret, hashLegacyPasswords, listenHost, dropRevokedSockets } from './server/security.js';
+import { permRuleFor } from './server/permRoutes.js';
+import { describeApiError, isClientAbort } from './server/apiErrors.js';
+import { createTrustedTime, fetchNetworkTimeMs, registerTimeAnchorRoutes } from './server/trustedTime.js';
+import { corsMiddleware, socketAllowRequest, blockPrivateBuildFiles, earlyBodyGate, staticUploadOptions, chatFileGate, setLinkSecret, hashLegacyPasswords, listenHost, dropRevokedSockets, distDirectory, spaFallbackAllowed } from './server/security.js';
 
 // ── Пароли: хеширование (scrypt) с обратной совместимостью ────────────────────
 // Формат хранения: "scrypt$<saltHex>$<hashHex>". Открытые записи прежних версий
 // переводятся в хеш один раз на базу (server/security.ts) и при входе не принимаются.
 const PW_PREFIX = 'scrypt$';
 
-function hashPassword(plain: string): string {
+// scrypt асинхронный: синхронный вариант занимал единственный поток сервера на
+// 50-100 мс при каждом входе, и пока считался хеш, не отвечали остальные
+const scryptAsync = (plain: string, salt: Buffer, length: number) =>
+  new Promise<Buffer>((resolve, reject) => crypto.scrypt(plain, salt, length, (error, key) => (error ? reject(error) : resolve(key))));
+
+async function hashPassword(plain: string): Promise<string> {
   const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(String(plain), salt, 64);
+  const hash = await scryptAsync(String(plain), salt, 64);
   return `${PW_PREFIX}${salt.toString('hex')}$${hash.toString('hex')}`;
 }
 
@@ -122,7 +130,7 @@ function isLegacyPassword(stored: string | null | undefined): boolean {
   return !!stored && !stored.startsWith(PW_PREFIX);
 }
 
-function verifyPassword(plain: string, stored: string | null | undefined): boolean {
+async function verifyPassword(plain: string, stored: string | null | undefined): Promise<boolean> {
   if (!stored) return false;
   if (stored.startsWith(PW_PREFIX)) {
     const [, saltHex, hashHex] = stored.split('$');
@@ -130,7 +138,7 @@ function verifyPassword(plain: string, stored: string | null | undefined): boole
     try {
       const salt = Buffer.from(saltHex, 'hex');
       const expected = Buffer.from(hashHex, 'hex');
-      const actual = crypto.scryptSync(String(plain), salt, expected.length);
+      const actual = await scryptAsync(String(plain), salt, expected.length);
       return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
     } catch {
       return false;
@@ -547,26 +555,61 @@ let authSecret = '';
 try {
   if (fs.existsSync(AUTH_SECRET_FILE)) authSecret = fs.readFileSync(AUTH_SECRET_FILE, 'utf-8').trim();
   if (!authSecret) {
+    // Пустой файл секрета заменяется молча только на первом запуске; если файл
+    // был, это стоит строки в журнале: все выданные токены перестают действовать
+    if (fs.existsSync(AUTH_SECRET_FILE)) logInit('[Security] Файл секрета входа пуст и создан заново: прежние сессии недействительны.');
     authSecret = crypto.randomBytes(48).toString('hex');
     fs.writeFileSync(AUTH_SECRET_FILE, authSecret, { encoding: 'utf-8', mode: 0o600 });
   }
 } catch (e) {
   // Файл недоступен (readonly-диск): секрет на время процесса — токены
   // перестанут действовать после перезапуска, но авторизация работает
+  logInit(`[Security] Файл секрета входа недоступен (${(e as any)?.message}): секрет временный, сессии не переживут перезапуск.`);
   authSecret = crypto.randomBytes(48).toString('hex');
 }
 setLinkSecret(authSecret); // им же подписываются ссылки на вложения
+
+// Необработанные сбои вне запросов (таймеры, события сокетов, `void (async …)`):
+// без обработчиков процесс падал без единой строки в журнале. Отказ промиса
+// только пишем: сервер продолжает работу, как и раньше. После непойманного
+// исключения состояние неизвестно — пишем и завершаемся (процесс поднимает
+// оболочка или служба).
+process.on('unhandledRejection', (reason) => {
+  recordServerError('process.unhandledRejection', reason);
+  logInit(`[PROCESS] unhandledRejection: ${(reason as any)?.stack || reason}`);
+});
+process.on('uncaughtException', (error) => {
+  recordServerError('process.uncaughtException', error);
+  logInit(`[PROCESS] uncaughtException: ${error?.stack || error}`);
+  setTimeout(() => process.exit(1), 300).unref();
+});
 
 const APP_VERSION: string = readAppVersion(__dirname);
 const authSessions = createAuthSessions({ secret: authSecret });
 const issueAuthToken = authSessions.issue;
 const verifyAuthToken = authSessions.verify;
 
-// Кэш пользователей на 30 с — проверка токена не ходит в БД на каждый запрос,
-// но отключение профиля администратором срабатывает в течение полуминуты
+// «Надёжное время» (срок профиля не обходится переводом часов) — server/trustedTime.ts.
+// Якорь времени лежит в скрытом файле машины и в общей базе; часы клиента
+// источником истины для общей базы не служат (см. модуль).
+const trustedTime = createTrustedTime({
+  prisma: () => prisma,
+  dialect: () => getDialect(),
+  upsertSetting,
+  anchorFile: path.join(os.homedir(), '.pdm-time-anchor'),
+  networkTime: fetchNetworkTimeMs,
+  log: logInit,
+});
+const trustedNowSync = () => trustedTime.sync();
+const trustedNowFull = () => trustedTime.full();
+
+// Кэш профилей на 30 с — для getAuthUser (присутствие, сокеты-комнаты). К проверке
+// сессии он не относится: authSessions.validate ходит в базу на каждый запрос
+// намеренно, чтобы отзыв прав и выход действовали сразу и на соседних серверах.
 const authUserCache = new Map<string, { user: any; at: number }>();
 /** Сброс кэша сессии: снятое право должно действовать сразу, а не через полминуты. */
 function invalidateAuthUser(userId?: string) {
+  authUserCacheGeneration++;
   if (userId) authUserCache.delete(userId); else authUserCache.clear();
   /**
    * Права поменяли — окно обязано узнать об этом сейчас, а не при следующем
@@ -580,18 +623,29 @@ function invalidateAuthUser(userId?: string) {
   } catch (_) { /* сокета может не быть — окно перечитает при подключении */ }
 }
 setSessionForget(invalidateAuthUser);
+let authUserCacheGeneration = 0;
 const getAuthUser = async (userId: string) => {
   const hit = authUserCache.get(userId);
   if (hit && Date.now() - hit.at < 30000) return hit.user;
   await ensureUserProfileSchema(prisma);
+  const generation = authUserCacheGeneration;
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  authUserCache.set(userId, { user, at: Date.now() });
+  // Не кэшируем «профиля нет» (создали секундой позже — и 30 с отказ), и не кладём
+  // результат запроса, начатого до сброса кэша: он мог прочитать старую строку
+  if (user && generation === authUserCacheGeneration) {
+    authUserCache.set(userId, { user, at: Date.now() });
+    // Кэш ограничен: сотрудников немного, но записи просроченных не копятся
+    if (authUserCache.size > 2000) for (const [k, v] of authUserCache) if (Date.now() - v.at >= 30000) authUserCache.delete(k);
+  }
   return user;
 };
 
 const app = express();
 // HTTPS завершается на локальном прокси; заголовкам удалённых клиентов не доверяем.
-app.set('trust proxy', 'loopback');
+// Прокси на другом адресе называется явно: FLUX_TRUST_PROXY="10.0.0.5,10.0.0.6"
+// (список адресов или подсетей через запятую). Без этого req.ip за ним был бы
+// адресом прокси, у всех клиентов один, и счёт попыток входа шёл бы на всех разом.
+app.set('trust proxy', String(process.env.FLUX_TRUST_PROXY || '').trim() ? String(process.env.FLUX_TRUST_PROXY).split(',').map(x => x.trim()).filter(Boolean) : 'loopback');
 const cookieAuth = createCookieAuth(authSecret);
 app.use(cookieAuth.middleware);
 app.use(traceRequest);
@@ -644,48 +698,15 @@ app.use('/chat_files', chatFileGate(), express.static(path.join(userDataPath, 'c
 app.use('/mail_sig', express.static(path.join(userDataPath, 'mail_sig'), staticUploadOptions));
 
 // ── Проверка входа на каждом запросе к API ──────────────────────────────────
-// Открыты только вход, проверка готовности и конфиг БД для экрана входа.
-// Настройка БД (/api/db/*) до входа разрешена только с самой машины сервера —
-// это функция встроенного режима, по сети её дергать нельзя.
+// Открыты только вход и проверка готовности. Настройка БД (/api/db/*) целиком
+// принадлежит владельцу (requiresOwner + requireOwnerMiddleware в system.ts).
 // ── Права по функциям ────────────────────────────────────────────────────────
 // Право приходит от роли (общее для должности) и лично (надбавка или запрет);
 // личное сильнее. Каталог функций живёт в src/lib/permissions.ts — здесь
 // только сопоставление «маршрут → функция». Проверяем одной таблицей, а не в
 // каждом обработчике: иначе новый эндпоинт легко забыть закрыть, и выданное
 // право окажется украшением.
-type PermRequirement = { perm: string; title: string };
-type PermRule = PermRequirement & { method: RegExp; path: RegExp; also?: PermRequirement[] };
-const PERM_ROUTES: PermRule[] = [
-  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/projects\/?$|^\/api\/projects\/[^/]+$/,
-    perm: 'project.manage', title: 'Управление проектами' },
-  { method: /^(POST|PUT|PATCH)$/, path: /^\/api\/projects\/[^/]+\/tags/,
-    perm: 'tags.manage', title: 'Создание и правка тегов' },
-  { method: /^(PUT|PATCH)$/, path: /^\/api\/tags\//, perm: 'tags.manage', title: 'Создание и правка тегов' },
-  { method: /^DELETE$/, path: /^\/api\/tags\//, perm: 'tags.delete', title: 'Удаление тегов' },
-  { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/dictionaries|^\/api\/projects\/[^/]+\/(dictionaries|tag-template)/,
-    perm: 'dictionaries.manage', title: 'Справочники и шаблоны' },
-  { method: /^POST$/, path: /^\/api\/(equipment\/import|import\/)/,
-    perm: 'equipment.import', title: 'Импорт из бланков' },
-  { method: /^(PUT|PATCH)$/, path: /^\/api\/(components|equipment|monoblocks|systems)\//,
-    perm: 'equipment.manage', title: 'Правка характеристик оборудования' },
-  { method: /^POST$/, path: /^\/api\/(files|folders)/, perm: 'files.upload', title: 'Загрузка файлов' },
-  // Писать обращения и прикладывать к ним файлы — одно право: вложение без
-  // обращения никому не нужно, а обращение без вложения бывает часто
-  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/feedback\/(reports|uploads|drafts)/,
-    perm: 'feedback.create', title: 'Писать обращения' },
-  { method: /^DELETE$/, path: /^\/api\/(files|folders)/, perm: 'files.delete', title: 'Удаление файлов и папок' },
-  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/settings\/(procurement_stages|procurement_templates|stage_templates)/,
-    perm: 'procurement.setup', title: 'Настройка этапов закупки' },
-  ...VDR_PERM_RULES, // ВДР: таблица в server/vdrPermissions.ts — её же читает проверка прав
-  // Каталог правят немногие, а учится он у всех: запомненный выбор подбора —
-  // побочный продукт работы в Конструкторе, а не правка справочника
-  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/blank-templates/, perm: 'blanks.manage', title: 'Шаблоны бланков' },
-  { method: /^POST$/, path: /^\/api\/builder\/lists\/[^/]+\/issues(?:\/|$)/, perm: 'builder.issue', title: 'Выпуск бланков' },
-  // Применение связей меняет и теги проекта, и ведомость: нужны оба права.
-  { method: /^POST$/, path: /^\/api\/builder\/lists\/[^/]+\/tag-apply(?:\/|$)/, perm: 'tags.manage', title: 'Создание и правка тегов', also: [{ perm: 'builder.edit', title: 'Ведомости Конструктора' }] },
-  // План тегов ничего не записывает, а выпуск проверен отдельным правом.
-  { method: /^(POST|PUT|DELETE)$/, path: /^\/api\/builder\/(?!lists\/[^/]+\/(?:issues|tag-plan)(?:\/|$))/, perm: 'builder.edit', title: 'Ведомости Конструктора' },
-];
+// Таблица «маршрут → право» живёт в server/permRoutes.ts (проверяется без сервера).
 
 const rolePermCache = new Map<string, { raw: string | null; at: number }>();
 /** Права одной должности строкой, как лежат в справочнике; кэш на 30 секунд */
@@ -778,6 +799,7 @@ app.use(async (req: Request, res: Response, next) => {
         // срок действия — нет, иначе доступ можно было бы выдать себе.
         req.body = {
           name: req.body?.name, password: req.body?.password,
+          currentPassword: req.body?.currentPassword,
           lastName: req.body?.lastName, firstName: req.body?.firstName,
           middleName: req.body?.middleName, gender: req.body?.gender,
           birthDate: req.body?.birthDate,
@@ -787,7 +809,7 @@ app.use(async (req: Request, res: Response, next) => {
 
     // Права по функциям: одна таблица маршрутов на всю программу.
     if (!isPrivilegedUser(user)) {
-      const rule = PERM_ROUTES.find(r => r.method.test(req.method) && r.path.test(route));
+      const rule = permRuleFor(req.method, route);
       if (rule) {
         const perms = await effectivePermsOf(user);
         for (const requirement of [rule, ...(rule.also || [])]) {
@@ -838,118 +860,13 @@ registerSystemRoutes(app, {
 });
 
 // ── Надёжное время (анти-обход срока действия профиля переводом часов) ─────────
-// Локальные часы легко перевести назад, поэтому срок действия профиля проверяем
-// по «надёжному времени»: максимум из локальных часов, монотонного якоря
-// (максимальное когда-либо замеченное время, хранится в БД и в скрытом файле)
-// и сетевого времени (заголовок Date с надёжных HTTPS-серверов, когда есть сеть).
-// Часы назад не переводятся: якорь только растёт.
-
-const TIME_ANCHOR_FILE = path.join(os.homedir(), '.pdm-time-anchor');
-let timeAnchorMs = 0;          // максимальное замеченное время
-let timeTampered = false;      // зафиксирован откат часов
-let lastAnchorPersistMs = 0;   // троттлинг записи якоря
-
-function loadTimeAnchorFromFile(): number {
-  try {
-    const raw = fs.readFileSync(TIME_ANCHOR_FILE, 'utf-8').trim();
-    const v = parseInt(raw, 36); // не бросается в глаза как timestamp
-    return Number.isFinite(v) ? v : 0;
-  } catch {
-    return 0;
-  }
-}
-
-async function loadTimeAnchorFromDb(): Promise<number> {
-  try {
-    const s = await prisma.appSetting.findFirst({ where: { key: 'time_anchor', userId: null } });
-    const v = s ? parseInt(String(s.value), 36) : 0;
-    return Number.isFinite(v) ? v : 0;
-  } catch {
-    return 0;
-  }
-}
-
-async function persistTimeAnchor(ms: number) {
-  try { fs.writeFileSync(TIME_ANCHOR_FILE, ms.toString(36), 'utf-8'); } catch (_) {}
-  try { await upsertSetting('time_anchor', null, ms.toString(36)); } catch (_) {}
-}
-
-// Синхронная оценка надёжного времени (для быстрых проверок прав)
-function trustedNowSync(): number {
-  const now = Date.now();
-  if (timeAnchorMs === 0) timeAnchorMs = loadTimeAnchorFromFile();
-  if (now >= timeAnchorMs) {
-    timeAnchorMs = now;
-    if (now - lastAnchorPersistMs > 60_000) {
-      lastAnchorPersistMs = now;
-      persistTimeAnchor(now);
-    }
-    return now;
-  }
-  // Часы позади якоря. Небольшая разница (< 6 ч) — допуск на смену пояса,
-  // больше — явный перевод часов назад
-  if (timeAnchorMs - now > 6 * 3600_000) timeTampered = true;
-  return timeAnchorMs;
-}
-
-// Сетевое время: заголовок Date от нескольких независимых HTTPS-серверов
-function fetchNetworkTimeMs(timeoutMs = 2500): Promise<number | null> {
-  const https = require('https');
-  const hosts = ['www.google.com', 'ya.ru', 'www.cloudflare.com'];
-  const tryHost = (host: string) => new Promise<number | null>((resolve) => {
-    try {
-      const req = https.request({ host, method: 'HEAD', path: '/', timeout: timeoutMs }, (r: any) => {
-        const d = r.headers && r.headers.date ? Date.parse(r.headers.date) : NaN;
-        r.resume();
-        resolve(Number.isFinite(d) ? d : null);
-      });
-      req.on('timeout', () => { req.destroy(); resolve(null); });
-      req.on('error', () => resolve(null));
-      req.end();
-    } catch {
-      resolve(null);
-    }
-  });
-  return new Promise((resolve) => {
-    let settled = false;
-    let pending = hosts.length;
-    const done = (v: number | null) => {
-      if (v !== null && !settled) { settled = true; resolve(v); }
-      else if (--pending === 0 && !settled) resolve(null);
-    };
-    hosts.forEach(h => tryHost(h).then(done));
-    setTimeout(() => { if (!settled) { settled = true; resolve(null); } }, timeoutMs + 500);
-  });
-}
-
-// Полная проверка (используется при входе): якорь из БД + сетевое время
-async function trustedNowFull(): Promise<{ now: number; tampered: boolean; source: string }> {
-  const dbAnchor = await loadTimeAnchorFromDb();
-  if (dbAnchor > timeAnchorMs) timeAnchorMs = dbAnchor;
-  let source = 'local';
-  let now = trustedNowSync();
-
-  const netTime = await fetchNetworkTimeMs();
-  if (netTime) {
-    source = 'network';
-    // Сетевое время авторитетно: если локальные часы отстают от него
-    // больше чем на 10 минут — часы переведены назад
-    if (netTime - Date.now() > 10 * 60_000) timeTampered = true;
-    if (netTime > now) now = netTime;
-    if (netTime > timeAnchorMs) {
-      timeAnchorMs = netTime;
-      lastAnchorPersistMs = Date.now();
-      await persistTimeAnchor(netTime);
-    }
-  }
-  return { now, tampered: timeTampered, source };
-}
+registerTimeAnchorRoutes(app, trustedTime, () => prisma);
 
 // Вход, проверка сессии и заполнение базы вынесены в server/routes/auth.ts
 registerAuthRoutes(app, {
   hashPassword, verifyPassword, issueAuthToken, positionPermissionsOf,
   trustedNowFull, trustedNowSync,
-  isClockTampered: () => timeTampered,
+  isClockTampered: () => trustedTime.isTampered(),
 });
 
 registerOwnerRoutes(app, { issueOwnerAuthToken: authSessions.issueOwner, invalidateAuthUser });
@@ -961,7 +878,7 @@ registerImportDictRoutes(app);
 
 // Сотрудники, роли и личные настройки уведомлений вынесены
 // в server/routes/users.ts
-registerUserRoutes(app, { hashPassword, invalidateRolePerms, invalidateAuthUser, refreshHiddenOnline });
+registerUserRoutes(app, { hashPassword, verifyPassword, invalidateRolePerms, invalidateAuthUser, refreshHiddenOnline });
 registerDepartmentRoutes(app);
 
 // Обновления программы: публикация, раздача и отзыв — server/updates.ts.
@@ -973,6 +890,8 @@ registerUpdateRoutes(app, {
   broadcast: (event, payload) => { try { io.emit(event, payload); } catch (_) {} },
   can: userCan,
 });
+// Вход в Flux Studio: право разработки или вход владельца проверяет сервер
+registerStudioRoutes(app, { getPrisma: () => prisma, permissionsOf: effectivePermsOf });
 
 // Насколько большой файл примет эта база — server/limits.ts. Окно спрашивает
 // заранее, чтобы отказ звучал до переноса, а не после получаса ожидания
@@ -1023,7 +942,7 @@ function userCan(user: any, feature: string): boolean {
   if (user.isActive === false) return false;
   // Сроки проверяем по надёжному времени (перевод часов назад не продлевает доступ)
   const now = trustedNowSync();
-  if (user.validUntil && (timeTampered || new Date(user.validUntil).getTime() < now)) return false;
+  if (user.validUntil && (trustedTime.isTampered() || new Date(user.validUntil).getTime() < now)) return false;
   let map: any = {};
   try { map = user.permissions ? JSON.parse(user.permissions) : {}; } catch { map = {}; }
   const e = map[feature];
@@ -1051,7 +970,7 @@ async function mayFeature(req: Request, feature: string): Promise<boolean> {
   if (actor.role === 'OWNER') return true;
   if (actor.role === 'ADMIN') return feature.startsWith('admin.') ? administratorPermission(actor, feature, trustedNowSync()) : true;
   if (actor.isActive === false) return false;
-  if (actor.validUntil && (timeTampered || new Date(actor.validUntil).getTime() < trustedNowSync())) return false;
+  if (actor.validUntil && (trustedTime.isTampered() || new Date(actor.validUntil).getTime() < trustedNowSync())) return false;
   return permAllows(await effectivePermsOf(actor), feature);
 }
 
@@ -1062,7 +981,7 @@ async function enforce(req: Request, res: Response, feature: string): Promise<bo
   if (actor.role === 'ADMIN') return feature.startsWith('admin.') ? administratorPermission(actor, feature, trustedNowSync()) : true;
   if (actor.isActive === false) { res.status(403).json({ error: 'Профиль отключён администратором.' }); return false; }
   const now = trustedNowSync();
-  if (actor.validUntil && (timeTampered || new Date(actor.validUntil).getTime() < now)) {
+  if (actor.validUntil && (trustedTime.isTampered() || new Date(actor.validUntil).getTime() < now)) {
     res.status(403).json({ error: 'Срок действия профиля истёк.' }); return false;
   }
   const perms = await effectivePermsOf(actor);
@@ -1270,20 +1189,12 @@ async function startServer() {
   }
 
   app.use((err: any, req: Request, res: Response, next: any) => {
-    const rawMsg = String(err?.message || err || 'Internal server error');
-    // Берем суть ошибки Prisma — последняя строка вместо простыни с код-фреймом
-    const lines = rawMsg.split('\n').map(l => l.trim()).filter(Boolean);
-    let friendly = lines[lines.length - 1] || rawMsg;
-    if (rawMsg.includes('malformed') || rawMsg.includes('disk image')) {
-      friendly = 'База данных повреждена (database disk image is malformed). Flux сохранил исходную базу и журналы SQLite.';
-    } else if (rawMsg.includes('Foreign key constraint')) {
-      friendly = 'Сессия устарела: текущий пользователь отсутствует в базе данных. Выйдите из профиля и войдите заново.';
-    } else if (!prisma || !isPrismaAvailable) {
-      friendly = 'База данных не инициализирована: клиент Prisma не был создан при старте. Подробности в backend-init.log.';
-    }
+    // Ответ уже начат (например, соединение оборвано после 413): второй ответ невозможен
+    if (res.headersSent) return isClientAbort(err) ? undefined : next(err);
+    const { status, message: friendly } = describeApiError(err, { databaseReady: !!prisma && isPrismaAvailable });
     logInit(`[API ERROR] ${req.method} ${req.originalUrl}: ${friendly}`);
-    console.error('Unhandled error:', err);
-    res.status(500).json({ error: friendly, message: friendly });
+    if (status >= 500) console.error('Unhandled error:', err);
+    res.status(status).json({ error: friendly, message: friendly });
   });
 
   // Неизвестный маршрут API — честный 404 в JSON.
@@ -1313,11 +1224,10 @@ async function startServer() {
       console.error('[Vite Setup] Error initializing dynamic Vite middleware in dev env:', viteErr.message || viteErr);
     }
   } else {
-    const distPath = __dirname.includes('app.asar')
-       ? __dirname
-       : path.join(process.cwd(), 'dist');
+    const distPath = distDirectory(__dirname);
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
+      if (!spaFallbackAllowed(req.path, req.headers.accept)) return res.status(404).end();
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

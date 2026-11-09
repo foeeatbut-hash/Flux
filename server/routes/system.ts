@@ -38,7 +38,7 @@ interface SystemDeps {
   ensureHealthyLocalDb: (dbFile: string, schemaReady?: boolean) => void;
   ensureSchemaColumns: (dbFile: string) => void;
   syncRemoteSchema: (client: any, dbUrl: string, forceDialect?: 'sqlite') => Promise<string[]>;
-  hashPassword: (plain: string) => string;
+  hashPassword: (plain: string) => string | Promise<string>;
   /** Подменить клиента базы: server.ts обновляет свою переменную и вызывает setPrisma() */
   replaceClient: (client: any) => void;
 }

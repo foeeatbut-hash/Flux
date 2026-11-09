@@ -8,16 +8,34 @@ let checks = 0;
 const check = (name: string, value: unknown) => { assert.ok(value, name); checks++; console.log('✓', name); };
 
 const users = new Map<string, any>([['u1', { id: 'u1', password: 'hash-1', role: 'ENGINEER', isActive: true, validUntil: null, permissions: null }]]);
-const roles = new Map<string, string | null>([['ENGINEER', '{"project.manage":{"enabled":true}}']]);
+const roles = new Map<string, string | null>([['ENGINEER', '{"project.manage":{"enabled":true}}'], ['EXTRA1', '{}'], ['EXTRA2', '{}']]);
 const settings = new Map<string, any>();
 let failRevocation = false;
-setPrisma({
-  role: { findUnique: async ({ where }: any) => roles.has(where.code) ? { permissions: roles.get(where.code) } : null },
+let queries = 0;
+/** Как настоящая база: пара (key, userId) уникальна, иначе второй выход одного человека падает. */
+const makePrisma = (store: Map<string, any>) => ({
+  role: {
+    findUnique: async ({ where }: any) => { queries++; return roles.has(where.code) ? { permissions: roles.get(where.code) } : null; },
+    findMany: async ({ where }: any) => { queries++; return where.code.in.filter((c: string) => roles.has(c)).map((code: string) => ({ code, permissions: roles.get(code) })); },
+  },
   appSetting: {
-    findUnique: async ({ where }: any) => settings.get(where.id) || null,
-    upsert: async ({ where, create }: any) => { if (failRevocation) throw new Error('database unavailable'); if (!settings.has(where.id)) settings.set(where.id, create); return settings.get(where.id); },
+    findUnique: async ({ where }: any) => { queries++; return store.get(where.id) || null; },
+    upsert: async ({ where, create }: any) => {
+      if (failRevocation) throw new Error('database unavailable');
+      if (!store.has(where.id)) {
+        if ([...store.values()].some(r => r.key === create.key && r.userId === create.userId)) throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+        store.set(where.id, { ...create, updatedAt: new Date() });
+      }
+      return store.get(where.id);
+    },
+    deleteMany: async ({ where }: any) => {
+      let n = 0;
+      for (const [id, r] of [...store]) if (String(r.key).startsWith(where.key.startsWith) && r.updatedAt < where.updatedAt.lt) { store.delete(id); n++; }
+      return { count: n };
+    },
   },
 });
+setPrisma(makePrisma(settings));
 
 const sessions = createAuthSessions({ secret: 'test-only-session-secret', getUser: async id => users.get(id) || null });
 
@@ -76,7 +94,55 @@ const sessions = createAuthSessions({ secret: 'test-only-session-secret', getUse
   settings.clear();
   check('удаление отзыва из БД не восстанавливает отозванный OWNER токен', await sessions.validate(ownerToken) === null);
   const activeOwner = await sessions.issueOwner(owner.id);
-  setPrisma({ role: { findUnique: async () => null }, appSetting: { findUnique: async () => null } });
+  setPrisma({ role: { findUnique: async () => null, findMany: async () => [] }, appSetting: { findUnique: async () => null } } as any);
   check('смена базы сбрасывает подтверждение входа владельца', await sessions.validate(activeOwner) === null);
+
+  // ── Повторный выход, срок записей отзыва, цена проверки (находки 27-30, НОВОЕ-1) ──
+  settings.clear();
+  setPrisma(makePrisma(settings));
+  users.set('u1', { id: 'u1', password: 'hash-9', role: 'ENGINEER', isActive: true, validUntil: null, permissions: null });
+  const first = await sessions.issue('u1'); const again = await sessions.issue('u1');
+  await sessions.revoke(first); await sessions.revoke(again);
+  check('второй выход того же пользователя пишется в общую базу, а не только в память', settings.size === 2);
+  const peer = createAuthSessions({ secret: 'test-only-session-secret', getUser: async id => users.get(id) || null });
+  check('другой сервер на той же базе не принимает ни один из отозванных токенов', await peer.validate(first) === null && await peer.validate(again) === null);
+  const stale = [...settings.values()][0];
+  settings.set('old-shared-key', { id: 'old-shared-key', key: 'auth.session.revoked', userId: 'u7', value: '{}', updatedAt: new Date(Date.now() - 10 * 3600_000) });
+  settings.set('foreign', { id: 'foreign', key: 'equip_visibility', userId: null, value: '{}', updatedAt: new Date(0) });
+  await sessions.revoke(await sessions.issue('u1')); // чистка идёт не чаще раза в 10 минут, поэтому запускаем её через новый экземпляр
+  const cleaner = createAuthSessions({ secret: 'test-only-session-secret', getUser: async id => users.get(id) || null });
+  await cleaner.revoke(await cleaner.issue('u1'));
+  await new Promise(r => setTimeout(r, 20));
+  check('просроченные записи отзыва (и прежние, с общим ключом) удаляются', !settings.has('old-shared-key') && settings.has(stale.id));
+  check('чужие настройки чистка не трогает', settings.has('foreign'));
+
+  users.set('u2', { id: 'u2', password: 'p', role: 'ENGINEER', positionCode: 'ENGINEER', extraPositions: JSON.stringify(['EXTRA1', 'EXTRA2']), isActive: true });
+  const costly = await sessions.issue('u2');
+  queries = 0; await sessions.validate(costly);
+  check(`проверка сессии с двумя дополнительными должностями — 2 запроса к базе (роли одним запросом + отзыв; профиль подаётся отдельно), было 4 (${queries})`, queries <= 2);
+  queries = 0; await Promise.all(Array.from({ length: 20 }, () => sessions.validate(costly)));
+  check(`20 пакетов сокета подряд не умножают запросы: ${queries}`, queries <= 2);
+  queries = 0; await sessions.validate(costly);
+  check('следующая проверка снова идёт в базу — отзыв не откладывается', queries > 0);
+  users.set('u2', { ...users.get('u2'), isActive: false });
+  check('снятое право действует сразу после предыдущей проверки', await sessions.validate(costly) === null);
+
+  // Переполнение локального списка не отменяет выход
+  users.set('u3', { id: 'u3', password: 'p', role: 'ENGINEER', isActive: true });
+  const flood = createAuthSessions({ secret: 'test-only-session-secret', getUser: async id => users.get(id) || null });
+  for (let i = 0; i < 10001; i++) await flood.revoke(await flood.issue('u3'));
+  const last = await flood.issue('u3');
+  check('при 10000 локальных отзывов выход всё равно выполняется', await flood.revoke(last) === true && flood.verify(last) === null);
+
+  // Смена базы не оживляет токен, выход из которого не успел записаться
+  const doomed = await sessions.issue('u1');
+  failRevocation = true;
+  await assert.rejects(() => sessions.revoke(doomed), /database unavailable/);
+  const newStore = new Map<string, any>();
+  setPrisma(makePrisma(newStore));
+  failRevocation = false;
+  check('после смены базы токен с недописанным отзывом остаётся запрещённым', sessions.verify(doomed) === null);
+  await sessions.flushRevocations();
+  check('недописанный отзыв уходит в новую базу', [...newStore.values()].some(r => r.userId === 'u1'));
   console.log(`${checks} проверок пройдено`);
 })().catch(err => { console.error(err); process.exitCode = 1; });

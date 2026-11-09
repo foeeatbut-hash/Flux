@@ -30,7 +30,7 @@ async function main() {
       alias: { updateKey: updateKeyStub },
     });
     const vaultApi = require(path.join(root, 'src/vault.cjs'));
-    const { parseDatabaseUri } = require(path.join(root, 'src/database-runtime.cjs'));
+    const { parseDatabaseUri } = require(path.join(root, '../shared/database-runtime.cjs'));
     const { applyPublicConfig } = require(path.join(root, 'src/public-config.cjs'));
     const ownerNetwork = require(path.join(root, 'src/network.cjs'));
     assert.equal(ownerNetwork.serverUrl('http://127.0.0.1:3001'), 'http://127.0.0.1:3001');
@@ -144,7 +144,7 @@ async function main() {
       if (name === 'node:os') return { homedir: () => temp };
       if (name === './signing.cjs') return ownerSigning;
       if (name === './network.cjs') return fakeNetwork;
-      if (name === './database-runtime.cjs') return { startDatabaseRuntime: fakeStartDatabaseRuntime };
+      if (name === '../../shared/database-runtime.cjs') return { startDatabaseRuntime: fakeStartDatabaseRuntime };
       if (name === 'electron') return {
         app: { whenReady: () => ({ then() {} }), on() {} },
         BrowserWindow: class {}, ipcMain: { handle() {} }, clipboard: { writeText() {} },

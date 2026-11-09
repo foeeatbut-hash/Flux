@@ -737,6 +737,9 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     const prisma = getPrisma();
     const { componentId } = req.params;
     try {
+      // Без проверки несуществующий номер давал P2025 и ответ 500
+      const existing = await prisma.componentElement.findUnique({ where: { id: componentId }, select: { id: true } });
+      if (!existing) return res.status(404).json({ error: 'Компонент не найден' });
       const component = await prisma.componentElement.update({
         where: { id: componentId },
         data: {
