@@ -838,6 +838,15 @@
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 120000
+    },
+    {
+      "id": "files-office-vendor-xlsx",
+      "path": "scripts/test-vendor-xlsx.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 60000
     }
   ],
   "actions": [
