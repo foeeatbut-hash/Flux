@@ -3,7 +3,7 @@
  *
  * Локальные часы легко перевести назад, поэтому берётся максимум из локальных
  * часов, монотонного якоря (самое позднее замеченное время; лежит в скрытом
- * файле машины и в общей базе) и сетевого времени. Якорь только растёт: часы,
+ * файле машины и в общей базе) и часов самой базы (сервер компании). Якорь только растёт: часы,
  * отставшие от него больше чем на 6 часов, считаются переведёнными назад.
  *
  * Зачем отдельный модуль: правила якоря проверяются без поднятого сервера
@@ -19,7 +19,6 @@
  * там остаётся прежнее правило, а выручает сброс якоря владельцем.
  */
 import fs from 'node:fs';
-import https from 'node:https';
 import type { Express, Request, Response } from 'express';
 import { requireOwnerMiddleware } from './accessPolicy.js';
 
@@ -28,10 +27,10 @@ const BACK_TOLERANCE_MS = 6 * 3600_000;
 /** Насколько часы машины могут опережать время базы и всё ещё считаться верными */
 const AHEAD_TOLERANCE_MS = 10 * 60_000;
 const PERSIST_EVERY_MS = 60_000;
-/** После полного отказа сети следующая попытка не раньше: закрытая сеть не ждёт таймаута на каждом входе */
-const NETWORK_RETRY_MS = 5 * 60_000;
-/** Насколько часы могут отставать от сетевого времени, прежде чем считаются переведёнными назад */
-const NET_BEHIND_MS = 10 * 60_000;
+/** Насколько часы могут отставать от часов базы, прежде чем считаются переведёнными назад */
+const DB_BEHIND_MS = 10 * 60_000;
+/** Как часто часы базы перемеряются в фоне (проверки сессии синхронные, им нужен свежий замер) */
+const MEASURE_EVERY_MS = 60_000;
 const ANCHOR_KEY = 'time_anchor';
 
 export type Dialect = 'sqlite' | 'postgresql' | 'mysql';
@@ -41,10 +40,8 @@ export interface TrustedTimeDeps {
   dialect: () => Dialect;
   upsertSetting: (key: string, userId: string | null, value: string) => Promise<unknown>;
   anchorFile: string;
-  /** Заголовок Date внешних HTTPS-серверов; null, если сети нет */
-  networkTime: () => Promise<number | null>;
   now?: () => number;
-  /** Монотонные часы (мс): не зависят от перевода системных часов; нужны, чтобы помнить сетевое время */
+  /** Монотонные часы (мс): не зависят от перевода системных часов; нужны, чтобы помнить замер часов базы */
   mono?: () => number;
   /** Журнал сброса и отказов; по умолчанию молчит */
   log?: (message: string) => void;
@@ -72,9 +69,9 @@ export function createTrustedTime(deps: TrustedTimeDeps) {
   let lastPersist = 0;
   /** Время базы минус часы машины на момент последнего замера; null — замера нет */
   let skew: number | null = null;
-  let networkFailedAt = 0;
-  /** Последнее сетевое время и момент (по монотонным часам), когда оно получено */
-  let netRef: { net: number; mono: number } | null = null;
+  /** Последний замер часов базы и момент (по монотонным часам), когда он сделан */
+  let dbRef: { db: number; mono: number } | null = null;
+  let measuring = false;
 
   const readFile = (): number => {
     try { const v = parseInt(fs.readFileSync(deps.anchorFile, 'utf-8').trim(), 36); return Number.isFinite(v) ? v : 0; } catch { return 0; }
@@ -111,6 +108,8 @@ export function createTrustedTime(deps: TrustedTimeDeps) {
   function sync(): number {
     const now = clock();
     if (anchor === 0 && !loadedFile) { loadedFile = true; anchor = readFile(); }
+    // Часы базы перемеряются в фоне: откат на 1-5 часов якорь не видит, его видят только они
+    if (deps.dialect() !== 'sqlite' && !measuring && (!dbRef || mono() - dbRef.mono > MEASURE_EVERY_MS)) void measureSkew();
     const limit = ceiling();
     if (now >= anchor) {
       const next = Math.min(now, limit);
@@ -127,22 +126,28 @@ export function createTrustedTime(deps: TrustedTimeDeps) {
   /**
    * Часы переведены назад: не хранимый флаг, а вывод из текущих часов —
    * исправленные часы снимают его сами. Два признака: отставание от якоря больше
-   * 6 часов и отставание больше 10 минут от последнего сетевого времени (оно
-   * помнится на весь процесс, как раньше: откат на 1-5 часов якорем не виден).
-   * Сетевое время «движется» по монотонным часам, поэтому исправленные
-   * системные часы догоняют его и признак снимается.
+   * 6 часов и отставание больше 10 минут от часов базы (где они есть: откат на
+   * 1-5 часов якорем не виден). Замер часов базы «движется» по монотонным
+   * часам, поэтому исправленные системные часы догоняют его и признак снимается.
+   * У локальной SQLite часов базы нет, там работает только якорь.
    */
   const tampered = (): boolean => {
     if (anchor - clock() > BACK_TOLERANCE_MS) return true;
-    return !!netRef && netRef.net + (mono() - netRef.mono) - clock() > NET_BEHIND_MS;
+    return !!dbRef && dbRef.db + (mono() - dbRef.mono) - clock() > DB_BEHIND_MS;
   };
 
   async function measureSkew(): Promise<void> {
-    const db = await databaseClockMs(deps.prisma(), deps.dialect());
-    if (db !== null) skew = db - clock();
+    measuring = true;
+    try {
+      // Монотонные часы снимаются до запроса: ответ базы старше момента, когда он отправлен, не бывает
+      const m = mono();
+      const t0 = clock();
+      const db = await databaseClockMs(deps.prisma(), deps.dialect());
+      if (db !== null) { skew = db - t0; dbRef = { db, mono: m }; }
+    } finally { measuring = false; }
   }
 
-  /** Полная проверка (вход): якорь из базы, часы базы, сетевое время */
+  /** Полная проверка (вход): якорь из базы и часы базы */
   async function full(): Promise<{ now: number; tampered: boolean; source: string }> {
     await measureSkew();
     sync();
@@ -154,32 +159,13 @@ export function createTrustedTime(deps: TrustedTimeDeps) {
     }
     // Свой якорь, ушедший вперёд часов базы (часы этой машины когда-то спешили), подтягивается к времени базы
     if (anchor > ceiling()) { anchor = Math.max(0, clock() + (skew ?? 0)); lastPersist = 0; }
-    let source = skew === null ? 'local' : 'database';
-    let now = sync();
-    let behindNetwork = false;
-
-    // Закрытая сеть: после отказа до следующей попытки полчаса не ждём таймаута
-    const netTime = clock() - networkFailedAt < NETWORK_RETRY_MS ? null : await deps.networkTime().catch(() => null);
-    if (!netTime && clock() - networkFailedAt >= NETWORK_RETRY_MS) networkFailedAt = clock();
-    if (netTime) {
-      networkFailedAt = 0;
-      source = 'network';
-      // Сетевое время авторитетно: если часы отстают от него больше чем на 10 минут — переведены назад
-      netRef = { net: netTime, mono: mono() };
-      if (netTime - clock() > NET_BEHIND_MS) behindNetwork = true;
-      if (netTime > now) now = netTime;
-      if (netTime > anchor && netTime <= ceiling()) {
-        anchor = netTime;
-        lastPersist = clock();
-        await persist(netTime);
-      }
-    }
-    return { now, tampered: tampered() || behindNetwork, source };
+    const source = skew === null ? 'local' : 'database';
+    return { now: sync(), tampered: tampered(), source };
   }
 
   /** Сброс якоря владельцем: удаляет файл и запись в базе, дальше якорь строится заново от текущих часов */
   async function reset(): Promise<void> {
-    anchor = 0; loadedFile = true; lastPersist = 0; skew = null; networkFailedAt = 0; netRef = null;
+    anchor = 0; loadedFile = true; lastPersist = 0; skew = null; dbRef = null;
     try { fs.unlinkSync(deps.anchorFile); } catch (_) { /* файла могло не быть */ }
     await deps.prisma().appSetting.deleteMany({ where: { key: ANCHOR_KEY } });
     log('[Время] Якорь времени сброшен владельцем.');
@@ -206,41 +192,5 @@ export function registerTimeAnchorRoutes(app: Express, time: ReturnType<typeof c
     } catch (error: any) {
       res.status(500).json({ error: 'Не удалось сбросить якорь времени: ' + String(error?.message || error) });
     }
-  });
-}
-
-/**
- * Сетевое время: заголовок Date от нескольких независимых HTTPS-серверов.
- *
- * Это единственное место, где Flux ходит наружу сам (описано в README): запрос
- * HEAD / без каких-либо данных Flux на www.google.com, ya.ru и
- * www.cloudflare.com, и только когда входит профиль со сроком действия. Отказ
- * сети тихий (null) и быстрый: полторы секунды на всё, дальше работает якорь.
- */
-export function fetchNetworkTimeMs(timeoutMs = 1500): Promise<number | null> {
-  const hosts = ['www.google.com', 'ya.ru', 'www.cloudflare.com'];
-  const tryHost = (host: string) => new Promise<number | null>((resolve) => {
-    try {
-      const req = https.request({ host, method: 'HEAD', path: '/', timeout: timeoutMs }, (r) => {
-        const d = r.headers && r.headers.date ? Date.parse(r.headers.date) : NaN;
-        r.resume();
-        resolve(Number.isFinite(d) ? d : null);
-      });
-      req.on('timeout', () => { req.destroy(); resolve(null); });
-      req.on('error', () => resolve(null));
-      req.end();
-    } catch {
-      resolve(null);
-    }
-  });
-  return new Promise((resolve) => {
-    let settled = false;
-    let pending = hosts.length;
-    const done = (v: number | null) => {
-      if (v !== null && !settled) { settled = true; resolve(v); }
-      else if (--pending === 0 && !settled) resolve(null);
-    };
-    hosts.forEach(h => tryHost(h).then(done));
-    setTimeout(() => { if (!settled) { settled = true; resolve(null); } }, timeoutMs + 300).unref();
   });
 }

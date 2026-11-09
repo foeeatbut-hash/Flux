@@ -108,7 +108,7 @@ import { protectSessionSockets } from './server/sessionSockets.js';
 import { authTokenFromRequest, createCookieAuth } from './server/authCookies.js';
 import { permRuleFor } from './server/permRoutes.js';
 import { describeApiError, isClientAbort } from './server/apiErrors.js';
-import { createTrustedTime, fetchNetworkTimeMs, registerTimeAnchorRoutes } from './server/trustedTime.js';
+import { createTrustedTime, registerTimeAnchorRoutes } from './server/trustedTime.js';
 import { corsMiddleware, socketAllowRequest, blockPrivateBuildFiles, earlyBodyGate, staticUploadOptions, chatFileGate, setLinkSecret, hashLegacyPasswords, listenHost, dropRevokedSockets, distDirectory, spaFallbackAllowed } from './server/security.js';
 
 // ── Пароли: хеширование (scrypt) с обратной совместимостью ────────────────────
@@ -606,7 +606,6 @@ const trustedTime = createTrustedTime({
   dialect: () => getDialect(),
   upsertSetting,
   anchorFile: path.join(os.homedir(), '.pdm-time-anchor'),
-  networkTime: fetchNetworkTimeMs,
   log: logInit,
 });
 const trustedNowSync = () => trustedTime.sync();

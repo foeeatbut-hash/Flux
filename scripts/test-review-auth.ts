@@ -76,10 +76,9 @@ for (const channel of ['workbook:getDataSet', 'workbook:getFormat', 'workbook:ge
 // ── 47-49: надёжное время ──
 const HOUR = 3600_000;
 const makeClock = (start: number) => { let t = start; return { now: () => t, set: (v: number) => { t = v; }, add: (v: number) => { t += v; } }; };
-const makeDeps = (clock: ReturnType<typeof makeClock>, opts: { dialect?: 'sqlite' | 'postgresql'; dbNow?: () => number | null; net?: () => number | null; store?: Map<string, string> } = {}) => {
+const makeDeps = (clock: ReturnType<typeof makeClock>, opts: { dialect?: 'sqlite' | 'postgresql'; dbNow?: () => number | null; store?: Map<string, string> } = {}) => {
   const store = opts.store || new Map<string, string>();
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'flux-time-')), 'anchor');
-  let netCalls = 0;
   const prisma = {
     $queryRawUnsafe: async () => { const v = opts.dbNow ? opts.dbNow() : null; return v === null ? [] : [{ t: BigInt(v) }]; },
     appSetting: {
@@ -91,9 +90,8 @@ const makeDeps = (clock: ReturnType<typeof makeClock>, opts: { dialect?: 'sqlite
     prisma: () => prisma, dialect: () => opts.dialect || 'sqlite', file,
     upsertSetting: async (key: string, _u: string | null, value: string) => { store.set(key, value); },
     anchorFile: file, now: clock.now, mono: monoNow,
-    networkTime: async () => { netCalls++; return opts.net ? opts.net() : null; },
   };
-  return { deps, store, file, netCalls: () => netCalls };
+  return { deps, store, file };
 };
 let monoMs = 0;
 const monoNow = () => monoMs;
@@ -167,31 +165,68 @@ const sleepTick = () => new Promise((r) => setTimeout(r, 5));
     check('после сброса часы не считаются переведёнными назад', again.isTampered() === false);
     check('файл якоря пересоздан от текущих часов', fs.existsSync(env.file) ? parseInt(fs.readFileSync(env.file, 'utf-8'), 36) <= clock.now() : true);
   }
-  // Запросы наружу: закрытая сеть не задерживает каждый вход
-  {
+  // Откат на 1-5 часов (якорь его не видит, допуск 6 часов) ловится по часам базы и снимается исправлением часов
+  for (const back of [1, 3, 5]) {
+    const db = { now: T0 };
+    const store = new Map<string, string>();
     const clock = makeClock(T0);
-    const env = makeDeps(clock, { dialect: 'sqlite', net: () => null });
-    const time = createTrustedTime(env.deps);
-    await time.full(); await time.full(); await time.full();
-    check('после отказа сети следующие входы не ждут сеть (1 попытка за 5 минут)', env.netCalls() === 1, env.netCalls());
-    clock.add(6 * 60_000);
+    const time = createTrustedTime(makeDeps(clock, { dialect: 'postgresql', dbNow: () => db.now, store }).deps);
     await time.full();
-    check('через 5 минут попытка повторяется', env.netCalls() === 2, env.netCalls());
+    clock.set(T0 - back * HOUR); // откатили часы машины, часы базы идут как шли
+    check(`откат на ${back} ч: виден проверке сессии без нового входа (по замеру часов базы)`, time.isTampered());
+    check(`откат на ${back} ч: вход отмечен как подделка`, (await time.full()).tampered === true);
+    monoMs += 60_000; db.now += 60_000; clock.add(60_000);
+    check(`откат на ${back} ч: остаётся виден, пока часы не исправлены`, time.isTampered());
+    clock.set(db.now); // часы исправили
+    check(`откат на ${back} ч: исправленные часы снимают признак`, time.isTampered() === false);
   }
-  // Сетевой откат на 1-5 часов (якорь его не видит) ловится в sync-проверке сессии и снимается исправлением часов
+  // После перезапуска замера ещё нет: первая же проверка сессии перемеряет часы базы в фоне
   {
-    const real = makeClock(T0);
+    const db = { now: T0 };
+    const clock = makeClock(T0 - 3 * HOUR);
+    const time = createTrustedTime(makeDeps(clock, { dialect: 'postgresql', dbNow: () => db.now, store: new Map() }).deps);
+    time.sync(); await sleepTick(); await sleepTick();
+    check('откат на 3 ч сразу после запуска ловится фоновым замером часов базы', time.isTampered());
+  }
+  // SQLite: часов базы нет, к базе за временем не ходим и ничего не выдумываем
+  {
     const clock = makeClock(T0);
-    const env = makeDeps(clock, { dialect: 'sqlite', net: () => real.now() });
+    let queries = 0;
+    const env = makeDeps(clock, { dialect: 'sqlite' });
+    (env.deps.prisma() as any).$queryRawUnsafe = async () => { queries++; return []; };
     const time = createTrustedTime(env.deps);
-    time.sync();
-    clock.set(T0 - 3 * HOUR); // откатили на 3 часа
-    await time.full();
-    check('откат на 3 часа, замеченный по сети, виден проверке сессии (isTampered)', time.isTampered());
-    monoMs += 60_000; real.add(60_000); clock.add(60_000);
-    check('и остаётся виден дальше, пока часы не исправлены', time.isTampered());
-    clock.set(real.now()); // часы исправили
-    check('исправленные часы снимают признак', time.isTampered() === false);
+    time.sync(); const full = await time.full();
+    check('SQLite: источник времени локальный, запросов часов базы нет', full.source === 'local' && queries === 0, { source: full.source, queries });
+  }
+  // Flux не ходит в интернет за временем: ни одного исходящего соединения во время проверок
+  {
+    const https = await import('node:https'); const http = await import('node:http'); const net = await import('node:net');
+    const attempts: string[] = [];
+    const origHttps = https.request, origHttp = http.request, origConnect = net.connect;
+    (https as any).request = (...a: any[]) => { attempts.push('https'); return (origHttps as any)(...a); };
+    (http as any).request = (...a: any[]) => { attempts.push('http'); return (origHttp as any)(...a); };
+    (net as any).connect = (...a: any[]) => { attempts.push('net'); return (origConnect as any)(...a); };
+    const clock = makeClock(T0);
+    const time = createTrustedTime(makeDeps(clock, { dialect: 'postgresql', dbNow: () => T0, store: new Map() }).deps);
+    await time.full(); time.sync(); await sleepTick();
+    (https as any).request = origHttps; (http as any).request = origHttp; (net as any).connect = origConnect;
+    check('надёжное время не открывает ни одного сетевого соединения', attempts.length === 0, attempts);
+    // Статически: хостов, которые раньше опрашивались за временем, нет нигде в коде и README
+    const banned = /www\.google\.com|ya\.ru|www\.cloudflare\.com|fetchNetworkTimeMs/;
+    const roots = ['server.ts', 'server', 'electron', 'src', 'README.md'];
+    const hits: string[] = [];
+    const walk = (f: string) => {
+      if (!fs.existsSync(f)) return;
+      const st = fs.statSync(f);
+      if (st.isDirectory()) { for (const n of fs.readdirSync(f)) if (n !== 'node_modules') walk(path.join(f, n)); return; }
+      if (!/\.(ts|tsx|js|cjs|mjs|md)$/.test(f)) return;
+      // Список почтовых доменов и адрес справки Google — не запросы времени
+      const text = fs.readFileSync(f, 'utf-8');
+      if (f.replace(/\\/g, '/').endsWith('server/routes/mail.ts') || f.replace(/\\/g, '/').endsWith('src/lib/browserUrl.ts')) return;
+      if (banned.test(text)) hits.push(f);
+    };
+    roots.forEach(walk);
+    check('в коде и README нет запросов времени к google, ya.ru, cloudflare', hits.length === 0, hits);
   }
   // Машина с часами +2 дня ничего не пишет в общую базу, даже до первого входа со сроком
   {

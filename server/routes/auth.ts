@@ -28,7 +28,7 @@ interface AuthDeps {
   issueAuthToken: (userId: string) => string | Promise<string>;
   /** Права должностей (основной и дополнительных) отдаются вместе с профилем при входе */
   positionPermissionsOf: (user: any) => Promise<Record<string, any>>;
-  /** Полная проверка времени при входе: якорь из базы + сетевое время */
+  /** Полная проверка времени при входе: якорь из базы + часы базы */
   trustedNowFull: () => Promise<{ now: number; tampered: boolean; source: string }>;
   /** Быстрая оценка надёжного времени; заодно двигает якорь вперёд */
   trustedNowSync: () => number;
