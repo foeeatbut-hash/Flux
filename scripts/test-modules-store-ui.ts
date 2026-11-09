@@ -236,7 +236,7 @@ async function run() {
     check(`допуск: ждущая подпрограмма с кнопкой «Допустить» (${(await admin.getByTestId('stx-admin').innerText()).replace(/\n/g, ' | ').slice(0, 300)})`, await admin.locator('tr', { hasText: 'Пакет документов' }).getByText('Допустить', { exact: true }).count() === 1);
     check('сбои версии видны администратору (всплеск → отзыв)', /7 в 1\.2\.0/.test(await admin.getByTestId('stx-admin').innerText()));
     if (shot) await admin.screenshot({ path: shot.replace(/\.png$/, '-admin.png') });
-    await admin.getByRole('tab', { name: /Журнал/ }).click();
+    await admin.getByRole('tab', { name: 'Журнал', exact: true }).click();
     check('журнал: кто что сделал', /обновил/.test(await admin.getByTestId('stx-log').innerText()));
     await admin.getByRole('tab', { name: /Версии/ }).click();
     check('у кого какая версия', /1\.1\.0 — 9, 1\.2\.0 — 5/.test(await admin.getByTestId('stx-admin').innerText()));

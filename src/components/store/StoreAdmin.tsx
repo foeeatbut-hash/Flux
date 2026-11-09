@@ -32,7 +32,7 @@ export default function StoreAdmin() {
   const name = (id: string) => data.listings.find((l) => l.moduleId === id)?.name || id;
   return <div data-testid="stx-admin">
     <div className="stx-h">Администрирование Store</div>
-    <Tabs label="Администрирование" value={tab} onChange={setTab} tabs={[{ value: 'admission', label: 'Допуск', count: waiting }, { value: 'versions', label: 'Версии и обязательные' }, { value: 'log', label: 'Журнал Store' }, { value: 'journal', label: 'Журнал подпрограмм' }]} />
+    <Tabs label="Администрирование" value={tab} onChange={setTab} tabs={[{ value: 'admission', label: 'Допуск', count: waiting }, { value: 'versions', label: 'Версии и обязательные' }, { value: 'log', label: 'Журнал' }, { value: 'journal', label: 'Журнал подпрограмм' }]} />
     {error && <div className="fx-error my-2">{error}</div>}
     {tab === 'admission' && <table className="fx-table mt-3"><thead><tr><th>Подпрограмма</th><th>Версия</th><th>Состояние</th><th>Установлена у</th><th>Сбои версии</th><th /></tr></thead>
       <tbody>{data.listings.map((l) => <AdmissionRow key={l.moduleId} l={l} spread={data.spread[l.moduleId]} act={act} />)}</tbody></table>}
