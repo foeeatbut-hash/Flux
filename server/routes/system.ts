@@ -31,7 +31,8 @@ interface SystemDeps {
   /** Папка данных программы (там config.json, журнал переключения и база по умолчанию) */
   appDataPath: string;
   loadAppConfig: () => AppConfigLike;
-  saveAppConfig: (config: AppConfigLike) => void;
+  /** strict: ошибку записи не глотать (переключение базы откатывается, если конфиг не записался) */
+  saveAppConfig: (config: AppConfigLike, strict?: boolean) => void;
   resolveLocalDbPath: (config: AppConfigLike) => string;
   createPrismaClient: (dbType: string, dbUrl: string) => any;
   ensureHealthyLocalDb: (dbFile: string, schemaReady?: boolean) => void;
@@ -260,15 +261,19 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
       replaceClient(fresh);
       replaced = true;
 
+      // Всё, что могло сорваться, позади: новая база отвечает и читается
+      const needsSetup = await fresh.user.count() === 0;
+
+      // Конфиг пишется ПОСЛЕДНИМ: иначе откат оставил бы в config.json новую базу,
+      // и после перезапуска сервер ушёл бы в неё. Ошибка записи откатывает смену.
       // Адрес общей базы при переходе на локальную не стирается: к ней можно вернуться
       saveAppConfig({
         ...existingConfig,
         current_db_type: target.type,
         database_url: target.type === 'REMOTE' ? (target.url || '') : (existingConfig.database_url || ''),
         local_db_path: nextLocalPath,
-      });
+      }, true);
 
-      const needsSetup = await fresh.user.count() === 0;
       try { await oldPrisma?.$disconnect(); } catch (discErr: any) {
         console.warn('[DB Switch] Notice during client disconnect:', discErr.message);
       }

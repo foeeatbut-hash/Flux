@@ -98,7 +98,38 @@ function createWindow() {
       if (['http:', 'https:', 'mailto:'].includes(new URL(raw).protocol)) void shell.openExternal(raw);
     } catch (_) { /* не ссылка — игнорируем */ }
   };
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => { openOutside(url); return { action: 'deny' }; });
+  // Свои статические страницы (dict/SOURCES.md, genoffice/NOTICE по <a target="_blank">)
+  // открываются во вкладке-окне Flux БЕЗ preload: у такого окна нет доступа к оболочке
+  const isOwnPage = (raw: string) => {
+    try {
+      const u = new URL(raw);
+      if (u.protocol === 'file:') {
+        const dist = path.resolve(__dirname, '../dist');
+        const target = path.resolve(decodeURIComponent(u.pathname.replace(/^\/([A-Za-z]:)/, '$1')));
+        return target === dist || target.startsWith(dist + path.sep);
+      }
+      return process.env.NODE_ENV === 'development' && u.origin === 'http://localhost:3000';
+    } catch (_) { return false; }
+  };
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isOwnPage(url)) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          autoHideMenuBar: true,
+          webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, preload: undefined },
+        },
+      };
+    }
+    if (/^(https?|mailto):/i.test(url)) openOutside(url);
+    else console.warn(`[Window] Ссылка отклонена (не внутренняя страница и не http/https/mailto): ${String(url).slice(0, 200)}`);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('did-create-window', child => {
+    // Из такого окна дальше никуда не уходим
+    child.webContents.on('will-navigate', navigation => navigation.preventDefault());
+    child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  });
   mainWindow.webContents.on('will-navigate', (navigation, next) => {
     const here = mainWindow?.webContents.getURL().split('#')[0];
     if (next.split('#')[0] === here) return;

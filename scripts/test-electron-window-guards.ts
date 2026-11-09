@@ -11,6 +11,7 @@ const win = src.slice(src.indexOf('function createWindow'));
 assert(/mainWindow\.webContents\.setWindowOpenHandler/.test(win), 'главное окно: setWindowOpenHandler');
 assert(/mainWindow\.webContents\.on\('will-navigate'/.test(win), 'главное окно: will-navigate');
 assert(/action: 'deny'/.test(win));
+assert(/isOwnPage/.test(win) && /preload: undefined/.test(win), 'свои страницы открываются без preload');
 const pdf = src.slice(src.indexOf("ipcMain.handle('print:to-pdf'"));
 assert(/javascript: false/.test(pdf.slice(0, 900)), 'окно печати без скриптов');
 assert(/partition: 'flux-print'/.test(pdf.slice(0, 900)), 'своя сессия окна печати');

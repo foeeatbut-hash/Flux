@@ -22,13 +22,21 @@ export default function BackupSection({ isAdmin, mayRun = isAdmin, addToast }: a
   };
   useEffect(() => { load(); }, []);
 
+  // Сколько файлов и книг не удалось положить в архив (манифест хранит и счётчик, и первые записи)
+  const skippedOf = (m: any) => Number(m?.explorerFailedCount ?? (m?.explorerFailed || []).length) + Number(m?.dataFailedCount ?? (m?.dataFailed || []).length);
+
   const runNow = async () => {
     setRunningNow(true);
     try {
       const r = await fetch('/api/backup/run', { method: 'POST' });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || `Сервер ответил ${r.status}`);
-      addToast(`Архив создан: файлов Проводника — ${d.explorerFiles}, книг данных — ${d.dataWorkbooks}`, 'success');
+      const skipped = skippedOf(d);
+      if (skipped > 0) {
+        addToast(`Архив создан с пропусками: не сохранено — ${skipped}. Список — в файле manifest.json внутри папки архива.`, 'info');
+      } else {
+        addToast(`Архив создан: файлов Проводника — ${d.explorerFiles}, книг данных — ${d.dataWorkbooks}`, 'success');
+      }
       load();
     } catch (e: any) {
       addToast(`Не удалось создать архив: ${e.message}`, 'error');
@@ -142,6 +150,11 @@ export default function BackupSection({ isAdmin, mayRun = isAdmin, addToast }: a
                     <Archive className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                     <span className="font-mono font-medium truncate">{b.name}</span>
                   </div>
+                  {b.manifest && skippedOf(b.manifest) > 0 && (
+                    <span className="text-amber-600 shrink-0" title={`Не сохранено: ${[...(b.manifest.explorerFailed || []), ...(b.manifest.dataFailed || [])].slice(0, 10).map((x: any) => x.name).join(', ')}. Полный список — в manifest.json внутри папки архива.`}>
+                      пропущено: {skippedOf(b.manifest)}
+                    </span>
+                  )}
                   <div className="flex items-center gap-3 text-slate-400 shrink-0">
                     {b.manifest && <span title={`Файлов Проводника: ${b.manifest.explorerFiles}, книг данных: ${b.manifest.dataWorkbooks}`}>{countOf(b.manifest.explorerFiles, 'файл')}</span>}
                     <span>{fmtSize(b.size)}</span>

@@ -371,7 +371,7 @@ function resolveLocalDbPath(config: AppConfig): string {
   return path.join(ventAppDataPath, 'database.sqlite');
 }
 
-function saveAppConfig(config: AppConfig) {
+function saveAppConfig(config: AppConfig, strict = false) {
   try {
     // Через временный файл: обрыв записи не оставит наполовину записанный config.json
     const tmp = `${CONFIG_FILE}.${process.pid}.tmp`;
@@ -379,6 +379,7 @@ function saveAppConfig(config: AppConfig) {
     fs.renameSync(tmp, CONFIG_FILE);
   } catch (err: any) {
     logInit(`[AppConfig Error] Exception writing config.json: ${err.message}`);
+    if (strict) throw new Error(`Не удалось записать config.json: ${err.message}`);
   }
 }
 

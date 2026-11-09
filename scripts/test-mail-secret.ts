@@ -6,7 +6,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import assert from 'node:assert/strict';
-import { seal, unseal, keySource, setSecretDataDir } from '../server/mail/secret';
+import { seal, unseal, keySource, keyProblem, setSecretDataDir } from '../server/mail/secret';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-mail-secret-'));
 try {
@@ -32,6 +32,11 @@ try {
   assert.equal(fs.readFileSync(path.join(b, 'mail.key'), 'utf8'), 'испорчено', 'исходный файл на месте');
   assert(fs.readdirSync(b).some(n => n.startsWith('mail.key.bad-')), 'копия рядом');
   assert.equal(unseal(sealed.secret, sealed.nonce), '', 'расшифровка не выдаёт мусор');
+  // Многократное чтение (опрос ящиков по таймеру) не плодит копий
+  for (let i = 0; i < 20; i++) { unseal(sealed.secret, sealed.nonce); try { seal('x'); } catch (_) {} }
+  assert.equal(fs.readdirSync(b).filter(n => n.startsWith('mail.key.bad-')).length, 1, 'ровно одна копия');
+  // Причина видна человеку вместо «пароль не задан»
+  assert(/повреждён/.test(keyProblem()));
   console.log('✓ битый mail.key не заменяется, копия рядом, понятная ошибка');
 
   // 91: ключ из прежнего каталога переезжает в заданный сервером

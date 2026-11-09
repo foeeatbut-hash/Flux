@@ -233,6 +233,26 @@
       "timeoutMs": 90000
     },
     {
+      "id": "identity-mail-secret",
+      "path": "scripts/test-mail-secret.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
+      "id": "identity-electron-window-guards",
+      "path": "scripts/test-electron-window-guards.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
       "id": "identity-project-id-migration",
       "path": "scripts/test-entity-id-migration-sqlite.ts",
       "layer": "api-db",

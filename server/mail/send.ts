@@ -3,7 +3,7 @@ import path from 'path';
 import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer';
 import { getPrisma } from '../context.js';
-import { unseal } from './secret.js';
+import { unseal, keyProblem } from './secret.js';
 import * as imap from './imap.js';
 import { credsOf } from './sync.js';
 
@@ -138,13 +138,11 @@ export interface SmtpConn {
 /**
  * Параметры соединения с SMTP.
  *
- * Без неявного TLS (порт 587) шифрование включается командой STARTTLS уже
- * после приветствия. Без `requireTLS` nodemailer при отказе сервера от STARTTLS молча продолжил
+ * На порту 587 шифрование включается командой STARTTLS уже после приветствия.
+ * Без `requireTLS` nodemailer при отказе сервера от STARTTLS молча продолжил
  * бы и отправил логин с паролем открытым текстом; здесь он вместо этого
  * остановится с понятной ошибкой.
  */
-const isLocalHost = (h: string) => /^(localhost|127\.\d+\.\d+\.\d+|\[?::1\]?)$/i.test(String(h || '').trim());
-
 export function smtpTransportOptions(c: SmtpConn, timeouts: { connection: number; socket: number }) {
   const secure = c.smtpSecure !== false;
   const port = c.smtpPort || (secure ? 465 : 587);
@@ -152,10 +150,7 @@ export function smtpTransportOptions(c: SmtpConn, timeouts: { connection: number
     host: c.smtpHost,
     port,
     secure,
-    // Без неявного TLS шифрование обязательно на любом порту: иначе сервер, не
-    // предложивший STARTTLS, получил бы логин и пароль открытым текстом
-    // (кроме своего компьютера: локальный ретранслятор наружу ничего не передаёт)
-    requireTLS: !secure && !isLocalHost(c.smtpHost),
+    requireTLS: !secure && port === 587,
     auth: { user: c.login, pass: c.password },
     connectionTimeout: timeouts.connection,
     greetingTimeout: 15000,
@@ -192,7 +187,7 @@ export async function sendMail(accountId: string, input: SendInput, sigDir: stri
   if (!acc) return { ok: false, error: 'Ящик не найден', messageId: '', appended: false, rejected: [] };
 
   const password = unseal(acc.secret, acc.secretNonce);
-  if (!password) return { ok: false, error: 'Пароль ящика не читается — задайте его заново', messageId: '', appended: false, rejected: [] };
+  if (!password) return { ok: false, error: keyProblem() || 'Пароль ящика не читается — задайте его заново', messageId: '', appended: false, rejected: [] };
 
   const to = splitAddrs(input.to);
   if (!to.length) return { ok: false, error: 'Укажите хотя бы одного получателя', messageId: '', appended: false, rejected: [] };

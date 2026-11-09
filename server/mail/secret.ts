@@ -29,6 +29,9 @@ const KEY_FILE = 'mail.key';
 let cachedKey: Buffer | null = null;
 let cachedSource: 'system' | 'file' | null = null;
 let configuredDir = '';
+// Ошибка ключа запоминается на процесс: копия битого файла делается один раз,
+// а не при каждом опросе ящиков, и причину можно показать человеку
+let keyError: Error | null = null;
 
 /**
  * Каталог данных, который знает сервер (server.ts). Свой расчёт ниже остаётся
@@ -36,7 +39,7 @@ let configuredDir = '';
  * лежал совсем в другом месте.
  */
 export function setSecretDataDir(dir: string): void {
-  if (dir && dir !== configuredDir) { configuredDir = dir; cachedKey = null; cachedSource = null; }
+  if (dir && dir !== configuredDir) { configuredDir = dir; cachedKey = null; cachedSource = null; keyError = null; }
 }
 
 /** Каталог данных программы — тот же, где база и файлы Чата. */
@@ -103,8 +106,10 @@ function keyFromFile(): Buffer {
       throw new Error(`Не удалось прочитать ключ паролей почты (${file}): ${e?.message || e}. Файл не изменён.`);
     }
     if (key.length === 32) return key;
-    const kept = `${file}.bad-${Date.now()}`;
-    try { fs.copyFileSync(file, kept); } catch (_) { /* копию не сделать — файл всё равно не трогаем */ }
+    // Не больше одной копии на файл: если копия уже есть (прежний запуск), новую не плодим
+    const existing = fs.readdirSync(dir).find(n => n.startsWith(`${KEY_FILE}.bad-`));
+    const kept = existing ? path.join(dir, existing) : `${file}.bad-${Date.now()}`;
+    if (!existing) { try { fs.copyFileSync(file, kept); } catch (_) { /* копию не сделать — файл всё равно не трогаем */ } }
     throw new Error(`Ключ паролей почты (${file}) повреждён, пароли ящиков расшифровать нельзя. Файл сохранён как ${kept}; верните исправный mail.key или введите пароли ящиков заново, удалив повреждённый файл.`);
   }
   // Ключа в новом каталоге нет, а в прежнем (расчёт самого модуля) есть — берём его
@@ -130,10 +135,24 @@ function keyFromFile(): Buffer {
 /** Источник выбирается один раз и запоминается: ключ из разных мест за один запуск недопустим */
 function getKey(): Buffer {
   if (cachedKey) return cachedKey;
+  if (keyError) throw keyError;
+  try { return loadKey(); } catch (e: any) { keyError = e instanceof Error ? e : new Error(String(e)); throw keyError; }
+}
+
+function loadKey(): Buffer {
   const system = keyFromSafeStorage();
   if (system) { cachedSource = 'system'; cachedKey = system; }
   else { cachedSource = 'file'; cachedKey = keyFromFile(); }
   return cachedKey;
+}
+
+/**
+ * Почему пароли ящиков сейчас нельзя прочитать из-за самого ключа (повреждён
+ * файл, не расшифровывается). Пусто — с ключом всё в порядке. Нужен, чтобы
+ * вместо «пароль не задан» человек видел настоящую причину.
+ */
+export function keyProblem(): string {
+  try { getKey(); return ''; } catch (e: any) { return String(e?.message || e); }
 }
 
 /** Где именно лежит ключ — показываем в разделе, чтобы человек знал. Ничего не создаёт. */

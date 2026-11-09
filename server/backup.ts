@@ -330,8 +330,11 @@ export function initBackups(deps: BackupDeps) {
         explorerFiles: explorer.files,
         explorerSkipped: explorer.skipped,
         // Что не удалось сохранить: архив считается готовым, но владелец это увидит
-        explorerFailed: explorer.failed,
-        dataFailed: xlsx.failed,
+        // В манифест — не больше 200 записей, полное число отдельно (иначе при тысячах сбоев он раздувается)
+        explorerFailed: explorer.failed.slice(0, 200),
+        explorerFailedCount: explorer.failed.length,
+        dataFailed: xlsx.failed.slice(0, 200),
+        dataFailedCount: xlsx.failed.length,
         dbIncluded: dbOk,
         dataWorkbooks: xlsxCount,
         sizeBytes: 0,

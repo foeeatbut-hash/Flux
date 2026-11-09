@@ -20,12 +20,14 @@ import { getDialect, setDialect } from '../server/ddl';
     let config: any = { current_db_type: 'LOCAL', database_url: 'mysql://u:p@shared.test/flux', local_db_path: '' };
     const disconnects: string[] = [];
     let failRemote = true;
+    let failCount = false;
+    let failSave = false;
     let gate: Promise<void> | null = null;
     const mk = (name: string, fail = false) => ({
       name,
       $queryRawUnsafe: async () => { if (gate) await gate; if (fail) throw new Error('нет связи'); return []; },
       $disconnect: async () => { disconnects.push(name); },
-      user: { count: async () => 1 },
+      user: { count: async () => { if (failCount) throw new Error('чтение не вышло'); return 1; } },
     });
     const old = mk('old');
     setPrisma(old);
@@ -36,7 +38,7 @@ import { getDialect, setDialect } from '../server/ddl';
     app.use((req: any, _res, next) => { req.authUser = { role: 'OWNER' }; next(); });
     registerSystemRoutes(app, {
       appVersion: 't', appDataPath: dir,
-      loadAppConfig: () => ({ ...config }), saveAppConfig: c => { config = { ...c }; },
+      loadAppConfig: () => ({ ...config }), saveAppConfig: (c: any) => { if (failSave) throw new Error('диск полон'); config = { ...c }; },
       resolveLocalDbPath: () => path.join(dir, 'database.sqlite'),
       createPrismaClient: (type: string, url: string) => {
         setDialect(type === 'REMOTE' ? 'mysql' : 'sqlite');
@@ -88,6 +90,23 @@ import { getDialect, setDialect } from '../server/ddl';
     assert.equal(config.local_db_path, path.join(dir, 'x.sqlite'));
     assert(disconnects.includes('old'), 'после успеха старый отключён');
     console.log('✓ переход на LOCAL сохраняет адрес общей базы');
+
+    // Сбой чтения новой базы и сбой записи конфига: config.json прежний, клиент прежний
+    const cfgBefore = JSON.stringify(config);
+    const cur = getPrisma();
+    failCount = true;
+    r = await post('/api/db/switch', { current_db_type: 'LOCAL', database_path: path.join(dir, 'y.sqlite') });
+    failCount = false;
+    assert.equal(r.status, 500);
+    assert.equal(JSON.stringify(config), cfgBefore, 'config.json прежний после сбоя count()');
+    assert.equal(getPrisma(), cur);
+    failSave = true;
+    r = await post('/api/db/switch', { current_db_type: 'LOCAL', database_path: path.join(dir, 'z.sqlite') });
+    failSave = false;
+    assert.equal(r.status, 500);
+    assert.equal(getPrisma(), cur, 'ошибка записи конфига откатывает смену');
+    assert.equal(JSON.stringify(config), cfgBefore);
+    console.log('✓ config.json пишется последним; сбой count() или записи — прежний конфиг и клиент');
 
     // 87: одновременные запросы
     let release!: () => void;

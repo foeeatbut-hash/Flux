@@ -100,7 +100,8 @@ async function main() {
     const starttls = smtpTransportOptions({ ...base, smtpPort: 587, smtpSecure: false }, t);
     // Без этого сервер, не предложивший STARTTLS, получил бы пароль открытым текстом
     check('на 587 шифрование обязательно', starttls.requireTLS === true);
-    check('на порту 25 без SSL шифрование тоже обязательно', smtpTransportOptions({ ...base, smtpHost: 'mail.corp.test', smtpPort: 25, smtpSecure: false }, t).requireTLS === true);
+    // Ящик в локальной сети на порту 25 без TLS работает как раньше: шифрование — если сервер его предлагает
+    check('на порту 25 без SSL STARTTLS не навязывается', smtpTransportOptions({ ...base, smtpHost: 'mail.corp.test', smtpPort: 25, smtpSecure: false }, t).requireTLS === false);
     check('на 465 SSL', smtpTransportOptions({ ...base, smtpPort: 465, smtpSecure: true }, t).secure === true);
     check('на 465 requireTLS не нужен', smtpTransportOptions({ ...base, smtpPort: 465, smtpSecure: true }, t).requireTLS === false);
     check('порт 0 не уходит серверу', smtpTransportOptions({ ...base, smtpPort: 0, smtpSecure: true }, t).port === 465);
