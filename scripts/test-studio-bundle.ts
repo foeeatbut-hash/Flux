@@ -1,0 +1,73 @@
+/**
+ * Две сборки Flux Studio: разделение, одинаковая версия и умение проверки падать.
+ *
+ * Что доказывается:
+ * - сборка разработчика проходит проверку, в ней нет ни файла, ни метки кода владельца;
+ * - сборка владельца проверку НЕ проходит (иначе проверка ничего не ловит), и каждая
+ *   метка из списка в ней действительно есть (иначе метка мёртвая и защищает от пустоты);
+ * - мутация: стоит подключить модуль владельца в сборку разработчика — проверка падает
+ *   и называет файл и метку;
+ * - мутация по тексту: метка, дописанная в готовый пакет, тоже ловится;
+ * - обе сборки несут номер версии Flux из корневого package.json, а имя exe — по решению владельца.
+ *
+ * Запуск: npx tsx scripts/test-studio-bundle.ts
+ */
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { checkBundle, OWNER_MARKERS } from './check-studio-bundle';
+
+const { buildStudio, TARGETS } = require('../studio/build.cjs');
+const root = path.resolve(__dirname, '..');
+let passed = 0;
+const ok = (name: string, value: unknown) => { assert.ok(value, name); passed++; console.log(`  ✓ ${name}`); };
+
+async function main() {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-studio-bundle-'));
+  try {
+    const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
+    console.log('Сборка разработчика');
+    const developer = path.join(temp, 'developer');
+    await buildStudio({ target: 'developer', outDir: developer });
+    ok('проверка бандла разработчика проходит', checkBundle(developer).length === 0);
+    ok('в пакете разработчика нет каталогов раздела владельца', !fs.existsSync(path.join(developer, 'app/owner')) && !fs.existsSync(path.join(developer, 'app/ui')));
+
+    console.log('Сборка владельца');
+    const owner = path.join(temp, 'owner');
+    await buildStudio({ target: 'owner', outDir: owner });
+    const ownerProblems = checkBundle(owner);
+    ok('проверка ловит код владельца в пакете владельца', ownerProblems.length > 0);
+    const ownerText = fs.readdirSync(path.join(owner, 'app'), { recursive: true, encoding: 'utf8' })
+      .map((name) => path.join(owner, 'app', name)).filter((file) => fs.statSync(file).isFile()).map((file) => fs.readFileSync(file, 'latin1')).join('\n');
+    const dead = OWNER_MARKERS.filter((marker) => !ownerText.includes(marker));
+    ok(`каждая метка есть в сборке владельца (нет: ${dead.join(', ') || '—'})`, dead.length === 0);
+
+    console.log('Мутации: проверка должна падать');
+    const mutated = path.join(temp, 'mutated');
+    await buildStudio({ target: 'developer', outDir: mutated, extraMain: path.join(root, 'studio/owner/src/signing.cjs') });
+    const mutationProblems = checkBundle(mutated);
+    ok('модуль владельца подключён в сборку разработчика — проверка падает по карте сборки', mutationProblems.some((p) => /studio\/owner\/src\/signing\.cjs/.test(p)));
+    ok('и по тексту пакета — называет метку подписи', mutationProblems.some((p) => /метка кода владельца «(signUpdate|issueLicense)»/.test(p)));
+    const tampered = path.join(temp, 'tampered');
+    await buildStudio({ target: 'developer', outDir: tampered });
+    fs.appendFileSync(path.join(tampered, 'app/renderer/renderer.js'), '\n// issueLicense\n');
+    ok('метка, дописанная в готовый пакет, ловится', checkBundle(tampered).some((p) => /renderer\.js.*issueLicense/.test(p)));
+    const asar = path.join(temp, 'app.asar');
+    fs.writeFileSync(asar, Buffer.from('FLUXPUBLIC1'));
+    ok('метка внутри app.asar ловится', checkBundle(developer, asar).some((p) => /asar.*FLUXPUBLIC1/.test(p)));
+    const noMap = path.join(temp, 'no-map');
+    fs.cpSync(developer, noMap, { recursive: true }); fs.rmSync(path.join(noMap, 'meta.json'));
+    ok('без карты сборки проверка не молчит', checkBundle(noMap).some((p) => /meta\.json/.test(p)));
+
+    console.log('Версия и имена');
+    for (const [name, dir] of [['разработчика', developer], ['владельца', owner]] as const) {
+      ok(`номер версии сборки ${name} — как у Flux (${version})`, JSON.parse(fs.readFileSync(path.join(dir, 'app/package.json'), 'utf8')).version === version);
+    }
+    ok('имена файлов — по решению владельца', TARGETS.developer.exe === 'FluxStudio.exe' && TARGETS.owner.exe === 'FluxStudio-Владелец.exe');
+    ok('главный процесс разработчика знает свою сборку', fs.readFileSync(path.join(developer, 'app/main.cjs'), 'utf8').includes('"developer"'));
+
+    console.log(`\nFlux Studio: две сборки — ${passed} проверок пройдено`);
+  } finally { fs.rmSync(temp, { recursive: true, force: true }); }
+}
+main().catch((error) => { console.error(error); process.exit(1); });

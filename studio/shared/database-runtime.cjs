@@ -166,7 +166,7 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
     await inspectExecutable(file, deps.fs);
     record('executable.validated',{name:path.basename(file)});
     check();
-    folder = await deps.fs.mkdtemp(path.join(deps.tmpdir, 'flux-owner-db-'));
+    folder = await deps.fs.mkdtemp(path.join(deps.tmpdir, 'flux-studio-db-'));
     await deps.fs.writeFile(path.join(folder, 'config.json'), JSON.stringify({ current_db_type: 'REMOTE', database_url: database.uri }), { mode: 0o600 });
     record('config.created');
     check();

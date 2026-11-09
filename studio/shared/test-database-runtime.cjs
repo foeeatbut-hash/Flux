@@ -47,7 +47,7 @@ async function main() {
     const options = { uri, onProgress: (...values) => progress.push(values) };
     return { deps, options, children, kills, requests, spawns, progress };
   }
-  async function sessions() { return (await fs.readdir(temp)).filter(name => name.startsWith('flux-owner-db-')); }
+  async function sessions() { return (await fs.readdir(temp)).filter(name => name.startsWith('flux-studio-db-')); }
   async function clean() { assert.deepEqual(await sessions(), [], 'временный конфиг с URI должен быть удалён'); }
   async function rejection(f, pattern, options = f.options) {
     const error = await startDatabaseRuntime(options, f.deps).then(() => null, error => error);

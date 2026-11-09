@@ -64,3 +64,7 @@ genoffice-server/
 modules/fixtures/rust/target/
 modules/fixtures/csharp/bin/
 modules/fixtures/csharp/obj/
+
+# Сборки Flux Studio
+/dist-studio/
+/release-studio/

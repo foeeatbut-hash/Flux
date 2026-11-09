@@ -8,11 +8,11 @@
 
 Шаги:
 - [x] 1. Перенос tools/flux-owner -> studio/owner, общий studio/shared/database-runtime.cjs; пути, манифест
-- [ ] 2. Серверный вход Studio (server/routes/studio.ts) + набор
-- [ ] 3. Оболочка разработчика (main/preload/renderer, studio/shell) + сборка (scripts/build-studio.cjs)
-- [ ] 4. Сборка владельца: owner подключается как раздел, окно владельца открывается из оболочки
+- [x] 2. Серверный вход Studio (server/routes/studio.ts) + набор
+- [x] 3. Оболочка разработчика (main/preload/renderer, studio/shell) + сборка (scripts/build-studio.cjs)
+- [x] 4. Сборка владельца: owner подключается как раздел, окно владельца открывается из оболочки
 - [ ] 5. Проверка бандла разработчика + мутация; снимки окон
 - [ ] 6. Workflows (build-studio, build-studio-owner dispatch), verification manifest, удалить build-owner.yml
 - [ ] 7. Документы и таблица переноса; PR; CI
 
-Остановились: шаг 1 сделан.
+Остановились: шаги 1-4 и проверка бандла (scripts/check-studio-bundle.ts, test-studio-*) готовы, tsc зелёный. Дальше: снимки окон (тест UI), workflows, manifest, документы, PR. Локально клиент prisma-sqlite пересобран в рабочей копии (общий устарел): запуск через node -r scratchpad/prisma-local.cjs
