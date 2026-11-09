@@ -8,7 +8,8 @@
 import type { ConnectCall, ConnectErrorCode, GrantAsk } from '../../modules/connections/model';
 import { bridge } from './moduleReleaseService';
 
-export type GrantChoice = 'always' | 'once' | 'never';
+/** `later` — окно подпрограммы закрыто, человек не отвечал: ничего не запоминается, спросим при следующем обращении */
+export type GrantChoice = 'always' | 'once' | 'never' | 'later';
 export type ConnectResult = { ok: true; data: unknown } | { ok: false; code: ConnectErrorCode };
 
 export interface ConnectorOptions {
@@ -41,13 +42,16 @@ export function createConnector(options: ConnectorOptions) {
         // Одновременные вызовы к тому же подключению ждут один и тот же вопрос: человека не спрашивают дважды
         let pending = asking.get(connection);
         if (!pending) {
-          pending = options.ask(ask).catch(() => 'never' as GrantChoice).then(async choice => {
+          pending = options.ask(ask).catch(() => 'later' as GrantChoice).then(async choice => {
+            if (choice === 'later') return choice;
             await bridge()?.invoke('modules:grant', { moduleId: options.moduleId, version: options.version, connection, session: options.session, decision: choice }).catch(() => null);
             return choice;
           }).finally(() => { asking.delete(connection); });
           asking.set(connection, pending);
         }
         const choice = await pending;
+        // Закрытие окна подпрограммы без ответа не запоминается и плашки не показывает
+        if (choice === 'later') return { ok: false, code: 'NOT_ALLOWED' };
         if (choice === 'never') { options.onDenied?.({ connection, app: ask.app }); return { ok: false, code: 'NOT_ALLOWED' }; }
         reply = await invoke(connection, call);
         if (reply?.code === 'ASK') return { ok: false, code: 'NOT_ALLOWED' };

@@ -35,7 +35,18 @@ function allowBatch(userId: string, now: number): boolean {
 }
 
 /** Подпрограммы, выпущенные по сертификату этого человека: только их журнал он видит */
-export async function modulesOfDeveloper(db: any, userId: string, rootHex: string): Promise<Set<string>> {
+const developerCache = new Map<string, { at: number; modules: Set<string> }>();
+/** Список своих подпрограмм разработчика читает все выпуски и проверяет подписи: минуту он держится в памяти */
+export const DEVELOPER_CACHE_MS = 60_000;
+export async function modulesOfDeveloper(db: any, userId: string, rootHex: string, now = Date.now()): Promise<Set<string>> {
+  const hit = developerCache.get(userId);
+  if (hit && now - hit.at < DEVELOPER_CACHE_MS) return hit.modules;
+  const modules = await loadDeveloperModules(db, userId, rootHex);
+  if (developerCache.size > 2000) developerCache.clear();
+  developerCache.set(userId, { at: now, modules });
+  return modules;
+}
+async function loadDeveloperModules(db: any, userId: string, rootHex: string): Promise<Set<string>> {
   const [releases, trust] = await Promise.all([db.moduleRelease.findMany({ select: { moduleId: true, signature: true }, take: 20000 }), loadTrust(db, rootHex)]);
   const out = new Set<string>();
   for (const r of releases) {
@@ -47,21 +58,34 @@ export async function modulesOfDeveloper(db: any, userId: string, rootHex: strin
 
 export async function acceptJournal(db: any, user: any, raw: unknown, now = Date.now()): Promise<{ accepted: number; rejected: number }> {
   const list = Array.isArray((raw as any)?.entries) ? (raw as any).entries.slice(0, JOURNAL_LIMITS.batch) : [];
-  const valid: JournalEntry[] = list.filter((e: unknown) => validEntry({ ...(e as object), userId: String(user.id) }))
+  const valid: JournalEntry[] = list.filter((e: unknown) => validEntry({ ...(e as object), userId: String(user.id) }) && String((e as JournalEntry).id).length <= 100)
     .map((e: JournalEntry) => ({ ...e, userId: String(user.id) }))
     .filter((e: JournalEntry) => e.at <= now + 3_600_000 && e.at >= now - JOURNAL_LIMITS.serverDays * DAY);
   if (!valid.length) return { accepted: 0, rejected: list.length };
   // Записи неизвестных подпрограмм не принимаются: журнал не место для чужого мусора
   const known = new Set((await db.moduleRelease.findMany({ where: { moduleId: { in: [...new Set(valid.map(e => e.moduleId))] } }, select: { moduleId: true } })).map((r: any) => r.moduleId));
   const fresh = valid.filter(e => known.has(e.moduleId));
-  const existing = new Set((await db.moduleJournal.findMany({ where: { id: { in: fresh.map(e => e.id) } }, select: { id: true } })).map((r: any) => r.id));
-  const rows = fresh.filter(e => !existing.has(e.id)).map(e => ({
-    id: e.id, userId: e.userId, userName: String(user.name || '').slice(0, 120), moduleId: e.moduleId, version: e.version, category: e.category, level: e.level,
+  // Ключ строки привязан к человеку: чужой номер записи занять нельзя, а повтор своей пачки не даёт дублей
+  const keyOf = (e: JournalEntry) => `${e.userId.slice(0, 40)}:${e.id}`;
+  const existing = new Set((await db.moduleJournal.findMany({ where: { id: { in: fresh.map(keyOf) } }, select: { id: true } })).map((r: any) => r.id));
+  // Предел приёма на человека за сутки: сверх него записи не принимаются, остальных людей это не вытесняет
+  const today = await db.moduleJournal.count({ where: { userId: String(user.id), receivedAt: { gte: new Date(now - DAY) } } });
+  const room = Math.max(0, JOURNAL_LIMITS.userPerDay - today);
+  const candidates = fresh.filter(e => !existing.has(keyOf(e)));
+  const rows = candidates.slice(0, room).map(e => ({
+    id: keyOf(e), userId: e.userId, userName: String(user.name || '').slice(0, 120), moduleId: e.moduleId, version: e.version, category: e.category, level: e.level,
     event: e.event, detail: e.detail, outcome: e.outcome, ms: Math.min(e.ms, 2 ** 31 - 1), bytesIn: Math.min(e.bytesIn, 2 ** 31 - 1), bytesOut: Math.min(e.bytesOut, 2 ** 31 - 1), at: new Date(e.at),
   }));
-  if (rows.length) await db.moduleJournal.createMany({ data: rows });
+  if (rows.length) {
+    try { await db.moduleJournal.createMany({ data: rows }); }
+    catch {
+      // Гонка двух отправок одной пачки: дубликат не должен ронять приём, остальное записывается построчно
+      for (const row of rows) await db.moduleJournal.create({ data: row }).catch(() => undefined);
+    }
+  }
   // Повторная отправка той же пачки считается принятой: клиент не должен слать её бесконечно
-  return { accepted: fresh.length, rejected: list.length - fresh.length };
+  const accepted = fresh.length - (candidates.length - rows.length);
+  return { accepted, rejected: list.length - accepted };
 }
 
 /** Срок и предел: старше срока — удаляется; сверх числа строк — самые старые */
@@ -118,7 +142,9 @@ export function registerJournalRoutes(app: Express, deps: JournalDeps): void {
         detail: r.detail, outcome: r.outcome, ms: r.ms, bytesIn: r.bytesIn, bytesOut: r.bytesOut, at: r.at };
       if (admin) return row;
       const { userName: _name, ...rest } = anonymize(row) as any;
-      return rest;
+      // Текст flux.log пишет сама подпрограмма и может содержать что угодно: разработчику в общем журнале — только факт, уровень и время;
+      // текст он увидит, лишь если человек сам приложил журнал к обращению
+      return row.category === 'log' ? { ...rest, detail: '' } : rest;
     };
     const out = rows.map(view);
     if (csv) {

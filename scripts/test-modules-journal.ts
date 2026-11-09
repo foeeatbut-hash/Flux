@@ -42,7 +42,7 @@ async function main() {
     owner: { id: 'flux-owner', name: 'Владелец', role: 'OWNER' }, admin: { id: 'admin', name: 'Админ', role: 'ADMIN' },
     dev: { id: 'dev', name: 'Разработчик', role: 'MODULE_DEVELOPER', perms: ['module.develop'] },
     dev2: { id: 'dev2', name: 'Другой', role: 'MODULE_DEVELOPER', perms: ['module.develop'] },
-    ann: { id: 'ann', name: 'Анна', role: 'ENGINEER_AUTO' }, bob: { id: 'bob', name: 'Борис', role: 'ENGINEER_VENT' },
+    cat: { id: 'cat', name: 'Катя', role: 'ENGINEER_AUTO' }, ann: { id: 'ann', name: 'Анна', role: 'ENGINEER_AUTO' }, bob: { id: 'bob', name: 'Борис', role: 'ENGINEER_VENT' },
   };
   const app = express(); app.use(express.json({ limit: '50mb' }));
   app.use('/api', (req: any, res, next) => { req.authUser = people[String(req.headers.authorization || '').replace(/^Bearer /, '')]; return req.authUser ? next() : res.status(401).end(); });
@@ -88,7 +88,7 @@ async function main() {
   ok('принимаются верные записи; неизвестная подпрограмма и неверная форма — нет', sent1.body.accepted === 2 && sent1.body.rejected === 2);
   const again = await call('ann', '/api/modules/journal', 'POST', { entries: [entry('e-1'), entry('e-2', { category: 'log' })] });
   ok('повтор той же пачки не даёт дублей и считается принятым', again.body.accepted === 2 && (await db.moduleJournal.count()) === 2);
-  const stored = await db.moduleJournal.findUnique({ where: { id: 'e-1' } });
+  const stored = await db.moduleJournal.findUnique({ where: { id: 'ann:e-1' } });
   ok('человек берётся из сеанса, а не из записи: подделка userId не проходит', stored.userId === 'ann' && stored.userName === 'Анна');
   await call('bob', '/api/modules/journal', 'POST', { entries: [entry('b-1', { moduleId: 'conn-b' }), entry('b-2', { at: now - 40 * 86_400_000 }), entry('b-3', { at: now + 86_400_000 })] });
   ok('записи старше срока и из будущего не принимаются', (await db.moduleJournal.count()) === 3);
@@ -98,6 +98,14 @@ async function main() {
   for (let i = 0; i < 40; i++) if ((await call('bob', '/api/modules/journal', 'POST', { entries: [entry(`r-${i}`, { moduleId: 'conn-b' })] })).status === 429) limited++;
   ok('частота пачек ограничена (30 в минуту)', limited >= 8);
 
+  const squat = await call('cat', '/api/modules/journal', 'POST', { entries: [entry('e-1', { moduleId: 'conn-b', detail: 'чужая запись' })] });
+  ok('чужой номер записи занять нельзя: у каждого человека свои, запись Анны не затронута', squat.body.accepted === 1 && (await db.moduleJournal.findUnique({ where: { id: 'ann:e-1' } })).moduleId === 'conn-a'
+    && (await db.moduleJournal.findUnique({ where: { id: 'cat:e-1' } })).detail === 'чужая запись');
+  (JOURNAL_LIMITS as any).userPerDay = 5;
+  const spam = await call('cat', '/api/modules/journal', 'POST', { entries: Array.from({ length: 50 }, (_, i) => entry(`spam-${i}`, { moduleId: 'conn-b' })) });
+  const annOk = await call('admin', '/api/modules/journal', 'POST', { entries: [entry('after-spam', { moduleId: 'conn-a' })] });
+  (JOURNAL_LIMITS as any).userPerDay = 20_000;
+  ok('предел приёма на человека за сутки: лишнее от одного не принимается, другой человек пишет свободно', spam.body.accepted === 4 && (await db.moduleJournal.count({ where: { userId: 'cat', id: { startsWith: 'cat:spam-' } } })) === 4 && annOk.body.accepted === 1);
   console.log('Просмотр и права');
   ok('обычный человек журнал не смотрит', (await call('ann', '/api/modules/journal')).status === 403);
   const all = (await call('admin', '/api/modules/journal?limit=500')).body;
@@ -107,6 +115,14 @@ async function main() {
     && (await call('admin', `/api/modules/journal?from=${now + 1}`)).body.entries.length === 0);
   const own = (await call('dev', '/api/modules/journal?limit=500')).body;
   ok('разработчик видит только свои подпрограммы', own.entries.length > 0 && own.entries.every((e: any) => e.moduleId === 'conn-a'));
+  ok('текст сообщений подпрограммы (flux.log) разработчику в общем журнале не показывается: только уровень и время', own.entries.some((e: any) => e.category === 'log' && e.detail === '') && !JSON.stringify(own).includes('сообщение подпрограммы')
+    && (await call('admin', '/api/modules/journal?category=log&moduleId=conn-a')).body.entries.some((e: any) => e.detail === 'сообщение подпрограммы')
+    && !(await call('dev', '/api/modules/journal?format=csv')).body.includes('сообщение подпрограммы'));
+  let released = 0; const realFind = db.moduleRelease.findMany.bind(db.moduleRelease);
+  db.moduleRelease.findMany = (...a: any[]) => { released++; return realFind(...a); };
+  await call('dev', '/api/modules/journal'); await call('dev', '/api/modules/journal?level=warn');
+  db.moduleRelease.findMany = realFind;
+  ok('список своих подпрограмм разработчика кэшируется: повторные просмотры не перечитывают выпуски', released === 0);
   ok('разработчику не показываются ни люди, ни их идентификаторы', own.entries.every((e: any) => !('userName' in e) && !('userId' in e)) && !JSON.stringify(own).includes('Анна') && !JSON.stringify(own).includes('"ann"'));
   ok('чужую подпрограмму и отбор по человеку разработчик получить не может', (await call('dev', '/api/modules/journal?moduleId=conn-b')).body.entries.length === 0
     && (await call('dev', '/api/modules/journal?userId=ann&limit=500')).body.entries.every((e: any) => !('userId' in e)));

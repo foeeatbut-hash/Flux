@@ -107,7 +107,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
     return () => {
       journalEvent({ ...base, category: 'lifecycle', event: 'close', detail: language, ms: Date.now() - opened });
       connector.close();
-      setAsking(current => { current?.resolve('never'); return null; });
+      setAsking(current => { current?.resolve('later'); return null; });
       bridge.dispose(); bridgeRef.current = null;
       cancelModuleCompute(manifest.id);
       unsubscribe();
