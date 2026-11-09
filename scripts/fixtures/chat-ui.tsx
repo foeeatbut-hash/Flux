@@ -61,7 +61,7 @@ function Fixture() {
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3" aria-label="Переписка">
           {messages.map((message, i) => <MessageBubble key={message.id} msg={message as any} isMe={i === 0} mark={markers[i]} hideNames={false}
             reactions={[]} emojis={[]} pickerOpen={false} onTogglePicker={noop} onReact={noop} onReply={noop} onForward={noop} onPin={noop} onCopy={noop} onEdit={noop} onDelete={noop}
-            onOpenEquipment={noop} onOpenFile={noop} formatBytes={(n) => `${n} B`}>
+            onOpenEquipment={noop} onOpenFile={noop} onDownloadFile={noop} formatBytes={(n) => `${n} B`}>
             {message.content.startsWith('F · Flux Guide') ? message.content.replace(/^F · Flux Guide\n\n/, '') : message.content}
           </MessageBubble>)}
         </div>
@@ -76,7 +76,7 @@ function Fixture() {
       </main>
       <ChatInfoPanel open={rightOpen} sidebarHiddenOnMobile={!!(activeReceiverId || activeGroupId)} peer={activeReceiverId ? users[0] : null} group={activeGroupId ? group : null} tab={rightTab} onTabChange={setRightTab}
         selectedTag={null} onClearTag={noop} onOpenTag={noop} onOpenEquipment={noop} conversationId={activeGroupId || activeReceiverId || ''}
-        conversationType={activeGroupId ? 'GROUP' : 'DIRECT'} onlineIds={online} onOpenFile={noop} formatBytes={(n) => `${n} B`} onClose={() => setRightOpen(false)} />
+        conversationType={activeGroupId ? 'GROUP' : 'DIRECT'} onlineIds={online} onOpenFile={noop} onDownloadFile={noop} formatBytes={(n) => `${n} B`} onClose={() => setRightOpen(false)} />
     </div>
   </div>;
 }

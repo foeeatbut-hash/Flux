@@ -98,7 +98,7 @@ const sliceBase64 = async (file: UploadFile, from: number, to: number): Promise<
  * говорит ничего.
  */
 /** SHA-256 байт куска (по его base64) в hex; пусто, если браузер не умеет */
-async function chunkSha256(b64: string): Promise<string> {
+export async function chunkSha256(b64: string): Promise<string> {
   try {
     const subtle = (globalThis as any).crypto?.subtle;
     if (!subtle) return '';

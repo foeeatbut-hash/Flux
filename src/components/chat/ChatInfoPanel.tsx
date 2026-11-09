@@ -1,6 +1,6 @@
 import React from 'react';
 import { Avatar } from '../ui';
-import { File, Link as LinkIcon, Paperclip, Radio, Users, X } from 'lucide-react';
+import { Download, File, Link as LinkIcon, Paperclip, Radio, Users, X } from 'lucide-react';
 import type { ChatAttachment, ChatGroup, ChatUser } from '../../store/chatStore';
 import FileBadge from '../ui/FileBadge';
 import { ICON_SIZE } from '../../lib/metrics';
@@ -22,13 +22,14 @@ interface Props {
   conversationType: 'DIRECT' | 'GROUP';
   onlineIds: string[];
   onOpenFile: (path: string) => void;
+  onDownloadFile: (path: string, name: string) => void;
   formatBytes: (bytes: number) => string;
   onClose: () => void;
 }
 
 export default function ChatInfoPanel({
   open, sidebarHiddenOnMobile = false, peer, group, tab, onTabChange, selectedTag, onClearTag, onOpenTag,
-  onOpenEquipment, conversationId, conversationType, onlineIds, onOpenFile, formatBytes, onClose,
+  onOpenEquipment, conversationId, conversationType, onlineIds, onOpenFile, onDownloadFile, formatBytes, onClose,
 }: Props) {
   if (!open || (!peer && !group)) return null;
   const tabs: Array<{ id: ChatInfoTab; label: string }> = [
@@ -77,7 +78,7 @@ export default function ChatInfoPanel({
             <div className="flex items-center gap-2 text-slate-800 dark:text-slate-100">{group.type === 'CHANNEL' ? <Radio className="w-4 h-4" /> : <Users className="w-4 h-4" />}<span className="truncate font-medium">{group.name}</span></div>
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs"><dt className="text-slate-500 dark:text-slate-400">Тип</dt><dd className="text-slate-700 dark:text-slate-300">{group.type === 'PROJECT' ? 'Группа проекта' : group.type === 'CHANNEL' ? 'Канал' : 'Группа'}</dd><dt className="text-slate-500 dark:text-slate-400">Участники</dt><dd className="text-slate-700 dark:text-slate-300">{group.members?.length ?? '—'}</dd>{group.project && <><dt className="text-slate-500 dark:text-slate-400">Проект</dt><dd className="truncate text-slate-700 dark:text-slate-300">{group.project.name}</dd></>}</dl>
           </> : null}
-        </div> : tab === 'files' ? <FilesTab conversationId={conversationId} conversationType={conversationType} onOpenFile={onOpenFile} formatBytes={formatBytes} /> : tab === 'tags' ? <TagsTab conversationId={conversationId} conversationType={conversationType} onOpenTag={onOpenTag} /> : <div className="flex-1 p-2 space-y-1">
+        </div> : tab === 'files' ? <FilesTab conversationId={conversationId} conversationType={conversationType} onOpenFile={onOpenFile} onDownloadFile={onDownloadFile} formatBytes={formatBytes} /> : tab === 'tags' ? <TagsTab conversationId={conversationId} conversationType={conversationType} onOpenTag={onOpenTag} /> : <div className="flex-1 p-2 space-y-1">
           {(group?.members || []).map((member) => <div key={member.id} className="fx-li h-10"><Avatar name={member.name} online={onlineIds.includes(member.id)} /><span className="min-w-0 flex-1"><span className="block truncate">{member.name}</span><span className="block truncate text-xs text-slate-500 dark:text-slate-400">{member.role.replace('ENGINEER_', '')}</span></span></div>)}
           {!group?.members?.length && <p className="p-2 text-xs text-slate-500 dark:text-slate-400">Состав группы недоступен.</p>}
         </div>}
@@ -127,8 +128,8 @@ function TagsTab({ conversationId, conversationType, onOpenTag }: {
   </div>;
 }
 
-function FilesTab({ conversationId, conversationType, onOpenFile, formatBytes }: {
-  conversationId: string; conversationType: 'DIRECT' | 'GROUP'; onOpenFile: (path: string) => void; formatBytes: (n: number) => string;
+function FilesTab({ conversationId, conversationType, onOpenFile, onDownloadFile, formatBytes }: {
+  conversationId: string; conversationType: 'DIRECT' | 'GROUP'; onOpenFile: (path: string) => void; onDownloadFile: (path: string, name: string) => void; formatBytes: (n: number) => string;
 }) {
   const [items, setItems] = React.useState<ChatAttachment[]>([]);
   const [total, setTotal] = React.useState(0);
@@ -166,9 +167,9 @@ function FilesTab({ conversationId, conversationType, onOpenFile, formatBytes }:
   return <div className="flex-1 p-3">
     <h3 className="mb-2 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300"><Paperclip className="w-4 h-4" />Файлы ({total})</h3>
     <input type="search" aria-label="Поиск файлов" placeholder="Найти файл" value={query} onChange={(event) => setQuery(event.target.value)} className="fx-input mb-2 w-full" />
-    {loading && items.length === 0 ? <p className="text-xs text-slate-500 dark:text-slate-400">Загрузка файлов…</p> : error && !items.length ? <p className="text-xs text-rose-700 dark:text-rose-300">{error}</p> : visible.length ? visible.map((file) => <button key={file.id} type="button" onClick={() => onOpenFile(file.filePath)} className="fx-li w-full text-left">
+    {loading && items.length === 0 ? <p className="text-xs text-slate-500 dark:text-slate-400">Загрузка файлов…</p> : error && !items.length ? <p className="text-xs text-rose-700 dark:text-rose-300">{error}</p> : visible.length ? visible.map((file) => <div key={file.id} className="flex items-center gap-1"><button type="button" onClick={() => onOpenFile(file.filePath)} className="fx-li min-w-0 flex-1 text-left">
       <FileBadge file={file.fileName} size={ICON_SIZE.row} /><span className="min-w-0 flex-1 truncate">{file.fileName}</span><span className="shrink-0 text-xs text-slate-500 dark:text-slate-400">{formatBytes(file.fileSize)}</span>
-    </button>) : <p className="text-xs text-slate-500 dark:text-slate-400">Файлы не найдены.</p>}
+    </button><button type="button" className="fx-ibtn shrink-0" aria-label={`Скачать ${file.fileName}`} title="Скачать" onClick={() => onDownloadFile(file.filePath, file.fileName)}><Download className="w-3.5 h-3.5" /></button></div>) : <p className="text-xs text-slate-500 dark:text-slate-400">Файлы не найдены.</p>}
     {offset < total && <button type="button" disabled={loading} onClick={() => void loadMore()} className="fx-btn fx-btn-sm mt-2 w-full justify-center">{loading ? 'Загрузка…' : 'Ещё файлы'}</button>}
     {error && items.length > 0 && <p className="mt-2 text-xs text-rose-700 dark:text-rose-300">{error}</p>}
   </div>;

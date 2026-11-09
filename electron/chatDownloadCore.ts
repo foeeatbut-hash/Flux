@@ -1,0 +1,85 @@
+/**
+ * Сохранение вложения чата в системную папку «Загрузки».
+ *
+ * Отдельно от electron/chatDownload.ts, чтобы логику проверял обычный скрипт
+ * без Electron (scripts/test-chat-download.ts): здесь нет ни одного импорта
+ * оболочки, а скачивание и папка подаются снаружи.
+ *
+ * Имя файла приходит из чата, то есть от другого человека: безопасным его
+ * делает safeFileName (без «../», зарезервированных имён Windows и запрещённых
+ * знаков). Занятое имя не затирается — файл получает «(2)», «(3)». Создаётся
+ * файл с флагом «только новый» (wx), поэтому два одновременных сохранения
+ * одного имени не могут выбрать один и тот же путь.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { safeFileName, uniqueFileName } from './downloadPath';
+
+export type SaveResult = { ok: true; path: string; name: string; bytes: number } | { ok: false; error: string };
+
+/** Адрес вложения, который главный процесс согласен скачать: только /chat_files/ по http(s) */
+export function isChatFileUrl(raw: string): boolean {
+  try {
+    const u = new URL(String(raw || ''));
+    return (u.protocol === 'http:' || u.protocol === 'https:') && /^\/chat_files\/[^/]+\/[^/]+$/.test(u.pathname);
+  } catch { return false; }
+}
+
+/** Путь лежит внутри папки (или это она сама): проверка для «показать в папке» */
+export function isInside(root: string, target: string): boolean {
+  const r = path.resolve(root);
+  const p = path.resolve(String(target || ''));
+  return p === r || p.startsWith(r + path.sep);
+}
+
+/** Создать новый файл с неповторяющимся именем; вернуть дескриптор, имя и путь */
+async function createUnique(dir: string, wanted: string): Promise<{ handle: fs.promises.FileHandle; name: string; full: string }> {
+  let taken: string[] = [];
+  try { taken = await fs.promises.readdir(dir); } catch { /* папки не было — mkdir выше её создал */ }
+  let name = uniqueFileName(wanted, taken);
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const full = path.join(dir, name);
+    try {
+      return { handle: await fs.promises.open(full, 'wx'), name, full };
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST') throw error;
+      // Имя заняли между чтением папки и созданием: считаем занятым и берём следующее
+      taken = [...taken, name];
+      name = uniqueFileName(wanted, taken);
+    }
+  }
+  throw new Error('Не удалось подобрать свободное имя файла');
+}
+
+export interface SaveOptions {
+  dir: string;
+  name: string;
+  /** Открыть вложение: тот, кто скачивает (в программе — сетевой стек Chromium) */
+  open: () => Promise<{ ok: boolean; status: number; body: ReadableStream<Uint8Array> | null }>;
+}
+
+export async function saveToDownloads(options: SaveOptions): Promise<SaveResult> {
+  let created: { handle: fs.promises.FileHandle; name: string; full: string } | null = null;
+  try {
+    await fs.promises.mkdir(options.dir, { recursive: true });
+    const response = await options.open();
+    if (!response.ok || !response.body) {
+      return { ok: false, error: response.status === 404 ? 'Файл не найден на сервере: возможно, его удалили.' : `Сервер не отдал файл (код ${response.status}).` };
+    }
+    created = await createUnique(options.dir, safeFileName(options.name));
+    const out = created.handle.createWriteStream();
+    let bytes = 0;
+    const source = Readable.fromWeb(response.body as any);
+    source.on('data', (chunk: Buffer) => { bytes += chunk.length; });
+    await pipeline(source, out);
+    return { ok: true, path: created.full, name: created.name, bytes };
+  } catch (error: any) {
+    // Недокачанный файл не оставляем: он выглядел бы готовым
+    if (created) { try { await created.handle.close(); } catch { /* уже закрыт потоком */ } await fs.promises.rm(created.full, { force: true }).catch(() => {}); }
+    const code = String(error?.code || '');
+    const reason = code === 'ENOSPC' ? 'на диске нет места' : code === 'EACCES' || code === 'EPERM' ? 'нет прав на запись в папку «Загрузки»' : String(error?.message || error);
+    return { ok: false, error: `Не удалось сохранить файл: ${reason}.` };
+  }
+}

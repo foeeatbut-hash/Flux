@@ -78,6 +78,8 @@ interface Props {
   onDelete: () => void;
   onOpenEquipment: (id: string) => void;
   onOpenFile: (path: string) => void;
+  /** Скачать вложение: в программе — в «Загрузки», в браузере — обычным скачиванием */
+  onDownloadFile: (path: string, name: string) => void;
   onJumpTo?: (id: string) => void;
   formatBytes: (n: number) => string;
   /** Отформатированный текст сообщения */
@@ -105,7 +107,7 @@ function Act({ icon: Icon, title, onClick, tone = '' }: {
 export default function MessageBubble({
   msg, isMe, mark, hideNames, reactions, emojis, pickerOpen,
   onTogglePicker, onReact, onReply, onForward, onPin, onCopy, onEdit, onDelete,
-  onOpenEquipment, onOpenFile, onJumpTo, formatBytes, children,
+  onOpenEquipment, onOpenFile, onDownloadFile, onJumpTo, formatBytes, children,
 }: Props) {
   const name = isMe ? 'Вы' : (msg.sender?.name || 'Сотрудник');
   const guide = parseGuideMessage(msg.content, {
@@ -248,13 +250,14 @@ export default function MessageBubble({
           {msg.attachments && msg.attachments.length > 0 && (
             <div className="mt-2 space-y-1">
               {msg.attachments.map((f) => (
-                <button
-                  key={f.id} type="button" onClick={() => onOpenFile(f.filePath)}
-                  className={`w-full text-left flex items-center justify-between gap-2 p-2 rounded-lg cursor-pointer transition-ui ${
+                <div
+                  key={f.id}
+                  className={`w-full flex items-center justify-between gap-2 p-2 rounded-lg transition-ui ${
                     isMe ? 'bg-white/15 hover:bg-white/25' : 'bg-slate-100 dark:bg-slate-900 hover:bg-slate-200 dark:hover:bg-slate-800'
                   }`}
                 >
-                  <span className="flex items-center gap-2 min-w-0">
+                  {/* Открыть и скачать — две разные кнопки: вложенная кнопка в кнопке недопустима */}
+                  <button type="button" onClick={() => onOpenFile(f.filePath)} title="Открыть" className="flex-1 min-w-0 text-left flex items-center gap-2 cursor-pointer">
                     <FileBadge file={f.fileName} size={ICON_SIZE.row} />
                     <span className="min-w-0">
                       <span className={`block text-2xs font-semibold truncate ${isMe ? 'text-white' : 'text-slate-850 dark:text-slate-150'}`}>
@@ -264,9 +267,11 @@ export default function MessageBubble({
                         {formatBytes(f.fileSize)}
                       </span>
                     </span>
-                  </span>
-                  <Download className={`w-3.5 h-3.5 shrink-0 ${isMe ? 'text-white/80' : 'text-slate-400'}`} />
-                </button>
+                  </button>
+                  <button type="button" onClick={() => onDownloadFile(f.filePath, f.fileName)} aria-label={`Скачать ${f.fileName}`} title="Скачать" data-chat-download className="fx-ibtn shrink-0">
+                    <Download className={`w-3.5 h-3.5 ${isMe ? 'text-white/80' : 'text-slate-400'}`} />
+                  </button>
+                </div>
               ))}
             </div>
           )}

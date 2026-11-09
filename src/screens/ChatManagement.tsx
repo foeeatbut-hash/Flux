@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/store';
 import ChatSidebar, { ChatIndexRow, HistorySearchResult, MessengerSection, ChatFilter } from '../components/chat/ChatSidebar';
 import { canvasAttachment } from '../lib/chatDrawing';
+import { ChatFilesStatus, useChatFiles } from '../components/chat/useChatFiles';
 import { useToastStore } from '../store/toastStore';
 import { usePresenceStore, presenceLabel } from '../store/presenceStore';
 import { useChatStore, ChatMessage } from '../store/chatStore';
@@ -486,31 +487,11 @@ export default function ChatManagement() {
   const peerOnline = !!activePeer && onlineIds.includes(activePeer.id);
   const peerSeen = activePeer ? (lastSeenMap[activePeer.id] ?? null) : null;
 
+  // Загрузка кусками до 500 МБ, доля и итог скачивания — в useChatFiles
+  const chatFiles = useChatFiles();
   const handleFileChange = async (file: File) => {
-    try {
-      addToast('Загрузка файла во вложение...', 'info');
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        try {
-          const rawResult = reader.result as string;
-          const base64Data = rawResult.split(',')[1];
-          const uploaded = await uploadFile(file.name, base64Data);
-          
-          setStagedAttachments(prev => [...prev, {
-            fileName: uploaded.fileName,
-            filePath: uploaded.filePath,
-            fileSize: uploaded.fileSize
-          }]);
-          addToast(`Файл "${file.name}" успешно прикреплен!`, 'success');
-        } catch (uploadErr: any) {
-          addToast(uploadErr?.message || 'Ошибка заливки файла на сервер', 'error');
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch (err) {
-      addToast('Не удалось обработать файл', 'error');
-    }
-
+    const uploaded = await chatFiles.upload(file);
+    if (uploaded) setStagedAttachments(prev => [...prev, { fileName: uploaded.fileName, filePath: uploaded.filePath, fileSize: uploaded.fileSize }]);
   };
 
   const activeConversationKey = activeType === 'DIRECT' ? activeReceiverId : activeGroupId;
@@ -1176,6 +1157,7 @@ export default function ChatManagement() {
                         onDelete={() => handleDeleteMessage(msg)}
                         onOpenEquipment={handleEquipmentClick}
                         onOpenFile={openFile}
+                        onDownloadFile={chatFiles.download}
                         onJumpTo={jumpToMessage}
                         formatBytes={formatBytes}
                       >
@@ -1272,6 +1254,8 @@ export default function ChatManagement() {
                   })}
                 </div>
               )}
+
+              <ChatFilesStatus uploading={chatFiles.uploading} saved={chatFiles.saved} onReveal={() => void chatFiles.reveal()} onDismiss={chatFiles.dismiss} />
 
               {/* Draft additions header */}
               {(stagedAttachments.length > 0 || selectedElementId) && (
@@ -1465,6 +1449,7 @@ export default function ChatManagement() {
         conversationType={activeGroupId ? 'GROUP' : 'DIRECT'}
         onlineIds={onlineIds}
         onOpenFile={openFile}
+        onDownloadFile={chatFiles.download}
         formatBytes={formatBytes}
         onClose={() => setIsRightPanelOpen(false)}
       />
