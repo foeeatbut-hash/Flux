@@ -34,7 +34,7 @@ function sliceBase64(file: Blob, from: number, to: number): Promise<string> {
 }
 
 /** Загрузить вложение кусками. `onProgress` получает долю 0..1 по байтам */
-export async function uploadChatFile(file: File, onProgress?: (share: number) => void): Promise<ChatUploaded> {
+export async function uploadChatFile(file: File, onProgress?: (share: number) => void, signal?: AbortSignal): Promise<ChatUploaded> {
   if (!file.size) throw new Error('Файл пустой');
   if (file.size > CHAT_FILE_LIMIT_BYTES) throw new Error(`Файл больше ${CHAT_FILE_LIMIT_BYTES / 1048576} МБ: положите его в Проводник и отправьте ссылкой`);
   const start = await fetch('/api/chat/upload/start', {
@@ -43,27 +43,36 @@ export async function uploadChatFile(file: File, onProgress?: (share: number) =>
   });
   if (!start.ok) throw new Error(await say(start, `Файл не принят сервером (${start.status})`));
   const { id, chunkBytes } = await start.json();
-  const piece = Number(chunkBytes) || 512 * 1024;
-  let idx = 0;
-  for (let from = 0; from < file.size; from += piece) {
-    const to = Math.min(file.size, from + piece);
-    const data = await sliceBase64(file, from, to);
-    const sum = await chunkSha256(data);
-    const res = await fetch(`/api/chat/upload/${encodeURIComponent(id)}/chunk`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(sum ? { 'X-Chunk-SHA256': sum } : {}) },
-      body: JSON.stringify({ idx, data }),
+  try {
+    const piece = Number(chunkBytes) || 512 * 1024;
+    let idx = 0;
+    for (let from = 0; from < file.size; from += piece) {
+      if (signal?.aborted) throw new Error('Загрузка отменена');
+      const to = Math.min(file.size, from + piece);
+      const data = await sliceBase64(file, from, to);
+      const sum = await chunkSha256(data);
+      const res = await fetch(`/api/chat/upload/${encodeURIComponent(id)}/chunk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(sum ? { 'X-Chunk-SHA256': sum } : {}) },
+        body: JSON.stringify({ idx, data }),
+      });
+      if (!res.ok) throw new Error(await say(res, `Файл не загружен (${res.status})`));
+      idx++;
+      onProgress?.(to / file.size);
+    }
+    const finish = () => fetch(`/api/chat/upload/${encodeURIComponent(id)}/done`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: idx }),
     });
-    if (!res.ok) throw new Error(await say(res, `Файл не загружен (${res.status})`));
-    idx++;
-    onProgress?.(to / file.size);
+    // Ответ мог потеряться: повтор безопасен — сервер на завершённый файл отвечает тем же успехом
+    const done = await finish().catch(() => finish());
+    if (!done.ok) throw new Error(await say(done, `Файл не загружен (${done.status})`));
+    const d = await done.json();
+    return { filePath: d.filePath, fileName: d.fileName, fileSize: d.fileSize };
+  } catch (error) {
+    // Брошенную загрузку стираем сразу: иначе до 500 МБ кусков висели бы до суточной уборки
+    await fetch(`/api/chat/upload/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+    throw error;
   }
-  const done = await fetch(`/api/chat/upload/${encodeURIComponent(id)}/done`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: idx }),
-  });
-  if (!done.ok) throw new Error(await say(done, `Файл не загружен (${done.status})`));
-  const d = await done.json();
-  return { filePath: d.filePath, fileName: d.fileName, fileSize: d.fileSize };
 }
 
 export type DownloadResult =

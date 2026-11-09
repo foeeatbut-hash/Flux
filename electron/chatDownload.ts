@@ -2,29 +2,28 @@
  * Скачивание вложений чата в системную «Загрузки» (app.getPath('downloads')).
  *
  * Вся логика — в chatDownloadCore.ts (проверяется скриптом без Electron);
- * здесь только каналы: сохранить по ссылке и показать сохранённое в папке.
- * Окну достаются имя и путь, а не доступ к файловой системе: «показать»
- * принимает только путь внутри «Загрузок».
+ * здесь только каналы. Оба отвечают только основному окну Flux
+ * (trustedAuthSender), скачивают только вложения чата с сервера Flux, а
+ * «показать» принимает лишь пути, которые этот процесс сам выдал при сохранении.
  */
 import { app, ipcMain, net, shell } from 'electron';
-import { isChatFileUrl, isInside, saveToDownloads } from './chatDownloadCore';
+import { trustedAuthSender } from './authStorage';
+import { createChatDownloadHandlers } from './chatDownloadCore';
+
+/** Сервер Flux, с которым говорит окно (тот же адрес, что в main.ts) */
+const SERVER_ORIGIN = 'http://localhost:3000';
 
 export function setupChatDownload() {
-  ipcMain.handle('chat:save-attachment', async (_event, url: string, name: string) => {
-    if (!isChatFileUrl(url)) return { ok: false, error: 'Это не вложение чата.' };
-    return saveToDownloads({
-      dir: app.getPath('downloads'),
-      name: String(name || 'Файл'),
-      open: async () => {
-        const response = await net.fetch(url);
-        return { ok: response.ok, status: response.status, body: response.body };
-      },
-    });
+  const handlers = createChatDownloadHandlers<Electron.IpcMainInvokeEvent>({
+    trusted: trustedAuthSender,
+    serverOrigin: SERVER_ORIGIN,
+    downloadsDir: () => app.getPath('downloads'),
+    fetch: async (url) => {
+      const response = await net.fetch(url, { redirect: 'error' });
+      return { ok: response.ok, status: response.status, body: response.body };
+    },
+    showItem: (target) => shell.showItemInFolder(target),
   });
-
-  ipcMain.handle('chat:reveal-download', (_event, target: string) => {
-    if (!isInside(app.getPath('downloads'), String(target || ''))) return { ok: false, error: 'Файл не из папки «Загрузки».' };
-    shell.showItemInFolder(String(target));
-    return { ok: true };
-  });
+  ipcMain.handle('chat:save-attachment', (event, url: string, name: string) => handlers.save(event, url, name));
+  ipcMain.handle('chat:reveal-download', (event, target: string) => handlers.reveal(event, target));
 }

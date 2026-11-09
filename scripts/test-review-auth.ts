@@ -166,7 +166,7 @@ const sleepTick = () => new Promise((r) => setTimeout(r, 5));
     check('файл якоря пересоздан от текущих часов', fs.existsSync(env.file) ? parseInt(fs.readFileSync(env.file, 'utf-8'), 36) <= clock.now() : true);
   }
   // Откат на 1-5 часов (якорь его не видит, допуск 6 часов) ловится по часам базы и снимается исправлением часов
-  for (const back of [1, 3, 5]) {
+  for (const back of [2, 3, 5]) {
     const db = { now: T0 };
     const store = new Map<string, string>();
     const clock = makeClock(T0);
@@ -179,6 +179,24 @@ const sleepTick = () => new Promise((r) => setTimeout(r, 5));
     check(`откат на ${back} ч: остаётся виден, пока часы не исправлены`, time.isTampered());
     clock.set(db.now); // часы исправили
     check(`откат на ${back} ч: исправленные часы снимают признак`, time.isTampered() === false);
+  }
+  // Расхождение часов сервера базы и компьютера до часа не блокирует профили со сроком
+  {
+    const logs: string[] = [];
+    const db = { now: T0 };
+    const clock = makeClock(T0);
+    const env = makeDeps(clock, { dialect: 'postgresql', dbNow: () => db.now, store: new Map() });
+    const time = createTrustedTime({ ...env.deps, log: (m: string) => logs.push(m) });
+    clock.set(T0 - 20 * 60_000); // часы компьютера на 20 минут позади часов базы
+    await time.full();
+    check('расхождение 20 минут не блокирует (порог час)', !time.isTampered() && (await time.full()).tampered === false && logs.length === 0, logs);
+    clock.set(T0 - 119 * 60_000);
+    check('отставание около двух часов блокирует', time.isTampered() && (await time.full()).tampered === true);
+    check('причина и разница записаны в журнал один раз', logs.length === 1 && /отстают от часов базы на 1\d\d мин/.test(logs[0]) && /сервере базы/.test(logs[0]), logs);
+    time.isTampered(); time.isTampered();
+    check('повторные проверки журнал не засоряют', logs.length === 1);
+    clock.set(T0 - 10 * 60_000);
+    check('исправление часов снимает признак', !time.isTampered());
   }
   // После перезапуска замера ещё нет: первая же проверка сессии перемеряет часы базы в фоне
   {

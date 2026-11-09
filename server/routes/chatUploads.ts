@@ -23,6 +23,12 @@ import path from 'node:path';
 import { getPrisma, sendError, AppError } from '../context.js';
 import { CHAT_FILE_MAX_BYTES, CHAT_UPLOADING as UPLOADING, uploaderPath } from '../services/chatFiles.js';
 
+/** Сколько загрузок одного человека может быть открыто одновременно */
+export const CHAT_OPEN_UPLOADS_MAX = 3;
+/** Сколько байт в открытых загрузках одного человека суммарно */
+export const CHAT_OPEN_UPLOADS_BYTES = 1024 * 1024 * 1024;
+/** Брошенная загрузка старше этого срока не занимает места в квоте и стирается при следующем начале */
+export const CHAT_UPLOAD_STALE_MS = 2 * 60 * 60 * 1000;
 /** Сколько кусков читаем за раз при выдаче и подсчёте размера */
 const PAGE = 4;
 /** Строгий base64: Buffer.from молча принимает мусор */
@@ -43,6 +49,12 @@ async function ownUpload(prisma: any, req: Request, id: string): Promise<any> {
   return node;
 }
 
+/** Стереть недогруженный файл вместе с кусками (каскад на SQLite через драйвер не включён) */
+async function dropUpload(prisma: any, id: string): Promise<void> {
+  await prisma.fileChunk.deleteMany({ where: { fileId: id } });
+  await prisma.fileNode.deleteMany({ where: { id, type: 'CHAT_FILE', department: UPLOADING } });
+}
+
 export function registerChatUploadRoutes(app: Express, deps: ChatUploadDeps): void {
   app.post('/api/chat/upload/start', async (req: Request, res: Response) => {
     const prisma = getPrisma();
@@ -52,6 +64,14 @@ export function registerChatUploadRoutes(app: Express, deps: ChatUploadDeps): vo
       if (!base || base === '.' || base === '..') base = `file_${Date.now()}`;
       if (!Number.isInteger(size) || size <= 0) return res.status(400).json({ error: 'Файл пустой или размер не указан' });
       if (size > CHAT_FILE_MAX_BYTES) return res.status(413).json({ error: `Файл больше ${Math.round(CHAT_FILE_MAX_BYTES / 1048576)} МБ: положите его в Проводник и отправьте ссылкой` });
+      // Квота открытых загрузок: без неё один клиент мог бы залить в куски десятки ГБ до уборки сирот
+      const mine = `/chat/${actorOf(req)}/`;
+      const stale = await prisma.fileNode.findMany({ where: { type: 'CHAT_FILE', department: UPLOADING, filePath: { startsWith: mine }, createdAt: { lt: new Date(Date.now() - CHAT_UPLOAD_STALE_MS) } }, select: { id: true } });
+      for (const old of stale) await dropUpload(prisma, old.id);
+      const open = await prisma.fileNode.findMany({ where: { type: 'CHAT_FILE', department: UPLOADING, filePath: { startsWith: mine } }, select: { size: true } });
+      if (open.length >= CHAT_OPEN_UPLOADS_MAX) return res.status(429).json({ error: `Уже идёт ${open.length} загрузки файлов: дождитесь их окончания или отмените, затем повторите` });
+      const openBytes = open.reduce((sum: number, n: any) => sum + Number(n.size || 0), 0);
+      if (openBytes + size > CHAT_OPEN_UPLOADS_BYTES) return res.status(409).json({ error: `Открытые загрузки занимают ${Math.round(openBytes / 1048576)} МБ, вместе с этим файлом выйдет больше ${Math.round(CHAT_OPEN_UPLOADS_BYTES / 1048576)} МБ: дождитесь окончания предыдущих` });
       const node = await prisma.fileNode.create({
         data: { name: base, type: 'CHAT_FILE', filePath: uploaderPath(actorOf(req), base), createdById: actorOf(req) || null, size, content: null, department: UPLOADING },
       });
@@ -82,9 +102,24 @@ export function registerChatUploadRoutes(app: Express, deps: ChatUploadDeps): vo
     } catch (err: any) { sendError(res, err); }
   });
 
+  // Отмена: только своя недогруженная загрузка; куски стираются сразу
+  app.delete('/api/chat/upload/:id', async (req: Request, res: Response) => {
+    const prisma = getPrisma();
+    try {
+      const node = await ownUpload(prisma, req, String(req.params.id));
+      await dropUpload(prisma, node.id);
+      res.json({ success: true });
+    } catch (err: any) { sendError(res, err); }
+  });
+
   app.post('/api/chat/upload/:id/done', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     try {
+      // Повтор done после потерянного ответа: свой уже завершённый файл — тот же успех, без перезаливки
+      const finished = await prisma.fileNode.findUnique({ where: { id: String(req.params.id) } });
+      if (finished && finished.type === 'CHAT_FILE' && finished.department === 'CHAT' && String(finished.filePath || '').startsWith(`/chat/${actorOf(req)}/`)) {
+        return res.json({ success: true, filePath: `/chat_files/${finished.id}/${encodeURIComponent(finished.name)}`, fileName: finished.name, fileSize: Number(finished.size || 0) });
+      }
       const node = await ownUpload(prisma, req, String(req.params.id));
       const count = Number(req.body?.count);
       const present = await prisma.fileChunk.findMany({ where: { fileId: node.id }, select: { idx: true }, orderBy: { idx: 'asc' } });

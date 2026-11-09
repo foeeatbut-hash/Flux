@@ -18,6 +18,7 @@ import { bootstrapLocalDatabase } from '../server/databaseBootstrap.js';
 import { setBroadcaster, setPrisma } from '../server/context.js';
 import { registerChatRoutes } from '../server/routes/chat.js';
 import { chatFileGate, setLinkSecret, signLink } from '../server/security.js';
+import { CHAT_OPEN_UPLOADS_BYTES, CHAT_OPEN_UPLOADS_MAX, CHAT_UPLOAD_STALE_MS } from '../server/routes/chatUploads.js';
 import { CHAT_FILE_MAX_BYTES, CHAT_SINGLE_UPLOAD_MAX_BYTES, cleanOrphanChatFiles, resetSweepCursor, ORPHAN_GRACE_MS } from '../server/services/chatFiles.js';
 
 const require = createRequire(import.meta.url);
@@ -135,6 +136,37 @@ async function main() {
     await db.fileNode.updateMany({ where: { id: { in: [s1.json.id, s2.json.id] } }, data: { createdAt: new Date(Date.now() - ORPHAN_GRACE_MS - 60_000) } });
     const cleaned = await cleanOrphanChatFiles(db, { log: () => {} });
     check('недогруженные и несвязанные файлы уборка стирает с кусками', cleaned.removed >= 2 && await db.fileChunk.count({ where: { fileId: { in: [s1.json.id, s2.json.id] } } }) === 0);
+
+    // ── done идемпотентен ────────────────────────────────────────────────────
+    const fin = await uploadChunked('alice', 'fin.bin', small);
+    const again = await raw('POST', `/api/chat/upload/${fin.start.json.id}/done`, { count: 3 });
+    check('повторный done своего завершённого файла — тот же успех, без перезаливки', again.status === 200 && again.json.filePath === `/chat_files/${fin.start.json.id}/fin.bin` && again.json.fileSize === small.length, again.json);
+    check('повторный done чужого файла — 404', (await raw('POST', `/api/chat/upload/${fin.start.json.id}/done`, { count: 3 }, 'bob')).status === 404);
+
+    // ── отмена ───────────────────────────────────────────────────────────────
+    const c1 = await raw('POST', '/api/chat/upload/start', { fileName: 'cancel.bin', size: PIECE + 5 });
+    await put(c1.json.id, 0, small.subarray(0, PIECE));
+    check('чужую загрузку отменить нельзя', (await raw('DELETE', `/api/chat/upload/${c1.json.id}`, undefined, 'bob')).status === 404 && !!(await db.fileNode.findUnique({ where: { id: c1.json.id } })));
+    const cancelled = await raw('DELETE', `/api/chat/upload/${c1.json.id}`);
+    check('своя загрузка отменяется: запись и куски стёрты сразу', cancelled.status === 200 && !(await db.fileNode.findUnique({ where: { id: c1.json.id } })) && await db.fileChunk.count({ where: { fileId: c1.json.id } }) === 0);
+    check('завершённый файл отменой не стереть', (await raw('DELETE', `/api/chat/upload/${fin.start.json.id}`)).status === 404 && !!(await db.fileNode.findUnique({ where: { id: fin.start.json.id } })));
+
+    // ── квота открытых загрузок ──────────────────────────────────────────────
+    const opened3: string[] = [];
+    for (let i = 0; i < CHAT_OPEN_UPLOADS_MAX; i++) opened3.push((await raw('POST', '/api/chat/upload/start', { fileName: `q${i}.bin`, size: 10 })).json.id);
+    const fourth = await raw('POST', '/api/chat/upload/start', { fileName: 'q4.bin', size: 10 });
+    check(`четвёртая открытая загрузка — 429 с понятным текстом (предел ${CHAT_OPEN_UPLOADS_MAX})`, fourth.status === 429 && /Уже идёт/.test(fourth.json.error), fourth.json);
+    check('предел считается на человека: у другого загрузка начинается', (await raw('POST', '/api/chat/upload/start', { fileName: 'b.bin', size: 10 }, 'bob')).status === 200);
+    await raw('DELETE', `/api/chat/upload/${opened3[0]}`);
+    check('после отмены место освобождается', (await raw('POST', '/api/chat/upload/start', { fileName: 'q5.bin', size: 10 })).status === 200);
+    for (const id of opened3.slice(1)) await raw('DELETE', `/api/chat/upload/${id}`);
+    await db.fileNode.deleteMany({ where: { department: 'CHAT_UPLOAD' } });
+    const big1 = await raw('POST', '/api/chat/upload/start', { fileName: 'g1.bin', size: CHAT_FILE_MAX_BYTES });
+    const big2 = await raw('POST', '/api/chat/upload/start', { fileName: 'g2.bin', size: CHAT_FILE_MAX_BYTES });
+    const big3 = await raw('POST', '/api/chat/upload/start', { fileName: 'g3.bin', size: CHAT_FILE_MAX_BYTES });
+    check('суммарно открытых байт не больше 1 ГБ: два по 500 МБ проходят, третья — 409', big1.status === 200 && big2.status === 200 && big3.status === 409 && /1024 МБ/.test(big3.json.error) && CHAT_OPEN_UPLOADS_BYTES === 1024 * 1048576, big3.json);
+    await db.fileNode.updateMany({ where: { id: big1.json.id }, data: { createdAt: new Date(Date.now() - CHAT_UPLOAD_STALE_MS - 60_000) } });
+    check('брошенная загрузка старше двух часов стирается и квоту не держит', (await raw('POST', '/api/chat/upload/start', { fileName: 'g4.bin', size: CHAT_FILE_MAX_BYTES })).status === 200 && !(await db.fileNode.findUnique({ where: { id: big1.json.id } })));
 
     console.log(`chat-upload-chunks: ${passed} проверок пройдено`);
   } finally {

@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { isChatFileUrl, isInside, saveToDownloads } from '../electron/chatDownloadCore';
+import { createChatDownloadHandlers, createSavedPaths, isChatFileUrl, isInside, pathKey, saveToDownloads } from '../electron/chatDownloadCore';
 
 let passed = 0;
 const check = (name: string, condition: unknown, detail?: unknown) => { assert.ok(condition, `${name}${detail === undefined ? '' : ': ' + JSON.stringify(detail)}`); passed++; console.log(`✓ ${name}`); };
@@ -61,9 +61,35 @@ async function main() {
   check('папку создать нельзя (на её месте файл): ошибка, а не падение', !refused.ok, refused);
 
   // Что главный процесс согласен скачивать и показывать
-  check('скачивается только вложение чата по http(s)', isChatFileUrl('http://127.0.0.1:3000/chat_files/abc/x.pdf?exp=1&sig=2') && isChatFileUrl('https://flux.corp/chat_files/abc/%D0%A7.pdf?sig=1'));
-  check('чужие адреса и схемы отклонены', !isChatFileUrl('https://example.com/evil.exe') && !isChatFileUrl('file:///C:/Windows/system.ini') && !isChatFileUrl('http://x/chat_files/../../etc/passwd') && !isChatFileUrl('http://x/api/users') && !isChatFileUrl('') && !isChatFileUrl('мусор'));
-  check('«показать в папке» только для путей внутри «Загрузок»', isInside(dir, path.join(dir, 'a.pdf')) && !isInside(dir, path.join(dir, '..', 'секрет.txt')) && !isInside(dir, 'C:\\Windows\\system.ini') && !isInside(dir, path.join(dir + '-соседняя', 'a.pdf')));
+  const ORIGIN = 'http://localhost:3000';
+  check('скачивается только вложение чата с сервера Flux', isChatFileUrl('http://localhost:3000/chat_files/abc/x.pdf?exp=1&sig=2', ORIGIN) && isChatFileUrl('https://flux.corp/chat_files/abc/%D0%A7.pdf?sig=1', 'https://flux.corp'));
+  check('чужой хост, порт и схема отклонены', !isChatFileUrl('http://evil.example/chat_files/abc/x.pdf', ORIGIN) && !isChatFileUrl('http://localhost:3001/chat_files/abc/x.pdf', ORIGIN) && !isChatFileUrl('https://localhost:3000/chat_files/abc/x.pdf', ORIGIN) && !isChatFileUrl('http://localhost:3000@evil.example/chat_files/abc/x.pdf', ORIGIN));
+  check('чужие пути и мусор отклонены', !isChatFileUrl('file:///C:/Windows/system.ini', ORIGIN) && !isChatFileUrl('http://localhost:3000/chat_files/../../etc/passwd', ORIGIN) && !isChatFileUrl('http://localhost:3000/api/users', ORIGIN) && !isChatFileUrl('', ORIGIN) && !isChatFileUrl('мусор', ORIGIN));
+  check('«внутри папки» не принимает соседнюю и выход вверх', isInside(dir, path.join(dir, 'a.pdf')) && !isInside(dir, path.join(dir, '..', 'секрет.txt')) && !isInside(dir, path.join(dir + '-соседняя', 'a.pdf')));
+  check('на Windows регистр в пути не различается, на других системах различается', pathKey('C:\\Users\\Ivan\\Downloads\\A.pdf', 'win32') === pathKey('c:\\users\\ivan\\downloads\\a.PDF', 'win32') && pathKey('/tmp/A', 'linux') !== pathKey('/tmp/a', 'linux'));
+  const winSaved = createSavedPaths('win32');
+  winSaved.remember('/tmp/Downloads/Файл.pdf');
+  check('выданный путь узнаётся без учёта регистра (Windows), чужой — нет', winSaved.has('/tmp/downloads/ФАЙЛ.PDF') && !winSaved.has('/tmp/Downloads/другой.pdf'));
+
+  // Каналы: отправитель, адрес, выданные пути
+  const shown: string[] = [];
+  const fetched: string[] = [];
+  const main = { id: 'main' }; const stranger = { id: 'frame' };
+  const handlers = createChatDownloadHandlers<{ id: string }>({
+    trusted: (e) => e === main, serverOrigin: ORIGIN, downloadsDir: () => dir,
+    fetch: async (url) => { fetched.push(url); return { ok: true, status: 200, body: streamOf(Buffer.from('данные')) }; },
+    showItem: (t) => { shown.push(t); },
+  });
+  const url = 'http://localhost:3000/chat_files/n1/x.pdf?sig=1';
+  const foreign = await handlers.save(stranger, url, 'вложение.pdf');
+  check('сохранение для чужого отправителя отказано, сеть не тронута, файла нет', !foreign.ok && fetched.length === 0 && !fs.existsSync(path.join(dir, 'вложение.pdf')), foreign);
+  const badHost = await handlers.save(main, 'http://evil.example/chat_files/n1/x.pdf', 'вложение.pdf');
+  check('сохранение с чужого хоста отказано, сеть не тронута', !badHost.ok && fetched.length === 0, badHost);
+  const good = await handlers.save(main, url, 'вложение.pdf');
+  check('основное окно и адрес сервера: файл сохранён', good.ok && fetched.length === 1 && fs.readFileSync(path.join(dir, 'вложение.pdf'), 'utf8') === 'данные', good);
+  check('«показать» для чужого отправителя отказано', !handlers.reveal(stranger, good.ok ? good.path : '').ok && shown.length === 0);
+  check('«показать» чужой файл из «Загрузок» (не выданный при сохранении) отказано', !handlers.reveal(main, path.join(dir, 'Чертёж ОВ-12.pdf')).ok && !handlers.reveal(main, dir).ok && shown.length === 0);
+  check('«показать» выданный при сохранении путь — можно', handlers.reveal(main, good.ok ? good.path : '').ok && shown.length === 1);
 
   console.log(`chat-download: ${passed} проверок пройдено`);
 }

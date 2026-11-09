@@ -138,6 +138,20 @@ async function run() {
       check('отказанный файл не прикреплён, полоса загрузки убрана', await page.getByRole('list', { name: 'Прикреплено' }).locator('li').count() === 0 && await page.getByText(/Загрузка «huge\.bin»/).count() === 0);
       await page.context().close();
     }
+    // ── Обрыв загрузки: клиент сам стирает недогруженное ─────────────────────
+    {
+      const { page } = await open(browser, false);
+      let deleted = 0;
+      await page.route('**/api/chat/upload/start', (route: any) => route.fulfill({ json: { success: true, id: 'up-2', chunkBytes: 1024 } }));
+      await page.route('**/api/chat/upload/up-2/chunk', (route: any) => route.fulfill({ status: 500, json: { error: 'Сервер недоступен' } }));
+      await page.route('**/api/chat/upload/up-2', (route: any) => { if (route.request().method() === 'DELETE') deleted++; return route.fulfill({ json: { success: true } }); });
+      await page.goto(`${BASE}/scripts/fixtures/chat-files-ui.html`);
+      await page.getByLabel('Выбрать файл').setInputFiles({ name: 'cut.bin', mimeType: 'application/octet-stream', buffer: Buffer.alloc(3000, 2) });
+      await page.waitForFunction(() => (window as any).__toasts().includes('Сервер недоступен'));
+      await page.waitForFunction(() => document.querySelectorAll('[role=status]').length === 0);
+      check('при отказе на куске клиент отменяет загрузку (DELETE), причина показана', deleted === 1, deleted);
+      await page.context().close();
+    }
   } finally {
     await browser.close();
   }
