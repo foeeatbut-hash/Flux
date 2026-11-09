@@ -28,7 +28,7 @@
 
 Пустая база: при `userCount === 0` первым входит владелец подписанным ключом
 (`server.ts` ~506, `server/routes/owner.ts` `/api/owner/challenge` и
-`/login`, `electron/ownerLogin.ts`, отдельный portable `tools/flux-owner`).
+`/login`, `electron/ownerLogin.ts`, отдельный portable `studio/owner`).
 Начальная учётная запись администратора отключена
 (`server/legacyIdentity.ts`).
 

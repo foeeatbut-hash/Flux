@@ -16,6 +16,7 @@ import { setDialect, dialectOf, ensureTables as ensureDbTables } from './server/
 import { readAppVersion } from './server/presence.js';
 import { registerSockets } from './server/sockets.js';
 import { registerUpdateRoutes } from './server/updates.js';
+import { registerStudioRoutes } from './server/routes/studio.js';
 import { registerLimitRoutes } from './server/limits.js';
 import { registerFeedbackRoutes } from './server/routes/feedback.js';
 import { registerPolicyRoutes } from './server/routes/policy.js';
@@ -967,6 +968,8 @@ registerUpdateRoutes(app, {
   broadcast: (event, payload) => { try { io.emit(event, payload); } catch (_) {} },
   can: userCan,
 });
+// Вход в Flux Studio: право разработки или вход владельца проверяет сервер
+registerStudioRoutes(app, { getPrisma: () => prisma, permissionsOf: effectivePermsOf });
 
 // Насколько большой файл примет эта база — server/limits.ts. Окно спрашивает
 // заранее, чтобы отказ звучал до переноса, а не после получаса ожидания

@@ -1,0 +1,10 @@
+{
+  "passphrase": "legacy-fixture-passphrase",
+  "kind": "main",
+  "publicKeys": {
+    "license": "dca79548a095cea900529bf22327bdffe4af570082b1e8c56e4e4ae5a997b06f",
+    "update": "9835690eecd1d572d5352d8f7b79b0e0355581eace5bc9f32d0edcb6a7c2199e",
+    "owner": "6486b6da5420b0fe6879c6d08516d7cd8a24e450cc39ab4cdb96f53af2c4ace2"
+  },
+  "note": "Синтетическое хранилище, созданное кодом отдельного Flux Owner до переноса в Studio. Не ключи владельца."
+}

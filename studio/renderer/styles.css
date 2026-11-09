@@ -1,0 +1,53 @@
+/* Оформление Flux Studio: токены на :root, тёмная тема по системе или по data-theme.
+   Фоны сплошные: окна Studio без прозрачности, чтобы снимки были одинаковыми на любом рабочем столе. */
+:root {
+  --bg: #f1f5f9; --surface: #ffffff; --surface-2: #f8fafc; --border: #cbd5e1; --text: #0f172a; --muted: #475569;
+  --accent: #0d9488; --accent-text: #ffffff; --danger: #b91c1c; --danger-bg: #fef2f2; --ok: #047857; --warn: #b45309;
+  --focus: #0f766e; --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f172a; --surface: #1e293b; --surface-2: #172033; --border: #334155; --text: #f1f5f9; --muted: #94a3b8;
+    --accent: #2dd4bf; --accent-text: #042f2e; --danger: #fca5a5; --danger-bg: #3b1d1d; --ok: #6ee7b7; --warn: #fcd34d; --focus: #5eead4;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f172a; --surface: #1e293b; --surface-2: #172033; --border: #334155; --text: #f1f5f9; --muted: #94a3b8;
+  --accent: #2dd4bf; --accent-text: #042f2e; --danger: #fca5a5; --danger-bg: #3b1d1d; --ok: #6ee7b7; --warn: #fcd34d; --focus: #5eead4;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+#root { height: 100%; }
+.app { display: flex; flex-direction: column; height: 100%; }
+.top { display: flex; align-items: center; gap: 12px; padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.brand { font-size: 16px; font-weight: 700; letter-spacing: .01em; }
+.brand small { margin-left: 8px; font-weight: 400; color: var(--muted); }
+.spacer { flex: 1; }
+.chip { padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 12px; background: var(--surface-2); }
+.chip.ok { color: var(--ok); border-color: var(--ok); }
+.body { flex: 1; display: flex; min-height: 0; }
+.nav { width: 240px; padding: 16px 12px; background: var(--surface-2); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; }
+.nav h3 { margin: 12px 8px 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.nav button { text-align: left; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.nav button[aria-current="page"] { background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); font-weight: 600; }
+.nav button:hover { background: var(--surface); }
+.main { flex: 1; overflow: auto; padding: 24px; }
+.card { max-width: 640px; margin: 8vh auto 0; padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.card h2, .main h2 { margin: 0 0 8px; font-size: 20px; }
+.muted { color: var(--muted); }
+.field { margin: 16px 0; display: flex; flex-direction: column; gap: 6px; }
+.field label { font-weight: 600; }
+input { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text); font: inherit; }
+input:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.primary, .secondary { padding: 8px 16px; border-radius: 8px; font: inherit; cursor: pointer; border: 1px solid var(--accent); }
+.primary { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+.secondary { background: transparent; color: var(--text); border-color: var(--border); }
+button:disabled { opacity: .55; cursor: default; }
+.error { margin: 12px 0; padding: 8px 12px; border-radius: 8px; background: var(--danger-bg); color: var(--danger); }
+.hint { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; margin-top: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+th { font-size: 12px; color: var(--muted); font-weight: 600; background: var(--surface-2); }
+tr:last-child td { border-bottom: 0; }
+.empty { margin-top: 16px; padding: 32px; text-align: center; border: 1px dashed var(--border); border-radius: var(--radius); color: var(--muted); background: var(--surface); }

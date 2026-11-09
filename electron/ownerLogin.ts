@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
 import { trustedAuthSender } from './authStorage';
-import { decrypt, inspectVault } from '../tools/flux-owner/src/vault.cjs';
+import { decrypt, inspectVault } from '../studio/owner/src/vault.cjs';
 
 const MAX_BYTES = 12 * 1024 * 1024;
 

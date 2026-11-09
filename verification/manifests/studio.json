@@ -1,0 +1,368 @@
+{
+  "version": 1,
+  "group": "studio",
+  "programs": [
+    {
+      "id": "studio",
+      "label": "Flux Studio",
+      "routes": [],
+      "sources": [
+        "studio/entry-developer.ts",
+        "studio/shell/main.ts",
+        "studio/shell/api.ts",
+        "studio/shell/preload.ts",
+        "studio/renderer/main.tsx",
+        "server/routes/studio.ts",
+        "studio/renderer/styles.css",
+        "studio/renderer/index.html",
+        "studio/entry-owner.ts",
+        "studio/build.cjs",
+        "scripts/check-studio-bundle.ts"
+      ]
+    }
+  ],
+  "suites": [
+    {
+      "id": "studio-access",
+      "path": "scripts/test-studio-access.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files",
+        "loopback-http"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-shell",
+      "path": "scripts/test-studio-shell.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files",
+        "loopback-http"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-bundle",
+      "path": "scripts/test-studio-bundle.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-owner-section",
+      "path": "scripts/test-studio-owner-section.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-ui",
+      "path": "scripts/test-studio-ui.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_CHROME"
+        }
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-owner-diagnostics",
+      "path": "studio/owner/scripts/test-diagnostics.cjs",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-owner-network",
+      "path": "studio/owner/scripts/test-network.cjs",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "loopback-http"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    }
+  ],
+  "actions": [
+    {
+      "id": "studio.sign-in",
+      "program": "studio",
+      "label": "Вход разработчика в Studio",
+      "sources": [
+        "studio/shell/main.ts",
+        "studio/shell/api.ts",
+        "server/routes/studio.ts"
+      ],
+      "triggers": [
+        "кнопка «Войти»"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Пускает право «Разработка подпрограмм»; без права отказывает сервер, окно сессии не получает"
+      ],
+      "checks": [
+        {
+          "suite": "studio-access",
+          "layer": "api-db",
+          "claims": [
+            "Сервер отвечает 403 без права (и администратору без права), 200 с module.develop и владельцу",
+            "Свои подпрограммы видны только автору, список ограничен"
+          ]
+        },
+        {
+          "suite": "studio-shell",
+          "layer": "unit",
+          "claims": [
+            "Вход, отказ без права и неверный пароль через настоящие маршруты; токен остаётся в главном процессе; чужое окно и неизвестное действие отклоняются"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Войти в FluxStudio.exe разработчиком с правом и сотрудником без права на общей базе компании",
+          "expected": [
+            "Разработчик входит, сотрудник видит отказ с подсказкой"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "studio.connect",
+      "program": "studio",
+      "label": "Подключение к общей базе",
+      "sources": [
+        "studio/shell/main.ts",
+        "studio/renderer/main.tsx"
+      ],
+      "triggers": [
+        "кнопка «Подключиться»"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Адрес базы не сохраняется и не показывается; обработчик останавливается при отключении"
+      ],
+      "checks": [
+        {
+          "suite": "studio-shell",
+          "layer": "unit",
+          "claims": [
+            "Адрес нигде не сохранён, отключение останавливает обработчик, в окно уходит только перечисленное состояние"
+          ]
+        },
+        {
+          "suite": "studio-ui",
+          "layer": "browser-live",
+          "claims": [
+            "Поле адреса скрыто как пароль в обеих темах"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Подключиться к настоящей MariaDB рядом с Flux того же выпуска",
+          "expected": [
+            "Подключение подтверждается, без Flux рядом — понятное сообщение"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "studio.modules-list",
+      "program": "studio",
+      "label": "Раздел «Подпрограммы»",
+      "sources": [
+        "studio/renderer/main.tsx",
+        "server/routes/studio.ts"
+      ],
+      "triggers": [
+        "вход",
+        "раздел «Подпрограммы»"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Видны свои подпрограммы и состояние последней отправки; пустой список объяснён"
+      ],
+      "checks": [
+        {
+          "suite": "studio-access",
+          "layer": "api-db",
+          "claims": [
+            "Только свои, не больше предела"
+          ]
+        },
+        {
+          "suite": "studio-ui",
+          "layer": "browser-live",
+          "claims": [
+            "Список и пустое состояние в обеих темах, замеры без переполнения, контраст, снимки"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "studio.two-builds",
+      "program": "studio",
+      "label": "Две сборки: разработчик и владелец",
+      "sources": [
+        "studio/build.cjs",
+        "studio/entry-developer.ts",
+        "studio/entry-owner.ts",
+        "scripts/check-studio-bundle.ts"
+      ],
+      "triggers": [
+        "сборка в CI"
+      ],
+      "risk": "critical",
+      "expected": [
+        "В сборке разработчика кода владельца нет; обе сборки с одним номером версии Flux"
+      ],
+      "checks": [
+        {
+          "suite": "studio-bundle",
+          "layer": "unit",
+          "claims": [
+            "Проверка бандла проходит у разработчика, падает у владельца и на мутациях (модуль владельца в сборке разработчика, метка в пакете и в asar)",
+            "Версия обеих сборок совпадает с Flux, имена exe по решению владельца"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Собрать обе программы в CI (windows-latest) и проверить app.asar разработчика",
+          "expected": [
+            "Проверка зелёная, файлы FluxStudio.exe и FluxStudio-Владелец.exe"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "studio.owner-section",
+      "program": "studio",
+      "label": "Раздел владельца в Studio — Владелец",
+      "sources": [
+        "studio/entry-owner.ts",
+        "studio/shell/main.ts",
+        "studio/build.cjs"
+      ],
+      "triggers": [
+        "меню «Лицензии и обновления Flux»"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Открывается окно прежнего Flux Owner; хранилище ключей прежнее по пути и формату, перевыпуск лицензий не нужен"
+      ],
+      "checks": [
+        {
+          "suite": "studio-owner-section",
+          "layer": "unit",
+          "claims": [
+            "Готовый пакет владельца открывает хранилище прежнего Flux Owner теми же открытыми ключами, создаёт новое тем же форматом; у разработчика раздела и канала нет"
+          ]
+        },
+        {
+          "suite": "studio-ui",
+          "layer": "browser-live",
+          "claims": [
+            "Раздел в меню только в сборке владельца"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Открыть FluxStudio-Владелец.exe с настоящим хранилищем владельца на компьютере владельца, подключиться, выпустить тестовую лицензию и обновление",
+          "expected": [
+            "Хранилище открывается прежним паролем, лицензия и обновление принимаются Flux"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "studio.owner-diagnostics",
+      "program": "studio",
+      "label": "Диагностика и сетевые пределы раздела владельца",
+      "sources": [
+        "studio/owner/src/diagnostics.cjs",
+        "studio/owner/src/network.cjs"
+      ],
+      "triggers": [
+        "журнал",
+        "запрос к локальному серверу"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Журнал скрывает секреты, запросы только к loopback и по списку маршрутов владельца"
+      ],
+      "checks": [
+        {
+          "suite": "studio-owner-diagnostics",
+          "layer": "unit",
+          "claims": [
+            "Скрытие данных, связь операций, ротация и экспорт"
+          ]
+        },
+        {
+          "suite": "studio-owner-network",
+          "layer": "unit",
+          "claims": [
+            "Таймауты, отмена, проверка ответов, только локальный адрес"
+          ]
+        }
+      ],
+      "manual": []
+    }
+  ],
+  "connections": [
+    {
+      "id": "studio.to-flux-server",
+      "from": "studio",
+      "to": "users",
+      "status": "implemented",
+      "sources": [
+        "server/routes/studio.ts",
+        "studio/shell/api.ts"
+      ],
+      "expected": [
+        "Studio входит по тем же профилям и правам, что и Flux; право проверяет сервер"
+      ],
+      "checks": [
+        {
+          "suite": "studio-access",
+          "layer": "api-db",
+          "claims": [
+            "Право module.develop и владелец пускают, остальные получают 403"
+          ]
+        }
+      ],
+      "manual": []
+    }
+  ]
+}

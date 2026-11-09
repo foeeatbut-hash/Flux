@@ -1,0 +1,109 @@
+# Flux Studio для разработчика (FluxStudio.exe) и проверки обеих сборок Studio.
+# Сборка владельца здесь НЕ собирается: она только по ручному запуску владельца —
+# build-studio-owner.yml. Номер версии у Flux, Studio и Studio — Владелец один: он
+# берётся из корневого package.json, другого источника у сборок нет.
+name: Flux Studio
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - studio/**
+      - server/routes/studio.ts
+      - scripts/*studio*.ts
+      - package.json
+      - package-lock.json
+      - .github/workflows/build-studio*.yml
+  push:
+    branches: [main]
+    paths:
+      - studio/**
+      - server/routes/studio.ts
+      - package.json
+      - .github/workflows/build-studio*.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Проверки Studio (вход, бандлы, окна, раздел владельца)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Зависимости
+        run: npm ci
+      - name: Клиент Prisma
+        run: npx prisma generate --schema=prisma/schema.prisma
+      - name: Перенесённые проверки Flux Owner
+        run: npm run test:studio-owner
+      - name: Вход разработчика и право на сервере
+        run: |
+          node --import tsx scripts/test-studio-access.ts
+          node --import tsx scripts/test-studio-shell.ts
+      - name: Две сборки и проверка бандла разработчика (с мутациями)
+        run: node --import tsx scripts/test-studio-bundle.ts
+      - name: Раздел владельца и прежнее хранилище ключей
+        run: node --import tsx scripts/test-studio-owner-section.ts
+      - name: Окна Studio, обе темы
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+          FLUX_STUDIO_SHOTS: ${{ runner.temp }}/studio-shots
+        run: node --import tsx scripts/test-studio-ui.ts
+      - name: Снимки окон
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-screenshots
+          path: ${{ runner.temp }}/studio-shots/*.png
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Типы
+        run: npx tsc --noEmit
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+
+  developer:
+    name: FluxStudio.exe (Windows portable)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Скрипты зависимостей не нужны: Studio — это оболочка без нативных модулей,
+      # Electron скачивает сам electron-builder (при ответе 504 — перезапустить задание)
+      - name: Зависимости
+        run: npm ci --ignore-scripts
+      - name: Пакет разработчика
+        run: npm run build:studio
+      - name: В пакете разработчика нет кода владельца
+        run: npm run check:studio-bundle -- --dir dist-studio/developer
+      - name: Portable FluxStudio.exe
+        run: node studio/build.cjs developer --pack
+      - name: Код владельца отсутствует и в app.asar готовой программы
+        run: npm run check:studio-bundle -- --dir dist-studio/developer --asar release-studio/win-unpacked/resources/app.asar
+      - name: Версия и имя файла
+        id: meta
+        shell: bash
+        run: |
+          set -e
+          VERSION=$(node -p "require('./package.json').version")
+          test -f release-studio/FluxStudio.exe
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Flux Studio $VERSION: $(du -h release-studio/FluxStudio.exe | cut -f1)"
+      # Только артефакт сборки: в общие выпуски Studio не публикуется
+      - name: Файл сборки
+        uses: actions/upload-artifact@v4
+        with:
+          name: FluxStudio-${{ steps.meta.outputs.version }}
+          path: release-studio/FluxStudio.exe
+          if-no-files-found: error
+          retention-days: 30
