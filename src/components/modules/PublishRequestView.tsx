@@ -4,6 +4,8 @@ import { bundleText, packBundle, unpackBundle, type BundleFiles } from '../../..
 import { moduleReleaseService, signAsOwner, type PublishRequest, type RequestDiff } from '../../services/moduleReleaseService';
 import type { ModuleChannel } from '../../../modules/trust/claims';
 import OwnerSignDialog from './OwnerSignDialog';
+import { ACCESS_NAMES, connectionsOf, describeConnection } from '../../../modules/connections/model';
+import { manifestOf } from '../../../modules/trust/diff';
 
 export const REQUEST_STATE: Record<PublishRequest['state'], { label: string; tone: Tone }> = {
   pending: { label: 'Ждёт решения', tone: 'amber' }, returned: { label: 'На доработке', tone: 'sky' },
@@ -38,6 +40,7 @@ export default function PublishRequestView({ request, onChanged }: { request: Pu
   }, [request.id]);
   const files: BundleFiles | null = useMemo(() => { try { return bundle ? unpackBundle(bundle) : null; } catch { return null; } }, [bundle]);
   const fileDiff = diff?.files.find((f) => f.path === path);
+  const humanConnections = useMemo(() => connectionsOf(manifestOf(files)), [files]);
   const state = REQUEST_STATE[request.state];
   const meta = request.meta;
   const pending = request.state === 'pending';
@@ -79,8 +82,14 @@ export default function PublishRequestView({ request, onChanged }: { request: Pu
     </div>}
     {pane === 'flux' && <div className="p-3 text-sm flex flex-col gap-2 overflow-auto">
       {diff && Object.keys(diff.permissions.added).length === 0 && Object.keys(diff.permissions.removed).length === 0 && <div>Разрешения не изменились.</div>}
-      {diff && Object.entries(diff.permissions.added).map(([k, v]) => <div key={`+${k}`}><Status tone="amber">новое</Status> {k}: {v.join(', ')}</div>)}
+      {diff && Object.entries(diff.permissions.added).map(([k, v]) => k === 'connections'
+        ? v.map((line) => <div key={`+c${line}`} data-testid="diff-connection"><Status tone="amber">новое</Status> подключение к {line}</div>)
+        : <div key={`+${k}`}><Status tone="amber">новое</Status> {k}: {v.join(', ')}</div>)}
       {diff && Object.entries(diff.permissions.removed).map(([k, v]) => <div key={`-${k}`}><Status tone="slate">убрано</Status> {k}: {v.join(', ')}</div>)}
+      {humanConnections.length > 0 && <div data-testid="owner-connection-texts"><div className="font-semibold">Подключения — так их увидит человек</div>
+        {humanConnections.map((c) => <div key={c.id} className="mt-1 rounded border border-[var(--flux-line)] p-2">
+          <div><b>«{request.moduleId}» хочет подключиться к {c.app}</b></div><div>{c.does}</div>
+          <div className="text-xs text-[var(--flux-text-muted)]">Доступ: {ACCESS_NAMES[c.access]} · {describeConnection(c)}</div></div>)}</div>}
       <pre className="m-0 text-xs font-mono">{files ? bundleText(files, 'manifest.json') : ''}</pre>
     </div>}
     {pane === 'review' && <div className="p-3 text-sm flex flex-col gap-2 overflow-auto">

@@ -9,6 +9,7 @@ import { categoryName, formatSize, STATUS_NAMES, type StoreListing } from '../..
 import { useModuleStore } from '../../store/moduleStoreState';
 import { ActionButton, ModuleIcon, Stars, type ActionKind } from './StoreParts';
 import { PermissionsList, RequirementsList } from './StoreDialogs';
+import ConnectionGrants from './ConnectionGrants';
 import { Description, KnownIssues, Reviews, Screenshots, VersionHistory } from './StoreModuleBlocks';
 
 const dateOf = (iso: string) => new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -58,7 +59,8 @@ export default function StoreModulePage({ listing, onBack, onAct, onReport }: {
       <KnownIssues listing={listing} />
       <Reviews listing={listing} />
       <section className="stx-block"><h3>Что нового в версии {listing.version}</h3><div style={{ whiteSpace: 'pre-wrap' }}>{listing.changelog || 'Описание не указано.'}</div></section>
-      <section className="stx-block"><h3>Разрешения</h3><PermissionsList listing={listing} /></section>
+      <section className="stx-block"><h3>Разрешения</h3><PermissionsList listing={listing} />
+        {listing.mine && local && (listing.manifest.connections || []).length > 0 && <div className="mt-3"><div className="mb-1 text-sm font-semibold">Подключения: ваш выбор на этом компьютере</div><ConnectionGrants moduleId={listing.moduleId} /></div>}</section>
       <section className="stx-block"><h3>Требования</h3><RequirementsList listing={listing} /></section>
       <section className="stx-block"><h3>Дополнительные сведения</h3>
         <dl className="stx-kv">
