@@ -28,7 +28,7 @@ interface Base {
   /** Что именно разрешается: читать, изменять или отправлять данные; расширение (читать → изменять) спрашивается заново */
   access: AccessKind;
 }
-export interface ComConnection extends Base { kind: 'com'; progId: string }
+export interface ComConnection extends Base { kind: 'com'; progId: string; /** Опасный объект открыт владельцем явно (см. COM_DENIED) */ allowDangerous?: boolean }
 export interface NetConnection extends Base {
   kind: 'http' | 'ws';
   /** Схема, адрес и порт без пути: `http://127.0.0.1:8123` */
@@ -41,18 +41,31 @@ export interface NetConnection extends Base {
 export type ConnectionDecl = ComConnection | NetConnection;
 
 /**
- * COM-объекты, через которые можно запустить программу или выйти в сеть в обход
- * объявленных адресов: решение владельца закрывает запуск exe и сеть на
- * неразрешённые адреса без отдельного решения. Список не заменяет проверку
- * владельцем (COM-объект может многое), а убирает очевидные обходы.
+ * COM: белый список. Разрешён только ProgID, явно объявленный в манифесте выпуска,
+ * подписанного владельцем; имя сравнивается без версии (`Name.1`, `Name.12` — то же имя),
+ * поэтому версионный вариант опасного объекта не обходит запрет.
+ *
+ * Опасные объекты (оболочка и запуск программ, файловая система, базы и почта, приложения
+ * Office, WMI, сеть в обход объявленных адресов) закрыты даже при объявлении: открыть их
+ * можно только отдельным флагом `allowDangerous` в объявлении — он входит в подписанный
+ * выпуск, виден владельцу и человеку («опасный объект») и меняет разрешение при обновлении.
  */
 export const COM_DENIED = [
-  /^WScript\.(Shell|Network)$/i, /^Shell\.Application$/i, /^Schedule\.Service$/i, /^WbemScripting\./i,
-  /^MSXML2\./i, /^Microsoft\.XMLHTTP$/i, /^WinHttp\./i, /^InternetExplorer\./i, /^htmlfile$/i,
-  /^(MS)?ScriptControl$/i, /^MSScriptControl\./i, /^Excel\.Application$/i, /^Word\.Application$/i, /^Outlook\.Application$/i,
+  /^WScript\.(Shell|Network)$/i, /^Shell\.(Application|Explorer)$/i, /^Schedule\.Service$/i, /^WbemScripting\./i, /^winmgmts$/i,
+  /^Scripting\.(FileSystemObject|Signer)$/i, /^ADODB\./i, /^ADOX\./i, /^CDO\./i, /^MSXML2?\./i, /^Microsoft\.XMLHTTP$/i, /^WinHttp\./i,
+  /^InternetExplorer\./i, /^htmlfile$/i, /^(MS)?ScriptControl$/i, /^MSScriptControl\./i, /^Msxml2\./i, /^Shell\./i,
+  /^(Excel|Word|Outlook|Access|PowerPoint|Visio|Publisher|OneNote)\.[A-Za-z]+$/i, /^MAPI\./i, /^Wscript\./i, /^Scriptlet\./i,
+];
+/** Типы объектов, которые нельзя получить в ответе вызова без `allowDangerous` (проверяет помощник COM по имени типа) */
+export const COM_DENIED_TYPES = [
+  '^(I)?(Shell|ShellDispatch\\d*|ShellFolderView|WshShell\\d*|WshNetwork\\d*|WshScriptExec|FileSystem\\d*|FileSystemObject)$',
+  '^(I)?(XMLHTTP\\w*|ServerXMLHTTP\\w*|WinHttpRequest|WebBrowser2?|InternetExplorer\\w*|ScriptControl|TaskService|Message)$',
+  '^(I)?(SWbem\\w+|_?Connection|_?Recordset|_?Command|_?Stream|_Application)$',
 ];
 export const COM_PROGID = /^[A-Za-z][A-Za-z0-9_]{0,63}(?:\.[A-Za-z0-9_]{1,64}){1,3}$/;
-export const comDenied = (progId: string) => COM_DENIED.some(rule => rule.test(progId));
+/** `Name.Sub.2` → `Name.Sub`: версия — только последний числовой хвост */
+export const normalizeProgId = (progId: string) => progId.replace(/\.\d+$/, '');
+export const comDenied = (progId: string) => COM_DENIED.some(rule => rule.test(normalizeProgId(progId)) || rule.test(progId));
 
 const CONNECTION_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const PREFIX = /^\/[A-Za-z0-9._~\/-]{0,199}$/;
@@ -113,8 +126,10 @@ export function parseConnections(raw: unknown): ConnectionDecl[] | null {
       || !ACCESS_KINDS.includes(item.access as AccessKind)) return null;
     const base = { id: item.id, app: item.app.trim(), does: item.does.trim(), access: item.access as AccessKind };
     if (item.kind === 'com') {
-      if (!keysOnly(item, ['id', 'kind', 'progId', 'app', 'does', 'access']) || typeof item.progId !== 'string' || !COM_PROGID.test(item.progId) || comDenied(item.progId)) return null;
-      out.push({ ...base, kind: 'com', progId: item.progId });
+      if (!keysOnly(item, ['id', 'kind', 'progId', 'allowDangerous', 'app', 'does', 'access']) || typeof item.progId !== 'string' || !COM_PROGID.test(item.progId)) return null;
+      if (item.allowDangerous !== undefined && typeof item.allowDangerous !== 'boolean') return null;
+      if (comDenied(item.progId) && item.allowDangerous !== true) return null;
+      out.push({ ...base, kind: 'com', progId: item.progId, ...(item.allowDangerous ? { allowDangerous: true } : {}) });
     } else if (item.kind === 'http' || item.kind === 'ws') {
       if (!keysOnly(item, ['id', 'kind', 'url', 'pathPrefix', 'internal', 'app', 'does', 'access'])) return null;
       const target = parseOrigin(item.kind, item.url);
@@ -137,7 +152,7 @@ export function explicitInternal(decl: NetConnection): boolean {
 const KIND_NAMES: Record<ConnectionKind, string> = { com: 'COM', http: 'HTTP', ws: 'WebSocket' };
 /** Одна строка для человека; одинакова в окне разрешений, разнице запроса и журнале */
 export function describeConnection(c: ConnectionDecl): string {
-  if (c.kind === 'com') return `COM-объект ${c.progId}`;
+  if (c.kind === 'com') return `COM-объект ${c.progId}${c.allowDangerous ? ' (опасный объект, открыт владельцем)' : ''}`;
   const prefix = c.pathPrefix === '/' ? '' : c.pathPrefix;
   return `${KIND_NAMES[c.kind]} ${c.url}${prefix}${explicitInternal(c) ? ' (внутренняя сеть)' : ''}`;
 }
@@ -145,7 +160,7 @@ export function describeConnection(c: ConnectionDecl): string {
  * Для сравнения версий и «новое: подключение к …»: техническое описание плюс вид доступа. Расширение доступа
  * (читать → изменять) меняет строку, поэтому считается новым подключением и спрашивается заново.
  */
-export const grantKey = (c: ConnectionDecl) => `${describeConnection(c)} — ${ACCESS_NAMES[c.access]}`;
+export const grantKey = (c: ConnectionDecl) => `${describeConnection(c)} — ${ACCESS_NAMES[c.access]} — ${c.app} — ${c.does}`;
 /** Строка для человека: понятное имя программы, вид доступа и что будет делать */
 export const describeForHuman = (c: ConnectionDecl) => `${c.app}: ${ACCESS_NAMES[c.access]}. ${c.does}`;
 
@@ -164,8 +179,15 @@ export const CONNECTION_LIMITS = {
   inFlight: 4,
   /** Открытых подключений (сокеты WebSocket и группы COM-объектов) на модуль */
   open: 4,
-  /** Живых COM-объектов на одно подключение */
-  comHandles: 64,
+  /** Живых COM-объектов на одно подключение: E3 отдаёт много объектов, но они освобождаются явно и при закрытии подпрограммы */
+  comHandles: 4096,
+  /** COM — локальный однопоточный помощник: вызовов в секунду много, одновременно один (остальные ждут очереди не длиннее comQueue) */
+  comCallsPerSecond: 1000,
+  comQueue: 8,
+  /** Вызовов в одном пакете `com-batch` и размер аргументов и ответа COM, байт */
+  comBatch: 200,
+  comArgsBytes: 64 * 1024,
+  comReplyBytes: 512 * 1024,
   /** Время одного вызова, мс */
   callMs: 15_000,
   /** Ожидание сообщения WebSocket, мс */
@@ -212,7 +234,8 @@ export type ConnectCall =
   | { op: 'com-call'; handle: number; name: string; args?: unknown[] }
   | { op: 'com-get'; handle: number; name: string; args?: unknown[] }
   | { op: 'com-set'; handle: number; name: string; value: unknown; args?: unknown[] }
-  | { op: 'com-release'; handle: number };
+  | { op: 'com-release'; handle: number }
+  | { op: 'com-batch'; calls: Array<{ kind: 'call' | 'get' | 'set'; handle: number; name: string; args?: unknown[]; value?: unknown }> };
 /** NOT_ALLOWED — человек (или политика администратора) не разрешил подключение: подпрограмма продолжает без него */
 export type ConnectErrorCode = 'DENIED' | 'NOT_ALLOWED' | 'LIMIT' | 'TIMEOUT' | 'TARGET' | 'UNAVAILABLE' | 'FAILED';
 export const CONNECT_ERROR_CODES: readonly ConnectErrorCode[] = ['DENIED', 'NOT_ALLOWED', 'LIMIT', 'TIMEOUT', 'TARGET', 'UNAVAILABLE', 'FAILED'];
@@ -227,7 +250,7 @@ export type ConnectReply =
   | { ok: true; data: unknown }
   | { ok: false; code: ConnectErrorCode }
   | { ok: false; code: 'ASK'; ask: GrantAsk };
-export const CONNECT_OPS = ['http', 'ws-open', 'ws-send', 'ws-recv', 'ws-close', 'com-open', 'com-call', 'com-get', 'com-set', 'com-release'] as const;
+export const CONNECT_OPS = ['http', 'ws-open', 'ws-send', 'ws-recv', 'ws-close', 'com-open', 'com-call', 'com-get', 'com-set', 'com-release', 'com-batch'] as const;
 
 /** Подключение, которое нужно виду вызова: http — к HTTP-объявлению, ws-* — к WebSocket, com-* — к COM */
 export const kindOfOp = (op: ConnectCall['op']): ConnectionKind => op === 'http' ? 'http' : op.startsWith('ws-') ? 'ws' : 'com';

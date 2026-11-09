@@ -21,6 +21,12 @@ import type { HttpReply, WsReply } from '../modules/contract';
 
 export type Lookup = (host: string) => Promise<string[]>;
 export const systemLookup: Lookup = async host => (await dns.promises.lookup(host, { all: true, verbatim: true })).map(a => a.address);
+/** Разрешение имени не ждёт дольше 5 с: зависший DNS не держит вызов и слот подпрограммы */
+export const DNS_TIMEOUT_MS = 5000;
+const withDnsTimeout = (lookup: Lookup): Lookup => host => Promise.race([lookup(host), new Promise<string[]>((_, reject) => {
+  const timer = setTimeout(() => reject(new Error('dns timeout')), DNS_TIMEOUT_MS);
+  timer.unref?.();
+})]);
 
 const MAX = CONNECTION_LIMITS.bodyBytes;
 
@@ -50,7 +56,7 @@ export async function httpCall(decl: NetConnection, call: Extract<ConnectCall, {
   const body = decodeBody(call.body, call.encoding);
   if (body && (call.method === 'GET' || call.method === 'HEAD')) throw new ConnectError('FAILED', 'body');
   if (body && body.length > MAX) throw new ConnectError('LIMIT');
-  const chosen = await pickAddress(decl, lookup).catch(() => null);
+  const chosen = await pickAddress(decl, withDnsTimeout(lookup)).catch(() => null);
   if (!chosen) throw new ConnectError('TARGET', 'address');
   const client = target.scheme === 'https' ? https : http;
   const sent: Record<string, string | number> = { 'accept-encoding': 'identity', 'user-agent': 'Flux-Module', ...headers };
@@ -83,6 +89,10 @@ export async function httpCall(decl: NetConnection, call: Extract<ConnectCall, {
       });
       response.on('error', () => reject(new ConnectError('FAILED')));
     });
+    // Общий срок вызова, а не только простой сокета: медленный ответ по капле не держит слот дольше предела
+    const total = setTimeout(() => { request.destroy(); reject(new ConnectError('TIMEOUT')); }, CONNECTION_LIMITS.callMs);
+    total.unref?.();
+    request.on('close', () => clearTimeout(total));
     request.setTimeout(CONNECTION_LIMITS.callMs, () => { request.destroy(); reject(new ConnectError('TIMEOUT')); });
     request.on('error', () => reject(new ConnectError('FAILED')));
     request.end(body);
@@ -115,7 +125,7 @@ export class WsSession {
     const target = parseOrigin('ws', decl.url);
     const path = pathAllowed(decl.pathPrefix, rawPath);
     if (!target || !path) throw new ConnectError('TARGET', 'path');
-    const chosen = await pickAddress(decl, lookup).catch(() => null);
+    const chosen = await pickAddress(decl, withDnsTimeout(lookup)).catch(() => null);
     if (!chosen) throw new ConnectError('TARGET', 'address');
     return new Promise((resolve, reject) => {
       // followRedirects у ws выключен по умолчанию; Origin и cookie не отправляются
@@ -139,7 +149,14 @@ export class WsSession {
     return raw.length;
   }
 
+  private receiving = false;
   async recv(timeoutMs: number): Promise<WsReply> {
+    // Одно ожидание на сокет: второе, пока первое не закончилось, — предел, а не ещё один занятый слот
+    if (this.receiving) throw new ConnectError('LIMIT', 'recv');
+    this.receiving = true;
+    try { return await this.recvOnce(timeoutMs); } finally { this.receiving = false; }
+  }
+  private async recvOnce(timeoutMs: number): Promise<WsReply> {
     if (!this.queue.length && !this.closed && timeoutMs > 0) {
       await new Promise<void>(resolve => {
         const timer = setTimeout(() => { this.waiter = null; resolve(); }, Math.min(timeoutMs, CONNECTION_LIMITS.recvMs));

@@ -115,7 +115,7 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
     if (!release || controls.blocked(release)) return null;
     return { manifest: release.manifest, version, author: release.claim.author, verifiedAt: release.claim.iat };
   };
-  const service = new ModuleConnections({ resolve, userId: () => selection.active, grants, journal, com: options.com ?? defaultComBackend(), lookup: options.lookup });
+  const service = new ModuleConnections({ resolve, userId: () => selection.active, grants, journal, comFor: options.com ? () => options.com! : () => defaultComBackend(), lookup: options.lookup });
   registerConnectionsIpc({
     service, grants, journal, resolve, ready, userId: () => selection.active, trusted: options.trusted,
     installed: async () => { await ready; return [...runnable.values()].filter(r => selection.installed[r.manifest.id]).map(r => ({ manifest: r.manifest, version: r.claim.version, author: r.claim.author, verifiedAt: r.claim.iat })); },

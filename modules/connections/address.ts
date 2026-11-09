@@ -18,9 +18,11 @@ const list = (subnets: Array<[string, number, 'ipv4' | 'ipv6']>) => {
 };
 /** Не открывается никогда: «этот компьютер» как адрес назначения, метаданные облака, широковещание, группы */
 const BLOCKED = list([['0.0.0.0', 8, 'ipv4'], ['169.254.0.0', 16, 'ipv4'], ['224.0.0.0', 4, 'ipv4'], ['240.0.0.0', 4, 'ipv4'],
-  ['::', 128, 'ipv6'], ['fe80::', 10, 'ipv6'], ['ff00::', 8, 'ipv6']]);
+  ['::', 96, 'ipv6'], ['fe80::', 10, 'ipv6'], ['ff00::', 8, 'ipv6'],
+  // Туннели, в которые упакован чужой IPv4-адрес (6to4 и Teredo): проверить, куда они выйдут, нельзя
+  ['2002::', 16, 'ipv6'], ['2001::', 32, 'ipv6']]);
 const LOOPBACK = list([['127.0.0.0', 8, 'ipv4'], ['::1', 128, 'ipv6']]);
-const PRIVATE = list([['10.0.0.0', 8, 'ipv4'], ['172.16.0.0', 12, 'ipv4'], ['192.168.0.0', 16, 'ipv4'], ['100.64.0.0', 10, 'ipv4'],
+const PRIVATE = list([['10.0.0.0', 8, 'ipv4'], ['172.16.0.0', 12, 'ipv4'], ['192.168.0.0', 16, 'ipv4'], ['100.64.0.0', 10, 'ipv4'], ['192.0.0.0', 24, 'ipv4'], ['198.18.0.0', 15, 'ipv4'],
   ['fc00::', 7, 'ipv6'], ['fec0::', 10, 'ipv6'], ['64:ff9b::', 96, 'ipv6']]);
 
 export type AddressClass = 'public' | 'loopback' | 'private' | 'blocked';
@@ -43,8 +45,9 @@ export function addressClass(raw: string): AddressClass {
   const family = isIP(ip);
   if (!family) return 'blocked';
   const kind = family === 4 ? 'ipv4' : 'ipv6';
-  if (BLOCKED.check(ip, kind)) return 'blocked';
+  // Петля проверяется первой: ::1 лежит внутри ::/96, но это обычный loopback, а не «адрес-обёртка»
   if (LOOPBACK.check(ip, kind)) return 'loopback';
+  if (BLOCKED.check(ip, kind)) return 'blocked';
   if (PRIVATE.check(ip, kind)) return 'private';
   return 'public';
 }

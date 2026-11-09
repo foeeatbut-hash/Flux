@@ -43,6 +43,7 @@ export const connectCallSchemas = [
   callSchema('com-get', { handle, name: memberName, args: comArgs }, ['handle', 'name']),
   callSchema('com-set', { handle, name: memberName, value: {}, args: comArgs }, ['handle', 'name', 'value']),
   callSchema('com-release', { handle }, ['handle']),
+  callSchema('com-batch', { calls: { type: 'array', minItems: 1, maxItems: 200, items: object({ kind: { enum: ['call', 'get', 'set'] }, handle, name: memberName, args: comArgs, value: {} }, ['kind', 'handle', 'name']) } }, ['calls']),
 ];
 
 // Эти JSON Schema — источник проверки сообщений и будущих типов редактора Studio.

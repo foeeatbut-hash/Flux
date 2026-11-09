@@ -12,6 +12,7 @@
       "id": "fso",
       "kind": "com",
       "progId": "Scripting.FileSystemObject",
+      "allowDangerous": true,
       "app": "Файловые имена Windows",
       "does": "Разбирает имена файлов на части, не читая и не записывая диск",
       "access": "read"
