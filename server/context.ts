@@ -50,12 +50,16 @@ export class AppError extends Error {
 }
 
 /** Код из ошибки: свой status (AppError, http-errors, body-parser) или переданный */
+/** Признаки ошибки внешней библиотеки: HTTP-клиент, почтовый сервер */
+const FOREIGN = ['response', 'request', 'config', 'responseCode', 'responseStatus', 'command'];
+
 function statusOf(err: any, fallback: number): number {
   const s = Number(err?.status ?? err?.statusCode);
   if (!Number.isInteger(s) || s < 400 || s > 599) return fallback;
   // 401 и 407 из чужой библиотеки (почта, HTTP-клиент) окно прочло бы как «сессия
-  // кончилась» и разлогинило человека; свой отказ входа — только у AppError
-  if ((s === 401 || s === 407) && !(err instanceof AppError)) return 502;
+  // кончилась» и разлогинило человека. Свой отказ входа несут AppError и именованные
+  // классы ошибок разделов; безымянный Error со status и ответ внешней библиотеки — нет
+  if ((s === 401 || s === 407) && !(err instanceof AppError) && (err?.constructor === Error || FOREIGN.some((k) => k in Object(err)))) return 502;
   return s;
 }
 

@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
-import { getPrisma } from '../context.js';
+import { getPrisma, AppError } from '../context.js';
 import { actorMay } from '../projectAccess.js';
 import { isPrivilegedUser } from '../accessPolicy.js';
 import { canSeeProject, roleGrantsOf } from './members.js';
@@ -228,7 +228,7 @@ export async function removeEquipmentDocumentBindingsInTransaction(
 
 async function visibleProject(req: Request, projectId: string) {
   const actor = (req as any).authUser;
-  if (!actor?.id) throw Object.assign(new Error('Требуется вход'), { status: 401 });
+  if (!actor?.id) throw new AppError(401, 'Требуется вход');
   if (!(await canSeeProject(String(actor.id), projectId, isPrivilegedUser(actor)))) throw Object.assign(new Error('Проект недоступен'), { status: 403 });
   return actor;
 }
