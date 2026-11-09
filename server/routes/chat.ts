@@ -2,7 +2,8 @@ import { isPrivilegedUser } from '../accessPolicy.js';
 import type { Express, Request, Response } from 'express';
 import type { Server as SocketIOServer } from 'socket.io';
 import path from 'path';
-import { getPrisma, notifyUser } from '../context.js';
+import { getPrisma, notifyUser, sendError, AppError } from '../context.js';
+import { intParam } from '../queryParams.js';
 import { signLink, hardenFileResponse } from '../security.js';
 import { mayEditGroup, ownerForNewGroup, isAdminActor } from '../projectAccess.js';
 import { canSeeProject, hiddenProjectsOf } from './members.js';
@@ -10,6 +11,7 @@ import { sanitizeGuideReplies } from '../services/guideReplies.js';
 import { registerChatHistoryRoutes } from './chatHistory.js';
 import { actorId, canReadChatMessage, isChatParticipant, isDirectConversationMessage, isGroupMember, sanitizeProjectReferences } from '../services/chatAccess.js';
 import { SERVICE_USER_ID } from '../services/guideF.js';
+import { resolveNewAttachments, releaseChatFiles, checkMessageText, uploaderPath, CHAT_FILE_MAX_BYTES } from '../services/chatFiles.js';
 
 // Корпоративный мессенджер: личные и групповые чаты, вложения, реакции,
 // закрепы, пересылка и подсказки по тегам.
@@ -32,16 +34,29 @@ const CHAT_MIME: Record<string, string> = {
   '.webp': 'image/webp', '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8'
 };
 
-// Helper to auto-sync Chat Group for every Project
+// Пути вложений сообщений по условию — до их удаления, чтобы потом стереть осиротевшие файлы
+async function collectAttachmentPaths(prisma: any, messageWhere: any): Promise<string[]> {
+  const rows = await prisma.chatAttachment.findMany({ where: { message: messageWhere }, select: { filePath: true } });
+  return rows.map((r: any) => r.filePath);
+}
+async function releaseChatFilesSafe(prisma: any, paths: string[]): Promise<void> {
+  try { if (paths.length) await releaseChatFiles(prisma, paths); } catch (e: any) { console.error('[Чат] уборка файлов вложений:', e?.message); }
+}
+
+// Состав групп-проектов производный от проекта (править его руками нельзя),
+// поэтому сверяется при чтении списка групп. Сверка дешёвая: id и роли
+// без хешей паролей, состав всех проектов и групп — по одному запросу, а
+// запись — только там, где состав действительно разошёлся.
 async function ensureProjectChatGroups() {
   const prisma = getPrisma();
   try {
     // У общего диска чата быть не должно: это хранилище, а не проект
-    const projects = await prisma.project.findMany({ where: { system: false } });
-    const users = await prisma.user.findMany();
+    const projects = await prisma.project.findMany({ where: { system: false }, select: { id: true, name: true } });
+    const users: Array<{ id: string; role: string }> = await prisma.user.findMany({ select: { id: true, role: true } });
+    const allIds = users.map(u => u.id);
     // Системный канал «Ошибки» — в нём по умолчанию состоят все пользователи
     const errName = 'Ошибки';
-    let errGroup = await prisma.chatGroup.findFirst({ where: { name: errName, type: 'CHANNEL' } });
+    const errGroup = await prisma.chatGroup.findFirst({ where: { name: errName, type: 'CHANNEL' }, select: { id: true, members: { select: { id: true } } } });
     if (!errGroup) {
       await prisma.chatGroup.create({
         data: {
@@ -49,20 +64,28 @@ async function ensureProjectChatGroups() {
           type: 'CHANNEL',
           color: 'rose',
           description: 'Системный канал для отправки логов и сообщений об ошибках',
-          members: { connect: users.map(u => ({ id: u.id })) }
+          members: { connect: allIds.map(id => ({ id })) }
         }
       });
     } else {
-      await prisma.chatGroup.update({
-        where: { id: errGroup.id },
-        data: { members: { connect: users.map(u => ({ id: u.id })) } }
-      });
+      const have = new Set<string>(errGroup.members.map((m: any) => m.id));
+      const missing = allIds.filter(id => !have.has(id));
+      if (missing.length) await prisma.chatGroup.update({ where: { id: errGroup.id }, data: { members: { connect: missing.map(id => ({ id })) } } });
     }
-    for (const p of projects) {
-      const projectMembers = await prisma.projectMember.findMany({ where: { projectId: p.id }, select: { userId: true } });
-      const allowed = projectMembers.length ? users.filter(u => projectMembers.some(m => m.userId === u.id) || isPrivilegedUser(u)) : users;
+    const allMembers = await prisma.projectMember.findMany({ select: { projectId: true, userId: true } });
+    const membersByProject = new Map<string, Set<string>>();
+    for (const m of allMembers as any[]) {
+      if (!membersByProject.has(m.projectId)) membersByProject.set(m.projectId, new Set());
+      membersByProject.get(m.projectId)!.add(m.userId);
+    }
+    const groups = await prisma.chatGroup.findMany({ where: { projectId: { in: projects.map((p: any) => p.id) } }, select: { id: true, name: true, projectId: true, members: { select: { id: true } } } });
+    const groupByProject = new Map<string, any>();
+    for (const g of groups as any[]) if (!groupByProject.has(g.projectId)) groupByProject.set(g.projectId, g);
+    for (const p of projects as any[]) {
+      const pm = membersByProject.get(p.id);
+      const allowed = pm && pm.size ? users.filter(u => pm.has(u.id) || isPrivilegedUser(u)) : users;
       const members = allowed.map(u => ({ id: u.id }));
-      const g = await prisma.chatGroup.findFirst({ where: { projectId: p.id } });
+      const g = groupByProject.get(p.id);
       if (!g) {
         await prisma.chatGroup.create({
           data: {
@@ -73,13 +96,17 @@ async function ensureProjectChatGroups() {
           }
         });
       } else {
-        await prisma.chatGroup.update({
-          where: { id: g.id },
-          data: {
-            name: `Проект: ${p.name}`,
-            members: { set: members }
-          }
-        });
+        const want = new Set(members.map(m => m.id));
+        const same = g.name === `Проект: ${p.name}` && g.members.length === want.size && g.members.every((m: any) => want.has(m.id));
+        if (!same) {
+          await prisma.chatGroup.update({
+            where: { id: g.id },
+            data: {
+              name: `Проект: ${p.name}`,
+              members: { set: members }
+            }
+          });
+        }
       }
     }
   } catch (err) {
@@ -106,26 +133,28 @@ async function chatRooms(msg: { senderId: string; receiverId: string | null; cha
       if (request.receiverId) ids.add(request.receiverId);
     }
   }
+  let projectId: string | null = null;
   if (msg.chatGroupId) {
+    // Группа читается один раз: состав и проект нужны вместе
     const g = await prisma.chatGroup.findUnique({
       where: { id: msg.chatGroupId },
       select: { ownerId: true, projectId: true, members: { select: { id: true } } },
     });
+    projectId = g?.projectId || null;
     if (g) {
       if (g.ownerId) ids.add(String(g.ownerId));
       for (const m of g.members) ids.add(String(m.id));
     }
   }
   const candidates = [...ids];
-  if (msg.chatGroupId) {
-    const group = await prisma.chatGroup.findUnique({ where: { id: msg.chatGroupId }, select: { projectId: true } });
-    if (group?.projectId) {
-      const checked = await Promise.all(candidates.map(async id => {
-        const user = await prisma.user.findUnique({ where: { id }, select: { role: true } });
-        return await canSeeProject(id, group.projectId, isPrivilegedUser(user)) ? id : null;
-      }));
-      return checked.filter(Boolean).map(id => `user:${id}`);
-    }
+  if (projectId) {
+    // Роли всех кандидатов одним запросом, а не по запросу на человека
+    const roles = await prisma.user.findMany({ where: { id: { in: candidates } }, select: { id: true, role: true } });
+    const roleOf = new Map<string, any>(roles.map((u: any) => [u.id, u]));
+    const checked = await Promise.all(candidates.map(async id => (
+      await canSeeProject(id, projectId as string, isPrivilegedUser(roleOf.get(id))) ? id : null
+    )));
+    return checked.filter(Boolean).map(id => `user:${id}`);
   }
   return candidates.map((id) => `user:${id}`);
 }
@@ -157,9 +186,14 @@ async function emitChat(
   try {
     const rooms = await chatRooms(msg);
     if (!rooms.length) return;
+    const needViewers = payload && typeof payload === 'object' && payload.content !== undefined;
+    const viewers = needViewers
+      ? await getPrisma().user.findMany({ where: { id: { in: rooms.map(r => r.slice('user:'.length)) } }, select: { id: true, role: true } })
+      : [];
+    const viewerById = new Map<string, any>(viewers.map((u: any) => [u.id, u]));
     for (const room of rooms) {
       const viewerId = room.slice('user:'.length);
-      const user = await getPrisma().user.findUnique({ where: { id: viewerId }, select: { id: true, role: true } });
+      const user = viewerById.get(viewerId);
       let safePayload = payload;
       if (payload && typeof payload === 'object' && payload.content !== undefined) {
         const [guideSafe] = await sanitizeGuideReplies([payload], viewerId, isAdminActor(user));
@@ -227,31 +261,24 @@ export function registerChatRoutes(app: Express, deps: ChatDeps): void {
             const fwdBlock = await guardGuideReplyForward(prisma, String(content || ''), [String(senderId), String(receiverId)]);
       if (fwdBlock) return res.status(403).json({ error: fwdBlock });
 
-const msg = await prisma.chatMessage.create({
+      // Вложения проверяем до создания сообщения: чужой файл не прикрепить
+      const attData = await resolveNewAttachments(prisma, actorId(req), attachments);
+      const text = checkMessageText(content, attData.length > 0 || !!linkedElementId || !!linkedProjectId || guideRequest === true);
+
+      // Сообщение и вложения — одной записью: сбой между ними не оставит
+      // сообщение без файла или с его половиной
+      const msg = await prisma.chatMessage.create({
         data: {
           senderId: String(senderId),
           receiverId: String(receiverId),
-          content: String(content || ''),
+          content: text,
+          ...(attData.length ? { attachments: { create: attData } } : {}),
           guideRequest: guideRequest === true,
           linkedElementId: linkedElementId ? String(linkedElementId) : null,
           linkedProjectId: linkedProjectId ? String(linkedProjectId) : null,
           replyToId: replyToId ? String(replyToId) : null,
         }
       });
-
-      // Create attachments if provided
-      if (attachments && Array.isArray(attachments)) {
-        for (const att of attachments) {
-          await prisma.chatAttachment.create({
-            data: {
-              messageId: msg.id,
-              fileName: String(att.fileName),
-              filePath: String(att.filePath),
-              fileSize: Number(att.fileSize || 0)
-            }
-          });
-        }
-      }
 
       const fullMessage = await prisma.chatMessage.findUnique({
         where: { id: msg.id },
@@ -265,15 +292,16 @@ const msg = await prisma.chatMessage.create({
         }
       });
 
-      // Личное уведомление получателю (категория ЧАТ)
-      await notifyUser(String(receiverId), 'ЧАТ', `Новое сообщение от ${(fullMessage as any)?.sender?.name || 'сотрудника'}`, String(content || '').slice(0, 80), `/chat?from=${senderId}`);
-
-      // Только участникам диалога, а не всей сети
+      // Только участникам диалога, а не всей сети. Сначала сокет: уведомление
+      // идёт в базу и не должно задерживать доставку самого сообщения
       await emitChat('chat:message_received', fullMessage as any, fullMessage);
+
+      // Личное уведомление получателю (категория ЧАТ)
+      void notifyUser(String(receiverId), 'ЧАТ', `Новое сообщение от ${(fullMessage as any)?.sender?.name || 'сотрудника'}`, text.slice(0, 80), `/chat?from=${senderId}`);
 
       res.json(fullMessage);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -307,7 +335,7 @@ const msg = await prisma.chatMessage.create({
       await emitChat('chat:message_updated', updated as any, updated);
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -324,19 +352,17 @@ const msg = await prisma.chatMessage.create({
       if (msg.senderId !== actorId(req)) {
         return res.status(403).json({ error: 'Можно удалять только свои сообщения' });
       }
-      // Вложения в БД (пути /chat_files/{fileNodeId}/{имя}) удаляем вместе с сообщением
-      try {
-        const atts = await prisma.chatAttachment.findMany({ where: { messageId: id } });
-        const nodeIds = atts
-          .map((a: any) => (String(a.filePath || '').match(/^\/chat_files\/([^/]+)\//) || [])[1])
-          .filter(Boolean);
-        if (nodeIds.length) await prisma.fileNode.deleteMany({ where: { id: { in: nodeIds }, type: 'CHAT_FILE' } });
-      } catch (_) {}
+      // Файлы вложений (/chat_files/{fileNodeId}/{имя}) стираем после сообщения и
+      // только если на них больше никто не ссылается: пересланные копии держат тот же файл
+      const atts = await prisma.chatAttachment.findMany({ where: { messageId: id }, select: { filePath: true } });
+      // Записи вложений убираем явно, не полагаясь на каскад базы: по ним решается, на что ещё есть ссылки
+      await prisma.chatAttachment.deleteMany({ where: { messageId: id } });
       await prisma.chatMessage.delete({ where: { id } });
+      try { await releaseChatFiles(prisma, atts.map((a: any) => a.filePath)); } catch (e: any) { console.error('[Чат] уборка файлов вложений:', e?.message); }
       await emitChat('chat:message_deleted', msg as any, { id });
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -356,13 +382,20 @@ const msg = await prisma.chatMessage.create({
 
       let b64 = String(base64Data);
       if (b64.includes(',')) b64 = b64.split(',')[1]; // отрезаем data:-префикс
-      const size = Math.floor(b64.length * 3 / 4);
+      b64 = b64.replace(/\s+/g, '');
+      // Buffer.from молча глотает мусор: проверяем алфавит и длину сами
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64) || b64.length % 4 !== 0) return res.status(400).json({ error: 'Файл передан в неверной кодировке' });
+      const size = Buffer.from(b64, 'base64').length;
+      if (!size) return res.status(400).json({ error: 'Файл пустой' });
+      if (size > CHAT_FILE_MAX_BYTES) return res.status(413).json({ error: `Файл больше ${Math.round(CHAT_FILE_MAX_BYTES / 1048576)} МБ: положите его в Проводник и отправьте ссылкой` });
 
       const node = await prisma.fileNode.create({
         data: {
           name: base,
           type: 'CHAT_FILE',
-          filePath: `/chat/${base}`,
+          // Кто загрузил: прикрепить файл к сообщению может только он
+          filePath: uploaderPath(actorId(req), base),
+          createdById: actorId(req) || null,
           size,
           content: b64,
           department: 'CHAT'
@@ -376,7 +409,7 @@ const msg = await prisma.chatMessage.create({
         fileSize: size
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
   /**
@@ -400,7 +433,7 @@ const msg = await prisma.chatMessage.create({
       if (!allowed) return res.status(404).json({ error: 'Файл не найден' });
       res.json({ url: signLink(filePath) });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -411,12 +444,13 @@ const msg = await prisma.chatMessage.create({
       if (!node || node.type !== 'CHAT_FILE' || !node.content) {
         return res.status(404).json({ error: 'Файл не найден' });
       }
-      const me = String((req as any).authUser?.id || '');
-      if (!me) return res.status(404).json({ error: 'Файл не найден' });
-      const attachments = await prisma.chatAttachment.findMany({ where: { filePath: { startsWith: `/chat_files/${node.id}/` } }, include: { message: { include: { guideReply: true } } }, take: 20 });
-      let allowed = false;
-      for (const att of attachments as any[]) if (await canReadChatMessage(me, (req as any).authUser, att.message)) { allowed = true; break; }
-      if (!allowed) return res.status(404).json({ error: 'Файл не найден' });
+      // Личность здесь не нужна и не известна: адрес идёт через chatFileGate и
+      // открывается только по подписанной ссылке, а ссылку /api/chat/file-link
+      // выдаёт после проверки, что человек читает сообщение с этим вложением.
+      // Остаётся убедиться, что файл вообще прикреплён к сообщению: загруженный
+      // и не отправленный файл по ссылке не отдаётся
+      const attached = await prisma.chatAttachment.count({ where: { filePath: { startsWith: `/chat_files/${node.id}/` } } });
+      if (!attached) return res.status(404).json({ error: 'Файл не найден' });
       const buffer = Buffer.from(node.content, 'base64');
       const ext = path.extname(node.name).toLowerCase();
       const type = CHAT_MIME[ext] || 'application/octet-stream';
@@ -425,7 +459,7 @@ const msg = await prisma.chatMessage.create({
       hardenFileResponse(res, type);
       res.send(buffer);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -483,7 +517,7 @@ const msg = await prisma.chatMessage.create({
 
       res.json({ element, tag: tagRow, elsewhere });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -554,7 +588,7 @@ const msg = await prisma.chatMessage.create({
 
       res.json(uniqueSuggestions);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -578,7 +612,7 @@ const msg = await prisma.chatMessage.create({
       });
       res.json(groups);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -669,7 +703,10 @@ const msg = await prisma.chatMessage.create({
       if (!mayEditGroup(String(me.id), isPrivilegedUser(me), group.ownerId)) {
         return res.status(403).json({ success: false, message: 'Удалить может только владелец или администратор' });
       }
+      const paths = await collectAttachmentPaths(prisma, { chatGroupId: id });
+      await prisma.chatAttachment.deleteMany({ where: { message: { chatGroupId: id } } });
       await prisma.chatGroup.delete({ where: { id } });
+      await releaseChatFilesSafe(prisma, paths);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ success: false, message: err.message });
@@ -704,7 +741,7 @@ const msg = await prisma.chatMessage.create({
       await emitChat('chat:message_updated', msg as any, { id, reactions: updated.reactions });
       res.json({ success: true, reactions: updated.reactions });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -723,7 +760,7 @@ const msg = await prisma.chatMessage.create({
       await emitChat('chat:message_updated', msg as any, { id, pinned: updated.pinned });
       res.json({ success: true, pinned: updated.pinned });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -786,7 +823,7 @@ const msg = await prisma.chatMessage.create({
       await emitChat('chat:message_received', full as any, full);
       res.json({ success: true, message: full });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -800,14 +837,19 @@ const msg = await prisma.chatMessage.create({
       if (groupId) {
         const group = await prisma.chatGroup.findUnique({ where: { id: groupId }, select: { ownerId: true, projectId: true } });
         if (!group || !mayEditGroup(actorId(req), isPrivilegedUser((req as any).authUser), group.ownerId) || !(await isGroupMember(actorId(req), groupId))) return res.status(403).json({ error: 'Очистить группу может её владелец или администратор-участник' });
+        const paths = await collectAttachmentPaths(prisma, { chatGroupId: groupId });
+        await prisma.chatAttachment.deleteMany({ where: { message: { chatGroupId: groupId } } });
         const r = await prisma.chatMessage.deleteMany({ where: { chatGroupId: groupId } });
+        await releaseChatFilesSafe(prisma, paths);
         return res.json({ success: true, deleted: r.count });
       }
       if (a && b) {
         if (actorId(req) !== a && actorId(req) !== b) return res.status(403).json({ error: 'Это чужая переписка' });
-        const r = await prisma.chatMessage.deleteMany({
-          where: { OR: [{ senderId: a, receiverId: b }, { senderId: b, receiverId: a }] },
-        });
+        const where = { OR: [{ senderId: a, receiverId: b }, { senderId: b, receiverId: a }] };
+        const paths = await collectAttachmentPaths(prisma, where);
+        await prisma.chatAttachment.deleteMany({ where: { message: where } });
+        const r = await prisma.chatMessage.deleteMany({ where });
+        await releaseChatFilesSafe(prisma, paths);
         return res.json({ success: true, deleted: r.count });
       }
       res.status(400).json({ success: false, message: 'Не указан диалог для очистки' });
@@ -829,7 +871,7 @@ const msg = await prisma.chatMessage.create({
         return res.status(403).json({ error: 'Вы не состоите в этой группе' });
       }
       // Как и в личной переписке — только хвост: групповые чаты живут дольше всех
-      const limit = Math.min(2000, Math.max(20, Number(req.query.limit) || 300));
+      const limit = intParam(req.query.limit, 300, 1, 2000);
       const before = req.query.before ? new Date(String(req.query.before)) : null;
       const beforeId = String(req.query.beforeId || '');
       if (before && Number.isNaN(before.getTime())) return res.status(400).json({ error: 'Некорректный курсор истории' });
@@ -852,7 +894,7 @@ const msg = await prisma.chatMessage.create({
       const safeTail = await sanitizeProjectReferences(guideSafe as any[], actorId(req), (req as any).authUser);
       res.json((safeTail as any[]).slice().reverse());
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -892,30 +934,21 @@ const msg = await prisma.chatMessage.create({
       const fwdBlock = await guardGuideReplyForward(prisma, String(content || ''), fwdMembers);
       if (fwdBlock) return res.status(403).json({ error: fwdBlock });
 
-const msg = await prisma.chatMessage.create({
+      const attData = await resolveNewAttachments(prisma, actorId(req), attachments);
+      const text = checkMessageText(content, attData.length > 0 || !!linkedElementId || !!linkedProjectId || guideRequest === true);
+
+      const msg = await prisma.chatMessage.create({
         data: {
           senderId: String(senderId),
           chatGroupId: String(groupId),
-          content: String(content || ''),
+          content: text,
+          ...(attData.length ? { attachments: { create: attData } } : {}),
           guideRequest: guideRequest === true,
           linkedElementId: linkedElementId ? String(linkedElementId) : null,
           linkedProjectId: linkedProjectId ? String(linkedProjectId) : null,
           replyToId: replyToId ? String(replyToId) : null,
         }
       });
-
-      if (attachments && Array.isArray(attachments)) {
-        for (const att of attachments) {
-          await prisma.chatAttachment.create({
-            data: {
-              messageId: msg.id,
-              fileName: String(att.fileName),
-              filePath: String(att.filePath),
-              fileSize: Number(att.fileSize || 0)
-            }
-          });
-        }
-      }
 
       const fullMessage = await prisma.chatMessage.findUnique({
         where: { id: msg.id },
@@ -933,7 +966,7 @@ const msg = await prisma.chatMessage.create({
 
       res.json(fullMessage);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 }

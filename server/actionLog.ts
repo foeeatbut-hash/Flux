@@ -15,6 +15,7 @@
 import type { Express, Request, Response, NextFunction } from 'express';
 import { describeAction, isNoise } from './actionWords.js';
 import { ensureTables as ensureDbTables } from './ddl.js';
+import { intParam } from './queryParams.js';
 
 export interface ActionLogDeps {
   getPrisma: () => any;
@@ -94,7 +95,7 @@ export function registerActionLog(app: Express, deps: ActionLogDeps): void {
     }
     try {
       await ensure();
-      const take = Math.min(500, Math.max(1, Number(req.query.take) || 200));
+      const take = intParam(req.query.take, 200, 1, 500);
       const who = String(req.query.userId || '');
       const rows = await deps.getPrisma().actionLog.findMany({
         where: who ? { userId: who } : undefined,
