@@ -66,7 +66,7 @@ async function main() {
     const fixtures = path.join(root, 'studio/owner/scripts/fixtures');
     const legacy = JSON.parse(fs.readFileSync(path.join(fixtures, 'legacy-vault.public.json'), 'utf8'));
     fs.mkdirSync(path.dirname(vaultFile), { recursive: true });
-    fs.copyFileSync(path.join(fixtures, 'legacy-vault.flux-owner'), vaultFile);
+    fs.copyFileSync(path.join(fixtures, 'legacy-vault.fixture.json'), vaultFile);
 
     console.log('Сборка владельца');
     const built = await run('owner', home);

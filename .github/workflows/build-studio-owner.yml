@@ -7,10 +7,6 @@ name: Flux Studio — Владелец (ручной запуск)
 
 on:
   workflow_dispatch:
-  # ВРЕМЕННО, на время приёмки этапа 4а: проверить сборку из ветки по метке в коммите.
-  # Убирается тем же PR перед слиянием.
-  push:
-    branches: [studio/stage-4a]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,7 +17,6 @@ permissions:
 
 jobs:
   owner:
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[build-owner]') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
