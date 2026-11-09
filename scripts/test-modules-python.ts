@@ -160,10 +160,8 @@ async function main() {
     ok('другое зерно входа меняет глобальный numpy.random', parseComputeOutput(await withNumpy.run('np@1', source, input(), 12)).calc.out.legacy !== first.legacy);
     const bad = await codeOf(() => withNumpy.run('npos@1', 'import numpy as np\nimport os\ndef compute(i):\n    return {}\n', input()));
     ok('рядом с numpy остальные запреты на месте (os по-прежнему недоступен)', bad.startsWith('CRASH|') && bad.includes('недоступен'));
-    const missing = new PythonEnvironment(py);
-    const none = await codeOf(() => missing.run('np2@1', source, input()));
-    console.log('  без колеса:', none.slice(0, 200));
-    ok('без колеса в каталоге Pyodide — понятная ошибка UNAVAILABLE, а не обращение к сети', none.startsWith('UNAVAILABLE|'));
+    // Что сети нет, доказывает не этот набор (Pyodide в Node при отсутствии колеса сам идёт в сеть), а test-modules-compute-native:
+    // там CSP хоста разрешает только его собственный адрес, и numpy всё равно загружается из колеса в сборке
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
