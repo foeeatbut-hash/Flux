@@ -736,6 +736,9 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     const prisma = getPrisma();
     const { componentId } = req.params;
     try {
+      // Без проверки несуществующий номер давал P2025 и ответ 500
+      const existing = await prisma.componentElement.findUnique({ where: { id: componentId }, select: { id: true } });
+      if (!existing) return res.status(404).json({ error: 'Компонент не найден' });
       const component = await prisma.componentElement.update({
         where: { id: componentId },
         data: {
@@ -755,7 +758,11 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
   // Create tag based on prefix generator
   app.post('/api/tags/generate', async (req: Request, res: Response) => {
     const prisma = getPrisma();
-    const { projectId, prefix, suffix, metadata } = req.body;
+    const { projectId, prefix, suffix, metadata } = req.body || {};
+    // Тип входа проверяется: без prefix строка prefix.length падала с TypeError и ответом 500
+    if (typeof projectId !== 'string' || !projectId) return res.status(400).json({ error: 'Не указан проект' });
+    if (typeof prefix !== 'string' || !prefix) return res.status(400).json({ error: 'Не указан префикс тега' });
+    if (suffix !== undefined && suffix !== null && typeof suffix !== 'string') return res.status(400).json({ error: 'Суффикс тега должен быть строкой' });
   
     // Find all tags in project that start with prefix
     const existingTags = await prisma.tag.findMany({

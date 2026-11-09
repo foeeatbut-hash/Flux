@@ -8,6 +8,7 @@
  * промежуточного слоя server.ts их можно проверить только живым запросом.
  */
 import crypto from 'crypto';
+import path from 'node:path';
 import { authTokenFromRequest } from './authCookies.js';
 import type { Request, Response, NextFunction } from 'express';
 
@@ -18,7 +19,11 @@ import type { Request, Response, NextFunction } from 'express';
 // достаётся, но открытые маршруты (вход, лицензия) становились доступны любой
 // странице в интернете. Теперь разрешены только свои:
 //  - без Origin — не браузер (curl, сам сервер, главный процесс Electron);
-//  - «null» — страница программы, открытая из файла (Electron, file://);
+//  - «null» — страница программы, открытая из файла (Electron, file://). Убирать
+//    нельзя: упакованный клиент грузит file://dist/index.html и ходит на сервер
+//    компании, Origin у него именно «null». Вреда немного: ответ идёт без
+//    Allow-Credentials, cookie чужой страницы не уходит, а вход по cookie при
+//    чужом Origin отвечает 403 (authCookies.ts);
 //  - тот же хост, что у сервера — окно, открытое с самого сервера;
 //  - localhost — встроенный сервер и разработка.
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
@@ -69,7 +74,10 @@ export const socketAllowRequest = (req: { headers: Record<string, any> }, cb: (e
 // (server.cjs) с картой исходников. Выходило, что полный текст сервера с
 // комментариями лежал по адресу, открытому без входа, любому в сети.
 export function isPrivateBuildFile(pathname: string): boolean {
-  const p = decodeURIComponent(String(pathname || '')).toLowerCase();
+  // Битая запись вида %E0%A4%A меняет смысл пути только для того, кто её
+  // декодирует; сравниваем тогда как есть, а ответ 400 даёт blockPrivateBuildFiles
+  let p: string;
+  try { p = decodeURIComponent(String(pathname || '')).toLowerCase(); } catch (_) { p = String(pathname || '').toLowerCase(); }
   // Скрытые файлы express.static не раздаёт и сам (dotfiles: ignore), а
   // запрет «всего, что с точкой» ломал разработку: Vite отдаёт зависимости из
   // /node_modules/.vite/
@@ -77,7 +85,10 @@ export function isPrivateBuildFile(pathname: string): boolean {
 }
 
 export function blockPrivateBuildFiles(req: Request, res: Response, next: NextFunction) {
-  if (!req.path.startsWith('/api/') && isPrivateBuildFile(req.path)) return res.status(404).end();
+  if (!req.path.startsWith('/api/')) {
+    try { decodeURIComponent(req.path); } catch (_) { return res.status(400).end(); }
+    if (isPrivateBuildFile(req.path)) return res.status(404).end();
+  }
   next();
 }
 
@@ -126,9 +137,11 @@ const linkMac = (pathname: string, exp: number) =>
 
 export function signLink(pathname: string, now = Date.now()): string {
   if (!linkSecret) throw new Error('секрет подписи ссылок не задан');
+  // Подпись берётся по пути без query, а проверка видит именно путь: подписанный
+  // адрес с «?» никогда бы не прошёл проверку
+  if (pathname.includes('?') || pathname.includes('#')) throw new Error('путь для подписи ссылки не должен содержать query');
   const exp = now + LINK_TTL_MS;
-  const sep = pathname.includes('?') ? '&' : '?';
-  return `${pathname}${sep}s=${exp}.${linkMac(pathname, exp)}`;
+  return `${pathname}?s=${exp}.${linkMac(pathname, exp)}`;
 }
 
 export function linkValid(pathname: string, s: unknown, now = Date.now()): boolean {
@@ -160,33 +173,46 @@ export function chatFileGate() {
 // ── Ограничение попыток входа ───────────────────────────────────────────────
 //
 // Без него пароль из четырёх цифр подбирался за минуты: десять тысяч запросов
-// сервер отвечал без задержки. Счёт ведётся и по логину, и по адресу: по
-// логину — чтобы нельзя было перебирать пароль одного человека с разных
-// машин, по адресу — чтобы с одной машины нельзя было перебирать всех подряд.
+// сервер отвечал без задержки. Счёт ведётся тремя ключами:
+//  - ПАРА «адрес + логин» — основной: пять промахов с одной машины по одному
+//    логину ставят паузу ЭТОЙ машине на ЭТОТ логин. Раньше счёт шёл по логину
+//    вообще и по адресу вообще: один человек за прокси (где у всех клиентов
+//    один адрес) или один злоумышленник, раз в минуту набирающий чужой логин,
+//    запирал вход всем;
+//  - логин вообще — высокий порог: перебор пароля одного человека с разных
+//    машин не должен проходить безнаказанно, но и запереть его одним
+//    промахом на каждое истечение паузы нельзя;
+//  - адрес вообще — высокий порог: перебор многих логинов подряд с одной
+//    машины («один пароль на всех»).
 // Память процесса, а не база: при перезапуске счёт сбрасывается, но
-// перезапуск сервера по желанию подбирающего не случается.
+// перезапуск сервера по желанию подбирающего не случается; встроенные серверы
+// слушают только свою машину (listenHost), перебирать через них нечего.
 interface Slot { fails: number; until: number; last: number }
+const byPair = new Map<string, Slot>();
 const byLogin = new Map<string, Slot>();
 const byAddr = new Map<string, Slot>();
 
-const LOGIN_FREE = 5;       // попыток без задержки на один логин
-const ADDR_FREE = 20;       // попыток без задержки с одного адреса
+const PAIR_FREE = 5;        // попыток без задержки на пару «адрес + логин»
+const LOGIN_FREE = 30;      // то же на логин с любых адресов вместе
+const ADDR_FREE = 100;      // то же на адрес по любым логинам вместе
 const BASE_LOCK_MS = 60 * 1000;
 const MAX_LOCK_MS = 30 * 60 * 1000;
 const FORGET_MS = 60 * 60 * 1000;
 
 function lockFor(fails: number, free: number): number {
   if (fails < free) return 0;
-  return Math.min(MAX_LOCK_MS, BASE_LOCK_MS * 2 ** (fails - free));
+  return Math.min(MAX_LOCK_MS, BASE_LOCK_MS * 2 ** Math.min(fails - free, 20));
 }
 
 const loginKey = (symbol: string) => String(symbol || '').trim().toLowerCase();
+/** IPv4-адрес в записи ::ffff:1.2.3.4 — тот же адрес: ключ не должен зависеть от формы записи */
+const addrKey = (addr: string) => String(addr || '').replace(/^::ffff:/i, '');
+const pairKey = (symbol: string, addr: string) => `${addrKey(addr)}|${loginKey(symbol)}`;
 
 /** Сколько ещё ждать до следующей попытки, мс; 0 — можно пробовать */
 export function loginWait(symbol: string, addr: string, now = Date.now()): number {
-  const a = byLogin.get(loginKey(symbol));
-  const b = byAddr.get(String(addr || ''));
-  return Math.max(0, (a?.until || 0) - now, (b?.until || 0) - now);
+  const slots = [byPair.get(pairKey(symbol, addr)), byLogin.get(loginKey(symbol)), byAddr.get(addrKey(addr))];
+  return Math.max(0, ...slots.map(slot => (slot?.until || 0) - now));
 }
 
 function bump(map: Map<string, Slot>, key: string, free: number, now: number) {
@@ -199,16 +225,18 @@ function bump(map: Map<string, Slot>, key: string, free: number, now: number) {
 }
 
 export function loginFailed(symbol: string, addr: string, now = Date.now()) {
+  bump(byPair, pairKey(symbol, addr), PAIR_FREE, now);
   bump(byLogin, loginKey(symbol), LOGIN_FREE, now);
-  bump(byAddr, String(addr || ''), ADDR_FREE, now);
+  bump(byAddr, addrKey(addr), ADDR_FREE, now);
 }
 
-export function loginSucceeded(symbol: string) {
+export function loginSucceeded(symbol: string, addr = '') {
+  byPair.delete(pairKey(symbol, addr));
   byLogin.delete(loginKey(symbol));
 }
 
 /** Только для проверок: начать счёт заново */
-export function resetLoginLimits() { byLogin.clear(); byAddr.clear(); }
+export function resetLoginLimits() { byPair.clear(); byLogin.clear(); byAddr.clear(); }
 
 /** Одно сообщение на «нет логина» и «не тот пароль»: иначе ответ выдаёт, какие логины есть */
 export const LOGIN_REFUSED = 'Неверный логин или пароль.';
@@ -225,17 +253,30 @@ export function waitText(ms: number): string {
 // заставлять сервер читать и разбирать мегабайты без логина. Этот слой стоит
 // до разбора тела: запросу к API без действительного токена большое тело не
 // положено, а открытым маршрутам (вход, лицензия) хватает мегабайта.
+//
+// Заголовку Content-Length верить нельзя: его можно не посылать вовсе
+// (Transfer-Encoding: chunked) или занизить. Поэтому у запроса без права на
+// большое тело байты считаются по факту чтения, и на мегабайте соединение
+// обрывается ответом 413.
 const OPEN_BODY_MAX = 1024 * 1024;
 
-export function earlyBodyGate(isExempt: (route: string) => boolean, tokenValid: (token: string) => boolean) {
+export function earlyBodyGate(isExempt: (route: string) => boolean, tokenValid: (token: string) => boolean, openMax = OPEN_BODY_MAX) {
   return (req: Request, res: Response, next: NextFunction) => {
     const route = req.path.toLowerCase().replace(/\/+$/, '');
     if (!route.startsWith('/api/')) return next();
-    const size = Number(req.get('content-length') || 0);
-    if (size <= OPEN_BODY_MAX) return next();
-    const token = authTokenFromRequest(req);
-    if (!isExempt(route) && tokenValid(token)) return next();
-    res.status(413).json({ error: 'Слишком большой запрос' });
+    if (!isExempt(route) && tokenValid(authTokenFromRequest(req))) return next();
+    if (Number(req.get('content-length') || 0) > openMax) return res.status(413).json({ error: 'Слишком большой запрос' });
+    // Слушатель вешается в том же такте, что и разбор тела следующим слоем, и
+    // потока не расходует: чтение начинается только когда есть потребитель.
+    let read = 0;
+    req.on('data', (chunk: Buffer) => {
+      read += chunk.length;
+      if (read <= openMax || res.headersSent) return;
+      res.status(413).set('Connection', 'close').json({ error: 'Слишком большой запрос' });
+      // Соединение рвём после ответа, иначе 413 не дойдёт до клиента
+      res.once('finish', () => req.destroy());
+    });
+    next();
   };
 }
 
@@ -250,18 +291,21 @@ export function earlyBodyGate(isExempt: (route: string) => boolean, tokenValid: 
 // больше не превращается в рабочий пароль даже при следующем старте.
 const LEGACY_DONE_KEY = 'security.legacy_passwords_hashed';
 
-export async function hashLegacyPasswords(prisma: any, hashPassword: (p: string) => string, isLegacy: (s: string) => boolean): Promise<number> {
+export async function hashLegacyPasswords(prisma: any, hashPassword: (p: string) => string | Promise<string>, isLegacy: (s: string) => boolean): Promise<number> {
   const done = await prisma.appSetting.findFirst({ where: { key: LEGACY_DONE_KEY, userId: null } });
   if (done) return 0;
   const users = await prisma.user.findMany({ select: { id: true, password: true } });
   let n = 0;
   for (const u of users) {
     if (u.password && isLegacy(u.password)) {
-      await prisma.user.update({ where: { id: u.id }, data: { password: hashPassword(u.password) } });
+      await prisma.user.update({ where: { id: u.id }, data: { password: await hashPassword(u.password) } });
       n++;
     }
   }
-  await prisma.appSetting.create({ data: { key: LEGACY_DONE_KEY, userId: null, value: JSON.stringify({ at: new Date().toISOString(), hashed: n }) } });
+  // Два сервера на одной базе могут дойти сюда вместе: userId=NULL уникальным
+  // индексом не защищён, а второй флаг безвреден — ошибку не поднимаем
+  try { await prisma.appSetting.create({ data: { key: LEGACY_DONE_KEY, userId: null, value: JSON.stringify({ at: new Date().toISOString(), hashed: n }) } }); }
+  catch (_) { /* отметка уже поставлена соседним сервером */ }
   return n;
 }
 
@@ -294,8 +338,9 @@ export function unmaskDbUrl(incoming: string, stored: string): string {
     const u = new URL(raw);
     if (decodeURIComponent(u.password) !== DB_PASSWORD_MASK) return raw;
     const s = new URL(String(stored || ''));
+    // search и hash входят в сравнение: ?host=… меняет получателя соединения
     const same = u.protocol === s.protocol && u.hostname === s.hostname && u.port === s.port
-      && u.username === s.username && u.pathname === s.pathname;
+      && u.username === s.username && u.pathname === s.pathname && u.search === s.search && u.hash === s.hash;
     if (!same) return raw.replace(u.password, '');
     u.password = s.password;
     return u.toString();
@@ -325,7 +370,7 @@ export function listenHost(env: Record<string, string | undefined> = process.env
 //
 // Рукопожатие сокета проверяло только подпись токена. Отключённый или
 // просроченный профиль продолжал получать чат, присутствие и правки документов
-// до конца срока токена — месяц, — хотя любой HTTP-запрос ему уже отказывал.
+// до конца срока токена (восемь часов), — хотя любой HTTP-запрос ему уже отказывал.
 export function accountRefusal(user: any, now = Date.now()): string {
   if (!user) return 'профиль удалён';
   if (user.isActive === false) return 'профиль отключён';
@@ -333,21 +378,27 @@ export function accountRefusal(user: any, now = Date.now()): string {
   return '';
 }
 
-export function socketAuth(verify: (t: string) => string | null, getUser: (id: string) => Promise<any>) {
-  return async (socket: any, next: (err?: Error) => void) => {
-    const userId = verify(String(socket.handshake?.auth?.token || ''));
-    if (!userId) return next(new Error('unauthorized'));
-    try {
-      if (accountRefusal(await getUser(userId))) return next(new Error('unauthorized'));
-    } catch (_) { return next(new Error('unauthorized')); }
-    socket.userId = userId;
-    next();
-  };
-}
-
 /** Профиль изменили — если он больше не годен, его сокеты закрываются сразу */
 export async function dropRevokedSockets(io: any, userId: string, getUser: (id: string) => Promise<any>) {
   try {
     if (accountRefusal(await getUser(userId))) io.in(`user:${userId}`).disconnectSockets(true);
   } catch (_) { /* база недоступна — проверит следующее рукопожатие */ }
+}
+
+// ── Раздача собранного окна ─────────────────────────────────────────────────
+
+/**
+ * Папка сборки — та, где лежит сам сервер (dist/server.cjs). Опора на рабочий
+ * каталог ломалась у службы Windows, чей cwd — System32: окно отвечало 404.
+ */
+export function distDirectory(serverDir: string): string {
+  return serverDir.includes('app.asar') || path.basename(serverDir) === 'dist' ? serverDir : path.join(serverDir, 'dist');
+}
+
+/**
+ * Окну отдаётся только страница. Пропавший файл (/assets/old.js, /favicon.ico)
+ * должен быть 404, а не index.html со статусом 200 под видом скрипта.
+ */
+export function spaFallbackAllowed(requestPath: string, accept: string | undefined): boolean {
+  return !path.extname(requestPath || '') && String(accept || '').includes('text/html');
 }

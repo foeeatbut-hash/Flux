@@ -2,8 +2,8 @@
 const {app,BrowserWindow,ipcMain,dialog,clipboard,shell}=require('electron');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto');
 const setupApi=require('./setup.cjs');
-const {startDatabaseRuntime}=require('./database-runtime.cjs');
-const version=require('../package.json').version;
+const {startDatabaseRuntime}=require('../../shared/database-runtime.cjs');
+const version=require('../../../package.json').version;
 const vaultApi=require('./vault.cjs'),signing=require('./signing.cjs'),net=require('./network.cjs');
 const {applyPublicConfig}=require('./public-config.cjs');
 const {createDiagnostics}=require('./diagnostics.cjs');
@@ -79,20 +79,26 @@ const actions={
 };
 app.whenReady().then(async()=>{
   journal().installProcessHandlers(process);diagnosticEvent('app.ready',journal().diagnosticsContext());
-  vaultExists=await fs.stat(vaultFile).then(()=>true,()=>false);
-  win=new BrowserWindow({width:1180,height:850,minWidth:860,minHeight:640,title:`Flux Владелец ${version}`,backgroundColor:'#101722',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false,webSecurity:true}});
-  for(const event of ['did-finish-load','did-fail-load','render-process-gone','unresponsive','responsive','preload-error'])win.webContents.on(event,(...args)=>{journal().record(`window.${event}`,{details:args.slice(1).map(value=>typeof value==='object'&&value!==null?{reason:value.reason,exitCode:value.exitCode}:value)},['did-fail-load','render-process-gone','preload-error','unresponsive'].includes(event)?'error':'info');});
-  win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',event=>event.preventDefault());
   ipcMain.handle('owner:action',async(event,action,args={})=>{
-    if(event.sender!==win.webContents||event.senderFrame!==win.webContents.mainFrame||!Object.hasOwn(actions,action))return {ok:false,error:'Недоступное действие.'};
+    if(!win||event.sender!==win.webContents||event.senderFrame!==win.webContents.mainFrame||!Object.hasOwn(actions,action))return {ok:false,error:'Недоступное действие.'};
     if(action==='reportDiagnostic'){try{return {ok:true,value:await actions[action](args)};}catch{return {ok:false,error:'Событие не записано.'};}}
     const span=journal().beginOperation(action);return diagnosticOperation.run(span,async()=>{try{lastActivity=Date.now();const value=await actions[action](args&&typeof args==='object'?args:{});span.finish(null,{canceled:value?.canceled===true});return {ok:true,value};}catch(e){span.fail(e);return {ok:false,error:journal().redact(e?.message||'Операция не выполнена.'),operationId:span.id};}});
   });
+});
+// Окно владельца открывается из оболочки Studio — Владелец, а не при запуске программы: у
+// разработчика того же exe окна владельца нет, у владельца — отдельный раздел.
+async function openOwnerWindow(){
+  if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.focus();return;}
+  vaultExists=await fs.stat(vaultFile).then(()=>true,()=>false);
+  win=new BrowserWindow({width:1180,height:850,minWidth:860,minHeight:640,title:`Flux Studio — Владелец ${version}`,backgroundColor:'#101722',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false,webSecurity:true}});
+  for(const event of ['did-finish-load','did-fail-load','render-process-gone','unresponsive','responsive','preload-error'])win.webContents.on(event,(...args)=>{journal().record(`window.${event}`,{details:args.slice(1).map(value=>typeof value==='object'&&value!==null?{reason:value.reason,exitCode:value.exitCode}:value)},['did-fail-load','render-process-gone','preload-error','unresponsive'].includes(event)?'error':'info');});
+  win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',event=>event.preventDefault());
   await win.loadFile(uiPath);
   const timer=setInterval(()=>{if(vault&&!operation&&Date.now()-lastActivity>15*60*1000)lock();},30000);timer.unref();
   for(const event of ['unresponsive','responsive'])win.on(event,()=>diagnosticEvent(`window.${event}`,{memory:process.memoryUsage()}));
   let heartbeatAt=Date.now();const heartbeat=setInterval(()=>{const now=Date.now(),delay=now-heartbeatAt-1000;heartbeatAt=now;if(delay>2000)diagnosticEvent('process.eventLoopDelay',{delayMs:delay,memory:process.memoryUsage()});},1000);heartbeat.unref();
   win.on('closed',()=>{clearInterval(heartbeat);void lock();});
-});
+}
 app.on('child-process-gone',(_event,details)=>diagnosticEvent('app.childProcessGone',{type:details.type,reason:details.reason,exitCode:details.exitCode,serviceName:details.serviceName}));
-app.on('window-all-closed',()=>{diagnosticEvent('app.windowAllClosed');void lock().finally(()=>app.quit());});
+// Закрытие окна владельца только запирает хранилище: программа живёт, пока открыта оболочка Studio.
+module.exports={openOwnerWindow};

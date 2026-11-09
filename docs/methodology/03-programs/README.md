@@ -42,6 +42,7 @@
 |---|---|---|
 | Оболочка: окна, панель задач, Пуск, стол, панели, диалоги | [shell.md](shell.md) | 1.13 |
 | Модули Flux | [modules.md](modules.md) | PR 1 |
+| Flux Studio (разработчик и владелец) | [studio.md](studio.md) | этап 4а |
 | Журнал | [logs.md](logs.md) | 1.14 |
 | Сотрудники | [users.md](users.md) | 1.14 |
 | Проекты | [projects.md](projects.md) | 1.14 |

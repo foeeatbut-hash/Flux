@@ -4,7 +4,7 @@ import path from 'path';
 import assert from 'node:assert/strict';
 import { assertHealthySqlite, snapshotSqlite, sqliteSignatureMatches } from '../server/sqliteSafety';
 import { initBackups } from '../server/backup';
-import { allowsLocalSetup, requiresAdministrator } from '../server/accessPolicy';
+import { requiresAdministrator } from '../server/accessPolicy';
 
 const Database = require('better-sqlite3');
 
@@ -74,15 +74,10 @@ const Database = require('better-sqlite3');
     assert(fs.existsSync(path.join(retry.dest, 'manifest.json')));
     console.log('✓ неудачный архив не удаляет прежний; повторная попытка завершается');
 
-    assert(allowsLocalSetup('/api/db/config', '127.0.0.1', 'http://localhost:3000', 'localhost:3000'));
-    assert(!allowsLocalSetup('/api/db/download', '127.0.0.1'));
-    assert(!allowsLocalSetup('/api/db/switch', '192.168.1.2'));
-    assert(!allowsLocalSetup('/api/db/switch', '127.0.0.1', 'https://foreign.example', 'localhost:3000'));
-    assert(!allowsLocalSetup('/api/db/config', '127.0.0.1', 'http://foreign.example:3000', 'foreign.example:3000'));
     for (const route of ['/api/db/download', '/api/db/config', '/api/seed', '/api/backup/status']) {
       assert(requiresAdministrator(route));
     }
-    console.log('✓ настройка до входа ограничена; выгрузка и служебные действия требуют администратора');
+    console.log('✓ выгрузка и служебные действия требуют администратора');
   } finally {
     backups?.stop();
     writer?.close();

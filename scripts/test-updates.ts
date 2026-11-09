@@ -23,7 +23,7 @@ import { pickRelease, chunkSizeFor, CHUNK_MAX, CHUNK_MIN } from '../server/updat
 import { newestFirst } from '../server/updateOrder';
 import { compareVersions } from '../electron/updateSignature';
 // Копия в инструменте владельца собирается отдельно; расходиться с программой ей нельзя
-import { compareVersions as ownerCompare } from '../tools/flux-owner/src/vendor/updateSignature';
+import { compareVersions as ownerCompare } from '../studio/owner/src/vendor/updateSignature';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {

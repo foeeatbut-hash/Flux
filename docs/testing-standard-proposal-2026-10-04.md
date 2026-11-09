@@ -552,7 +552,7 @@ VM/снимке с отдельным профилем, тестовой БД и
 [Windows CI](../.github/workflows/verify-windows-shell.yml),
 [MariaDB CI](../.github/workflows/verify-security-db.yml),
 [portable](../.github/workflows/build-portable.yml) и
-[Owner](../.github/workflows/build-owner.yml).
+[Studio — Владелец](../.github/workflows/build-studio-owner.yml).
 
 В изученных проверках уже есть полезное покрытие функций, API/БД,
 интерфейса и native-границ. Но отсутствует единое подтверждение каждой
