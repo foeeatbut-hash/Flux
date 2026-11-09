@@ -222,6 +222,17 @@
       "timeoutMs": 90000
     },
     {
+      "id": "identity-db-switch-rollback",
+      "path": "scripts/test-db-switch.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
       "id": "identity-project-id-migration",
       "path": "scripts/test-entity-id-migration-sqlite.ts",
       "layer": "api-db",

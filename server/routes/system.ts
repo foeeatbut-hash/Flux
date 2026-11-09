@@ -122,7 +122,10 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
     const { crash_log_dir } = req.body;
     const current = loadAppConfig();
     if (typeof crash_log_dir === 'string') {
-      current.crash_log_dir = crash_log_dir.trim();
+      const dir = crash_log_dir.trim();
+      // Папку создаёт программа при аварии: относительный путь означал бы «где окажется» запуск
+      if (dir && !path.isAbsolute(dir)) return res.status(400).json({ error: 'Путь к папке журналов должен быть полным.' });
+      current.crash_log_dir = dir;
     }
     saveAppConfig(current);
     res.json({ success: true, crash_log_dir: current.crash_log_dir || '' });
@@ -147,8 +150,11 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
   });
 
   app.post('/api/db/test', async (req: Request, res: Response) => {
-    const { current_db_type } = req.body;
+    const { current_db_type } = req.body || {};
     const database_url = unmaskDbUrl(req.body?.database_url, loadAppConfig().database_url);
+    if (current_db_type !== 'LOCAL' && current_db_type !== 'REMOTE') {
+      return res.status(400).json({ success: false, message: 'Тип базы данных должен быть LOCAL или REMOTE.' });
+    }
     if (current_db_type === 'LOCAL') {
       return res.json({
         success: true,
@@ -166,11 +172,11 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
     // Проверка чужой базы не должна его менять: после неудачной проверки
     // MySQL работающий на SQLite сервер начинал писать SQL для MySQL
     const dialectWas = getDialect();
+    let tempPrisma: any = null;
     try {
-      const tempPrisma = createPrismaClient('REMOTE', database_url);
+      tempPrisma = createPrismaClient('REMOTE', database_url);
       setDialect(dialectWas);
       await tempPrisma.$queryRawUnsafe('SELECT 1;');
-      await tempPrisma.$disconnect();
 
       res.json({
         success: true,
@@ -183,14 +189,106 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
         success: false,
         message: `Не удалось подключиться по указанному адресу: ${err.message}`
       });
+    } finally {
+      // Временное соединение закрываем и при неудачной проверке
+      if (tempPrisma) { try { await tempPrisma.$disconnect(); } catch (_) {} }
     }
   });
 
+  // Смена базы идёт по одной: второй запрос посреди первой пересекался бы на
+  // отключении и подмене клиента и мог оставить сервер без рабочей базы
+  let switching = false;
+
+  interface SwitchTarget {
+    type: 'LOCAL' | 'REMOTE';
+    /** REMOTE: строка подключения */
+    url?: string;
+    /** LOCAL: путь к файлу SQLite ('' — стандартный) */
+    localPath?: string;
+  }
+
+  /**
+   * Переключить базу так, чтобы неудача возвращала ВСЁ как было: клиента,
+   * движок SQL (dialect), DATABASE_URL, слежение за почтой. Новый клиент
+   * строится и проверяется, пока старый ещё работает; подмена — только после
+   * успеха, и старый отключается последним.
+   */
+  async function switchDatabase(target: SwitchTarget): Promise<{ needsSetup: boolean }> {
+    const existingConfig = loadAppConfig();
+    const oldPrisma = getPrisma();
+    const dialectWas = getDialect();
+    const urlWas = process.env.DATABASE_URL;
+    let fresh: any = null;
+    let replaced = false;
+    try {
+      let targetDbUrl = '';
+      let dbFile = '';
+      const nextLocalPath = target.type === 'LOCAL' ? (target.localPath ?? existingConfig.local_db_path ?? '') : (existingConfig.local_db_path || '');
+      if (target.type === 'LOCAL') {
+        dbFile = nextLocalPath ? path.resolve(nextLocalPath) : path.join(appDataPath, 'database.sqlite');
+        const parentDir = path.dirname(dbFile);
+        if (!fs.existsSync(parentDir)) fs.mkdirSync(parentDir, { recursive: true });
+        targetDbUrl = `file:${dbFile}?connection_limit=1&busy_timeout=15000`;
+        ensureHealthyLocalDb(dbFile);
+      } else {
+        targetDbUrl = target.url || '';
+      }
+
+      // База другая — ящики в ней тоже другие: старые наблюдения гасим, новые
+      // поднимем после того, как схема встанет
+      stopMailWatch();
+
+      fresh = createPrismaClient(target.type, targetDbUrl);
+      if (target.type === 'LOCAL') {
+        try {
+          await fresh.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
+          await fresh.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
+        } catch (pragmaErr: any) {
+          console.warn('[DB Switch] Failed setting local performance PRAGMAs:', pragmaErr.message);
+        }
+      }
+      await fresh.$queryRawUnsafe('SELECT 1;');
+
+      // Приводим схему к версии программы до автозаполнения и первых запросов
+      if (target.type === 'REMOTE') await syncRemoteSchema(fresh, targetDbUrl);
+      else {
+        await syncRemoteSchema(fresh, targetDbUrl, 'sqlite');
+        ensureHealthyLocalDb(dbFile, true);
+      }
+
+      process.env.DATABASE_URL = targetDbUrl;
+      replaceClient(fresh);
+      replaced = true;
+
+      // Адрес общей базы при переходе на локальную не стирается: к ней можно вернуться
+      saveAppConfig({
+        ...existingConfig,
+        current_db_type: target.type,
+        database_url: target.type === 'REMOTE' ? (target.url || '') : (existingConfig.database_url || ''),
+        local_db_path: nextLocalPath,
+      });
+
+      const needsSetup = await fresh.user.count() === 0;
+      try { await oldPrisma?.$disconnect(); } catch (discErr: any) {
+        console.warn('[DB Switch] Notice during client disconnect:', discErr.message);
+      }
+      // Схема на месте — поднимаем слежение за ящиками новой базы
+      void watchAllMail();
+      return { needsSetup };
+    } catch (err) {
+      setDialect(dialectWas);
+      if (urlWas === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = urlWas;
+      if (replaced) replaceClient(oldPrisma);
+      if (fresh) { try { await fresh.$disconnect(); } catch (_) {} }
+      void watchAllMail();
+      throw err;
+    }
+  }
+
   app.post('/api/db/switch', async (req: Request, res: Response) => {
-    let prisma = getPrisma();
-    const { current_db_type, database_path } = req.body;
+    const { current_db_type, database_path } = req.body || {};
     const database_url = unmaskDbUrl(req.body?.database_url, loadAppConfig().database_url);
-  
+
     const logMsg = `[${new Date().toISOString()}] POST /api/db/switch: type="${current_db_type}"\n`;
     console.log('[DB Switch Request]', logMsg.trim());
     try {
@@ -200,145 +298,59 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
     if (!current_db_type) {
       return res.status(400).json({ success: false, message: 'Тип базы данных не указан!' });
     }
-
-    const oldPrisma = prisma;
+    if (current_db_type !== 'LOCAL' && current_db_type !== 'REMOTE') {
+      return res.status(400).json({ success: false, message: 'Тип базы данных должен быть LOCAL или REMOTE.' });
+    }
+    if (current_db_type === 'REMOTE' && !database_url) {
+      return res.status(400).json({ success: false, message: 'Ссылка подключения REMOTE обязательна!' });
+    }
+    // database_path: undefined = оставить текущий путь, '' = вернуть стандартный, иначе — новый путь
+    let localPath: string | undefined;
+    if (typeof database_path === 'string') {
+      localPath = database_path.trim();
+      if (localPath && !path.isAbsolute(localPath)) {
+        return res.status(400).json({ success: false, message: 'Путь к базе должен быть полным (например, D:\\Flux\\database.sqlite).' });
+      }
+    }
+    if (switching) return res.status(409).json({ success: false, message: 'Переключение базы уже выполняется. Дождитесь его окончания.' });
+    switching = true;
     try {
-      const existingConfig = loadAppConfig();
-      // database_path: undefined = оставить текущий путь, '' = вернуть стандартный, иначе — новый путь
-      let nextLocalPath = existingConfig.local_db_path || '';
-      if (typeof database_path === 'string') {
-        nextLocalPath = database_path.trim();
-      }
-
-      let targetDbUrl = '';
-      let dbFile = '';
-      if (current_db_type === 'LOCAL') {
-        dbFile = nextLocalPath ? path.resolve(nextLocalPath) : path.join(appDataPath, 'database.sqlite');
-        const parentDir = path.dirname(dbFile);
-        if (!fs.existsSync(parentDir)) {
-          fs.mkdirSync(parentDir, { recursive: true });
-        }
-        targetDbUrl = `file:${dbFile}?connection_limit=1&busy_timeout=15000`;
-        ensureHealthyLocalDb(dbFile);
-      } else {
-        if (!database_url) {
-          return res.status(400).json({ success: false, message: 'Ссылка подключения REMOTE обязательна!' });
-        }
-        targetDbUrl = database_url;
-      }
-
-      // Disconnect old client cleanly
-      try {
-        if (oldPrisma) {
-          await oldPrisma.$disconnect();
-        }
-      } catch (discErr: any) {
-        console.warn('[DB Switch] Notice during client disconnect:', discErr.message);
-      }
-
-      process.env.DATABASE_URL = targetDbUrl;
-      prisma = createPrismaClient(current_db_type, targetDbUrl);
-      replaceClient(prisma);
-      // База другая — ящики в ней тоже другие: старые наблюдения гасим, новые
-      // поднимем после того, как схема встанет
-      stopMailWatch();
-
-      if (current_db_type === 'LOCAL') {
-        try {
-          await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
-          await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
-        } catch (pragmaErr: any) {
-          console.warn('[DB Switch] Failed setting local performance PRAGMAs:', pragmaErr.message);
-        }
-      }
-
-      // Try a test query
-      await prisma.$queryRawUnsafe('SELECT 1;');
-
-      // Общая база: приводим схему к версии программы (создаёт недостающие
-      // таблицы/колонки) до автозаполнения и первых запросов
-      if (current_db_type === 'REMOTE') await syncRemoteSchema(prisma, targetDbUrl);
-      else {
-        await syncRemoteSchema(prisma, targetDbUrl, 'sqlite');
-        ensureHealthyLocalDb(dbFile, true);
-      }
-
-      // Save configuration settings
-      saveAppConfig({
-        ...existingConfig,
-        current_db_type,
-        database_url: database_url || '',
-        local_db_path: nextLocalPath
-      });
-
-      const needsSetup = await prisma.user.count() === 0;
+      const { needsSetup } = await switchDatabase({ type: current_db_type, url: database_url, localPath });
       const seedMessage = needsSetup ? ' База пуста: войдите по ключу владельца и создайте администратора.' : '';
-
-      // Схема на месте — поднимаем слежение за ящиками новой базы
-      void watchAllMail();
-
       return res.json({
         success: true,
         message: `База данных успешно переключена на режим ${current_db_type === 'LOCAL' ? 'Локальный' : 'Совместный / Внешний'}!${seedMessage}`
       });
-
     } catch (err: any) {
       console.error('[DB Switch] switchover failure:', err);
-      // Restore original state
-      prisma = oldPrisma;
-      replaceClient(prisma);
       return res.status(500).json({
         success: false,
         message: `Не удалось изменить подключение: ${err.message}`
       });
+    } finally {
+      switching = false;
     }
   });
 
-  // Alias POST /api/db/save to POST /api/db/switch to prevent old parts from erroring
+  // Старый вызов: путь к файлу SQLite. Делает то же, что переключение на локальную базу
   app.post('/api/db/save', async (req: Request, res: Response) => {
-    let prisma = getPrisma();
-    const { databasePath } = req.body;
+    const { databasePath } = req.body || {};
     if (databasePath) {
-      // Treat legacy call as configuring SQLite path in config.json
+      if (typeof databasePath !== 'string' || !path.isAbsolute(databasePath.trim())) {
+        return res.status(400).json({ success: false, message: 'Путь к базе должен быть полным.' });
+      }
+      if (switching) return res.status(409).json({ success: false, message: 'Переключение базы уже выполняется. Дождитесь его окончания.' });
+      switching = true;
       try {
-        const resolved = path.resolve(databasePath);
-        const parentDir = path.dirname(resolved);
-        if (!fs.existsSync(parentDir)) {
-          fs.mkdirSync(parentDir, { recursive: true });
-        }
-      
-        const targetDbUrl = `file:${resolved}?connection_limit=1&busy_timeout=15000`;
-        ensureHealthyLocalDb(resolved);
-
-        if (prisma) {
-          await prisma.$disconnect();
-        }
-
-        process.env.DATABASE_URL = targetDbUrl;
-        prisma = createPrismaClient('LOCAL', targetDbUrl);
-        replaceClient(prisma);
-
-        try {
-          await prisma.$queryRawUnsafe('PRAGMA journal_mode=WAL;');
-          await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
-        } catch (e) {}
-
-        await syncRemoteSchema(prisma, targetDbUrl, 'sqlite');
-        ensureHealthyLocalDb(resolved, true);
-
-        saveAppConfig({
-          ...loadAppConfig(),
-          current_db_type: 'LOCAL',
-          database_url: '',
-          local_db_path: resolved
-        });
-
+        await switchDatabase({ type: 'LOCAL', localPath: path.resolve(databasePath.trim()) });
         return res.json({
           success: true,
           message: 'Локальный путь SQLite базы успешно изменён!'
         });
       } catch (err: any) {
         return res.status(500).json({ success: false, message: err.message });
+      } finally {
+        switching = false;
       }
     }
 

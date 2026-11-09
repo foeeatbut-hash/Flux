@@ -371,7 +371,10 @@ function resolveLocalDbPath(config: AppConfig): string {
 
 function saveAppConfig(config: AppConfig) {
   try {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+    // Через временный файл: обрыв записи не оставит наполовину записанный config.json
+    const tmp = `${CONFIG_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(config, null, 2), 'utf-8');
+    fs.renameSync(tmp, CONFIG_FILE);
   } catch (err: any) {
     logInit(`[AppConfig Error] Exception writing config.json: ${err.message}`);
   }
