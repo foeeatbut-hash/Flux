@@ -666,9 +666,11 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
 
       const safeName = att.fileName.replace(/[\\/:*?"<>|]/g, '_') || 'файл';
 
-      if (att.filePath && fs.existsSync(att.filePath)) {
-        return res.download(att.filePath, safeName);
-      }
+      // Отдача файла может не удаться уже после начала ответа (файл исчез,
+      // клиент ушёл): ошибку принимает обратный вызов, а не внешний try
+      const sendFile = (file: string) => res.download(file, safeName, (e) => { if (e) sendError(res, e); });
+      const onDisk = !!att.filePath && await fs.promises.access(att.filePath).then(() => true, () => false);
+      if (onDisk) return sendFile(att.filePath);
 
       const folder = await prisma.mailFolder.findUnique({ where: { id: owned.msg.folderId } });
       if (!folder) return res.status(404).json({ error: 'Папка письма не найдена' });
@@ -677,10 +679,11 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
       if (!buf) return res.status(502).json({ error: 'Не удалось получить вложение с почтового сервера' });
 
       const full = attachmentFile(deps.userDataPath, owned.acc.id, owned.msg.id, att.id, att.fileName);
-      fs.mkdirSync(path.dirname(full), { recursive: true });
-      fs.writeFileSync(full, buf);
+      // Асинхронно: синхронная запись большого вложения замораживала сервер для всех
+      await fs.promises.mkdir(path.dirname(full), { recursive: true });
+      await fs.promises.writeFile(full, buf);
       await prisma.mailAttachment.update({ where: { id: att.id }, data: { filePath: full, size: buf.length } });
-      res.download(full, safeName);
+      sendFile(full);
     } catch (err) { sendError(res, err); }
   });
 
@@ -690,14 +693,26 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
       const prisma = getPrisma();
       const acc = await ownedAccount(req, str(req.body?.accountId, 60));
       if (!acc) return res.status(404).json({ error: 'Ящик не найден' });
-      const msgs = await prisma.mailMessage.findMany({ where: { accountId: acc.id } });
-      for (const m of msgs) {
-        await prisma.mailMessage.update({
+      // Пачками и только нужные поля: тела писем в память целиком не берём, а
+      // пачка идёт одной транзакцией, чтобы сбой не оставил индекс наполовину
+      let count = 0;
+      let after = '';
+      for (;;) {
+        const msgs = await prisma.mailMessage.findMany({
+          where: { accountId: acc.id, ...(after ? { id: { gt: after } } : {}) },
+          select: { id: true, subject: true, fromName: true, fromAddr: true, snippet: true },
+          orderBy: { id: 'asc' },
+          take: 500,
+        });
+        if (!msgs.length) break;
+        await prisma.$transaction(msgs.map((m: any) => prisma.mailMessage.update({
           where: { id: m.id },
           data: { searchText: searchTextOf(m.subject, m.fromName, m.fromAddr, m.snippet) },
-        });
+        })));
+        count += msgs.length;
+        after = msgs[msgs.length - 1].id;
       }
-      res.json({ ok: true, count: msgs.length });
+      res.json({ ok: true, count });
     } catch (err) { sendError(res, err); }
   });
 }

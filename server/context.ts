@@ -36,11 +36,60 @@ export async function resolveProjectId(raw: string | undefined | null): Promise<
   return first.id;
 }
 
+/**
+ * Ошибка, текст и код которой можно показать человеку как есть.
+ * Всё прочее (сбой базы, опечатка в коде) наружу общим текстом, а подробность — в журнал.
+ */
+export class AppError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'AppError';
+    this.status = status;
+  }
+}
+
+/** Код из ошибки: свой status (AppError, http-errors, body-parser) или переданный */
+/** Признаки ошибки внешней библиотеки: HTTP-клиент, почтовый сервер */
+const FOREIGN = ['response', 'request', 'config', 'responseCode', 'responseStatus', 'command'];
+
+function statusOf(err: any, fallback: number): number {
+  const s = Number(err?.status ?? err?.statusCode);
+  if (!Number.isInteger(s) || s < 400 || s > 599) return fallback;
+  // 401 и 407 из чужой библиотеки (почта, HTTP-клиент) окно прочло бы как «сессия
+  // кончилась» и разлогинило человека. Свой отказ входа несут AppError и именованные
+  // классы ошибок разделов; безымянный Error со status и ответ внешней библиотеки — нет
+  if ((s === 401 || s === 407) && !(err instanceof AppError) && (err?.constructor === Error || FOREIGN.some((k) => k in Object(err)))) return 502;
+  return s;
+}
+
+/** Сообщение драйвера базы: имена моделей и текст запроса человеку не нужны */
+function isDriverError(err: any): boolean {
+  const name = String(err?.name || '');
+  const msg = String(err?.message || '');
+  return /^PrismaClient/.test(name) || /^P\d{4}$/.test(String(err?.code || '')) || /Invalid `[\w.]*prisma\d*\./i.test(msg);
+}
+
 // Единый ответ об ошибке (сохраняет привычный формат { error }).
+// Код берётся из самой ошибки (err.status), иначе из параметра. Если ответ уже
+// начат (файл идёт потоком), JSON дописать некуда: res.status().json() бросил бы
+// ERR_HTTP_HEADERS_SENT из catch и дал необработанный отказ — обрываем соединение,
+// чтобы клиент увидел обрыв, а не «успешно» оборванный файл.
 export function sendError(res: Response, err: any, code = 500): void {
-  // Ответ уже начат (поток, оборванное соединение): второй вызов status/json бросал бы исключение
-  if (res.headersSent) return;
-  res.status(code).json({ error: err?.message || String(err) });
+  if (res.headersSent) {
+    console.error('[sendError] ответ уже начат, соединение закрыто:', err?.message || err);
+    try { res.destroy(); } catch (_) { /* сокет уже закрыт */ }
+    return;
+  }
+  const status = statusOf(err, code);
+  let message = err?.message || String(err);
+  if (isDriverError(err)) {
+    console.error('[sendError] сбой базы:', err?.message || err);
+    message = 'Не удалось выполнить операцию с базой данных. Подробности в журнале сервера.';
+  } else if (status >= 500 && !(err instanceof AppError)) {
+    console.error('[sendError]', err?.stack || err);
+  }
+  res.status(status).json({ error: message });
 }
 
 // Личное уведомление пользователю (реализация живёт в server.ts — там же

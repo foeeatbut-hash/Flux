@@ -18,10 +18,19 @@
  * нет — значит файл старый, и это не поломка.
  */
 import type { Express, Request, Response } from 'express';
+import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import { getPrisma, sendError } from '../context.js';
 import { shareOf } from '../fileSharing.js';
 import { FILE_NOT_FOUND, canReadFile, canWriteFile } from '../fileAccess.js';
 import { isIssuedOfficeFile, immutableOfficeFileError } from '../officeRevisions.js';
+
+/** Самый большой файл, который принимают куски: от него считается предел номера куска */
+const MAX_FILE_BYTES = 4 * 1024 * 1024 * 1024;
+/** Сколько кусков держим в памяти за раз при чтении потоком и подсчёте размера */
+const PAGE = 4;
+/** Строгий base64: Buffer.from молча принимает мусор и отдаёт «короче, чем прислали» */
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 
 export interface FileChunkDeps {
   /** Размер куска под предел пакета этой базы */
@@ -83,9 +92,19 @@ export function registerFileChunkRoutes(app: Express, deps: FileChunkDeps): void
 
       const idx = Number(req.body?.idx);
       const data = String(req.body?.data || '');
-      if (!Number.isInteger(idx) || idx < 0) return res.status(400).json({ error: 'Неверный номер куска' });
+      // Верхняя граница: большой номер оставлял бы в файле дыру, а за 2^31
+      // Prisma отвечала бы ошибкой вместо понятного отказа
+      const maxIdx = Math.ceil(MAX_FILE_BYTES / Math.max(1, await deps.chunkBytes()));
+      if (!Number.isInteger(idx) || idx < 0 || idx >= maxIdx) return res.status(400).json({ error: 'Неверный номер куска' });
       if (!data) return res.status(400).json({ error: 'Пустой кусок' });
+      if (data.length % 4 !== 0 || !BASE64.test(data)) return res.status(400).json({ error: 'Кусок передан в неверной кодировке' });
       const bytes = Buffer.from(data, 'base64');
+      // Контрольная сумма куска (окна присылают её, прежние — нет): сверяем с тем,
+      // что реально дошло, иначе порча при передаче обнаружилась бы при открытии книги
+      const want = String(req.headers['x-chunk-sha256'] || '').trim().toLowerCase();
+      if (want && want !== createHash('sha256').update(bytes).digest('hex')) {
+        return res.status(422).json({ error: 'Кусок дошёл повреждённым: контрольная сумма не совпала, отправьте его ещё раз' });
+      }
 
       await prisma.$transaction(async (tx: any) => {
         const file = await tx.fileNode.findUnique({ where: { id: fileId } });
@@ -127,17 +146,30 @@ export function registerFileChunkRoutes(app: Express, deps: FileChunkDeps): void
         if (!claim.count) throw Object.assign(new Error('Файл изменился во время записи'), { status: 409 });
         if (await isIssuedOfficeFile(tx, fileId)) throw immutableOfficeFileError();
       const count = Number(req.body?.count);
-      if (Number.isInteger(count) && count >= 0) {
+      const countGiven = Number.isInteger(count) && count >= 0;
+      if (countGiven) {
         await tx.fileChunk.deleteMany({ where: { fileId, idx: { gte: count } } });
       }
-      const rows = await tx.fileChunk.findMany({ where: { fileId }, select: { data: true } });
-      const size = rows.reduce((n: number, r: any) => n + Buffer.from(r.data).length, 0);
+      // Куски обязаны идти подряд 0..N-1 и, если окно назвало число, их ровно
+      // столько. Иначе файл с дырой склеился бы «успешно» и не открылся
+      const present = await tx.fileChunk.findMany({ where: { fileId }, select: { idx: true }, orderBy: { idx: 'asc' } });
+      const expected = countGiven ? count : present.length;
+      if (present.length !== expected || present.some((r: any, i: number) => r.idx !== i)) {
+        throw Object.assign(new Error(`Файл загружен не полностью: не хватает кусков (получено ${present.length}${countGiven ? ` из ${expected}` : ''}). Отправьте файл ещё раз`), { status: 409 });
+      }
+      // Размер считаем по кускам, но пачками: все куски разом в памяти и в
+      // одной транзакции на сотнях мегабайт её и закрывали
+      let size = 0;
+      for (let from = 0; from < present.length; from += PAGE) {
+        const rows = await tx.fileChunk.findMany({ where: { fileId, idx: { gte: from, lt: from + PAGE } }, select: { data: true } });
+        for (const r of rows) size += Buffer.from(r.data).length;
+      }
       const savedFile = await tx.fileNode.update({
         where: { id: fileId },
         data: { size, content: null },
       });
-      return { file: savedFile, size, chunks: rows.length };
-      });
+      return { file: savedFile, size, chunks: present.length };
+      }, { timeout: 120_000, maxWait: 10_000 });
       res.json(result);
     } catch (err: any) { sendError(res, err); }
   });
@@ -165,15 +197,31 @@ export function registerFileChunkRoutes(app: Express, deps: FileChunkDeps): void
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.name || 'file')}`);
 
-      const parts = await prisma.fileChunk.findMany({
-        where: { fileId: file.id },
-        orderBy: { idx: 'asc' },
-        select: { data: true },
-      });
-      if (parts.length) {
-        for (const p of parts) res.write(Buffer.from(p.data));
-        return res.end();
+      // Куски читаем пачками по номеру и пишем с учётом буфера сокета: память
+      // не растёт с размером файла. Длину заранее не называем: размер в записи
+      // мог устареть, пока файл дописывают, а неверная длина хуже её отсутствия
+      let last = -1;
+      let sent = 0;
+      for (;;) {
+        const page = await prisma.fileChunk.findMany({
+          where: { fileId: file.id, idx: { gt: last } },
+          orderBy: { idx: 'asc' },
+          take: PAGE,
+          select: { idx: true, data: true },
+        });
+        if (!page.length) break;
+        for (const p of page) {
+          if (res.destroyed) return;
+          sent++;
+          last = p.idx;
+          // Клиент мог уйти: 'drain' тогда не придёт никогда, а once на 'close' не выходит
+          if (!res.write(Buffer.from(p.data))) {
+            const gone = new AbortController();
+            await Promise.race([once(res, 'drain', { signal: gone.signal }), once(res, 'close', { signal: gone.signal })]).catch(() => {}).finally(() => gone.abort());
+          }
+        }
       }
+      if (sent) return res.end();
       // Файл прежних версий: содержимое лежит строкой. Переписывать его не
       // надо — он и так читается
       const raw = String(file.content || '');

@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from 'express';
-import { getPrisma, sendError } from '../context.js';
+import { getPrisma, sendError, AppError } from '../context.js';
 import { withBump } from '../equipmentVersion.js';
 import { emitEntitiesChanged } from '../entityChanged.js';
 import { planUndo, batchTime, describePlan, type ElementNow, type HistoryRow } from '../equipmentUndo.js';
@@ -11,7 +11,7 @@ import { isPrivilegedUser } from '../accessPolicy.js';
 
 async function authorizeXmlUndo(req: Request, batchId: string) {
   const actor = (req as any).authUser;
-  if (!actor?.id) throw Object.assign(new Error('Требуется вход'), { status: 401 });
+  if (!actor?.id) throw new AppError(401, 'Требуется вход');
   const app = await getPrisma().equipmentXmlApplication.findUnique({ where: { batchId } });
   const source = app ? await getPrisma().equipmentXmlSource.findUnique({ where: { id: app.sourceId } }) : null;
   if (!source) throw Object.assign(new Error('Операция XML-ревизии не найдена'), { status: 404 });
@@ -21,7 +21,7 @@ async function authorizeXmlUndo(req: Request, batchId: string) {
 
 async function authorizeCatalogUndo(req: Request, batchId: string) {
   const actor = (req as any).authUser;
-  if (!actor?.id) throw Object.assign(new Error('Требуется вход'), { status: 401 });
+  if (!actor?.id) throw new AppError(401, 'Требуется вход');
   if (!(await actorMay(actor, roleGrantsOf, 'equipment.manage'))) throw Object.assign(new Error('Нужно право «Правка характеристик оборудования»'), { status: 403 });
   const prisma = getPrisma();
   const history = await prisma.equipmentHistory.findMany({ where: { batchId }, select: { elementId: true } });

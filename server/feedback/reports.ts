@@ -13,6 +13,7 @@ import { openEnvelope } from '../../modules/trust/envelope.js';
 import { parseReleaseClaim } from '../../modules/trust/claims.js';
 import { safeModuleDiagnostics } from '../../feedback/moduleContext.js';
 import { getPrisma } from '../context.js';
+import { intParam } from '../queryParams.js';
 import { ensureFeedbackTables } from './tables.js';
 import { actorOf, fail, ok, settings, triageRecipients, type Actor } from './policy.js';
 import { createReport, reserveRate, refundRate, rateResetAt } from './service.js';
@@ -206,7 +207,7 @@ export function registerReportRoutes(app: Express, deps: ReportDeps): void {
     if (scope !== 'mine' && scope !== 'modules' && !triage) {
       return fail(res, ERRORS.FORBIDDEN, 'Очередь обращений доступна тем, кто их разбирает');
     }
-    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+    const limit = intParam(req.query.limit, 50, 1, 100);
     const status = String(req.query.status || '');
     const type = String(req.query.type || '');
 

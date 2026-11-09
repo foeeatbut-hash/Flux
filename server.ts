@@ -20,6 +20,7 @@ import { registerStudioRoutes } from './server/routes/studio.js';
 import { registerLimitRoutes } from './server/limits.js';
 import { registerFeedbackRoutes } from './server/routes/feedback.js';
 import { registerPolicyRoutes } from './server/routes/policy.js';
+import { cleanOrphanChatFiles } from './server/services/chatFiles.js';
 import { registerFileChunkRoutes } from './server/routes/fileChunks.js';
 import { registerArchiveRoutes } from './server/routes/archives.js';
 import { registerOfficeFileRoutes } from './server/routes/officeFiles.js';
@@ -202,6 +203,14 @@ function logInit(message: string) {
     console.error('Failed to write to local log file:', err);
   }
 }
+
+// Необработанный отказ промиса не должен ронять сервер у всех пользователей
+// (Node с 15-й версии завершает процесс): пишем в журнал запуска и в
+// диагностику и продолжаем работу
+process.on('unhandledRejection', (reason: any) => {
+  try { logInit(`[unhandledRejection] ${reason?.stack || reason?.message || String(reason)}`); } catch (_) { /* журнал недоступен */ }
+  try { recordServerError('unhandledRejection', reason); } catch (_) { /* диагностика не обязательна */ }
+});
 
 // 1. Создаем изолированную функцию логирования старта бэкенда и пишем все чихи
 logInit('«[1] Логирование запущено»');
@@ -1232,6 +1241,16 @@ async function startServer() {
   // Кто скрыл своё присутствие — читаем один раз при старте: дальше список
   // держится в памяти и обновляется только при смене переключателя
   void refreshHiddenOnline();
+
+  // Файлы чата, загруженные и так и не отправленные (или оставшиеся без
+  // сообщения), — уборка раз в шесть часов, не больше 200 за проход и с записью в журнал
+  const sweepChatFiles = () => {
+    cleanOrphanChatFiles(prisma, { log: logInit })
+      .then((r) => { if (r.removed) logInit(`[Чат] уборка файлов-сирот: просмотрено ${r.scanned}, удалено ${r.removed}`); })
+      .catch((e) => logInit(`[Чат] уборка файлов-сирот не удалась: ${e?.message || e}`));
+  };
+  setTimeout(sweepChatFiles, 5 * 60 * 1000).unref();
+  setInterval(sweepChatFiles, 6 * 60 * 60 * 1000).unref();
 
   httpServer.listen(PORT, listenHost(), () => {
     logInit(`[Server listener started] Express backend server successfully running on port ${PORT}`);

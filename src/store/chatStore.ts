@@ -307,7 +307,8 @@ export const useChatStore = create<ChatState>((set, get) => {
             if (mine === convToken) set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
             return data;
           }
-          throw new Error(`Не удалось отправить сообщение (${res.status})`);
+          // Причину (файл устарел, чужое вложение, пустой текст) пишет сервер по-русски
+          throw new Error((await res.json().catch(() => ({})))?.error || `Не удалось отправить сообщение (${res.status})`);
         } else {
           // PROJECT Group
           if (!activeGroupId) return null;
@@ -331,7 +332,8 @@ export const useChatStore = create<ChatState>((set, get) => {
             if (mine === convToken) set((state) => ({ messages: [...state.messages.filter(m => m.id !== data.id), data] }));
             return data;
           }
-          throw new Error(`Не удалось отправить сообщение (${res.status})`);
+          // Причину (файл устарел, чужое вложение, пустой текст) пишет сервер по-русски
+          throw new Error((await res.json().catch(() => ({})))?.error || `Не удалось отправить сообщение (${res.status})`);
         }
       } catch (err) {
         console.error('[ChatStore] Error sending message:', err);
@@ -450,7 +452,7 @@ export const useChatStore = create<ChatState>((set, get) => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ fileName, base64Data })
         });
-        if (!res.ok) throw new Error('File upload failure');
+        if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || `Файл не загружен (${res.status})`);
         return await res.json();
       } catch (err: any) {
         console.error('[ChatStore] Error uploading file:', err);

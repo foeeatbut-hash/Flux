@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, resolveProjectId, sendError } from '../context.js';
+import { intParam } from '../queryParams.js';
 import { normKey } from '../../src/translate/segment.js';
 import { parseTmx, buildTmx } from '../../src/translate/tmx.js';
 
@@ -132,7 +133,7 @@ export function registerTranslateRoutes(app: Express): void {
       const projectId = await resolveProjectId(req.query.projectId as string);
       const fromLang = str(req.query.from) || 'ru';
       const toLang = str(req.query.to) || 'en';
-      const limit = Math.min(Number(req.query.limit) || 5000, 20000);
+      const limit = intParam(req.query.limit, 5000, 1, 20000);
       const q = normKey(str(req.query.q));
       let items = await prisma.tmUnit.findMany({
         where: { fromLang, toLang, OR: [{ projectId }, { projectId: null }] },

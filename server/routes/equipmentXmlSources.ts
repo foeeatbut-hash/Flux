@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Express, Request, Response } from 'express';
 import { XMLValidator } from 'fast-xml-parser';
-import { broadcast, getPrisma, sendError } from '../context.js';
+import { broadcast, getPrisma, sendError, AppError } from '../context.js';
 import { parseOptionsFor } from '../equipmentFile.js';
 import { parseEquipmentXML } from '../equipmentParser.js';
 import { unitBlocksOf } from '../equipmentResolve.js';
@@ -73,7 +73,7 @@ async function validateXmlTarget(projectId: string, text: string, fileName: stri
 
 async function access(req: Request, projectId: string, manage = true) {
   const actor = authUserOf(req);
-  if (!actor?.id) throw Object.assign(new Error('Требуется вход'), { status: 401 });
+  if (!actor?.id) throw new AppError(401, 'Требуется вход');
   if (!(await canSeeProject(String(actor.id), projectId, isPrivilegedUser(actor)))) throw Object.assign(new Error('Проект недоступен'), { status: 403 });
   if (manage && !(await actorMay(actor, roleGrantsOf, 'equipment.manage'))) throw Object.assign(new Error('Нужно право «Правка характеристик оборудования»'), { status: 403 });
   return actor;

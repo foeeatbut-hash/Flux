@@ -217,6 +217,17 @@
       "timeoutMs": 900000
     },
     {
+      "id": "collab-chat-files",
+      "path": "scripts/test-chat-files.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 180000
+    },
+    {
       "id": "collab-chat-privacy",
       "path": "scripts/test-chat-privacy.ts",
       "layer": "api-db",
@@ -938,6 +949,13 @@
           "layer": "api-db",
           "claims": [
             "Личные сообщения и группы проверяют доступ участника и отказ постороннему через API"
+          ]
+        },
+        {
+          "suite": "collab-chat-files",
+          "layer": "api-db",
+          "claims": [
+            "Вложение чата прикрепляет только загрузивший, открывается по подписанной ссылке, а файл стирается лишь без оставшихся ссылок"
           ]
         }
       ],

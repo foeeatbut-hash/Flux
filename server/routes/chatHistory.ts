@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from 'express';
-import { getPrisma } from '../context.js';
+import { getPrisma, sendError } from '../context.js';
+import { intParam } from '../queryParams.js';
 import { isPrivilegedUser } from '../accessPolicy.js';
 import { isAdminActor } from '../projectAccess.js';
 import { canSeeProject } from './members.js';
@@ -60,7 +61,7 @@ export function registerChatHistoryRoutes(app: Express): void {
       }));
       const chats = [...groupsResult, ...directsResult].sort((a, b) => new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime());
       res.json({ chats });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendError(res, err); }
   });
 
   /** Полнотекстовый для человека поиск идёт по всей доступной истории; сначала
@@ -123,7 +124,7 @@ export function registerChatHistoryRoutes(app: Express): void {
         return { chatId: groupId ? `group=${groupId}` : `from=${peerId}`, messageId: row.id, snippet, createdAt: row.createdAt, type: groupId ? 'GROUP' : 'DIRECT', title: groupId ? groupNames.get(groupId) || '' : peerNames.get(peerId) || '', groupId, peerId };
       });
       res.json({ results, total, truncated: offset + limit < total || rows.length === 1000 });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendError(res, err); }
   });
 
   // 1. Get messages between two users
@@ -145,7 +146,7 @@ export function registerChatHistoryRoutes(app: Express): void {
       // многолетней переписке это заметная нагрузка на сервер, сеть и отрисовку.
       // Берём последние N в обратном порядке и переворачиваем — так работает
       // индекс по дате, в отличие от смещения от начала
-      const limit = Math.min(2000, Math.max(20, Number(req.query.limit) || 300));
+      const limit = intParam(req.query.limit, 300, 1, 2000);
       const before = req.query.before ? new Date(String(req.query.before)) : null;
       const beforeId = String(req.query.beforeId || '');
       if (before && Number.isNaN(before.getTime())) return res.status(400).json({ error: 'Некорректный курсор истории' });
@@ -176,7 +177,7 @@ export function registerChatHistoryRoutes(app: Express): void {
       const safe = await sanitizeProjectReferences(guideSafe as any[], actorId(req), (req as any).authUser);
       res.json((safe as any[]).slice().reverse());
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -192,7 +193,7 @@ export function registerChatHistoryRoutes(app: Express): void {
       const [guideSafe] = await sanitizeGuideReplies([message as any], actorId(req), isAdminActor((req as any).authUser));
       const [safe] = await sanitizeProjectReferences([guideSafe], actorId(req), (req as any).authUser);
       res.json(safe);
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendError(res, err); }
   });
 
   /** Вложения из всей серверной истории, а не только текущей страницы сообщений. */
@@ -231,7 +232,7 @@ export function registerChatHistoryRoutes(app: Express): void {
       for (const row of rows as any[]) if (await canReadChatMessage(me, (req as any).authUser, row.message)) accessible.push(row);
       const items = accessible.slice(offset, offset + limit).map((row) => ({ id: row.id, fileName: row.fileName, fileSize: row.fileSize, filePath: row.filePath, messageId: row.message.id, createdAt: row.message.createdAt }));
       res.json({ items, total: accessible.length, truncated: offset + limit < accessible.length || rows.length === 1000 });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendError(res, err); }
   });
 
   /** Точные теги, упомянутые во всей доступной истории разговора. */
@@ -293,7 +294,7 @@ export function registerChatHistoryRoutes(app: Express): void {
       const all = [...found.values()].sort((a, b) => a.identifier.localeCompare(b.identifier, 'ru-RU'));
       const items = all.slice(0, 1000).map((tag) => ({ identifier: tag.identifier, projectId: tag.projectId, messageIds: [...tag.messageIds], createdAt: tag.createdAt }));
       res.json({ items, total: all.length, truncated: all.length > items.length || rows.length === 10000 });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) { sendError(res, err); }
   });
 
 }

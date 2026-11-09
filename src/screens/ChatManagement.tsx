@@ -502,8 +502,8 @@ export default function ChatManagement() {
             fileSize: uploaded.fileSize
           }]);
           addToast(`Файл "${file.name}" успешно прикреплен!`, 'success');
-        } catch (uploadErr) {
-          addToast('Ошибка заливки файла на сервер', 'error');
+        } catch (uploadErr: any) {
+          addToast(uploadErr?.message || 'Ошибка заливки файла на сервер', 'error');
         }
       };
       reader.readAsDataURL(file);

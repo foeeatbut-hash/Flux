@@ -1,4 +1,5 @@
 import type { Express, Request, Response } from 'express';
+import { dateParam } from '../queryParams.js';
 import * as XLSX from 'xlsx';
 import { getPrisma, resolveProjectId, sendError, notifyUser, broadcast } from '../context.js';
 import { createFileFromBytes, exportsHome } from '../officeStore.js';
@@ -544,8 +545,8 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
           if ('assigneeId' in (req.body || {})) data.assigneeId = req.body.assigneeId || null;
           if ('docId' in (req.body || {})) data.docId = req.body.docId || null;
           if (typeof req.body?.equipmentTags === 'string') data.equipmentTags = req.body.equipmentTags;
-          if (req.body?.issueDate !== undefined) data.issueDate = req.body.issueDate ? new Date(req.body.issueDate) : null;
-          if (req.body?.dueDate !== undefined) data.dueDate = req.body.dueDate ? new Date(req.body.dueDate) : null;
+          if (req.body?.issueDate !== undefined) data.issueDate = dateParam(req.body.issueDate, 'Дата выпуска');
+          if (req.body?.dueDate !== undefined) data.dueDate = dateParam(req.body.dueDate, 'Срок');
           if (req.body?.extra && typeof req.body.extra === 'object') {
             data.extra = JSON.stringify({ ...parseJson(item.extra, {}), ...req.body.extra });
           }
@@ -556,7 +557,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
             if (rc) {
               // Статус после кода задаётся в настройках проекта; «для сведения» статус не меняет
               if (!req.body?.status && rc.action !== 'info') data.status = rc.status || (rc.action === 'accept' ? 'ACCEPTED' : 'REMARKS');
-              if (req.body?.dueDate === undefined && rc.deadlineDays) {
+              if (req.body?.dueDate === undefined && rc.deadlineDays && Number.isFinite(Number(rc.deadlineDays))) {
                 data.dueDate = new Date(Date.now() + Number(rc.deadlineDays) * 86400000);
               }
             }
