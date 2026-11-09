@@ -4,6 +4,7 @@
  * мост окна и запуск файлов из программы.
  */
 import express from 'express';
+import { isClientAbort } from '../server/apiErrors';
 import http from 'node:http';
 import { createCookieAuth, validCsrf, AUTH_COOKIE } from '../server/authCookies';
 import {
@@ -148,7 +149,7 @@ app.use(earlyBodyGate(r => r === '/api/login', t => t === 'good-token', 1024));
 app.use(express.json({ limit: '50mb' }));
 app.post('/api/login', (req, res) => res.json({ success: true, token: 'tok', got: JSON.stringify(req.body).length }));
 app.post('/api/other', (req, res) => res.json({ got: JSON.stringify(req.body).length }));
-app.use((err: any, _req: any, res: any, next: any) => res.headersSent ? next(err) : res.status(err.status || 500).json({ error: String(err.message) }));
+app.use((err: any, _req: any, res: any, next: any) => res.headersSent ? (isClientAbort(err) ? undefined : next(err)) : res.status(err.status || 500).json({ error: String(err.message) }));
 
 const rawRequest = (port: number, path: string, headers: Record<string, string>, chunks: string[]) => new Promise<{ status: number; body: string; headers: any }>((resolve) => {
   const r = http.request({ port, host: '127.0.0.1', method: 'POST', path, headers, agent: false }, (res) => {

@@ -104,7 +104,7 @@ import { registerProjectEntityGuard } from './server/projectEntityAccess.js';
 import { protectSessionSockets } from './server/sessionSockets.js';
 import { authTokenFromRequest, createCookieAuth } from './server/authCookies.js';
 import { permRuleFor } from './server/permRoutes.js';
-import { describeApiError } from './server/apiErrors.js';
+import { describeApiError, isClientAbort } from './server/apiErrors.js';
 import { createTrustedTime, fetchNetworkTimeMs, registerTimeAnchorRoutes } from './server/trustedTime.js';
 import { corsMiddleware, socketAllowRequest, blockPrivateBuildFiles, earlyBodyGate, staticUploadOptions, chatFileGate, setLinkSecret, hashLegacyPasswords, listenHost, dropRevokedSockets, distDirectory, spaFallbackAllowed } from './server/security.js';
 
@@ -1181,7 +1181,7 @@ async function startServer() {
 
   app.use((err: any, req: Request, res: Response, next: any) => {
     // Ответ уже начат (например, соединение оборвано после 413): второй ответ невозможен
-    if (res.headersSent) return next(err);
+    if (res.headersSent) return isClientAbort(err) ? undefined : next(err);
     const { status, message: friendly } = describeApiError(err, { databaseReady: !!prisma && isPrismaAvailable });
     logInit(`[API ERROR] ${req.method} ${req.originalUrl}: ${friendly}`);
     if (status >= 500) console.error('Unhandled error:', err);

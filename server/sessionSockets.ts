@@ -21,10 +21,15 @@ const MUTATING_WORDS = new Set([
   'put', 'patch', 'annotate', 'redact', 'sign', 'flatten', 'rotate', 'crop', 'split', 'resize', 'format', 'protect',
   'unprotect', 'drop', 'append', 'reorder', 'submit', 'attach', 'embed', 'stamp', 'fix', 'toggle', 'push', 'send',
 ]);
+/** Канал, названный глаголом чтения, читает, что бы ни стояло дальше: getDataSet, getFormat, listSortKeys */
+const READ_VERBS = new Set(['get', 'read', 'list', 'is', 'has', 'query', 'find', 'fetch', 'count', 'load', 'peek', 'describe', 'measure', 'search', 'check', 'can', 'preview']);
 export function isMutatingOfficeChannel(channel: string): boolean {
   const text = String(channel || '');
   if (/save|write|export|delete|create|rename/i.test(text)) return true;
   const words = text.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().match(/[a-z0-9]+/g) || [];
+  // Первое слово после префикса программы (pdf:, workbook:) — глагол
+  const verb = text.includes(':') ? (text.slice(text.indexOf(':') + 1).replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().match(/[a-z0-9]+/g) || [])[0] : words[0];
+  if (verb && READ_VERBS.has(verb)) return false;
   return words.some((word) => MUTATING_WORDS.has(word));
 }
 

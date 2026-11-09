@@ -725,6 +725,7 @@ app.put('/api/users/:id', async (req: Request, res: Response) => {
           return res.status(403).json({ success: false, message: 'Для смены своего пароля введите текущий пароль.' });
         }
       }
+      else if (password.length < MIN_PASSWORD) return res.status(400).json({ success: false, message: `Пароль не короче ${MIN_PASSWORD} символов.` });
       nextPasswordHash = await hashPassword(password);
     }
 

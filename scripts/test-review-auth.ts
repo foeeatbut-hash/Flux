@@ -11,6 +11,7 @@ import path from 'node:path';
 import { permRuleFor } from '../server/permRoutes';
 import { createTrustedTime, databaseClockMs, registerTimeAnchorRoutes } from '../server/trustedTime';
 import { isMutatingOfficeChannel } from '../server/sessionSockets';
+import { isClientAbort } from '../server/apiErrors';
 import { requiresOwner } from '../server/accessPolicy';
 import { sendError } from '../server/context';
 import { describeApiError } from '../server/apiErrors';
@@ -62,11 +63,13 @@ check('пропавший скрипт — не страница', !spaFallbackA
 check('запрос страницы получает index.html', spaFallbackAllowed('/projects/p1', 'text/html,application/xhtml+xml'));
 check('запрос без Accept: text/html — не страница', !spaFallbackAllowed('/projects/p1', 'application/json') && !spaFallbackAllowed('/projects', undefined));
 
+check('оборванное клиентом соединение — не сбой сервера', isClientAbort(Object.assign(new Error('request aborted'), { type: 'request.aborted' })) && !isClientAbort(new Error('boom')));
+
 // ── 99: изменяющие каналы редактора при истёкшей лицензии ──
 for (const channel of ['pdf:save', 'workbook:save', 'workbook:setCellValue', 'workbook:set-cell-value', 'pdf:insert-page', 'workbook:applyFormat', 'workbook:pasteRange', 'pdf:annotate']) {
   check(`канал ${channel} изменяет документ`, isMutatingOfficeChannel(channel));
 }
-for (const channel of ['workbook:getCell', 'workbook:get-offsets', 'pdf:get-page', 'pdf:read-text', 'workbook:open', 'pdf:thumbnail', 'workbook:listSheets']) {
+for (const channel of ['workbook:getDataSet', 'workbook:getFormat', 'workbook:get-sort-order', 'workbook:listSheets', 'workbook:isProtected', 'workbook:hasFormula', 'pdf:get-form-fields', 'pdf:readPage', 'workbook:getCell', 'workbook:get-offsets', 'pdf:get-page', 'pdf:read-text', 'workbook:open', 'pdf:thumbnail', 'workbook:listSheets']) {
   check(`канал ${channel} только читает`, !isMutatingOfficeChannel(channel));
 }
 
@@ -87,11 +90,13 @@ const makeDeps = (clock: ReturnType<typeof makeClock>, opts: { dialect?: 'sqlite
   const deps = {
     prisma: () => prisma, dialect: () => opts.dialect || 'sqlite', file,
     upsertSetting: async (key: string, _u: string | null, value: string) => { store.set(key, value); },
-    anchorFile: file, now: clock.now,
+    anchorFile: file, now: clock.now, mono: monoNow,
     networkTime: async () => { netCalls++; return opts.net ? opts.net() : null; },
   };
   return { deps, store, file, netCalls: () => netCalls };
 };
+let monoMs = 0;
+const monoNow = () => monoMs;
 const sleepTick = () => new Promise((r) => setTimeout(r, 5));
 
 (async () => {
@@ -172,6 +177,48 @@ const sleepTick = () => new Promise((r) => setTimeout(r, 5));
     clock.add(6 * 60_000);
     await time.full();
     check('через 5 минут попытка повторяется', env.netCalls() === 2, env.netCalls());
+  }
+  // Сетевой откат на 1-5 часов (якорь его не видит) ловится в sync-проверке сессии и снимается исправлением часов
+  {
+    const real = makeClock(T0);
+    const clock = makeClock(T0);
+    const env = makeDeps(clock, { dialect: 'sqlite', net: () => real.now() });
+    const time = createTrustedTime(env.deps);
+    time.sync();
+    clock.set(T0 - 3 * HOUR); // откатили на 3 часа
+    await time.full();
+    check('откат на 3 часа, замеченный по сети, виден проверке сессии (isTampered)', time.isTampered());
+    monoMs += 60_000; real.add(60_000); clock.add(60_000);
+    check('и остаётся виден дальше, пока часы не исправлены', time.isTampered());
+    clock.set(real.now()); // часы исправили
+    check('исправленные часы снимают признак', time.isTampered() === false);
+  }
+  // Машина с часами +2 дня ничего не пишет в общую базу, даже до первого входа со сроком
+  {
+    const store = new Map<string, string>();
+    const clock = makeClock(T0 + 2 * 24 * HOUR);
+    const env = makeDeps(clock, { dialect: 'postgresql', dbNow: () => T0, store });
+    const time = createTrustedTime(env.deps);
+    time.sync(); await sleepTick(); await sleepTick();
+    const written = store.get('time_anchor') ? parseInt(store.get('time_anchor')!, 36) : 0;
+    check('+2 дня без единого входа со сроком: в общую базу не уходит время дальше часов базы', written <= T0 + 10 * 60_000, written && new Date(written).toISOString());
+    // база не отвечает — в общую базу не пишем вовсе
+    const blind = new Map<string, string>();
+    const blindTime = createTrustedTime(makeDeps(makeClock(T0 + 2 * 24 * HOUR), { dialect: 'postgresql', dbNow: () => null, store: blind }).deps);
+    blindTime.sync(); await sleepTick(); await sleepTick();
+    check('без замера часов базы запись в общую базу не выполняется', blind.size === 0);
+  }
+  // Сброс без записи в журнал не выполняется
+  {
+    const clock = makeClock(T0);
+    const env = makeDeps(clock, { dialect: 'sqlite' });
+    const time = createTrustedTime(env.deps);
+    time.sync();
+    const routes: Array<{ handler: Function }> = [];
+    registerTimeAnchorRoutes({ post: (_p: string, ...h: Function[]) => routes.push({ handler: h[h.length - 1] }) } as any, time, () => ({ actionLog: { create: async () => { throw new Error('нет таблицы'); } } }));
+    let status = 200; let body: any;
+    await routes[0].handler({ authUser: { id: 'o' } }, { status(c: number) { status = c; return this; }, json: (b: any) => { body = b; } });
+    check('журнал не записался — 500 и якорь не сброшен', status === 500 && time.anchorMs() === T0 && /журнал/.test(body.error), { status, body });
   }
   check('часы PostgreSQL читаются как число', (await databaseClockMs({ $queryRawUnsafe: async () => [{ t: 1_800_000_000_000n }] }, 'postgresql')) === 1_800_000_000_000);
   check('у SQLite своих часов базы нет', (await databaseClockMs({ $queryRawUnsafe: async () => [{ t: 1 }] }, 'sqlite')) === null);

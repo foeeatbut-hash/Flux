@@ -6,6 +6,11 @@
  * клиента (400) и слишком большое тело (413) выглядели как поломка сервера, а
  * любая ошибка внешнего ключа — как «сессия устарела, войдите заново».
  */
+/** Клиент оборвал соединение (в том числе мы после 413): не сбой сервера, в журнал не пишется */
+export function isClientAbort(err: any): boolean {
+  return err?.type === 'request.aborted' || err?.code === 'ECONNRESET' || err?.message === 'request aborted';
+}
+
 export function describeApiError(err: any, opts: { databaseReady: boolean }): { status: number; message: string } {
   const rawMsg = String(err?.message || err || 'Internal server error');
   // Берем суть ошибки Prisma — последняя строка вместо простыни с код-фреймом

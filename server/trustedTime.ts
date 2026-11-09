@@ -7,7 +7,7 @@
  * отставшие от него больше чем на 6 часов, считаются переведёнными назад.
  *
  * Зачем отдельный модуль: правила якоря проверяются без поднятого сервера
- * (scripts/test-trusted-time.ts), а в server.ts им было тесно.
+ * (scripts/test-review-auth.ts), а в server.ts им было тесно.
  *
  * ЧЕГО НЕЛЬЗЯ ДЕЛАТЬ с якорем в общей базе. Часы клиента — не источник истины:
  * одна машина с часами «вперёд» раньше записывала свой якорь в общую базу, и у
@@ -30,6 +30,8 @@ const AHEAD_TOLERANCE_MS = 10 * 60_000;
 const PERSIST_EVERY_MS = 60_000;
 /** После полного отказа сети следующая попытка не раньше: закрытая сеть не ждёт таймаута на каждом входе */
 const NETWORK_RETRY_MS = 5 * 60_000;
+/** Насколько часы могут отставать от сетевого времени, прежде чем считаются переведёнными назад */
+const NET_BEHIND_MS = 10 * 60_000;
 const ANCHOR_KEY = 'time_anchor';
 
 export type Dialect = 'sqlite' | 'postgresql' | 'mysql';
@@ -42,6 +44,8 @@ export interface TrustedTimeDeps {
   /** Заголовок Date внешних HTTPS-серверов; null, если сети нет */
   networkTime: () => Promise<number | null>;
   now?: () => number;
+  /** Монотонные часы (мс): не зависят от перевода системных часов; нужны, чтобы помнить сетевое время */
+  mono?: () => number;
   /** Журнал сброса и отказов; по умолчанию молчит */
   log?: (message: string) => void;
 }
@@ -61,6 +65,7 @@ export async function databaseClockMs(prisma: any, dialect: Dialect): Promise<nu
 
 export function createTrustedTime(deps: TrustedTimeDeps) {
   const clock = deps.now || Date.now;
+  const mono = deps.mono || (() => performance.now());
   const log = deps.log || (() => {});
   let anchor = 0;
   let loadedFile = false;
@@ -68,6 +73,8 @@ export function createTrustedTime(deps: TrustedTimeDeps) {
   /** Время базы минус часы машины на момент последнего замера; null — замера нет */
   let skew: number | null = null;
   let networkFailedAt = 0;
+  /** Последнее сетевое время и момент (по монотонным часам), когда оно получено */
+  let netRef: { net: number; mono: number } | null = null;
 
   const readFile = (): number => {
     try { const v = parseInt(fs.readFileSync(deps.anchorFile, 'utf-8').trim(), 36); return Number.isFinite(v) ? v : 0; } catch { return 0; }
@@ -82,8 +89,21 @@ export function createTrustedTime(deps: TrustedTimeDeps) {
   /** Верхняя граница правдоподобного времени по часам базы; Infinity, если сверить не с чем */
   const ceiling = (): number => (skew === null ? Infinity : clock() + skew + AHEAD_TOLERANCE_MS);
 
-  async function persist(ms: number): Promise<void> {
+  async function persist(requested: number): Promise<void> {
+    let ms = requested;
+    const shared = deps.dialect() !== 'sqlite';
+    if (shared) {
+      // Часы базы замеряются перед каждой записью якоря. Нет замера — в общую
+      // базу не пишем вовсе (только локальный файл): иначе машина с часами
+      // «вперёд» травила бы общий якорь, пока не было первого входа со сроком
+      await measureSkew();
+      if (skew !== null) {
+        ms = Math.min(ms, ceiling());
+        if (anchor > ms) anchor = ms;
+      }
+    }
     try { fs.writeFileSync(deps.anchorFile, ms.toString(36), 'utf-8'); } catch (_) { /* домашняя папка только для чтения */ }
+    if (shared && skew === null) return;
     try { await deps.upsertSetting(ANCHOR_KEY, null, ms.toString(36)); } catch (_) { /* база недоступна: файл остался */ }
   }
 
@@ -104,8 +124,18 @@ export function createTrustedTime(deps: TrustedTimeDeps) {
     return anchor;
   }
 
-  /** Часы переведены назад: не хранимый флаг, а вывод из текущих часов — исправленные часы снимают его сами */
-  const tampered = (): boolean => anchor - clock() > BACK_TOLERANCE_MS;
+  /**
+   * Часы переведены назад: не хранимый флаг, а вывод из текущих часов —
+   * исправленные часы снимают его сами. Два признака: отставание от якоря больше
+   * 6 часов и отставание больше 10 минут от последнего сетевого времени (оно
+   * помнится на весь процесс, как раньше: откат на 1-5 часов якорем не виден).
+   * Сетевое время «движется» по монотонным часам, поэтому исправленные
+   * системные часы догоняют его и признак снимается.
+   */
+  const tampered = (): boolean => {
+    if (anchor - clock() > BACK_TOLERANCE_MS) return true;
+    return !!netRef && netRef.net + (mono() - netRef.mono) - clock() > NET_BEHIND_MS;
+  };
 
   async function measureSkew(): Promise<void> {
     const db = await databaseClockMs(deps.prisma(), deps.dialect());
@@ -135,7 +165,8 @@ export function createTrustedTime(deps: TrustedTimeDeps) {
       networkFailedAt = 0;
       source = 'network';
       // Сетевое время авторитетно: если часы отстают от него больше чем на 10 минут — переведены назад
-      if (netTime - clock() > 10 * 60_000) behindNetwork = true;
+      netRef = { net: netTime, mono: mono() };
+      if (netTime - clock() > NET_BEHIND_MS) behindNetwork = true;
       if (netTime > now) now = netTime;
       if (netTime > anchor && netTime <= ceiling()) {
         anchor = netTime;
@@ -148,7 +179,7 @@ export function createTrustedTime(deps: TrustedTimeDeps) {
 
   /** Сброс якоря владельцем: удаляет файл и запись в базе, дальше якорь строится заново от текущих часов */
   async function reset(): Promise<void> {
-    anchor = 0; loadedFile = true; lastPersist = 0; skew = null; networkFailedAt = 0;
+    anchor = 0; loadedFile = true; lastPersist = 0; skew = null; networkFailedAt = 0; netRef = null;
     try { fs.unlinkSync(deps.anchorFile); } catch (_) { /* файла могло не быть */ }
     await deps.prisma().appSetting.deleteMany({ where: { key: ANCHOR_KEY } });
     log('[Время] Якорь времени сброшен владельцем.');
@@ -162,11 +193,15 @@ export function createTrustedTime(deps: TrustedTimeDeps) {
 export function registerTimeAnchorRoutes(app: Express, time: ReturnType<typeof createTrustedTime>, getPrisma: () => any): void {
   app.post('/api/admin/time-anchor/reset', requireOwnerMiddleware, async (req: Request, res: Response) => {
     try {
-      await time.reset();
       const user = (req as any).authUser;
+      // Сначала журнал: сброс снимает защиту от перевода часов, и без следа в
+      // журнале его делать нельзя. Не записалось — отвечаем 500 и ничего не сбрасываем
       try {
         await getPrisma().actionLog.create({ data: { userId: String(user?.id || ''), userName: String(user?.name || 'Владелец'), what: 'Сброс якоря времени', target: 'Защита от перевода часов', route: '/api/admin/time-anchor/reset' } });
-      } catch (_) { /* журнала может не быть в старой базе: сброс всё равно выполнен */ }
+      } catch (error: any) {
+        return res.status(500).json({ error: 'Сброс не выполнен: не удалось записать его в журнал действий. ' + String(error?.message || error) });
+      }
+      await time.reset();
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: 'Не удалось сбросить якорь времени: ' + String(error?.message || error) });
