@@ -88,6 +88,24 @@ console.log('Подписанный выпуск несёт язык и плат
   const badControls = moduleBundle('1.0.0', { 'logic/main.py': 'x = 1\n', 'examples/controls.json': '{"version":1,"cases":[]}' }, { logic: 'logic/main.py', language: 'python' });
   ok('пустые контрольные примеры не проходят', !check(badControls, sign(badControls, { language: 'python' })).ok);
 
+  // Подмена любого файла пакета при прежней подписи: контрольные примеры, манифест (платформа, язык), логика
+  {
+    const files = unpackBundle(pyBundle);
+    const mutate = (path: string, text: string) => packBundle({ ...files, [path]: text });
+    const withControls = mutate('examples/controls.json', JSON.stringify({ version: 1, cases: [{ name: 'один', input: {}, expect: { calc: { out: { ok: false } }, state: {} } }] }));
+    ok('подмена controls.json при прежней подписи не запускается', !check(withControls, pySig).ok && /не совпадает/.test(check(withControls, pySig).why || ''));
+    const manifest = JSON.parse(new TextDecoder().decode(files['manifest.json']));
+    const winSigned = sign(moduleBundle('1.0.0', {}, { platform: 'windows' }), { language: 'typescript', platform: 'windows' });
+    ok('подмена manifest.platform (windows → any) при прежней подписи не запускается',
+      !check(moduleBundle('1.0.0', {}, { platform: 'any' }), winSigned, { hostPlatform: 'linux' }).ok);
+    const flipped = packBundle({ ...files, 'manifest.json': JSON.stringify({ ...manifest, platform: 'windows' }) });
+    ok('и в обратную сторону (any → windows)', !check(flipped, pySig).ok);
+    ok('подмена manifest.language не проходит', !check(packBundle({ ...files, 'manifest.json': JSON.stringify({ ...manifest, language: undefined, logic: 'logic/main.ts' }) }), pySig).ok);
+    // Подпись с верными данными, но пакет собран с другой платформой в манифесте: расхождение подписи и манифеста
+    const mismatched = moduleBundle('1.0.0', {}, { platform: 'windows' });
+    ok('подпись платформы any при манифесте windows — отказ', (check(mismatched, sign(mismatched, { language: 'typescript', platform: 'any' })).why || '').includes('Язык или платформа'));
+  }
+
   // Платформа
   const winBundle = moduleBundle('1.0.0', {}, { platform: 'windows' });
   const winSig = sign(winBundle, { language: 'typescript', platform: 'windows' });

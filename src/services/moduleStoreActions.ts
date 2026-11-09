@@ -11,6 +11,7 @@ import { permissionsDigest, addedPermissions, unmetRequirements, updateAvailable
 import { compareVersions } from '../../shared/versionCompare';
 import { useModuleStore } from '../store/moduleStoreState';
 import { useStore } from '../store/store';
+import { retainModuleCompute } from './moduleComputeHost';
 import { hasLocalHost, local, moduleStoreApi as api, type LocalState } from './moduleStoreService';
 
 export const storeEnv = (): StoreEnv => ({
@@ -25,6 +26,7 @@ const isNetwork = (e: any) => typeof e?.status !== 'number';
 async function reloadLocal(): Promise<LocalState | null> {
   const next = await local<LocalState>('modules:state').catch(() => null);
   state().setLocal(next);
+  if (next?.cached) retainModuleCompute(next.cached);
   return next;
 }
 

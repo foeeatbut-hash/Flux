@@ -70,7 +70,7 @@ async function main() {
     '    real = [c for c in ().__class__.__base__.__subclasses__() if c.__name__ == "catch_warnings"][0]()._module.__builtins__["__import__"]',
     '    js = real("js")',
     '    seen = {}',
-    '    for name in ("document", "localStorage", "indexedDB", "electron", "require", "process"):',
+    '    for name in ("document", "localStorage", "indexedDB", "electron", "require", "process", "Worker", "SharedWorker"):',
     '        seen[name] = str(getattr(js, name, None))',
     '    x = js.XMLHttpRequest.new()',
     '    try:',
@@ -222,6 +222,7 @@ async function main() {
     }, { input, target: `${url}/must-not-reach` });
     // Побег удаётся (в одном интерпретаторе Python не изолировать), но границы песочницы держат
     check(`Python после побега из фильтра импортов: сети нет (${JSON.stringify(spy).slice(0, 160)})`, leaked === 0 && (spy.xhr === 'blocked' || spy.error));
+    check('и запустить свои Worker/SharedWorker из Python нельзя (js.Worker убран прологом)', spy.Worker === 'None' && spy.SharedWorker === 'None');
     check('и cookie/localStorage/IPC Flux ему недоступны', !JSON.stringify(spy).includes('flux_parent') && spy.electron !== 'object' && spy.cookie !== 'flux_parent_cookie=private');
 
     // Окно подпрограммы: первый запуск с контрольными примерами, затем расчёт в iframe

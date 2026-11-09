@@ -10,7 +10,12 @@ import type { ModuleManifest } from '../../modules/contract';
 import { moduleCompute } from './moduleComputeHost';
 import { bridge } from './moduleReleaseService';
 
-export type ControlsGate = 'ok' | 'failed';
+export type ControlsGate = 'ok' | 'failed' | 'retry';
+
+/** «Проверить снова»: главный процесс забывает итог, затем проверка идёт заново */
+export async function resetControls(manifest: ModuleManifest): Promise<void> {
+  await bridge()?.invoke('modules:controls-reset', { moduleId: manifest.id }).catch(() => null);
+}
 
 
 export async function ensureControls(manifest: ModuleManifest): Promise<ControlsGate> {
@@ -22,8 +27,11 @@ export async function ensureControls(manifest: ModuleManifest): Promise<Controls
     if (known.status === 'passed') return 'ok';
     if (known.status === 'failed') return 'failed';
   }
-  let ok = false;
-  try { ok = (await moduleCompute().controls({ moduleId: manifest.id, version: manifest.version, language })).ok; } catch { ok = false; }
-  if (known?.ok) await ipc!.invoke('modules:controls-result', { moduleId: manifest.id, version: manifest.version, ok }).catch(() => null);
-  return ok ? 'ok' : 'failed';
+  let outcome: 'passed' | 'mismatch' | 'transient' = 'transient';
+  try {
+    const report = await moduleCompute().controls({ moduleId: manifest.id, version: manifest.version, language });
+    outcome = report.ok ? 'passed' : report.mismatch ? 'mismatch' : 'transient';
+  } catch { outcome = 'transient'; }
+  if (known?.ok) await ipc!.invoke('modules:controls-result', { moduleId: manifest.id, version: manifest.version, outcome }).catch(() => null);
+  return outcome === 'passed' ? 'ok' : outcome === 'mismatch' ? 'failed' : 'retry';
 }

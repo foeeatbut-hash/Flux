@@ -152,12 +152,26 @@ export class ModuleCompute {
     if (typeof parsed === 'string') throw new ComputeError('CONTROLS', parsed);
     // Сбои внутри набора — расхождение примера, а не отдельное событие сбоя: событие одно, «контрольные не сошлись»
     const report = await runControls(parsed, input => this.compute(target, input, 'active', {}, false));
-    if (!report.ok) this.deps.onFailure(target.moduleId, target.version, 'controls');
+    // Событие — только за расхождение результата; разовая нехватка времени или памяти на слабом ПК — не сбой выпуска
+    if (report.mismatch) this.deps.onFailure(target.moduleId, target.version, 'controls');
     return report;
   }
 
-  /** Выпуски, которых больше нет в кэше проверенных, не должны жить и в кэше компиляции */
-  keepOnly(fingerprints: string[]) { this.deps.wasm.keepOnly(fingerprints); }
+  /**
+   * Оставить только выпуски (`модуль@версия`), которые ещё лежат в кэше проверенных: источники и
+   * скомпилированные модули остальных — удалённых, отозванных, вытесненных — не живут дальше.
+   */
+  async retain(live: ReadonlySet<string>) {
+    const kept: Promise<Source>[] = [];
+    for (const [key, source] of [...this.sources]) {
+      if (live.has(key.slice(0, key.lastIndexOf(':')))) kept.push(source); else this.sources.delete(key);
+    }
+    const resolved = await Promise.allSettled(kept);
+    this.deps.wasm.keepOnly(resolved.flatMap(r => r.status === 'fulfilled' ? [r.value.fingerprint] : []));
+  }
+
+  /** Подпрограмму закрыли: её ожидающие расчёты снимаются с очереди, идущие доходят до предела времени */
+  cancel(moduleId: string) { this.deps.scheduler.cancelQueued(moduleId); }
 
   /** Закрытие окна или выход: останавливает среды и отменяет ожидающих */
   dispose() {

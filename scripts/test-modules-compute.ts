@@ -89,9 +89,41 @@ async function main() {
     const bad = setup({ wasm: async () => '{"state":{},"calc":{"out":{"x":2}}}' });
     const rb = await bad.c.controls(target);
     ok('не сошлись — отчёт и ровно одно событие «controls»', !rb.ok && JSON.stringify(bad.failures) === '["m@1.0.0:controls"]');
+    const slow = setup({ wasm: async () => { throw new ComputeError('TIMEOUT'); } });
+    const rs = await slow.c.controls(target);
+    ok('ошибка расчёта в наборе — не расхождение: событие «controls» не пишется, итог «повторить»', !rs.ok && !rs.mismatch && slow.failures.length === 0);
     const broken = setup({ controls: '{"version":1,"cases":[]}' });
     ok('повреждённый набор — отказ CONTROLS', await code(broken.c.controls(target)) === 'CONTROLS');
   }
+  console.log('Устаревшие выпуски и закрытая подпрограмма');
+  {
+    const kept: string[][] = [];
+    let fetches = 0, release!: () => void;
+    const hold = new Promise<void>(r => { release = r; });
+    const t = setup({ wasm: () => hold.then(() => good) });
+    const deps = (t.c as any).deps;
+    deps.fetchFile = async () => { fetches++; return enc('x'); };
+    deps.sha256 = async (b: Uint8Array) => `fp-${fetches}`;
+    deps.wasm.keepOnly = (f: string[]) => kept.push(f);
+    const other = { moduleId: 'o', version: '2.0.0', language: 'wasm' as const };
+    const first = t.c.compute(target, { v: 1 }, 'active'), second = t.c.compute(other, { v: 1 }, 'active');
+    await new Promise(r => setTimeout(r, 5));
+    release(); await Promise.all([first, second]);
+    await t.c.retain(new Set(['m@1.0.0']));
+    ok('в кэше компиляции остаётся только живой выпуск', kept.length === 1 && kept[0].length === 1);
+    await t.c.compute(other, { v: 1 }, 'active');
+    ok('источник ушедшего выпуска забыт: файл читается заново', fetches === 3);
+    // Закрытая подпрограмма не оставляет расчёты в очереди
+    const busy = setup({ wasm: () => new Promise<string>(() => {}) });
+    (busy.c as any).deps.scheduler = new ComputeScheduler({ slots: 1 });
+    const running = busy.c.compute(target, { v: 1 }, 'active').catch(() => '');
+    const queued = code(busy.c.compute({ ...target, moduleId: 'closing' }, { v: 1 }, 'active'));
+    await new Promise(r => setTimeout(r, 5));
+    busy.c.cancel('closing');
+    ok('ожидающий расчёт закрытой подпрограммы снят с очереди (DENIED)', await Promise.race([queued, new Promise(r => setTimeout(() => r('висит'), 100))]) === 'DENIED');
+    void running;
+  }
+
   console.log('Закрытие окна');
   {
     const t = setup();

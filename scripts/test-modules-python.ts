@@ -80,6 +80,25 @@ async function main() {
     ok('без compute подпрограмма не загружается', noCompute.includes('compute'));
   }
 
+  console.log('Подпрограммы не влияют друг на друга через стандартную библиотеку');
+  {
+    const patch = 'import math\nmath.sqrt = lambda x: -1.0\nimport json\njson.dumps = None\ndef compute(i):\n    return {"state": {}, "calc": {"out": {"v": math.sqrt(4.0)}}}\n';
+    const victim = 'import math\nimport json\ndef compute(i):\n    return {"state": {}, "calc": {"out": {"v": math.sqrt(4.0), "d": json.dumps is not None}}}\n';
+    ok('первая подпрограмма видит свою подмену', parseComputeOutput(await env.run('patch@1', patch, input())).calc.out.v === -1);
+    const v = parseComputeOutput(await env.run('victim@1', victim, input())).calc.out;
+    ok('подмена math.sqrt и json.dumps другой подпрограмме не видна', v.v === 2 && v.d === true);
+    ok('и самой первой в следующем расчёте тоже', parseComputeOutput(await env.run('patch@1', patch, input())).calc.out.v === -1 && parseComputeOutput(await env.run('victim@1', victim, input())).calc.out.v === 2);
+    const probe = async (expr: string) => {
+      const source = `import random, statistics, json, re, collections, typing, dataclasses, contextlib\ndef compute(i):\n    try:\n        r = repr(${expr})\n    except Exception as e:\n        r = type(e).__name__\n    return {"state": {}, "calc": {"out": {"r": r}}}\n`;
+      return parseComputeOutput(await env.run(`probe-${expr}`, source, input())).calc.out.r;
+    };
+    for (const expr of ['random._os', 'random._os.sys.modules["time"]', 'statistics.sys', 'statistics._random', 'json.codecs', 'json.encoder', 're.enum', 'collections._sys',
+      'typing.sys', 'dataclasses.inspect', 'contextlib.os']) {
+      ok(`«${expr}» не достижимо`, await probe(expr) === 'AttributeError');
+    }
+    ok('доступны обычные вещи: json.dumps, re.sub, statistics.stdev', await probe('(json.dumps([1]), re.sub("a", "b", "aa"), statistics.stdev([1.0, 2.0, 3.0]))') === "('[1]', 'bb', 1.0)");
+  }
+
   console.log('Случайность только с зерном');
   {
     const source = 'import random\ndef compute(i):\n    return {"state": {}, "calc": {"out": {"r": random.random(), "k": random.randint(1, 1000000)}}}\n';
@@ -87,6 +106,8 @@ async function main() {
     const a = await run(5), b = await run(5), c = await run(6), d = await run(), e = await run();
     ok('то же зерно — тот же результат', JSON.stringify(a) === JSON.stringify(b));
     ok('другое зерно — другой', JSON.stringify(a) !== JSON.stringify(c));
+    const r = a.r as number, k = a.k as number;
+    ok('значения в допустимых границах', r >= 0 && r < 1 && k >= 1 && k <= 1000000);
     ok('без зерна результат всё равно повторяется', JSON.stringify(d) === JSON.stringify(e));
   }
 

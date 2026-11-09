@@ -1,5 +1,6 @@
 import type { ModuleOutput } from '../contract';
 import { checkedOutput } from './output';
+import { WORKER_PROLOGUE } from './prologue';
 
 export const MODULE_IDLE_PING_MS = 1000;
 export const MODULE_IDLE_TIMEOUT_MS = 3000;
@@ -45,7 +46,7 @@ export function createModuleWorker(source: string, options: WorkerOptions) {
     }, MODULE_IDLE_PING_MS);
   }
   function spawnWorker() {
-    const blob = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
+    const blob = URL.createObjectURL(new Blob([WORKER_PROLOGUE, source], { type: 'text/javascript' }));
     const owner = new Worker(blob);
     URL.revokeObjectURL(blob);
     worker = owner;

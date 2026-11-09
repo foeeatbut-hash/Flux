@@ -16,8 +16,13 @@ import { LIMITS } from './types';
 export interface Tolerance { abs?: number; rel?: number }
 export interface ControlCase { name: string; input: unknown; expect: unknown; tolerance?: Tolerance }
 export interface Controls { version: 1; cases: ControlCase[] }
-export interface ControlFailure { name: string; path: string; expected: unknown; actual: unknown }
-export interface ControlsReport { ok: boolean; passed: number; failures: ControlFailure[] }
+export interface ControlFailure { name: string; path: string; expected: unknown; actual: unknown; /** Код ошибки расчёта, если пример не дошёл до сравнения */ error?: string }
+/**
+ * `mismatch` — хотя бы один пример дал ДРУГОЙ результат: это расхождение выпуска с этим компьютером.
+ * Если все провалы — ошибки расчёта (время, память, сбой), это может быть разовая нехватка ресурсов
+ * слабого ПК, и проверку стоит повторить.
+ */
+export interface ControlsReport { ok: boolean; passed: number; failures: ControlFailure[]; mismatch: boolean }
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const tol = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
@@ -79,12 +84,12 @@ export async function runControls(controls: Controls, run: (input: unknown) => P
   for (const c of controls.cases) {
     let actual: unknown;
     try { actual = await run(c.input); } catch (e: any) {
-      failures.push({ name: c.name, path: '$', expected: c.expect, actual: `ошибка ${e?.code || e?.message || 'расчёта'}` });
+      failures.push({ name: c.name, path: '$', expected: c.expect, actual: `ошибка ${e?.code || e?.message || 'расчёта'}`, error: String(e?.code || 'CRASH') });
       continue;
     }
     const diffs = compareWithTolerance(c.expect, actual, c.tolerance);
     if (diffs.length) failures.push(...diffs.slice(0, 3).map(d => ({ name: c.name, ...d })));
     else passed++;
   }
-  return { ok: failures.length === 0, passed, failures };
+  return { ok: failures.length === 0, passed, failures, mismatch: failures.some(f => !f.error) };
 }

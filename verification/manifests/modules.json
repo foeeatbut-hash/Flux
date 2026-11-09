@@ -77,7 +77,8 @@
         "src/services/moduleComputeHost.ts",
         "src/services/moduleControlsGate.ts",
         "src/workers/moduleWasm.worker.ts",
-        "electron/moduleControls.ts"
+        "electron/moduleControls.ts",
+        "modules/runtime/prologue.ts"
       ]
     }
   ],
@@ -312,6 +313,15 @@
       "path": "scripts/test-modules-compute-native.ts",
       "layer": "windows-native",
       "platform": "win32",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-controls",
+      "path": "scripts/test-modules-controls.ts",
+      "layer": "unit",
+      "platform": "any",
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 900000

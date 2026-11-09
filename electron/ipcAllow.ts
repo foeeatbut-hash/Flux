@@ -27,6 +27,7 @@ export const INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   // Итог контрольных примеров выпуска на этом компьютере (electron/moduleControls.ts)
   'modules:controls',
   'modules:controls-result',
+  'modules:controls-reset',
   'app:get-server-url',
   'app:get-database',
   'app:probe-database',

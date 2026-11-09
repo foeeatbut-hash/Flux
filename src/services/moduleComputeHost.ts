@@ -154,3 +154,10 @@ export function moduleCompute(): ModuleCompute {
     onFailure: (moduleId, version, kind) => recordModuleCrash(moduleId, version, kind),
   });
 }
+
+/** Закрыта подпрограмма: очередь не хранит её расчёты. Среду не создаёт, если она ещё не нужна */
+export function cancelModuleCompute(moduleId: string) { shared?.cancel(moduleId); }
+/** Список выпусков в кэше проверенных изменился: убрать источники и скомпилированные модули ушедших */
+export function retainModuleCompute(cached: ReadonlyArray<{ moduleId: string; version: string }>) {
+  void shared?.retain(new Set(cached.map(item => `${item.moduleId}@${item.version}`)));
+}
