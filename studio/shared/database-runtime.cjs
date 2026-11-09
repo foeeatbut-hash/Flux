@@ -6,7 +6,7 @@ const os = require('node:os');
 const http = require('node:http');
 const net = require('node:net');
 const { spawn, execFile } = require('node:child_process');
-const fluxVersion = require('../../../package.json').version;
+const fluxVersion = require('../../package.json').version;
 
 class RuntimeError extends Error {}
 const failure = message => new RuntimeError(message);

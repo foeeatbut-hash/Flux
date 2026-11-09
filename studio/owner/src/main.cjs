@@ -2,7 +2,7 @@
 const {app,BrowserWindow,ipcMain,dialog,clipboard,shell}=require('electron');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto');
 const setupApi=require('./setup.cjs');
-const {startDatabaseRuntime}=require('./database-runtime.cjs');
+const {startDatabaseRuntime}=require('../../shared/database-runtime.cjs');
 const version=require('../package.json').version;
 const vaultApi=require('./vault.cjs'),signing=require('./signing.cjs'),net=require('./network.cjs');
 const {applyPublicConfig}=require('./public-config.cjs');

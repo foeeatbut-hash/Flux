@@ -17,8 +17,8 @@ async function verifyAtomicWriteDoesNotFollowSymlinks() {
     await fs.writeFile(outside, 'sentinel: synthetic data\n', { flag: 'wx' });
     await fs.symlink(outside, requested);
 
-    const requireFromOwner = createRequire(path.join(process.cwd(), 'tools/flux-owner/package.json'));
-    const { atomicWrite } = requireFromOwner('./src/vault.cjs') as { atomicWrite: (file: string, text: string) => Promise<void> };
+    const requireFromOwner = createRequire(path.join(process.cwd(), 'studio/owner/src/vault.cjs'));
+    const { atomicWrite } = requireFromOwner('./vault.cjs') as { atomicWrite: (file: string, text: string) => Promise<void> };
     await atomicWrite(requested, 'synthetic replacement\n');
 
     assert.equal(await fs.readFile(outside, 'utf8'), 'sentinel: synthetic data\n',

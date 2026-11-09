@@ -70,14 +70,14 @@
       "label": "Flux-Owner",
       "routes": [],
       "sources": [
-        "tools/flux-owner/src/main.cjs",
-        "tools/flux-owner/src/vault.cjs",
-        "tools/flux-owner/src/database-runtime.cjs",
-        "tools/flux-owner/src/public-config.cjs",
-        "tools/flux-owner/src/signing.cjs",
-        "tools/flux-owner/src/network.cjs",
-        "tools/flux-owner/src/setup.cjs",
-        "tools/flux-owner/ui/app.js"
+        "studio/owner/src/main.cjs",
+        "studio/owner/src/vault.cjs",
+        "studio/shared/database-runtime.cjs",
+        "studio/owner/src/public-config.cjs",
+        "studio/owner/src/signing.cjs",
+        "studio/owner/src/network.cjs",
+        "studio/owner/src/setup.cjs",
+        "studio/owner/ui/app.js"
       ]
     }
   ],
@@ -143,7 +143,7 @@
     },
     {
       "id": "identity-owner-isolated",
-      "path": "tools/flux-owner/scripts/test.cjs",
+      "path": "studio/owner/scripts/test.cjs",
       "layer": "unit",
       "platform": "any",
       "resources": [
@@ -154,7 +154,7 @@
     },
     {
       "id": "identity-owner-runtime-unit",
-      "path": "tools/flux-owner/scripts/test-database-runtime.cjs",
+      "path": "studio/shared/test-database-runtime.cjs",
       "layer": "unit",
       "platform": "any",
       "resources": [
@@ -1393,8 +1393,8 @@
       "program": "owner",
       "label": "Создать, разблокировать и закрыть хранилище",
       "sources": [
-        "tools/flux-owner/src/main.cjs",
-        "tools/flux-owner/src/vault.cjs"
+        "studio/owner/src/main.cjs",
+        "studio/owner/src/vault.cjs"
       ],
       "triggers": [
         "Создать основное и запасное хранилище",
@@ -1430,8 +1430,8 @@
       "program": "owner",
       "label": "Работать с зашифрованной резервной копией",
       "sources": [
-        "tools/flux-owner/src/main.cjs",
-        "tools/flux-owner/src/vault.cjs"
+        "studio/owner/src/main.cjs",
+        "studio/owner/src/vault.cjs"
       ],
       "triggers": [
         "Открыть запасной ключ",
@@ -1468,8 +1468,8 @@
       "program": "owner",
       "label": "Экспортировать или закрепить публичные ключи",
       "sources": [
-        "tools/flux-owner/src/main.cjs",
-        "tools/flux-owner/src/public-config.cjs"
+        "studio/owner/src/main.cjs",
+        "studio/owner/src/public-config.cjs"
       ],
       "triggers": [
         "Открытые ключи для сборки Flux",
@@ -1506,8 +1506,8 @@
       "program": "owner",
       "label": "Подключиться к общей БД через локальный runtime и отключиться",
       "sources": [
-        "tools/flux-owner/src/main.cjs",
-        "tools/flux-owner/src/database-runtime.cjs"
+        "studio/owner/src/main.cjs",
+        "studio/shared/database-runtime.cjs"
       ],
       "triggers": [
         "адрес общей MariaDB/MySQL",
@@ -1544,9 +1544,9 @@
       "program": "owner",
       "label": "Подписать лицензию и опубликовать её через общую БД",
       "sources": [
-        "tools/flux-owner/src/main.cjs",
-        "tools/flux-owner/src/signing.cjs",
-        "tools/flux-owner/src/network.cjs"
+        "studio/owner/src/main.cjs",
+        "studio/owner/src/signing.cjs",
+        "studio/owner/src/network.cjs"
       ],
       "triggers": [
         "выбор сотрудников/срока",
@@ -1582,9 +1582,9 @@
       "program": "owner",
       "label": "Подписать обновление, загрузить и отозвать через общую БД",
       "sources": [
-        "tools/flux-owner/src/main.cjs",
-        "tools/flux-owner/src/signing.cjs",
-        "tools/flux-owner/src/database-runtime.cjs"
+        "studio/owner/src/main.cjs",
+        "studio/owner/src/signing.cjs",
+        "studio/shared/database-runtime.cjs"
       ],
       "triggers": [
         "выбор EXE",
@@ -1622,8 +1622,8 @@
       "program": "owner",
       "label": "Восстановить доступ после lock, ошибки и временного резервного входа",
       "sources": [
-        "tools/flux-owner/src/main.cjs",
-        "tools/flux-owner/src/vault.cjs"
+        "studio/owner/src/main.cjs",
+        "studio/owner/src/vault.cjs"
       ],
       "triggers": [
         "Заблокировать",
@@ -1749,7 +1749,7 @@
       "to": "settings",
       "status": "implemented",
       "sources": [
-        "tools/flux-owner/src/main.cjs",
+        "studio/owner/src/main.cjs",
         "src/components/settings/LicenseSection.tsx"
       ],
       "expected": [
@@ -1772,7 +1772,7 @@
       "to": "settings",
       "status": "implemented",
       "sources": [
-        "tools/flux-owner/src/main.cjs",
+        "studio/owner/src/main.cjs",
         "src/screens/SettingsScreen.tsx"
       ],
       "expected": [

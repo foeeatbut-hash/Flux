@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
 const { EventEmitter } = require('node:events');
-const { startDatabaseRuntime, parseDatabaseUri } = require('../src/database-runtime.cjs');
+const { startDatabaseRuntime, parseDatabaseUri } = require('./database-runtime.cjs');
 
 let passed = 0, failed = 0;
 async function test(name, fn) {
