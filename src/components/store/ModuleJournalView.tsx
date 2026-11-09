@@ -48,12 +48,12 @@ export default function ModuleJournalView({ moduleNames = {} }: { moduleNames?: 
     <div className="fx-hint mb-2">{role === 'admin' ? 'Записи всех компьютеров за последние 30 дней. Содержимого вызовов и данных проектов в журнале нет.'
       : 'Только ваши подпрограммы, без имён людей и проектов. Записи хранятся 30 дней.'}</div>
     <div className="mb-3 flex flex-wrap items-end gap-2">
-      <Input placeholder="Подпрограмма (идентификатор)" aria-label="Подпрограмма" value={filters.moduleId} onChange={e => set('moduleId')(e.target.value.trim())} />
+      <Input placeholder="Подпрограмма (идентификатор)" aria-label="Подпрограмма" style={{ width: 230 }} value={filters.moduleId} onChange={e => set('moduleId')(e.target.value.trim())} />
       <Input placeholder="Версия" aria-label="Версия" value={filters.version} onChange={e => set('version')(e.target.value.trim())} style={{ width: 100 }} />
-      {role === 'admin' && <Input placeholder="Пользователь (идентификатор)" aria-label="Пользователь" value={filters.userId} onChange={e => set('userId')(e.target.value.trim())} />}
-      <Select value={filters.level} onChange={set('level')} aria-label="Уровень" options={[{ value: '', label: 'Все уровни' }, { value: 'info', label: 'info' }, { value: 'warn', label: 'warn' }, { value: 'error', label: 'error' }]} />
-      <Select value={filters.category} onChange={set('category')} aria-label="Вид записей" options={[{ value: '', label: 'Все виды' }, ...JOURNAL_CATEGORIES.map(c => ({ value: c, label: CATEGORY_NAMES[c] }))]} />
-      <Select value={filters.days} onChange={set('days')} aria-label="Период" options={PERIODS} />
+      {role === 'admin' && <Input placeholder="Пользователь (идентификатор)" aria-label="Пользователь" style={{ width: 230 }} value={filters.userId} onChange={e => set('userId')(e.target.value.trim())} />}
+      <Select value={filters.level} onChange={set('level')} aria-label="Уровень" className="w-40" options={[{ value: '', label: 'Все уровни' }, { value: 'info', label: 'info' }, { value: 'warn', label: 'warn' }, { value: 'error', label: 'error' }]} />
+      <Select value={filters.category} onChange={set('category')} aria-label="Вид записей" className="w-40" options={[{ value: '', label: 'Все виды' }, ...JOURNAL_CATEGORIES.map(c => ({ value: c, label: CATEGORY_NAMES[c] }))]} />
+      <Select value={filters.days} onChange={set('days')} aria-label="Период" className="w-40" options={PERIODS} />
       <Btn size="sm" onClick={() => void exportCsv()} data-testid="journal-export">Выгрузить CSV</Btn>
     </div>
     {error && <div className="fx-error mb-2">{error}</div>}

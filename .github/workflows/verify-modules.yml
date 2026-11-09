@@ -24,6 +24,11 @@ on:
       - scripts/test-modules-*.ts
       - scripts/fixtures/modules-*.ts*
       - scripts/fixtures/moduleLanguages.ts
+      - scripts/fixtures/fakeCom.ts
+      - scripts/fixtures/modules-conn-*
+      - src/components/store/**
+      - src/screens/StoreScreen.tsx
+      - server/feedback/cleanup.ts
       - scripts/fixtures/wasmBuilder.ts
       - src/workers/moduleWasm.worker.ts
       - src/services/moduleCompute*.ts
@@ -59,14 +64,14 @@ jobs:
         run: |
           node_modules/.bin/tsc --noEmit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($suite in @('modules-contract', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'modules-languages', 'modules-wasm', 'modules-python', 'modules-parity', 'modules-scheduler', 'modules-compute', 'modules-controls', 'architecture')) {
+          foreach ($suite in @('modules-contract', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'modules-languages', 'modules-wasm', 'modules-python', 'modules-parity', 'modules-scheduler', 'modules-compute', 'modules-controls', 'modules-connections', 'architecture')) {
             node --import tsx "scripts/test-$suite.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
       - name: Подписи, публикация, каналы и обращения на SQLite
         shell: pwsh
         run: |
-          foreach ($suite in @('modules-trust', 'modules-publishing', 'modules-channels', 'modules-store', 'modules-promotion', 'modules-feedback')) {
+          foreach ($suite in @('modules-trust', 'modules-publishing', 'modules-channels', 'modules-store', 'modules-promotion', 'modules-feedback', 'modules-journal')) {
             node --import tsx "scripts/test-$suite.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
@@ -82,6 +87,11 @@ jobs:
         shell: pwsh
         run: |
           node --import tsx scripts/test-modules-compute-native.ts 2>&1 | Tee-Object artifacts/modules-compute-native.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Подключения к внешним программам в Electron на Windows (HTTP, настоящий COM)
+        shell: pwsh
+        run: |
+          node --import tsx scripts/test-modules-connections-native.ts 2>&1 | Tee-Object artifacts/modules-connections-native.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Пуск и карточки в полном Flux, обе темы
         shell: pwsh

@@ -149,7 +149,15 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       return;
     }
     if (validMessage('compute', message)) { void runCompute(message); return; }
-    if (validMessage('connect', message)) { void runConnect(message); return; }
+    if (message.type === 'connect' && typeof message.id === 'string' && message.id.length > 0 && message.id.length <= 160) {
+      if (validMessage('connect', message)) void runConnect(message);
+      else {
+        // Чужая форма вызова (адрес внутри вызова, неизвестная операция) — явный отказ, а не молчание до таймаута
+        options.onFailure?.('connection');
+        post({ flux: 'module', v: 1, session: options.session, type: 'connect-error', id: message.id, code: 'DENIED' });
+      }
+      return;
+    }
     if (validMessage('log', message)) {
       // Частота и длина ограничены здесь, до журнала: подпрограмма не раздует его (5 в секунду)
       if (Date.now() - logAt >= 1000) { logAt = Date.now(); logs = 0; }

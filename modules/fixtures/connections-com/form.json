@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "title": "COM-объект Windows",
+      "fields": [
+        { "label": "Имя без расширения", "bind": "calc.out.base" },
+        { "label": "Собранный путь", "bind": "calc.out.joined" },
+        { "label": "Состояние", "bind": "state.problem" }
+      ]
+    }
+  ],
+  "tables": []
+}

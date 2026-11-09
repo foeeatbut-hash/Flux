@@ -27,8 +27,10 @@ export function journalEvent(input: JournalInput) {
   if (!bridge()) return;
   // Предел очереди: неисправная подпрограмма не раздувает память окна
   if (queue.length < 500) queue.push(input);
-  timer ||= setTimeout(() => { void flushQueue(); }, 1000);
+  timer ||= setTimeout(() => { void flushQueue(); }, 300);
 }
+// Окно закрывается или переходит на другой экран: накопленное уходит сразу, а не теряется вместе со страницей
+if (typeof window !== 'undefined') window.addEventListener('pagehide', () => { void flushQueue(); });
 
 let syncing: Promise<void> | null = null;
 /** Отправка накопленного на сервер; повтор безопасен — сервер принимает записи по уникальному номеру */
