@@ -44,7 +44,10 @@ async function main() {
   assert.equal(bounded, null);
   assert.equal(calls, 2, 'unreachable API stops after the bounded number of attempts');
 
-  console.log('5 startup authentication restore checks passed');
+  const garbage = await restoreStartupUser(async () => new Response('<html>502</html>', { status: 200 }), { timeoutMs: 250, retryDelaysMs: [0], wait: async () => {} });
+  assert.equal(garbage, null, 'ответ не в JSON даёт null, а не исключение');
+
+  console.log('6 startup authentication restore checks passed');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });

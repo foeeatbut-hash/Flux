@@ -51,7 +51,8 @@ const Database = require('better-sqlite3');
       appSetting: { findFirst: async () => ({ value: JSON.stringify({ enabled: true, keep: 1 }) }) },
       project: { findMany: async () => { if (failExport) throw new Error('сбой выгрузки'); return []; } },
       folder: { findMany: async () => [] },
-      fileNode: { findMany: async () => [] },
+      user: { findMany: async () => [] },
+      fileNode: { findMany: async () => [], findUnique: async () => null },
     };
     backups = initBackups({
       app: { get() {}, post() {} } as any, getPrisma: () => prisma,

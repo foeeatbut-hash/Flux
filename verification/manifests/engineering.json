@@ -394,6 +394,15 @@
       "timeoutMs": 900000
     },
     {
+      "id": "eng-tag-sequence",
+      "path": "scripts/test-tag-sequence.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 90000
+    },
+    {
       "id": "eng-engineering-regressions",
       "path": "scripts/test-verification-engineering.ts",
       "layer": "unit",

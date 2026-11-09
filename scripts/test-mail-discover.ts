@@ -13,7 +13,7 @@
  *
  * Запуск: npx tsx scripts/test-mail-discover.ts
  */
-import { imapCandidates, smtpCandidates, domainOf } from '../server/mail/discover';
+import { imapCandidates, smtpCandidates, domainOf, isForbiddenProbeAddress, probe } from '../server/mail/discover';
 
 let failed = 0;
 const check = (name: string, cond: boolean, got?: unknown) => {
@@ -64,8 +64,21 @@ console.log('Мусор не превращается в список');
   check('то же для отправки', smtpCandidates('').length === 0);
 }
 
+(async () => {
+console.log('Перебор не ходит на служебные адреса');
+{
+  check('127.0.0.1 запрещён', isForbiddenProbeAddress('127.0.0.1'));
+  check('::1 запрещён', isForbiddenProbeAddress('::1'));
+  check('169.254.169.254 запрещён', isForbiddenProbeAddress('169.254.169.254'));
+  check('::ffff:127.0.0.1 запрещён', isForbiddenProbeAddress('::ffff:127.0.0.1'));
+  check('частная сеть предприятия разрешена', !isForbiddenProbeAddress('10.1.2.3') && !isForbiddenProbeAddress('192.168.0.5'));
+  check('обычный адрес разрешён', !isForbiddenProbeAddress('93.184.216.34'));
+  check('probe на localhost не соединяется', (await probe({ host: 'localhost', port: 22, secure: false } as any, 1000)) === false);
+}
+
 if (failed) {
   console.error(`\nПровалено проверок: ${failed}`);
   process.exit(1);
 }
 console.log('\nВсе проверки поиска почтового сервера пройдены');
+})();

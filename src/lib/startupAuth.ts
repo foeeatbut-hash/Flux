@@ -41,7 +41,7 @@ export async function restoreStartupUser<TUser extends { id?: string }>(
   options: RestoreOptions = {},
 ): Promise<TUser | null> {
   const timeoutMs = options.timeoutMs ?? 2500;
-  const retryDelaysMs = options.retryDelaysMs ?? [200, 500];
+  const retryDelaysMs = options.retryDelaysMs ?? [300, 800, 2000];
   const pause = options.wait ?? wait;
 
   for (let attempt = 0; ; attempt++) {
@@ -57,7 +57,9 @@ export async function restoreStartupUser<TUser extends { id?: string }>(
     // 401/403 и остальные HTTP-ответы — решение сервера, а не сбой связи.
     // Их сразу оставляем существующему экрану входа; сохранённый токен не меняем.
     if (!response.ok) return null;
-    const data = await response.json();
-    return data.user?.id ? data.user : null;
+    // Тело не JSON (обрыв посреди ответа, страница прокси) — тоже «профиля нет», а не исключение
+    let data: any;
+    try { data = await response.json(); } catch { return null; }
+    return data?.user?.id ? data.user : null;
   }
 }

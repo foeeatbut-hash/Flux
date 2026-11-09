@@ -1,3 +1,4 @@
+import { setSecretDataDir } from './server/mail/secret.js';
 import { buildDatabaseClient } from './server/databaseClient.js';
 import 'express-async-errors';
 import { ensureUserProfileSchema } from './server/userProfileSchema.js';
@@ -191,6 +192,7 @@ function getVentAppDataPath(): string {
 }
 
 const ventAppDataPath = process.env.VENT_APP_DATA || getVentAppDataPath();
+setSecretDataDir(ventAppDataPath);
 const logFilePath = path.join(ventAppDataPath, 'backend-init.log');
 
 function logInit(message: string) {
@@ -386,11 +388,15 @@ function resolveLocalDbPath(config: AppConfig): string {
   return path.join(ventAppDataPath, 'database.sqlite');
 }
 
-function saveAppConfig(config: AppConfig) {
+function saveAppConfig(config: AppConfig, strict = false) {
   try {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+    // Через временный файл: обрыв записи не оставит наполовину записанный config.json
+    const tmp = `${CONFIG_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(config, null, 2), 'utf-8');
+    fs.renameSync(tmp, CONFIG_FILE);
   } catch (err: any) {
     logInit(`[AppConfig Error] Exception writing config.json: ${err.message}`);
+    if (strict) throw new Error(`Не удалось записать config.json: ${err.message}`);
   }
 }
 

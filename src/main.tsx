@@ -17,6 +17,22 @@ startDiagnostics();
 // самого, который убран из верхней панели. Здесь она не зависит от того, какой
 // интерфейс сейчас на экране и есть ли он вообще
 registerEmergencySave();
+// Одно место, где аргументы console превращаются в строку журнала. Длина
+// ограничена: JSON большого объекта (список файлов, ответ сервера) раньше
+// целиком попадал в журнал и раздувал его
+const LOG_LINE_LIMIT = 2000;
+function formatConsoleArgs(args: any[]): string {
+  const one = (arg: any) => {
+    if (arg instanceof Error) return `${arg.message}\n${arg.stack || ''}`;
+    if (typeof arg === 'object' && arg !== null) {
+      try { return JSON.stringify(arg); } catch (_) { return String(arg); }
+    }
+    return String(arg);
+  };
+  const text = args.map(one).join(' ');
+  return text.length > LOG_LINE_LIMIT ? `${text.slice(0, LOG_LINE_LIMIT)}… (обрезано, всего ${text.length} знаков)` : text;
+}
+
 const originalError = console.error;
 const originalWarn = console.warn;
 let isLogging = false;
@@ -26,20 +42,7 @@ console.error = (...args: any[]) => {
   if (isLogging) return;
   isLogging = true;
   try {
-    const formatConsoleArg = (arg: any) => {
-      if (arg instanceof Error) {
-        return `${arg.message}\n${arg.stack || ''}`;
-      }
-      if (typeof arg === 'object' && arg !== null) {
-        try {
-          return JSON.stringify(arg);
-        } catch (_) {
-          return String(arg);
-        }
-      }
-      return String(arg);
-    };
-    const message = args.map(formatConsoleArg).join(' ');
+    const message = formatConsoleArgs(args);
     if (!message.includes('[vite] failed to connect')) {
       useLogStore.getState().addLog('ERROR', 'Console', message);
     }
@@ -55,20 +58,7 @@ console.warn = (...args: any[]) => {
   if (isLogging) return;
   isLogging = true;
   try {
-    const formatConsoleArg = (arg: any) => {
-      if (arg instanceof Error) {
-        return `${arg.message}\n${arg.stack || ''}`;
-      }
-      if (typeof arg === 'object' && arg !== null) {
-        try {
-          return JSON.stringify(arg);
-        } catch (_) {
-          return String(arg);
-        }
-      }
-      return String(arg);
-    };
-    const message = args.map(formatConsoleArg).join(' ');
+    const message = formatConsoleArgs(args);
     if (!message.includes('[vite] failed to connect')) {
       useLogStore.getState().addLog('WARN', 'Console', message);
     }
@@ -205,7 +195,10 @@ async function mountAuthenticatedApp() {
     // Если даже монтирование упало — показываем текст напрямую, без React
     const rootEl = document.getElementById('root');
     if (rootEl) {
-      rootEl.innerHTML = `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;color:#e2e8f0;font-family:sans-serif;padding:24px"><div style="max-width:560px"><div style="font-size:18px;font-weight:700;color:#f87171;margin-bottom:10px">Не удалось запустить приложение</div><pre style="font-size:12px;color:#fca5a5;white-space:pre-wrap">${String(mountErr?.message || mountErr)}</pre></div></div>`;
+      // Текст ошибки вставляется как текст, а не как разметка
+      rootEl.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;color:#e2e8f0;font-family:sans-serif;padding:24px"><div style="max-width:560px"><div style="font-size:18px;font-weight:700;color:#f87171;margin-bottom:10px">Не удалось запустить приложение</div><pre id="mount-error" style="font-size:12px;color:#fca5a5;white-space:pre-wrap"></pre></div></div>';
+      const pre = rootEl.querySelector('#mount-error');
+      if (pre) pre.textContent = String(mountErr?.message || mountErr);
     }
     try {
       const win = window as any;

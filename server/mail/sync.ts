@@ -1,5 +1,5 @@
 import { getPrisma } from '../context.js';
-import { unseal } from './secret.js';
+import { unseal, keyProblem } from './secret.js';
 import * as imap from './imap.js';
 import { assignThreadKeys } from '../../src/lib/mailThread.js';
 
@@ -285,7 +285,7 @@ export async function syncAccount(accountId: string, opts: { deep?: boolean; onl
     const acc = await prisma.mailAccount.findUnique({ where: { id: accountId } });
     if (!acc) { report.error = 'Ящик не найден'; return report; }
     if (!unseal(acc.secret, acc.secretNonce)) {
-      report.error = 'Пароль ящика не читается — задайте его заново';
+      report.error = keyProblem() || 'Пароль ящика не читается — задайте его заново';
       return report;
     }
 

@@ -18,6 +18,7 @@
  */
 import net from 'net';
 import tls from 'tls';
+import dns from 'dns';
 
 export interface Candidate {
   host: string;
@@ -79,6 +80,19 @@ export function domainOf(email: string): string {
 }
 
 /**
+ * Адреса, на которые перебор по чужому имени ходить не должен: сам сервер
+ * (loopback), «неопределённый» адрес и link-local (там, например, служебные
+ * адреса облака). Частные сети предприятия разрешены: почта компании обычно
+ * именно там.
+ */
+export function isForbiddenProbeAddress(address: string): boolean {
+  const a = address.toLowerCase();
+  if (a === '::1' || a === '::' || a.startsWith('fe80:')) return true;
+  const v4 = a.startsWith('::ffff:') ? a.slice(7) : a;
+  return /^127\./.test(v4) || /^0\./.test(v4) || /^169\.254\./.test(v4);
+}
+
+/**
  * Отвечает ли узел на этом порту.
  *
  * Именно соединением: разрешение имени говорит только о том, что имя кому-то
@@ -88,24 +102,28 @@ export function domainOf(email: string): string {
 export function probe(c: Candidate, timeoutMs = 4000): Promise<boolean> {
   return new Promise((resolve) => {
     let done = false;
-    const finish = (ok: boolean, socket?: net.Socket) => {
+    let socket: net.Socket | undefined;
+    const finish = (ok: boolean) => {
       if (done) return;
       done = true;
       try { socket?.destroy(); } catch (_) { /* уже закрыт */ }
       resolve(ok);
     };
-    try {
-      const socket = c.secure
-        ? tls.connect({ host: c.host, port: c.port, servername: c.host, rejectUnauthorized: false })
-        : net.connect({ host: c.host, port: c.port });
-      const timer = setTimeout(() => finish(false, socket), timeoutMs);
-      const good = () => { clearTimeout(timer); finish(true, socket); };
-      socket.once(c.secure ? 'secureConnect' : 'connect', good);
-      socket.once('error', () => { clearTimeout(timer); finish(false, socket); });
-      socket.once('timeout', () => { clearTimeout(timer); finish(false, socket); });
-    } catch (_) {
-      finish(false);
-    }
+    // Срок общий: он покрывает и разрешение имени, и соединение
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    dns.promises.lookup(c.host).then(({ address }) => {
+      if (done) return;
+      if (isForbiddenProbeAddress(address)) { clearTimeout(timer); finish(false); return; }
+      try {
+        socket = c.secure
+          ? tls.connect({ host: address, port: c.port, servername: c.host, rejectUnauthorized: false })
+          : net.connect({ host: address, port: c.port });
+        socket.once(c.secure ? 'secureConnect' : 'connect', () => { clearTimeout(timer); finish(true); });
+        socket.once('error', () => { clearTimeout(timer); finish(false); });
+      } catch (_) {
+        clearTimeout(timer); finish(false);
+      }
+    }, () => { clearTimeout(timer); finish(false); });
   });
 }
 

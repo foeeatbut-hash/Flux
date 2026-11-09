@@ -1,3 +1,4 @@
+import { nextTagIdentifier, serializeByProject } from '../tagSequence.js';
 import { emitProjectEvent } from '../projectEvents.js';
 import { isPrivilegedUser } from '../accessPolicy.js';
 import type { Express, Request, Response } from 'express';
@@ -759,55 +760,27 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
   app.post('/api/tags/generate', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     const { projectId, prefix, suffix, metadata } = req.body || {};
-    // Тип входа проверяется: без prefix строка prefix.length падала с TypeError и ответом 500
     if (typeof projectId !== 'string' || !projectId) return res.status(400).json({ error: 'Не указан проект' });
     if (typeof prefix !== 'string' || !prefix) return res.status(400).json({ error: 'Не указан префикс тега' });
     if (suffix !== undefined && suffix !== null && typeof suffix !== 'string') return res.status(400).json({ error: 'Суффикс тега должен быть строкой' });
-  
-    // Find all tags in project that start with prefix
-    const existingTags = await prisma.tag.findMany({
-      where: {
-        projectId,
-        identifier: { startsWith: prefix }
-      },
-      select: { identifier: true }
-    });
-  
-    let maxSeq = 0;
-    let sequenceLength = 3; // default
-  
-    // Assume identifier is prefix + sequence + suffix
-    // Note: this is a simple naive parser, depending on complexity of sequence padding
-    for (const tag of existingTags) {
-      const ident = tag.identifier;
-      // Extract sequence part based on prefix and suffix
-      let seqStr = ident.slice(prefix.length);
-      if (suffix && seqStr.endsWith(suffix)) {
-        seqStr = seqStr.slice(0, -suffix.length);
-      }
-      // Учитываем только чисто числовые последовательности: parseInt("001_V2") вернул бы 1,
-      // а длина 6 испортила бы автоопределение паддинга
-      if (!/^\d+$/.test(seqStr)) continue;
-      const seqNum = parseInt(seqStr, 10);
-      if (!isNaN(seqNum)) {
-        maxSeq = Math.max(maxSeq, seqNum);
-        if (seqStr.length > sequenceLength) sequenceLength = seqStr.length; // auto detect padding if necessary
-      }
-    }
-  
-    const nextSeq = maxSeq + 1;
-    const paddedSeq = nextSeq.toString().padStart(sequenceLength, '0');
-  
-    const finalIdentifier = `${prefix}${paddedSeq}${suffix || ''}`;
-  
-    const newTag = await prisma.tag.create({
-      data: {
-        id: await nextProjectEntityId(prisma, projectId, 'TAG'),
-        projectId,
-        identifier: finalIdentifier,
-        metadata: metadata ? JSON.stringify(metadata) : null
-      },
-      include: { equipment: true } // we just keep the include to match existing response
+    if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
+
+    // Два одновременных запроса получали один номер: считаем и пишем по очереди в рамках проекта
+    const newTag = await serializeByProject(projectId, async () => {
+      const existingTags = await prisma.tag.findMany({
+        where: { projectId, identifier: { startsWith: prefix } },
+        select: { identifier: true },
+      });
+      const finalIdentifier = nextTagIdentifier(existingTags.map((t: any) => t.identifier), prefix, suffix || '');
+      return prisma.tag.create({
+        data: {
+          id: await nextProjectEntityId(prisma, projectId, 'TAG'),
+          projectId,
+          identifier: finalIdentifier,
+          metadata: metadata ? JSON.stringify(metadata) : null
+        },
+        include: { equipment: true } // we just keep the include to match existing response
+      });
     });
     await recordTagCreated(prisma, tagChangeContext(req, projectId, TAG_SOURCE.tags), newTag);
     emitEntityChanged('tag', newTag.id, req);

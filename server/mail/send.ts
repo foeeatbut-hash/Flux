@@ -3,7 +3,7 @@ import path from 'path';
 import nodemailer from 'nodemailer';
 import MailComposer from 'nodemailer/lib/mail-composer';
 import { getPrisma } from '../context.js';
-import { unseal } from './secret.js';
+import { unseal, keyProblem } from './secret.js';
 import * as imap from './imap.js';
 import { credsOf } from './sync.js';
 
@@ -187,7 +187,7 @@ export async function sendMail(accountId: string, input: SendInput, sigDir: stri
   if (!acc) return { ok: false, error: 'Ящик не найден', messageId: '', appended: false, rejected: [] };
 
   const password = unseal(acc.secret, acc.secretNonce);
-  if (!password) return { ok: false, error: 'Пароль ящика не читается — задайте его заново', messageId: '', appended: false, rejected: [] };
+  if (!password) return { ok: false, error: keyProblem() || 'Пароль ящика не читается — задайте его заново', messageId: '', appended: false, rejected: [] };
 
   const to = splitAddrs(input.to);
   if (!to.length) return { ok: false, error: 'Укажите хотя бы одного получателя', messageId: '', appended: false, rejected: [] };

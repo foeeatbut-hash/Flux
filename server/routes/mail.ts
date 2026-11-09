@@ -2,7 +2,7 @@ import type { Express, Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { getPrisma, sendError } from '../context.js';
-import { seal, unseal, publicAccount, keySource } from '../mail/secret.js';
+import { seal, unseal, publicAccount, keySource, keyProblem } from '../mail/secret.js';
 import * as imap from '../mail/imap.js';
 import { syncAccount, isSyncing, loadBody, credsOf, searchTextOf } from '../mail/sync.js';
 import {
@@ -322,7 +322,7 @@ export function registerMailRoutes(app: Express, deps: MailDeps): void {
       const acc = await ownedAccount(req, req.params.id);
       if (!acc) return res.status(404).json({ error: 'Ящик не найден' });
       const password = unseal(acc.secret, acc.secretNonce);
-      if (!password) return res.json({ imap: { ok: false, error: 'Пароль не задан или не читается' } });
+      if (!password) return res.json({ imap: { ok: false, error: keyProblem() || 'Пароль не задан или не читается' } });
       // Отправку проверяем тоже — раньше это было только обещано в пояснении, а
       // неверный сервер исходящих обнаруживался в момент, когда человек нажимал
       // «Отправить» на готовом письме и терял его. Обе проверки идут вместе: у
