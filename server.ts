@@ -1127,7 +1127,7 @@ initBackups({
 });
 
 
-registerChatRoutes(app, { io });
+registerChatRoutes(app, { io, chunkBytes: limits.chunkBytes });
 
 
 
