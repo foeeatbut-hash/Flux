@@ -59,7 +59,7 @@ const REF = /^[A-Za-z0-9_.:@-]{1,160}$/;
 const MODULE = /^[a-z][a-z0-9-]{0,63}$/;
 const VERSION = /^\d{1,6}\.\d{1,6}\.\d{1,6}$/;
 const KEYS = ['id', 'at', 'moduleId', 'version', 'userId', 'category', 'level', 'event', 'detail', 'outcome', 'ms', 'bytesIn', 'bytesOut'];
-const count = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) <= 2 ** 40;
+const count = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) <= 2 ** 50;
 
 export function validEntry(raw: unknown): raw is JournalEntry {
   const e = raw as JournalEntry;
