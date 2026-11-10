@@ -34,6 +34,11 @@ export interface ModulePublishingDeps {
   can?: (user: any, feature: string) => boolean;
   /** Только для проверок с одноразовым ключом; HTTP ключ не выбирает */
   modulePublicKeyHex?: string;
+  /**
+   * Дополнительные условия приёма запросов от Flux Studio (server/routes/studioDeveloper.ts): ЯВНОЕ право
+   * разработки и запрет присылать версию чужой подпрограммы. Без него действует только общая проверка `can`.
+   */
+  studioGate?: { allowed: (req: Request) => Promise<boolean>; ownership: (db: any, req: Request, moduleId: string) => Promise<string | null> };
 }
 
 const isOwner = (req: Request) => (req as any).authUser?.role === 'OWNER';
@@ -70,7 +75,9 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
 
   app.post('/api/modules/requests', async (req: Request, res: Response) => {
     // Права проверяет сервер: окно разработчика может быть любым
-    if (!can(req, 'module.develop')) return fail(res, 403, 'Присылать подпрограммы на публикацию могут только разработчики: нужно право «Разработка подпрограмм»');
+    if (!can(req, 'module.develop') || (deps.studioGate && !await deps.studioGate.allowed(req))) {
+      return fail(res, 403, 'Присылать подпрограммы на публикацию могут только разработчики: нужно право «Разработка подпрограмм»');
+    }
     const db = deps.getPrisma(), signature = String(req.body?.signature || '').trim();
     let bundle: Uint8Array;
     try { bundle = new Uint8Array(Buffer.from(String(req.body?.bundle || ''), 'base64')); } catch { return fail(res, 400, 'Пакет не прочитан'); }
@@ -85,6 +92,8 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
       if (byOwner ? !isOwner(req) : trust.certificates.get(claim.author)?.userId !== userId(req)) {
         return fail(res, 403, byOwner ? 'Изменения владельца присылает только владелец' : 'Ключ разработчика выдан другому профилю');
       }
+      const foreign = !byOwner && deps.studioGate ? await deps.studioGate.ownership(db, req, claim.moduleId) : null;
+      if (foreign) return fail(res, 403, foreign);
       // «Что нового» обязательно: без него пользователь в Store не поймёт, зачем обновляться
       if (!claim.meta.changelog.trim()) return fail(res, 400, 'Заполните «что нового»: без него выложить нельзя');
       if (!byOwner && claim.meta.channel === 'production' && !can(req, 'module.publish')) {

@@ -29,16 +29,22 @@ export function explicitlyAllowed(user: any, perms: Record<string, any>, feature
   return !entry.until || new Date(entry.until).getTime() >= now;
 }
 
-export function registerStudioRoutes(app: Express, deps: StudioDeps): void {
-  const mayDevelop = async (req: Request): Promise<boolean> => {
+/** Единая проверка «явное право разработки»: её берут и вход, и разделы разработчика, и отправка запроса */
+export function developerGate(deps: Pick<StudioDeps, 'permissionsOf'>) {
+  return async (req: Request): Promise<boolean> => {
     const user = (req as any).authUser;
     if (!user) return false;
     if (user.role === 'OWNER') return true;
     return explicitlyAllowed(user, await deps.permissionsOf(user), 'module.develop');
   };
-  const refuse = (res: Response) => res.status(403).json({
-    error: 'Flux Studio открывается с правом «Разработка подпрограмм». Попросите администратора выдать его.',
-  });
+}
+export const refuseDeveloper = (res: Response) => res.status(403).json({
+  error: 'Flux Studio открывается с правом «Разработка подпрограмм». Попросите администратора выдать его.',
+});
+
+export function registerStudioRoutes(app: Express, deps: StudioDeps): void {
+  const mayDevelop = developerGate(deps);
+  const refuse = refuseDeveloper;
 
   app.get('/api/studio/session', async (req: Request, res: Response) => {
     if (!await mayDevelop(req)) return refuse(res);
