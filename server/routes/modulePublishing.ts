@@ -7,8 +7,8 @@
  * или выпускает — выпуск подписывает ТОЛЬКО ключ владельца. Отправленный запрос
  * не меняется: новая правка — новый запрос, прежний остаётся в истории.
  *
- * Выпуск, отзыв и сертификат подписываются у владельца (Flux на его
- * компьютере, хранилище ключей — electron/moduleSigning.ts); сервер только
+ * Выпуск, отзыв и сертификат подписываются у владельца (Studio — Владелец на его
+ * компьютере, хранилище ключей — studio/owner/src/moduleSigning.ts); сервер только
  * сверяет подпись. Закрытого ключа на сервере нет.
  */
 import type { Express, Request, Response } from 'express';
@@ -25,6 +25,7 @@ import { effectiveChannel, readPromotions } from '../../modules/trust/promotion.
 import { channelsFor, promotionsOf } from '../moduleChannels.js';
 import { registerModuleChannelRoutes } from './moduleChannels.js';
 import { registerModuleStoreRoutes } from './moduleStore.js';
+import { closeCertRequest, registerCertRequestRoutes } from './moduleCertRequests.js';
 import { registerJournalRoutes } from '../moduleJournal.js';
 
 export interface ModulePublishingDeps {
@@ -259,9 +260,11 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
     if (!claim) return fail(res, 400, 'Нужна подпись сертификата ключом владельца');
     const data = { userId: claim.userId, name: claim.name, signature };
     await db.moduleCertificate.upsert({ where: { keyHex: claim.key }, create: { keyHex: claim.key, ...data }, update: data });
+    await closeCertRequest(db, claim.key);
     res.json({ ok: true });
   });
 
+  registerCertRequestRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, can: deps.can });
   registerModuleChannelRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, rootHex, can: deps.can });
   registerModuleStoreRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, rootHex });
   registerJournalRoutes(app, { getPrisma: deps.getPrisma, can: deps.can, rootHex });

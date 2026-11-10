@@ -1,6 +1,5 @@
 import type { Express } from 'express';
 import crypto from 'node:crypto';
-import { administratorPermission } from '../accessPolicy.js';
 import { readUpdateDelegation, readUpdateEnvelope, verifyUpdateCommand, type SignedUpdateCommand, type UpdateCommand } from '../../electron/updateCommand.js';
 import { compareVersions, readUpdateSignature } from '../../electron/updateSignature.js';
 import { newestFirst } from '../updateOrder.js';
@@ -8,7 +7,7 @@ import { licenseInstallationId } from '../licenseService.js';
 import { notifyUser } from '../context.js';
 
 const MAX_CHAIN = 500;
-const DEVICE = 'update.device', COMMAND = 'update.command', HEAD = 'update.head', DELEGATION = 'update.delegation';
+const DEVICE = 'update.device', COMMAND = 'update.command', HEAD = 'update.head';
 const statuses = new Set(['idle', 'scheduled', 'delivered', 'downloading', 'verifying', 'ready', 'saving', 'restarting', 'updated', 'delayed', 'failed', 'cancelled']);
 export interface UpdateCampaignDeps {
   getPrisma: () => any; updatePublicKeyHex?: string; installationId?: () => Promise<string>;
@@ -16,8 +15,12 @@ export interface UpdateCampaignDeps {
 }
 const rowId = (type: string, id: string) => `${type}:${id}`;
 const valueOf = (row: any) => { try { return JSON.parse(row.value); } catch { return null; } };
+/**
+ * Назначение обновлений — только владелец, из Studio — Владелец (решение владельца от 9 ноября 2026:
+ * у администратора доступа к обновлениям нет). Права не выводятся из должности: нужен вход владельца.
+ */
 const manager = (req: any, res: any, next: () => void) => {
-  if (!administratorPermission(req.authUser, 'admin.users.manage')) return res.status(403).json({ error: 'Нет доступа к назначению обновлений.' });
+  if (req.authUser?.role !== 'OWNER') return res.status(403).json({ error: 'Обновлениями Flux управляет только владелец.' });
   next();
 };
 
@@ -140,21 +143,6 @@ export function registerUpdateCampaignRoutes(app: Express, deps: UpdateCampaignD
       const releases = newestFirst(await db.appUpdate.findMany({ where: { state: 'published' } })).slice(0, 30).filter((r: any) => readUpdateSignature(r.signature, deps.updatePublicKeyHex)).map((r: any) => ({ version: r.version, generation: r.generation, signature: r.signature, sha256: r.sha256 }));
       res.json({ inst: scope, devices, releases });
     } catch { res.status(503).json({ error: 'Состояния устройств недоступны. Повторите позже.' }); }
-  });
-
-  app.get('/api/updates/delegation', manager, async (req: any, res) => {
-    try {
-      const row = await deps.getPrisma().appSetting.findUnique({ where: { id: rowId(DELEGATION, req.authUser.id) } });
-      const code = valueOf(row || {})?.code || '', grant = readUpdateDelegation(code, deps.updatePublicKeyHex);
-      res.json({ inst: await inst(), userId: req.authUser.id, code, grant });
-    } catch { res.status(503).json({ error: 'Разрешение на обновления недоступно.' }); }
-  });
-  app.post('/api/updates/delegation', manager, async (req: any, res) => {
-    const code = req.body?.code, d = readUpdateDelegation(code, deps.updatePublicKeyHex);
-    try {
-      if (!d || d.inst !== await inst() || d.userId !== req.authUser.id || d.expiresAt <= Date.now()) return res.status(400).json({ error: 'Разрешение не подходит этому профилю или истекло.' });
-      await setting(deps.getPrisma(), DELEGATION, d.userId, { code }); res.json({ success: true });
-    } catch { res.status(503).json({ error: 'Разрешение не сохранено.' }); }
   });
 
   app.post('/api/updates/campaigns', manager, async (req: any, res) => {

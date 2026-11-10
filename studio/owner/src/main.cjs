@@ -1,5 +1,5 @@
 'use strict';
-const {app,BrowserWindow,ipcMain,dialog,clipboard,shell}=require('electron');
+const {app,BrowserWindow,ipcMain,dialog,clipboard,shell,protocol}=require('electron');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto');
 const setupApi=require('./setup.cjs');
 const {startDatabaseRuntime}=require('../../shared/database-runtime.cjs');
@@ -14,7 +14,7 @@ function journal(){return diagnostics??=createDiagnostics({logDirectory:path.joi
 function diagnosticEvent(event,details={}){const span=diagnosticOperation.getStore();journal().record(event,{...(span?{operationId:span.id}:{}),...details},event.endsWith('failure')?'error':'info');}
 function ownerRequest(origin,route,options={}){return net.request(origin,route,{...options,onEvent:diagnosticEvent,onStage:phase=>signalProgress(phase,0,0)});}
 const vaultFile=path.join(os.homedir(),'.flux-owner','vault.flux-owner');
-let win,fluxWin,vault=null,password='',server='',token='',user=null,exe=null,operation=null,lastActivity=Date.now();
+let win,fluxWin,activeParent=null,vault=null,password='',server='',token='',user=null,exe=null,operation=null,lastActivity=Date.now();
 let databaseRuntime=null,disconnecting=Promise.resolve();
 const displayServer=()=>databaseRuntime?databaseRuntime.display:server;
 const uiPath=path.join(__dirname,'..','ui','index.html');
@@ -26,8 +26,10 @@ async function save(next){if(backupSession)throw new Error('Запасной к�
 function requireIdle(){if(operation)throw new Error('Дождитесь завершения текущей операции или отмените её.');}
 async function busy(fn){requireIdle();const controller=new AbortController();operation=controller;try{return await fn(controller.signal);}finally{operation=null;signalProgress('',0,0);}}
 async function disconnect(){token='';server='';user=null;if(fluxWin&&!fluxWin.isDestroyed())fluxWin.close();fluxWin=null;const previous=databaseRuntime;databaseRuntime=null;if(previous)disconnecting=Promise.resolve(previous.stop()).catch(()=>{});await disconnecting;}
-async function lock(){operation?.abort();vault=null;password='';backupSession=false;setupVerified=false;exe=null;await disconnect();if(win&&!win.isDestroyed())win.webContents.send('owner:locked');}
-async function confirm(message,detail){const r=await dialog.showMessageBox(win,{type:'question',buttons:['Отмена','Подтвердить'],defaultId:0,cancelId:0,noLink:true,message,detail});return r.response===1;}
+// Разделы владельца (console.cjs) подписываются на запирание и обрыв связи, чтобы закрыть свои окна вместе с окном лицензий
+const listeners={locked:new Set(),disconnected:new Set()};
+async function lock(){operation?.abort();vault=null;password='';backupSession=false;setupVerified=false;exe=null;await disconnect();if(win&&!win.isDestroyed())win.webContents.send('owner:locked');for(const f of listeners.locked)f();}
+async function confirm(message,detail,parent=win){const r=await dialog.showMessageBox(parent,{type:'question',buttons:['Отмена','Подтвердить'],defaultId:0,cancelId:0,noLink:true,message,detail});return r.response===1;}
 async function exportEncrypted(payload,phrase,title,defaultPath){vaultApi.passwordCheck(phrase);const r=await dialog.showSaveDialog(win,{title,defaultPath,filters:[{name:'Зашифрованные ключи Flux',extensions:['flux-owner']}]});if(r.canceled||!r.filePath)return false;protectLocalVault(r.filePath);await vaultApi.atomicWrite(r.filePath,await vaultApi.encrypt(payload,phrase));return true;}
 function protectLocalVault(file){const normalize=p=>process.platform==='win32'?path.resolve(p).toLowerCase():path.resolve(p);if(normalize(file)===normalize(vaultFile))throw new Error('Нельзя перезаписать рабочее хранилище экспортом. Выберите другую папку или имя файла.');}
 function clearSetup(){setupKitPath='';publicFilePath='';previousVaultPath='';setupVerified=false;}
@@ -60,7 +62,7 @@ const actions={
     await disconnect();
     const address=safeText(a.server,4096).trim();
     try {
-      databaseRuntime=await startDatabaseRuntime({uri:address,signal,dialog,parentWindow:win,onProgress:phase=>signalProgress(phase,0,0),onEvent:diagnosticEvent,onUnexpectedExit:()=>{diagnosticEvent('runtime.unexpectedExit');operation?.abort();void disconnect().then(()=>{if(win&&!win.isDestroyed())win.webContents.send('owner:disconnected');});}});
+      databaseRuntime=await startDatabaseRuntime({uri:address,signal,dialog,parentWindow:activeParent||win,onProgress:phase=>signalProgress(phase,0,0),onEvent:diagnosticEvent,onUnexpectedExit:()=>{diagnosticEvent('runtime.unexpectedExit');operation?.abort();void disconnect().then(()=>{if(win&&!win.isDestroyed())win.webContents.send('owner:disconnected');for(const f of listeners.disconnected)f();});}});
       signal.throwIfAborted();
       const origin=databaseRuntime.origin;
       const packet=await ownerRequest(origin,'/api/owner/challenge',{signal});
@@ -101,4 +103,15 @@ async function openOwnerWindow(){
 }
 app.on('child-process-gone',(_event,details)=>diagnosticEvent('app.childProcessGone',{type:details.type,reason:details.reason,exitCode:details.exitCode,serviceName:details.serviceName}));
 // Закрытие окна владельца только запирает хранилище: программа живёт, пока открыта оболочка Studio.
-module.exports={openOwnerWindow};
+// Схема для пробного запуска подпрограммы в разделе «Запросы на публикацию»: регистрировать её можно только до готовности
+// приложения. Привилегии те же, что у Flux (electron/modules.ts): без обхода CSP, служебных воркеров и файловой системы.
+try{protocol?.registerSchemesAsPrivileged?.([{scheme:'flux-module',privileges:{standard:true,secure:true,corsEnabled:true,supportFetchAPI:true}}]);}catch{}
+// Разделы владельца в общем окне Studio — Владелец (запросы на публикацию, выпуски, сертификаты, обновления Flux).
+// Состояние хранилища и подключения общее с окном лицензий; код разделов подгружается только при открытии.
+function consoleContext(){return {version,snapshot,vault:()=>vault,token:()=>token,origin:()=>server,user:()=>user,display:displayServer,
+  confirm,touch:()=>{lastActivity=Date.now();},lockIfIdle:ms=>{if(vault&&!operation&&Date.now()-lastActivity>ms)lock();},
+  setParent:w=>{activeParent=w;},listeners,refreshVault:async()=>{vaultExists=await fs.stat(vaultFile).then(()=>true,()=>false);},
+  forward:{state:()=>snapshot(),unlock:a=>actions.unlock(a),connect:a=>actions.connect(a),disconnect:()=>actions.disconnect({}),lock:()=>actions.lock(),cancel:()=>actions.cancel()},
+  journal:()=>journal(),diagnosticOperation};}
+async function openConsole(tab){return require('./console.cjs').openConsole(consoleContext(),tab);}
+module.exports={openOwnerWindow,openConsole};
