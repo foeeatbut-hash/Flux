@@ -25,16 +25,20 @@ function copyTemplate(from, to) {
   }
 }
 
-/** Возвращает карты сборки (для проверки бандла) */
-async function buildDeveloperAssets({ app, esbuild }) {
-  const metafiles = {};
-  // Проверщики сообщений моста: код генерирует Ajv при сборке, потому что CSP подпрограммы запрещает eval
+/** Проверщики сообщений моста: код генерирует Ajv при сборке, потому что CSP окон Studio и подпрограммы запрещает eval */
+async function loadStaticValidation(esbuild) {
   const validators = await esbuild.build({
     entryPoints: [path.join(root, 'studio/shared/validatorSource.ts')], bundle: true, write: false, platform: 'node', format: 'cjs', logLevel: 'silent',
   });
   const holder = { exports: {} };
   new Function('module', 'exports', 'require', validators.outputFiles[0].text)(holder, holder.exports, require);
-  const staticValidation = holder.exports.staticValidators();
+  return holder.exports.staticValidators();
+}
+
+/** Возвращает карты сборки (для проверки бандла) */
+async function buildDeveloperAssets({ app, esbuild }) {
+  const metafiles = {};
+  const staticValidation = await loadStaticValidation(esbuild);
 
   const dir = path.join(app, 'runtime');
   fs.mkdirSync(dir, { recursive: true });
@@ -77,4 +81,4 @@ async function buildDeveloperAssets({ app, esbuild }) {
   return metafiles;
 }
 
-module.exports = { buildDeveloperAssets, SENTINEL };
+module.exports = { buildDeveloperAssets, loadStaticValidation, SENTINEL };

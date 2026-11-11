@@ -6,50 +6,64 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { REQUEST_STATES, type Snapshot } from './call';
+import Projects from './sections/Projects';
+import Editor from './sections/Editor';
+import Check from './sections/Check';
+import Publish from './sections/Publish';
+import Errors from './sections/Errors';
 
-interface Snapshot {
-  version: string; build: string; connected: boolean; display: string;
-  user: { id: string; name: string } | null; sections: { id: string; title: string }[];
-}
 interface Module { moduleId: string; version: string; state: string; createdAt: string; requests: number }
-type Reply<T> = { ok: boolean; value: T; error: string };
-declare global {
-  interface Window {
-    studio: {
-      call: <T = unknown>(action: string, args?: object) => Promise<Reply<T>>;
-      onState: (fn: (state: Snapshot) => void) => () => void;
-      onProgress: (fn: (data: { phase: string }) => void) => () => void;
-    };
-  }
-}
 
-const STATES: Record<string, string> = {
-  pending: 'На проверке', returned: 'Возвращена на доработку', rejected: 'Отклонена',
-  edited: 'Владелец внёс правки', superseded: 'Заменена новой отправкой', released: 'Выпущена', writing: 'Загружается',
-};
+const STATES = REQUEST_STATES;
 
-function Connect({ onDone }: { onDone: (s: Snapshot) => void }) {
+function Connect({ remembered, onDone }: { remembered: string; onDone: (s: Snapshot) => void }) {
   const [uri, setUri] = useState('');
+  const [remember, setRemember] = useState(true);
+  const [other, setOther] = useState(false);
   const [error, setError] = useState('');
   const [phase, setPhase] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => window.studio.onProgress(data => setPhase(data.phase)), []);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setError('');
-    const reply = await window.studio.call<Snapshot>('connect', { uri });
+    const reply = await window.studio.call<Snapshot>('connect', { uri, remember });
     setBusy(false);
     if (reply.ok) { setUri(''); onDone(reply.value); } else setError(reply.error);
   };
+  const useRemembered = async () => {
+    setBusy(true); setError('');
+    const reply = await window.studio.call<Snapshot>('connectRemembered');
+    setBusy(false);
+    if (reply.ok) onDone(reply.value); else setError(reply.error);
+  };
+  const forget = async () => { const reply = await window.studio.call<Snapshot>('forgetBase'); if (reply.ok) { onDone(reply.value); setOther(true); } };
+  if (remembered && !other) {
+    return (
+      <div className="card" role="group" aria-labelledby="connect-title">
+        <h2 id="connect-title">Подключение к общей базе</h2>
+        <p className="muted">Сохранённая база: <strong data-testid="remembered">{remembered}</strong>. Адрес хранится на этом компьютере в защищённом хранилище Windows.</p>
+        {error && <p className="error" role="alert">{error}</p>}
+        <div className="row">
+          <button className="primary" onClick={useRemembered} disabled={busy}>{busy ? 'Подключаемся…' : 'Подключиться'}</button>
+          <button className="secondary" onClick={() => setOther(true)} disabled={busy}>Другая база</button>
+          <button className="secondary" onClick={forget} disabled={busy}>Забыть адрес</button>
+        </div>
+        {busy && phase && <p className="hint" aria-live="polite">{phase}</p>}
+      </div>
+    );
+  }
   return (
     <form className="card" onSubmit={submit} aria-labelledby="connect-title">
       <h2 id="connect-title">Подключение к общей базе</h2>
-      <p className="muted">Studio работает с той же базой, что и Flux. Адрес содержит пароль базы: он не сохраняется и после закрытия программы вводится снова.</p>
+      <p className="muted">Studio работает с той же базой, что и Flux. Адрес содержит пароль базы; если запомнить его, он будет храниться только в защищённом хранилище Windows.</p>
       <div className="field">
         <label htmlFor="uri">Адрес MariaDB / MySQL</label>
         <input id="uri" type="password" autoComplete="off" spellCheck={false} maxLength={4096} value={uri}
           placeholder="mysql://USER:PASSWORD@HOST:3306/Flux" onChange={e => setUri(e.target.value)} />
         <p className="hint">Рядом с Studio должен лежать тот же выпуск Flux: он запускает локальный обработчик базы.</p>
       </div>
+      <label className="check"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} /> Запомнить адрес на этом компьютере</label>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="row">
         <button className="primary" type="submit" disabled={busy || !uri.trim()}>{busy ? 'Подключаемся…' : 'Подключиться'}</button>
@@ -105,7 +119,7 @@ function Modules() {
       <p className="muted">Ваши подпрограммы и состояние последней отправки на публикацию.</p>
       {error && <p className="error" role="alert">{error}</p>}
       {modules && modules.length === 0 && (
-        <div className="empty">Вы ещё не отправляли подпрограмм. Создание проекта и отправка на публикацию появятся в следующих обновлениях Studio.</div>
+        <div className="empty">Вы ещё не отправляли подпрограмм. Создайте проект в разделе «Проект подпрограммы».</div>
       )}
       {modules && modules.length > 0 && (
         <table>
@@ -119,19 +133,37 @@ function Modules() {
   );
 }
 
+const NAV: Array<[string, string]> = [
+  ['modules', 'Подпрограммы'], ['project', 'Проект подпрограммы'], ['editor', 'Редактор'],
+  ['check', 'Проверка перед отправкой'], ['publish', 'Публикация'], ['errors', 'Ошибки'],
+];
+
 function Workspace({ state, onState }: { state: Snapshot; onState: (s: Snapshot) => void }) {
   const [error, setError] = useState('');
+  const [section, setSection] = useState('modules');
+  // Открытый проект общий для разделов: редактор, проверка и публикация работают с ним
+  const [current, setCurrent] = useState('');
   const open = async (id: string) => { const reply = await window.studio.call('openSection', { id }); setError(reply.ok ? '' : reply.error); };
   return (
     <div className="body">
       <nav className="nav" aria-label="Разделы Studio">
-        <button aria-current="page">Подпрограммы</button>
+        {NAV.map(([id, title]) => <button key={id} aria-current={section === id ? 'page' : undefined} onClick={() => setSection(id)}>{title}</button>)}
+        {current && <p className="nav-current" title="Открытый проект">Проект: <span className="code">{current}</span></p>}
         {state.sections.length > 0 && <h3>Управление</h3>}
-        {state.sections.map(section => <button key={section.id} onClick={() => open(section.id)}>{section.title}</button>)}
+        {state.sections.map(item => <button key={item.id} onClick={() => open(item.id)}>{item.title}</button>)}
         <div className="spacer" />
         <button onClick={async () => { const reply = await window.studio.call<Snapshot>('logout'); if (reply.ok) onState(reply.value); }}>Выйти</button>
       </nav>
-      <main className="main">{error && <p className="error" role="alert">{error}</p>}<Modules /></main>
+      <main className="main">
+        {state.warning && <p className="warning" role="status" data-testid="outdated">{state.warning}</p>}
+        {error && <p className="error" role="alert">{error}</p>}
+        {section === 'modules' && <Modules />}
+        {section === 'project' && <Projects current={current} onOpen={setCurrent} />}
+        {section === 'editor' && <Editor id={current} />}
+        {section === 'check' && <Check id={current} onGo={setSection} />}
+        {section === 'publish' && <Publish id={current} onGo={setSection} onOpen={setCurrent} />}
+        {section === 'errors' && <Errors />}
+      </main>
     </div>
   );
 }
@@ -152,7 +184,7 @@ function App() {
         {state.user && <span className="chip">{state.user.name || state.user.id}</span>}
         {state.connected && <button className="secondary" onClick={disconnect}>Отключиться</button>}
       </header>
-      {!state.connected && <main className="main"><Connect onDone={setState} /></main>}
+      {!state.connected && <main className="main"><Connect remembered={state.remembered} onDone={setState} /></main>}
       {state.connected && !state.user && <main className="main"><Login display={state.display} onDone={setState} onBack={disconnect} /></main>}
       {state.connected && state.user && <Workspace state={state} onState={setState} />}
     </div>
