@@ -179,8 +179,9 @@ async function main() {
   const b110 = moduleBundle('1.1.0', { 'logic/extra.ts': 'export const x = 1;' });
   const r110 = await call('developer', '/api/modules/requests', 'POST', { signature: requestEnvelope(dev, b110, { version: '1.1.0', baseRelease: 'equipment-inspector@1.0.0' }), bundle: Buffer.from(b110).toString('base64') });
   const v110 = await owner.request({ id: r110.body.id });
-  await rejects('править можно только разрешённые файлы: «нет/файла.ts» отвергается', owner.ownerEdit({ id: r110.body.id, texts: { 'нет/файла.ts': 'x' }, sha256: v110.sha256 }), /только manifest\.json, form\.json/);
+  await rejects('править можно только разрешённые файлы: «нет/файла.ts» отвергается', owner.ownerEdit({ id: r110.body.id, texts: { 'нет/файла.ts': 'x' }, sha256: v110.sha256 }), /только manifest\.json/);
   await rejects('исходный код владелец не правит', owner.ownerEdit({ id: r110.body.id, texts: { 'logic/extra.ts': 'export const x = 2;' }, sha256: v110.sha256 }), /Исходный код/);
+  await rejects('form.json владелец не правит: форма вшита в runtime.js', owner.ownerEdit({ id: r110.body.id, texts: { 'form.json': '{}' }, sha256: v110.sha256 }), /form\.json/);
   await rejects('build/runtime.js владелец не правит', owner.ownerEdit({ id: r110.body.id, texts: { 'build/runtime.js': '/* другое */' }, sha256: v110.sha256 }), /build\/runtime\.js/);
   ok('после отказов правок в базе нет', await count('ModuleRequest') === 2);
   await rejects('без изменений правка не подписывается', owner.ownerEdit({ id: r110.body.id, texts: {}, sha256: v110.sha256 }), /Нет изменений/);

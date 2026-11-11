@@ -148,7 +148,7 @@ async function main() {
       ok(`${theme}: подключение показано человеческим текстом`, /хочет подключиться к Сервер расчётов/.test(await page.getByTestId('owner-connection-texts').innerText()) && (await page.getByTestId('diff-connection').count()) === 1);
       await page.screenshot({ path: path.join(shots, `owner-console-${theme}-3-flux.png`) });
       await page.getByRole('tab', { name: /Замечания и проверки/ }).click();
-      ok(`${theme}: отчёт проверок разработчика виден`, (await page.getByText('контрольные примеры').count()) > 0);
+      ok(`${theme}: отчёт проверок виден и помечен «заявлено автором»`, (await page.getByText('контрольные примеры').count()) > 0 && (await page.getByText('заявлено автором').count()) > 0);
       await page.getByRole('tab', { name: 'Проверить в работе' }).click();
       await page.getByRole('button', { name: 'Запустить на тестовой базе' }).click();
       await page.getByText('Пробный запуск для этого языка — во Flux').waitFor();

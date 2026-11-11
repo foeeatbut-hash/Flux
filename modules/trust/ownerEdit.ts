@@ -1,15 +1,15 @@
 /**
  * Что владелец может править сам в запросе на публикацию (решение руководителя, этап 4в).
  *
- * Только `manifest.json`, `form.json` и файлы данных (`data/…`, `examples/…`). Исходный код (`logic/…`) и
- * собранный `build/runtime.js` владелец не правит: правка исходника не пересобирает runtime.js, и подписанный
- * выпуск содержал бы код, не соответствующий исполняемому. Для кода есть только «Вернуть на доработку».
+ * Только `manifest.json` и файлы данных (`data/…`, `examples/…`). Исходный код (`logic/…`), `form.json` и
+ * собранный `build/runtime.js` владелец не правит: форма и логика вшиты в runtime.js при сборке, правка не
+ * пересобирает его, и подписанный выпуск содержал бы код, не соответствующий исполняемому. Для кода есть только «Вернуть на доработку».
  *
  * Без зависимостей: проверяют и окно владельца, и его главный процесс, и сервер.
  */
 import { bundleText, type BundleFiles } from './bundle';
 
-export const OWNER_EDITABLE_FILES = ['manifest.json', 'form.json'] as const;
+export const OWNER_EDITABLE_FILES = ['manifest.json'] as const;
 export const OWNER_EDITABLE_DIRS = ['data/', 'examples/'] as const;
 
 export const ownerMayEdit = (path: string): boolean =>
@@ -26,4 +26,4 @@ export function ownerEditViolations(parent: BundleFiles, edited: BundleFiles): s
 /** Файлы, которые окно предлагает править: разрешённые и читаемые как текст */
 export const ownerEditablePaths = (files: BundleFiles): string[] => Object.keys(files).filter((p) => ownerMayEdit(p) && bundleText(files, p) !== null).sort();
 
-export const OWNER_EDIT_REFUSAL = 'Владелец правит только manifest.json, form.json и файлы данных. Исходный код и build/runtime.js — только через «Вернуть на доработку».';
+export const OWNER_EDIT_REFUSAL = 'Владелец правит только manifest.json и файлы данных. Исходный код, form.json и build/runtime.js — только через «Вернуть на доработку».';

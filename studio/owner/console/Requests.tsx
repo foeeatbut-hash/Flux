@@ -97,7 +97,7 @@ function RequestView({ summary, onChanged }: { summary: PublishRequest; onChange
       <span className="grow" />
       {pending && <>
         <Btn onClick={() => setDecision('return')}>Вернуть на доработку</Btn>
-        <Btn disabled={!files} title="Правятся manifest.json, form.json и файлы данных; код — только через «Вернуть на доработку»" onClick={() => setDecision('edit')}>Внести изменения сам</Btn>
+        <Btn disabled={!files} title="Правятся manifest.json и файлы данных; код и форма — только через «Вернуть на доработку»" onClick={() => setDecision('edit')}>Внести изменения сам</Btn>
         <Btn tone="danger" onClick={() => setDecision('reject')}>Отклонить</Btn>
         <Btn tone="primary" disabled={!data} onClick={() => setDecision('release')}>Выпустить</Btn></>}
     </div>
@@ -145,7 +145,8 @@ function RequestView({ summary, onChanged }: { summary: PublishRequest; onChange
       <h3 style={{ marginTop: 12 }}>Прежние замечания</h3>
       {request.review ? <>{request.review.note && <div>{request.review.note}</div>}
         {request.review.comments.map((c, i) => <div key={i} className="mono">{c.path}{c.line ? `:${c.line}` : ''} — {c.text}</div>)}</> : <div className="muted">Замечаний нет.</div>}
-      <h3 style={{ marginTop: 12 }}>Отчёт проверок разработчика (Studio)</h3>
+      <h3 style={{ marginTop: 12 }}>Отчёт проверок разработчика (Studio) <Badge tone="warn">заявлено автором</Badge></h3>
+      <p className="hint">Отчёт составил и приложил сам автор: это его слова, а не результат проверки владельца. Проверяйте код и разницу.</p>
       <pre className="mono" style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{meta?.checks || '—'}</pre>
     </div>}
     {pane === 'trial' && <Trial requestId={request.id} />}
@@ -199,11 +200,11 @@ function EditDialog({ request, sha256, files, start, onClose, onDone }: { reques
   const go = async () => { if (await run(() => call('ownerEdit', { id: request.id, texts, comment, sha256 }))) { onDone(); onClose(); } };
   return <Dialog title="Внести изменения сам" onClose={onClose} busy={busy}
     footer={<><Btn onClick={onClose} disabled={busy}>Отмена</Btn><Btn tone="primary" disabled={busy || !Object.keys(texts).length} onClick={() => void go()}>Подписать правку</Btn></>}>
-    {!editable.length && <p className="hint">В этом пакете нет файлов, которые владелец может править. Исходный код — только через «Вернуть на доработку».</p>}
+    {!editable.length && <p className="hint">В этом пакете нет файлов, которые владелец может править. Исходный код и форму — только через «Вернуть на доработку».</p>}
     <Field label="Файл" id="edit-file"><select id="edit-file" value={path} onChange={e => setPath(e.target.value)}>{editable.map(p => <option key={p} value={p}>{p}</option>)}</select></Field>
     <textarea rows={14} className="mono" aria-label="Содержимое файла" value={text} onChange={e => setTexts({ ...texts, [path]: e.target.value })} />
     <Field label="Комментарий для разработчика" id="edit-comment"><input id="edit-comment" value={comment} onChange={e => setComment(e.target.value)} /></Field>
-    <p className="hint">Правятся только manifest.json, form.json и файлы данных. Исходный код и build/runtime.js — через «Вернуть на доработку». Правка уходит отдельным запросом от владельца; разработчик увидит её отдельной разницей.</p>
+    <p className="hint">Правятся только manifest.json и файлы данных. Исходный код, form.json и build/runtime.js — через «Вернуть на доработку». Правка уходит отдельным запросом от владельца; разработчик увидит её отдельной разницей.</p>
     <ErrorLine text={error} />
   </Dialog>;
 }
