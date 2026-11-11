@@ -39,7 +39,17 @@
         "studio/renderer/sections/Editor.tsx",
         "studio/renderer/sections/Check.tsx",
         "studio/renderer/sections/Publish.tsx",
-        "studio/renderer/sections/Errors.tsx"
+        "studio/renderer/sections/Errors.tsx",
+        "studio/owner/src/console.cjs",
+        "studio/owner/src/consoleApi.cjs",
+        "studio/owner/src/moduleSigning.ts",
+        "studio/owner/src/campaigns.ts",
+        "studio/owner/src/console-preload.cjs",
+        "studio/owner/console/Requests.tsx",
+        "modules/trust/ownerEdit.ts",
+        "server/routes/moduleCertRequests.ts",
+        "server/updateDelegationCleanup.ts",
+        "server/routes/updateCampaigns.ts"
       ]
     }
   ],
@@ -178,6 +188,43 @@
         }
       ],
       "timeoutMs": 300000
+    },
+    {
+      "id": "studio-owner-console",
+      "path": "scripts/test-studio-owner-console.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files",
+        "loopback-http"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "studio-owner-console-ui",
+      "path": "scripts/test-studio-owner-console-ui.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_CHROME"
+        }
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "update-delegation-cleanup",
+      "path": "scripts/test-update-delegation-cleanup.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
     }
   ],
   "actions": [

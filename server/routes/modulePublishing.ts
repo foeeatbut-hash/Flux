@@ -7,8 +7,8 @@
  * или выпускает — выпуск подписывает ТОЛЬКО ключ владельца. Отправленный запрос
  * не меняется: новая правка — новый запрос, прежний остаётся в истории.
  *
- * Выпуск, отзыв и сертификат подписываются у владельца (Flux на его
- * компьютере, хранилище ключей — electron/moduleSigning.ts); сервер только
+ * Выпуск, отзыв и сертификат подписываются у владельца (Studio — Владелец на его
+ * компьютере, хранилище ключей — studio/owner/src/moduleSigning.ts); сервер только
  * сверяет подпись. Закрытого ключа на сервере нет.
  */
 import type { Express, Request, Response } from 'express';
@@ -18,6 +18,7 @@ import {
   parseCertificateClaim, parseReleaseClaim, parseRequestClaim, parseRevocationClaim,
 } from '../../modules/trust/claims.js';
 import { unpackBundle } from '../../modules/trust/bundle.js';
+import { OWNER_EDIT_REFUSAL, ownerEditViolations } from '../../modules/trust/ownerEdit.js';
 import { checkChunks, verifyRequest } from '../../modules/trust/verify.js';
 import { diffFiles, diffPermissions, manifestOf } from '../../modules/trust/diff.js';
 import { MODULE_ROOT_KEY_HEX, loadTrust, readBlob, readBundle, signatureHash, writeBlob } from '../moduleStore.js';
@@ -25,6 +26,7 @@ import { effectiveChannel, readPromotions } from '../../modules/trust/promotion.
 import { channelsFor, promotionsOf } from '../moduleChannels.js';
 import { registerModuleChannelRoutes } from './moduleChannels.js';
 import { registerModuleStoreRoutes } from './moduleStore.js';
+import { closeCertRequest, registerCertRequestRoutes } from './moduleCertRequests.js';
 import { registerJournalRoutes } from '../moduleJournal.js';
 
 export interface ModulePublishingDeps {
@@ -129,6 +131,11 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
       if (!byOwner) {
         const waiting = await db.moduleRequest.count({ where: { authorId: userId(req), state: 'pending', ...(parent ? { id: { not: parent.id } } : {}) } });
         if (waiting >= MAX_PENDING_PER_AUTHOR) return fail(res, 429, `У вас уже ${MAX_PENDING_PER_AUTHOR} запросов ждут проверки владельца. Дождитесь решения или отправьте исправление к одному из них.`);
+      }
+      // Правка владельца не трогает код: исходники и build/runtime.js остаются теми, что прислал разработчик (решение этапа 4в)
+      if (byOwner && parent) {
+        const bad = ownerEditViolations(unpackBundle(await readBundle(db, parent.id, parent.chunkCount)), unpackBundle(bundle));
+        if (bad.length) return fail(res, 400, `${OWNER_EDIT_REFUSAL} Изменены: ${bad.slice(0, 5).join(', ')}.`);
       }
       const row = await db.moduleRequest.create({ data: {
         moduleId: claim.moduleId, version: claim.version, signature, signatureHash: signatureHash(signature), authorKey: claim.author,
@@ -290,9 +297,11 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
     if (!claim) return fail(res, 400, 'Нужна подпись сертификата ключом владельца');
     const data = { userId: claim.userId, name: claim.name, signature };
     await db.moduleCertificate.upsert({ where: { keyHex: claim.key }, create: { keyHex: claim.key, ...data }, update: data });
+    await closeCertRequest(db, claim.key);
     res.json({ ok: true });
   });
 
+  registerCertRequestRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, can: deps.can });
   registerModuleChannelRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, rootHex, can: deps.can });
   registerModuleStoreRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, rootHex });
   registerJournalRoutes(app, { getPrisma: deps.getPrisma, can: deps.can, rootHex });

@@ -87,8 +87,8 @@ jobs:
                 : await mariadb.createConnection({ host: base.hostname, port: Number(base.port), user: decodeURIComponent(base.username), password: decodeURIComponent(base.password) });
               if (provider === 'pg') await db.connect();
               try {
-                for (const suite of ['publishing', 'channels', 'store']) {
-                  const name = `flux_modules_${provider}_${suite}_fixture`;
+                for (const suite of ['publishing', 'channels', 'store', 'update-delegation-cleanup']) {
+                  const name = `flux_modules_${provider}_${suite.replace(/-/g, '_')}_fixture`;
                   await db.query(provider === 'pg' ? `CREATE DATABASE "${name}"` : `CREATE DATABASE \`${name}\``);
                   const fixture = new URL(base.href);
                   fixture.pathname = `/${name}`;
@@ -96,8 +96,10 @@ jobs:
                   delete env.FLUX_MODULES_PG_FIXTURE_URL;
                   delete env.FLUX_MODULES_MARIA_FIXTURE_URL;
                   env[provider === 'pg' ? 'FLUX_MODULES_PG_FIXTURE_URL' : 'FLUX_MODULES_MARIA_FIXTURE_URL'] = fixture.href;
+                  // Снятие разрешений администраторам на обновления читает свои переменные, остальные наборы — прежние
+                  env[provider === 'pg' ? 'FLUX_RETIRE_PG_FIXTURE_URL' : 'FLUX_RETIRE_MARIA_FIXTURE_URL'] = fixture.href;
                   console.log(`Проверка ${suite}: ${provider}`);
-                  const result = spawnSync(process.execPath, ['--import', 'tsx', `scripts/test-modules-${suite}.ts`], { env, stdio: 'inherit' });
+                  const result = spawnSync(process.execPath, ['--import', 'tsx', suite === 'update-delegation-cleanup' ? 'scripts/test-update-delegation-cleanup.ts' : `scripts/test-modules-${suite}.ts`], { env, stdio: 'inherit' });
                   if (result.error) throw result.error;
                   if (result.status !== 0) throw new Error(`${suite}/${provider} завершился с кодом ${result.status} (${result.signal || 'без сигнала'})`);
                 }

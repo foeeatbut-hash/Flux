@@ -8,7 +8,7 @@ export function requiresAdministrator(route: string): boolean {
 /** Эти операции меняют доверие ко всей установке, а не рабочие данные. */
 export function requiresOwner(route: string, method = 'GET'): boolean {
   const path = route.toLowerCase().replace(/\/+$/, '');
-  const updateClientWrite = method.toUpperCase() === 'POST' && ['/api/updates/devices/heartbeat', '/api/updates/reminder', '/api/updates/delegation', '/api/updates/campaigns'].includes(path);
+  const updateClientWrite = method.toUpperCase() === 'POST' && ['/api/updates/devices/heartbeat', '/api/updates/reminder'].includes(path);
   return /^\/api\/db(?:\/|$)/.test(path)
     || /^\/api\/(seed|admin\/sync-schema|admin\/time-anchor\/reset|config\/logs|backup\/settings)$/.test(path)
     || (path.startsWith('/api/updates') && !updateClientWrite && !['GET', 'HEAD'].includes(method.toUpperCase()));

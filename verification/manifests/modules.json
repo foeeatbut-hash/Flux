@@ -7,7 +7,6 @@
       "label": "Модули Flux",
       "routes": [
         "/module/equipment-inspector",
-        "/module-requests",
         "/store"
       ],
       "sources": [
@@ -27,7 +26,6 @@
         "modules/runtime/output.ts",
         "src/services/moduleReadCache.ts",
         "src/services/moduleRefresh.ts",
-        "src/screens/ModuleRequests.tsx",
         "src/screens/StoreScreen.tsx",
         "src/components/store/StoreHome.tsx",
         "src/components/store/StoreModulePage.tsx",
@@ -38,7 +36,6 @@
         "src/services/moduleCrashQueue.ts",
         "src/services/moduleReleaseService.ts",
         "src/services/moduleStoreService.ts",
-        "src/components/modules/ModuleTrustPanel.tsx",
         "src/components/feedback/ModuleFeedbackActions.tsx",
         "src/components/feedback/ProblemPanel.tsx",
         "src/components/feedback/FeedbackCard.tsx",
