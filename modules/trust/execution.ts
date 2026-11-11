@@ -12,6 +12,8 @@ import type { ModuleManifest } from '../contract';
 import { CONTROLS_FILE, LIMITS, LOGIC_FILES, languageOf } from '../engine/types';
 import { parseControls } from '../engine/controls';
 import { wasmProblem } from '../engine/wasmInspect';
+import { pageProblem } from '../page/model';
+import { RUNTIME_FILE } from './bundle';
 
 /** Возвращает причину словами или '' */
 export function executionProblem(manifest: ModuleManifest, files: BundleFiles): string {
@@ -33,4 +35,16 @@ export function executionProblem(manifest: ModuleManifest, files: BundleFiles): 
     if (typeof controls === 'string') return controls;
   }
   return '';
+}
+
+/**
+ * Что запускает оболочка: форма — собранный build/runtime.js, страница (договор v2) — ui/index.html со своими файлами.
+ * Страница и runtime.js взаимно исключают друг друга: подписан ровно один вид интерфейса.
+ */
+export function interfaceProblem(manifest: ModuleManifest, files: BundleFiles): string {
+  if (manifest.ui === 'page') {
+    if (files[RUNTIME_FILE]) return `Для страницы ${RUNTIME_FILE} не нужен: уберите его из пакета`;
+    return pageProblem(files, manifest.pages);
+  }
+  return files[RUNTIME_FILE]?.length ? '' : `В пакете нет ${RUNTIME_FILE}`;
 }

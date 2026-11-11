@@ -96,7 +96,13 @@
         "scripts/fixtures/fakeCom.ts",
         "modules/dataSchemas.ts",
         "modules/formSchema.ts",
-        "modules/miniSchema.ts"
+        "modules/miniSchema.ts",
+        "modules/page/model.ts",
+        "modules/page/client.ts",
+        "modules/page/flux-ui.v1.css",
+        "src/services/modulePage.ts",
+        "scripts/fixtures/page-app/index.html",
+        "scripts/fixtures/page-host.ts"
       ]
     }
   ],
@@ -104,6 +110,15 @@
     {
       "id": "modules-contract",
       "path": "scripts/test-modules-contract.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-page",
+      "path": "scripts/test-modules-page.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],

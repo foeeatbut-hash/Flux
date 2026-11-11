@@ -7,6 +7,7 @@ import { useStore } from '../store/store';
 import { createModuleReadCycle } from '../services/moduleDataService';
 import { useModuleStore } from '../store/moduleStoreState';
 import { compareVersions } from '../../shared/versionCompare';
+import { CONTRACT_VERSION } from '../../modules/contract';
 import ModuleFrame from '../components/modules/ModuleFrame';
 
 export default function ModuleHost() {
@@ -50,10 +51,15 @@ function ModuleHostSession({ current, location, project, theme }: {
   }, [current, running, blocked, selected]);
   const manifest = active?.manifest;
   if (!manifest) return <div className="fx-empty"><div className="fx-empty-title">Модуль недоступен</div></div>;
-  if (manifest.contractVersion !== 1) return <div className="fx-empty"><div className="fx-empty-title">Обновите Flux для этого модуля</div></div>;
+  if (manifest.contractVersion > CONTRACT_VERSION) return <div className="fx-empty"><div className="fx-empty-title">Обновите Flux для этого модуля</div></div>;
   const params = new URLSearchParams(location.search);
   const entry = params.get('entry');
   const matchesProject = params.get('projectId') === project?.id;
+  // Окно программы-страницы: какая страница пакета и с какими параметрами (flux.windows.open); чужие имена отбрасываются
+  const asked = params.get('page') || 'index.html';
+  const page = manifest.ui === 'page' && (asked === 'index.html' || (manifest.pages || []).includes(asked)) ? asked : 'index.html';
+  let windowParams: Record<string, unknown> = {};
+  try { const raw = JSON.parse(params.get('params') || '{}'); if (raw && typeof raw === 'object' && !Array.isArray(raw)) windowParams = raw; } catch (_) { /* адрес правил вручную */ }
   const context: LaunchContext = { projectId: project?.id || null,
     entry: matchesProject && (entry === 'equipment' || entry === 'tag') && manifest.entries.includes(entry) ? entry : 'start',
     entityId: matchesProject ? params.get('entityId') : null };
@@ -65,7 +71,7 @@ function ModuleHostSession({ current, location, project, theme }: {
         setRunning(selected); setGeneration(value => value + 1);
       }}>Вышла версия {selected.manifest.version} — Перезапустить</button></div>}
     </div>
-    <ModuleFrame key={`${manifest.id}:${manifest.version}:${generation}`} manifest={manifest} channel={active?.channel} context={context} theme={theme}
+    <ModuleFrame key={`${manifest.id}:${manifest.version}:${generation}:${page}`} page={page} windowParams={windowParams} manifest={manifest} channel={active?.channel} context={context} theme={theme}
       createReadCycle={() => createModuleReadCycle(context)} />
   </div>;
 }

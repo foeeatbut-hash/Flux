@@ -1,6 +1,7 @@
 import type { ConnectCall, ConnectErrorCode, ConnectionDecl, HttpMethod } from './connections/model';
 import type { ModuleLanguage, ModulePlatform, SourceLanguage, ComputeErrorCode } from './engine/types';
-export const CONTRACT_VERSION = 1 as const;
+/** v2 добавляет страницу (`ui: 'page'`); сообщения моста остаются v1 — только новые виды, смысл прежних не меняется */
+export const CONTRACT_VERSION = 2 as const;
 export const resources = ['project', 'equipment', 'tag', 'specification', 'catalog'] as const;
 export type Resource = typeof resources[number];
 export interface LaunchContext {
@@ -41,6 +42,10 @@ export interface ModuleManifest {
   store?: ModuleStoreBlock;
   /** Подключения к внешним программам (этап 3б): разрешение — само объявление в подписанном выпуске */
   connections?: ConnectionDecl[];
+  /** Вид интерфейса: без поля — форма (form.json); `page` — своя страница ui/index.html (договор v2) */
+  ui?: 'page';
+  /** Дополнительные страницы программы-приложения (пути внутри ui/, например `settings.html`); открываются как окна Flux через flux.windows.open. Главная — ui/index.html */
+  pages?: string[];
 }
 export interface Parameter { group: string; key: string; value: string; unit: string }
 export interface TagData { id: string; identifier: string; name: string; parentId: string | null }
@@ -65,6 +70,19 @@ export interface HttpReply { status: number; headers: Record<string, string>; bo
 /** Сообщение WebSocket из очереди; `closed` — сокет закрыт, больше сообщений не будет; `empty` — за время ожидания ничего не пришло */
 export type WsReply = { data: string; encoding: 'utf8' | 'base64' } | { closed: true } | { empty: true };
 export type ModuleFailureKind = 'crash' | 'timeout' | 'memory' | 'bridge' | 'controls' | 'connection';
+/** Действия страницы (договор v2). Названия не похожи на запись: мост отвергает «set/save/…» как попытку записи в данные Flux */
+export type PageOp =
+  | { op: 'state-load' }
+  | { op: 'state-keep'; state: Record<string, unknown> }
+  | { op: 'file-offer'; name: string; mime?: string; data: string; encoding: 'utf8' | 'base64' }
+  | { op: 'beat' }
+  | { op: 'window-open'; page: string; params?: Record<string, unknown> }
+  | { op: 'params-load' }
+  | { op: 'channel-send'; data: unknown };
+export type PageHostMessage =
+  | { flux: 'module'; v: 1; session: string; type: 'page-result'; id: string; data: unknown }
+  | { flux: 'module'; v: 1; session: string; type: 'page-message'; data: unknown }
+  | { flux: 'module'; v: 1; session: string; type: 'page-error'; id: string; code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' };
 export type BridgeError = 'READ_ONLY' | 'DENIED' | 'NO_PROJECT' | 'FAILED' | 'LIMIT';
 export type HostMessage =
   | { flux: 'module'; v: 1; session: string; type: 'event'; event: 'opened' | 'project-changed' | 'changed'; context: LaunchContext; theme: ThemeTokens }

@@ -2,9 +2,10 @@ import { app, protocol, type WebContents } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { bundledModules } from '../modules/bundled';
-import { MODULE_COMPUTE_HOST, MODULE_SCHEME, MODULE_SHELL_DIR, moduleAssetPath, moduleHeaders } from '../modules/protocol';
+import { MODULE_COMPUTE_HOST, MODULE_SCHEME, MODULE_SHELL_DIR, moduleAssetPath, moduleHeaders, pageNavigationAllowed } from '../modules/protocol';
 import { CONTROLS_FILE, LOGIC_FILES } from '../modules/engine/types';
 import { RUNTIME_FILE } from '../modules/trust/bundle';
+import { FLUX_ASSET_DIR, FLUX_ASSET_FILE, PAGE_URL_FILE, pageTypeOf } from '../modules/page/model';
 import type { RunnableRelease } from '../modules/trust/verify';
 import { UPDATE_PUBLIC_KEY_HEX } from './updateKey';
 import { ModuleCache } from './moduleCache';
@@ -27,7 +28,9 @@ export function registerModuleScheme() {
 export function guardModuleNavigation(contents: WebContents) {
   // CSP ограничивает ресурсы, но не самостоятельный переход iframe по внешней ссылке.
   contents.on('will-frame-navigate', event => {
-    if (event.frame?.url.startsWith(`${MODULE_SCHEME}:`)) event.preventDefault();
+    if (!event.frame?.url.startsWith(`${MODULE_SCHEME}:`)) return;
+    if (pageNavigationAllowed(event.frame.url, event.url)) return;
+    event.preventDefault();
   });
 }
 const contentType = (file: string) => file.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8'
@@ -79,6 +82,18 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
     const asset = moduleAssetPath(request.url, [...bundledIds, ...runnable.keys(), MODULE_COMPUTE_HOST]);
     if (request.method !== 'GET' || !asset) return new Response(null, { status: 404 });
     try {
+      // Клиент flux.* и набор Flux — общие, из сборки Flux; программа получает их по /_flux/…, в пакет они не входят
+      if (FLUX_ASSET_FILE.test(asset.file)) {
+        const data = await fs.readFile(path.join(distRoot, 'modules', FLUX_ASSET_DIR, asset.file.slice(FLUX_ASSET_DIR.length + 1)));
+        return new Response(data, { headers: moduleHeaders(contentType(asset.file), false, true) });
+      }
+      // Страница программы: только файлы ui/… из проверенного пакета; у встроенных примеров страниц нет
+      if (PAGE_URL_FILE.test(asset.file)) {
+        const release = runnable.get(asset.id);
+        const bytes = release?.manifest.ui === 'page' && !controls.blocked(release) ? release.files[asset.file] : undefined;
+        if (!bytes) return new Response(null, { status: 404 });
+        return new Response(Buffer.from(bytes), { headers: moduleHeaders(pageTypeOf(asset.file)!, false, true) });
+      }
       if (asset.id === MODULE_COMPUTE_HOST) {
         const data = await fs.readFile(path.join(distRoot, 'modules', MODULE_COMPUTE_HOST, asset.file));
         return new Response(data, { headers: moduleHeaders(contentType(asset.file), true) });
