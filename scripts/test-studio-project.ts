@@ -212,6 +212,13 @@ async function main() {
   const verified = verifyRequest({ signature: built.signature, bundle: built.bundle, rootHex, certificates: certs });
   ok('запрос принимается проверкой сервера с сертификатом владельца', verified.ok && verified.claim.author === dev.publicKey && verified.claim.meta.changelog === 'Первая версия');
   ok('в пакете исходники, форма, примеры, снимки и runtime', (() => { const f = unpackBundle(built.bundle); return ['manifest.json', 'form.json', 'logic/main.ts', 'examples/controls.json', 'store/light.png', 'store/dark.png', 'build/runtime.js'].every(n => f[n]); })());
+  // contract.json — файл договора редакторов Studio (studio/renderer/editors): состав пакета его допускает и при проверке, и у владельца
+  const withContractFile = { ...ready, 'contract.json': enc(JSON.stringify({ version: 1, state: [{ name: 'mode', type: 'string' }], outputs: [] }, null, 2)) };
+  const contractReport = await check(withContractFile);
+  ok('проект с contract.json проходит проверку перед отправкой', contractReport.ok && failing(contractReport).length === 0);
+  const contractBuilt = buildRequest(keyring, { ...input, files: withContractFile, report: contractReport });
+  const contractVerified = verifyRequest({ signature: contractBuilt.signature, bundle: contractBuilt.bundle, rootHex, certificates: certs });
+  ok('запрос с contract.json принимает проверка владельца, файл в пакете', contractVerified.ok && 'contract.json' in unpackBundle(contractBuilt.bundle));
   ok('отчёт проверок приложен к запросу', JSON.parse(built.claim.meta.checks).items.length === goodReport.items.length && JSON.parse(built.claim.meta.checks).ok === true);
   ok('в запросе нет закрытого ключа', !built.signature.includes(JSON.parse(fs.readFileSync(path.join(temp, 'keys', 'developer-key.json'), 'utf8')).secret));
   const noCert = verifyRequest({ signature: built.signature, bundle: built.bundle, rootHex, certificates: new Map() });

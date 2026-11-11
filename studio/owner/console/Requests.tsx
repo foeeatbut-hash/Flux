@@ -204,7 +204,7 @@ function EditDialog({ request, sha256, files, start, onClose, onDone }: { reques
     <Field label="Файл" id="edit-file"><select id="edit-file" value={path} onChange={e => setPath(e.target.value)}>{editable.map(p => <option key={p} value={p}>{p}</option>)}</select></Field>
     <textarea rows={14} className="mono" aria-label="Содержимое файла" value={text} onChange={e => setTexts({ ...texts, [path]: e.target.value })} />
     <Field label="Комментарий для разработчика" id="edit-comment"><input id="edit-comment" value={comment} onChange={e => setComment(e.target.value)} /></Field>
-    <p className="hint">Правятся только manifest.json и файлы данных. Исходный код, form.json и build/runtime.js — через «Вернуть на доработку». Правка уходит отдельным запросом от владельца; разработчик увидит её отдельной разницей.</p>
+    <p className="hint">Правятся только manifest.json и файлы данных. Исходный код, form.json, contract.json и build/runtime.js — через «Вернуть на доработку». Правка уходит отдельным запросом от владельца; разработчик увидит её отдельной разницей.</p>
     <ErrorLine text={error} />
   </Dialog>;
 }

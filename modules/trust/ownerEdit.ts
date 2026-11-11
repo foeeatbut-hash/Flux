@@ -26,4 +26,4 @@ export function ownerEditViolations(parent: BundleFiles, edited: BundleFiles): s
 /** Файлы, которые окно предлагает править: разрешённые и читаемые как текст */
 export const ownerEditablePaths = (files: BundleFiles): string[] => Object.keys(files).filter((p) => ownerMayEdit(p) && bundleText(files, p) !== null).sort();
 
-export const OWNER_EDIT_REFUSAL = 'Владелец правит только manifest.json и файлы данных. Исходный код, form.json и build/runtime.js — только через «Вернуть на доработку».';
+export const OWNER_EDIT_REFUSAL = 'Владелец правит только manifest.json и файлы данных. Исходный код, form.json, contract.json и build/runtime.js — только через «Вернуть на доработку».';

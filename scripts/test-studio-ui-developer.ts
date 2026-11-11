@@ -107,7 +107,7 @@ async function main() {
 
   const browser = await chromium.launch({ ...(process.env.FLUX_CHROME ? { executablePath: process.env.FLUX_CHROME } : {}), args: ['--no-sandbox'] });
   try {
-    ok('точка подключения редакторов: пока раздела нет, подставляется заглушка', editorsEntry().endsWith('editorsStub.tsx'));
+    ok('точка подключения редакторов: настоящий раздел вместо заглушки', editorsEntry().endsWith('editors/index.tsx'));
     for (const theme of ['light', 'dark'] as const) {
       console.log(theme === 'light' ? 'Светлая тема' : 'Тёмная тема');
       fs.rmSync(path.join(data, 'drafts'), { recursive: true, force: true });
@@ -172,8 +172,23 @@ async function main() {
 
       // Редактор
       await nav.getByRole('button', { name: 'Редактор' }).click();
-      await page.getByTestId('editors-stub').waitFor();
-      ok(`${theme}: раздел «Редактор» — заглушка «раздел в работе»`, (await page.getByTestId('editors-stub').innerText()).includes('Раздел в работе'));
+      await page.getByTestId('editors').waitFor();
+      ok(`${theme}: раздел «Редактор» — настоящие редакторы, заглушки нет`, (await page.getByTestId('editors-stub').count()) === 0);
+      await page.getByRole('tab', { name: 'form.json' }).waitFor();
+      // Правка формы → сохранилось в черновик (файл на диске), и текст в редакторе совпадает
+      const draftForm = async () => JSON.parse(((await service.handle('draftFile', { id: 'demo-ui', path: 'form.json' })) as any).text);
+      await page.getByRole('button', { name: 'Добавить: Группа', exact: true }).click();
+      await page.getByLabel('Заголовок группы').fill('Из редактора');
+      for (let i = 0; i < 100 && !(await draftForm()).groups.some((g: any) => g.title === 'Из редактора'); i++) await page.waitForTimeout(50);
+      ok(`${theme}: правка формы сохранилась в черновик проекта`, (await draftForm()).groups.some((g: any) => g.title === 'Из редактора'));
+      await page.getByRole('tab', { name: 'form.json' }).click();
+      ok(`${theme}: текст form.json в редакторе показывает ту же правку`, (await page.locator('[data-testid=form-json]').evaluate(el => el.shadowRoot?.querySelector('.cm-content')?.textContent ?? '')).includes('Из редактора'));
+      await page.getByRole('tab', { name: 'Договор' }).click();
+      await page.getByRole('button', { name: 'Добавить значение' }).first().click();
+      await page.getByLabel('Своё состояние (state): имя 1').fill('shown');
+      for (let i = 0; i < 100 && !fs.existsSync(path.join(data, 'drafts', 'demo-ui', 'project', 'contract.json')); i++) await page.waitForTimeout(50);
+      ok(`${theme}: договор сохранён файлом contract.json в проекте`, fs.existsSync(path.join(data, 'drafts', 'demo-ui', 'project', 'contract.json')));
+      await page.getByRole('tab', { name: 'Форма' }).click();
       await measure(page, `${theme}/редактор`);
       await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-3-editor.png`) });
 

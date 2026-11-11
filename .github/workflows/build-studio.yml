@@ -78,6 +78,13 @@ jobs:
         run: |
           node --import tsx scripts/test-studio-ui.ts
           node --import tsx scripts/test-studio-ui-developer.ts
+      - name: Редакторы подпрограммы (модель) и в браузере, обе темы
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+          FLUX_STUDIO_SHOTS: ${{ runner.temp }}/studio-shots
+        run: |
+          node --import tsx scripts/test-studio-editor.ts
+          node --import tsx scripts/test-studio-editor-ui.ts
       - name: Окно разделов владельца, обе темы
         env:
           FLUX_CHROME: /usr/bin/google-chrome

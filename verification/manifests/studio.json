@@ -18,6 +18,44 @@
         "studio/entry-owner.ts",
         "studio/build.cjs",
         "scripts/check-studio-bundle.ts",
+        "studio/renderer/editors/CodeEditor.tsx",
+        "studio/renderer/editors/CodeView.tsx",
+        "studio/renderer/editors/ContractEditor.tsx",
+        "studio/renderer/editors/FormEditor.tsx",
+        "studio/renderer/editors/FormPalette.tsx",
+        "studio/renderer/editors/FormPreview.tsx",
+        "studio/renderer/editors/FormProps.tsx",
+        "studio/renderer/editors/FormTextEditor.tsx",
+        "studio/renderer/editors/FormTree.tsx",
+        "studio/renderer/editors/RulesPanel.tsx",
+        "studio/renderer/editors/codeSupport.ts",
+        "studio/renderer/editors/contractModel.ts",
+        "studio/renderer/editors/contractTypes.ts",
+        "studio/renderer/editors/controls.tsx",
+        "studio/renderer/editors/designCheck.ts",
+        "studio/renderer/editors/formModel.ts",
+        "studio/renderer/editors/formSchema.ts",
+        "studio/renderer/editors/formStore.ts",
+        "studio/renderer/editors/harness/main.tsx",
+        "studio/renderer/editors/index.tsx",
+        "studio/renderer/editors/jsonText.ts",
+        "studio/renderer/editors/methodology.generated.ts",
+        "studio/renderer/editors/methodology.ts",
+        "studio/renderer/editors/methodologyTypes.ts",
+        "studio/renderer/editors/paths.ts",
+        "studio/renderer/editors/previewModel.ts",
+        "studio/renderer/editors/sample.ts",
+        "studio/renderer/editors/styles.ts",
+        "studio/renderer/editors/types.ts",
+        "scripts/gen-studio-editor-methodology.ts",
+        "modules/dataSchemas.ts",
+        "studio/renderer/editors/harness/index.html",
+        "studio/renderer/editors/packageFiles.ts",
+        "docs/methodology/01-design.md",
+        "modules/formSchema.ts",
+        "modules/miniSchema.ts",
+        "modules/runtime/form.ts",
+        "modules/validateForm.ts",
         "studio/shell/actions.ts",
         "studio/shell/developer.ts",
         "studio/shell/developerServer.ts",
@@ -103,6 +141,33 @@
     {
       "id": "studio-ui",
       "path": "scripts/test-studio-ui.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_CHROME"
+        }
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-editor",
+      "path": "scripts/test-studio-editor.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-editor-ui",
+      "path": "scripts/test-studio-editor-ui.ts",
       "layer": "browser-live",
       "platform": "any",
       "resources": [
