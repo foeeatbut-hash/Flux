@@ -13,7 +13,7 @@ import { sampleFiles } from '../sample';
 declare global { interface Window { __files: Record<string, string>; __changes: number; __failSave: string } }
 
 const theme = new URLSearchParams(location.search).get('theme');
-if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
+if (theme === 'dark' || theme === 'light') document.documentElement.classList.toggle('dark', theme === 'dark');
 
 /** Оболочка в миниатюре: хранит файлы проекта, принимает изменённые и отдаёт обновлённый черновик */
 function Harness() {

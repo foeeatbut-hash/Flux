@@ -33,20 +33,20 @@ const shots = process.env.FLUX_STUDIO_SHOTS || path.join(os.tmpdir(), 'flux-stud
 
 const luminance = (rgb: number[]) => { const [r, g, b] = rgb.map(v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
 const contrast = (a: number[], b: number[]) => { const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
-const parse = (css: string) => (css.match(/[\d.]+/g) || []).map(Number);
 
 async function measure(page: Page, label: string) {
+  const rgb = `css => { const c = document.createElement('canvas').getContext('2d'); c.clearRect(0, 0, 1, 1); c.fillStyle = css; c.fillRect(0, 0, 1, 1); const d = c.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2], d[3] / 255]; }`;
   for (const width of [1180, 1024]) {
     await page.setViewportSize({ width, height: 800 });
-    const info = await page.evaluate(() => {
+    const info = await page.evaluate(`(() => {
+      const rgb = ${rgb};
       const body = getComputedStyle(document.body);
-      const small = [...document.querySelectorAll('main *')].filter(e => e.childNodes.length && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent!.trim()) && parseFloat(getComputedStyle(e).fontSize) < 12).length;
-      return { bg: body.backgroundColor, color: body.color, overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-        unlabeled: [...document.querySelectorAll('input:not([type=checkbox]), select, textarea')].filter(i => !(i as HTMLInputElement).labels?.length).length, small };
-    });
-    const bg = parse(info.bg), fg = parse(info.color);
-    ok(`${label} (${width}): фон сплошной, нет горизонтальной прокрутки, поля подписаны, текст не мельче 12 px`, (bg.length === 3 || bg[3] === 1) && info.overflowX <= 0 && info.unlabeled === 0 && info.small === 0);
-    if (width === 1180) ok(`${label}: контраст текста не ниже 4.5:1`, contrast(fg.slice(0, 3), bg.slice(0, 3)) >= 4.5);
+      const small = [...document.querySelectorAll('main *')].filter(e => e.childNodes.length && [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 12).length;
+      return { bg: rgb(body.backgroundColor), color: rgb(body.color), overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        unlabeled: [...document.querySelectorAll('input:not([type=checkbox]), select, textarea')].filter(i => !i.labels?.length && !i.getAttribute('aria-label')).length, small };
+    })()`) as { bg: number[]; color: number[]; overflowX: number; unlabeled: number; small: number };
+    ok(`${label} (${width}): фон сплошной, нет горизонтальной прокрутки, поля подписаны, текст не мельче 12 px`, info.bg[3] === 1 && info.overflowX <= 0 && info.unlabeled === 0 && info.small === 0);
+    if (width === 1180) ok(`${label}: контраст текста не ниже 4.5:1`, contrast(info.color.slice(0, 3), info.bg.slice(0, 3)) >= 4.5);
   }
   await page.setViewportSize({ width: 1180, height: 800 });
 }
@@ -112,7 +112,8 @@ async function main() {
       console.log(theme === 'light' ? 'Светлая тема' : 'Тёмная тема');
       fs.rmSync(path.join(data, 'drafts'), { recursive: true, force: true });
       fs.rmSync(path.join(data, 'developer-key.json'), { force: true });
-      const page = await browser.newPage({ viewport: { width: 1180, height: 800 }, colorScheme: theme });
+      const page = await browser.newPage({ viewport: { width: 1180, height: 800 } });
+      await page.addInitScript((value: string) => { try { localStorage.setItem('theme', value); } catch { /* приватный режим */ } }, theme);
       const errors: string[] = [];
       page.on('pageerror', e => errors.push(e.message));
       page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
@@ -121,7 +122,7 @@ async function main() {
         requested.push(action);
         if (!ALL_ACTIONS.includes(action)) return { ok: false, error: 'Недоступное действие.' };
         try {
-          if (action === 'state') return { ok: true, value: { version: '1.0.0', build: 'developer', connected: true, display: 'MariaDB / MySQL · db:3306/Flux', warning: '', remembered: '', user: { id: 'dev', name: 'Разработчик' }, sections: [] } };
+          if (action === 'state') return { ok: true, value: { version: '1.0.0', build: 'developer', name: 'Flux Studio', owner: false, sections: [], connected: true, display: 'MariaDB / MySQL · db:3306/Flux', warning: '', remembered: '', user: { id: 'dev', name: 'Разработчик' }, sections: [] } };
           if (action === 'logout') return { ok: true, value: {} };
           if (action === 'modules') return { ok: true, value: requestRows().map(r => ({ moduleId: r.moduleId, version: r.version, state: r.state, createdAt: r.createdAt, requests: 1 })) };
           const value: any = await service.handle(action as any, args || {});
