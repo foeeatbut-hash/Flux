@@ -68,7 +68,7 @@ async function main() {
     });
     await test('Неверные URI отклоняются без раскрытия введённых данных', async () => {
       for (const value of ['http://u:p@host/db', 'https://u:p@host/db', 'postgres://u:p@host/db', 'postgresql://u:p@host/db', 'mysql://host/db', 'mysql://u:@host/db', 'mysql://u:p@host/', 'mysql://u:p@host:99999/db', 'mysql://u:%ZZ@host/db', 'mysql://u:p@host/db#secret', 'mysql://u:p@host/db#', 'mysql://u:p@host/db/other', 'mysql://u:p@host/db?option=%ZZ', 'mysql://u:p@host/db?option=%', 'mysql://u:p@host/db?option=%0', 'mysql://u:p@host/db?option=a\\b', 'mysql://u:p@host/db?option=' + 'x'.repeat(4096)]) {
-        assert.throws(() => parseDatabaseUri(value), error => !error.message.includes(value) && /Введите адрес/.test(error.message));
+        assert.throws(() => parseDatabaseUri(value), error => !error.message.includes(value) && /Адрес базы не подходит/.test(error.message));
       }
     });
     await test('REMOTE-конфиг, локальный адрес, состояние настройки и остановка собственного дерева', async () => {
@@ -110,7 +110,7 @@ async function main() {
     await test('Отмена выбора и неверный формат EXE не создают сервер или конфиг', async () => {
       const f = fixture({ version: 'missing-version' });
       f.options.dialog = { showOpenDialog: async () => ({ canceled: true }) };
-      await rejection(f, /отменено/); assert.equal(f.spawns.length, 0);
+      await rejection(f, /Не найден Flux рядом со Studio.*Flux-missing-version-x64\.exe/); assert.equal(f.spawns.length, 0);
       for (const [name, data] of [['Flux-short.exe', Buffer.from('MZ')], ['Flux-bad.exe', Buffer.alloc(1024)], ['Flux-file.txt', bytes]]) {
         const file = path.join(temp, name); await fs.writeFile(file, data);
         const g = fixture({ version: 'missing-version' });
@@ -127,7 +127,7 @@ async function main() {
     await test('HTTP и PostgreSQL URI отклоняются до запуска дочернего Flux', async () => {
       for (const address of ['http://127.0.0.1:3000', 'https://flux.example.test', 'postgres://test-user:temporary-test-pass@db.example.test/Flux', 'postgresql://test-user:temporary-test-pass@db.example.test/Flux']) {
         const f = fixture(); f.options.uri = address;
-        await rejection(f, /Введите адрес общей MariaDB \/ MySQL/);
+        await rejection(f, /Адрес базы не подходит/);
         assert.equal(f.spawns.length, 0, `дочерний Flux не запускается для ${new URL(address).protocol}`);
       }
     });
@@ -169,7 +169,7 @@ async function main() {
       await second.stop(); assert.equal(unexpectedExits, 2); await clean();
       const startup = fixture(); startup.options.onUnexpectedExit = () => { unexpectedExits++; };
       startup.deps.requestHealth = async () => { startup.children[0].emit('error', new Error(uri)); return goodHealth; };
-      await rejection(startup, /завершился/); assert.equal(unexpectedExits, 2);
+      await rejection(startup, /Windows не дал запустить Flux/); assert.equal(unexpectedExits, 2);
     });
     await test('Ошибка запуска и аварийный exit не раскрывают stderr или URI', async () => {
       const spawnFailure = fixture({ spawn: () => { throw new Error(uri); } }); await rejection(spawnFailure);
@@ -178,11 +178,66 @@ async function main() {
           f.children[0].emit(event, event === 'error' ? new Error(uri) : 1);
           return goodHealth;
         };
-        await rejection(f, /завершился/); assert.equal(f.kills.length, 1);
+        await rejection(f, event === 'error' ? /Windows не дал запустить Flux/ : /Flux не запустился: процесс завершился с кодом 1/); assert.equal(f.kills.length, 1);
       }
       const f = fixture(); const runtime = await startDatabaseRuntime(f.options, f.deps);
       f.children[0].exitCode = 1; f.children[0].emit('exit', 1);
       await runtime.stop(); await clean();
+    });
+    // Причины отказа подключения (решение владельца 11 ноября 2026): каждая названа словами и подсказывает, что делать;
+    // «Подключение к общей базе отменено» остаётся только для настоящей отмены человеком.
+    await test('Причина: адрес базы — что именно не так, без самого адреса', async () => {
+      const cases = [['', /он пуст/], ['http://u:p@h/db', /mysql:\/\/ или mariadb:\/\/ \(сейчас «http:\/\/»\)/], ['mysql://u:p@/db', /не указан сервер|не разбирается/], ['mysql://u@h/db', /не указан пользователь или пароль/],
+        ['mysql://u:p@h/', /не указано имя базы/], ['mysql://u:p@h:99999/db', /порт должен быть числом от 1 до 65535/], ['mysql://u:p@h/db?x=1', /только ssl=true или ssl=false/],
+        ['mysql://u:p w@h/db', /пробел/], ['просто_слова', /mysql:\/\/ или mariadb:\/\/|не разбирается/]];
+      for (const [address, pattern] of cases) {
+        const f = fixture(); f.options.uri = address;
+        const error = await rejection(f, /Адрес базы не подходит/); assert.match(error.message, pattern, address); assert.equal(f.spawns.length, 0);
+        assert.ok(!address || address.length < 4 || !error.message.includes(address), 'адрес не повторяется в сообщении');
+      }
+    });
+    await test('Причина: Flux рядом не найден — названо имя файла, папка и что делать', async () => {
+      const empty = path.join(temp, 'empty-dir'); await fs.mkdir(empty, { recursive: true });
+      const f = fixture({ version: '7.7.7', env: { PORTABLE_EXECUTABLE_DIR: empty } });
+      const error = await rejection(f, /Не найден Flux рядом со Studio/);
+      assert.match(error.message, /Flux-7\.7\.7-x64\.exe/); assert.match(error.message, /empty-dir/); assert.match(error.message, /в одну папку/); assert.doesNotMatch(error.message, /отменено/);
+      const manual = fixture({ version: '7.7.7', env: { PORTABLE_EXECUTABLE_DIR: empty } });
+      manual.options.dialog = { showOpenDialog: async () => ({ canceled: true }) };
+      await rejection(manual, /Файл не выбран/); assert.equal(manual.spawns.length, 0);
+    });
+    await test('Причина: Flux не запустился — код выхода и последняя строка журнала без адреса и пароля', async () => {
+      const g = fixture(); let spoke = false;
+      g.deps.spawn = (file, args, options) => {
+        const child = new EventEmitter(); child.pid = nextPid++; child.exitCode = null; child.signalCode = null;
+        child.stdout = new EventEmitter(); child.stderr = new EventEmitter();
+        child.kill = () => true; g.children.push(child);
+        setTimeout(() => {
+          child.stderr.emit('data', Buffer.from('boot\nError: connect failed for mysql://test-user:temporary-test-pass@db.example.test/Flux password=temporary-test-pass\n'));
+          child.exitCode = 3; child.emit('exit', 3, null); spoke = true;
+        }, 5);
+        return child;
+      };
+      g.deps.requestHealth = () => new Promise(() => {});
+      const error = await rejection(g, /Flux не запустился: процесс завершился с кодом 3/);
+      assert.ok(spoke); assert.match(error.message, /Последняя строка его журнала: «Error: connect failed for \[адрес скрыт\] password=\[скрыто\]»/);
+      assert.match(error.message, /Запустите Flux-test-x64\.exe вручную/); assert.doesNotMatch(error.message, /отменено/);
+      const spawnError = fixture(); spawnError.deps.spawn = () => { const e = new Error('spawn'); e.code = 'EACCES'; throw e; };
+      await rejection(spawnError, /Windows не дал запустить Flux \(EACCES\)/);
+    });
+    await test('Причина: база не ответила — Flux запущен, но сообщает, что базы нет; и молчание без ответа', async () => {
+      const f = fixture({ requestHealth: async () => ({ statusCode: 503, body: { ok: false, code: 'REMOTE_DATABASE_UNAVAILABLE', error: 'connect ECONNREFUSED 10.0.0.5:3306' } }) });
+      const error = await rejection(f, /Flux запустился, но база не ответила: «connect ECONNREFUSED 10\.0\.0\.5:3306»/);
+      assert.match(error.message, /адрес, порт, пользователя и пароль/); assert.equal(f.kills.length, 1);
+      const silent = fixture({ requestHealth: async () => { throw new Error(uri); }, startupTimeoutMs: 40 });
+      const timeout = await rejection(silent, /не подтвердил подключение к базе \(проверка \/api\/health не отвечала\)/);
+      assert.match(timeout.message, /брандмауэр/);
+      const slow = fixture({ requestHealth: async () => ({ statusCode: 503, body: { ok: false } }), startupTimeoutMs: 40 });
+      await rejection(slow, /последний ответ проверки: 503/);
+    });
+    await test('Отмена человеком остаётся «отменено», а отказы — нет', async () => {
+      const controller = new AbortController();
+      const f = fixture({ requestHealth: async () => { controller.abort(); throw new Error(uri); } }); f.options.signal = controller.signal;
+      await rejection(f, /Подключение к общей базе отменено/);
     });
     await test('Оборванный native dialog не блокирует отмену подключения', async () => {
       const f = fixture({ version: 'missing-version' }), controller = new AbortController();

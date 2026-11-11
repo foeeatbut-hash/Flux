@@ -6,7 +6,7 @@
  * владельца; в сборке разработчика этого параметра просто нет, и кода этих
  * разделов в бандле нет тоже (scripts/check-studio-bundle.ts).
  */
-import { app, BrowserWindow, dialog, ipcMain, protocol, safeStorage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, protocol, safeStorage } from 'electron';
 import path from 'node:path';
 import { startDatabaseRuntime } from '../shared/database-runtime.cjs';
 import { createControlsEngine } from '../shared/controlsEngine';
@@ -15,13 +15,19 @@ import { ownModules, signIn, StudioFailure, type StudioModule, type StudioUser }
 import { ALL_ACTIONS, SHELL_ACTIONS, type DeveloperAction } from './actions';
 import { DeveloperService } from './developer';
 import { RememberedBase } from './remembered';
+import { OwnerKeyLogin } from './ownerLogin';
 
 declare const __STUDIO_VERSION__: string;
 declare const __STUDIO_BUILD__: string;
+declare const __STUDIO_NAME__: string;
 
 export interface ShellSection { id: string; title: string; open: () => void | Promise<void> }
 
 const ACTIONS = ALL_ACTIONS;
+const PRODUCT_NAME = typeof __STUDIO_NAME__ === 'string' ? __STUDIO_NAME__ : 'Flux Studio';
+
+/** Значок окна и панели задач — тот же файл, что значок exe (studio/build.cjs кладёт его рядом с main.cjs) */
+const windowIcon = () => nativeImage.createFromPath(path.join(__dirname, 'icon.png'));
 type ShellAction = typeof SHELL_ACTIONS[number];
 
 // Подпрограмма запускается в окне Studio тем же протоколом и в той же изоляции, что во Flux (modules/protocol.ts)
@@ -40,21 +46,29 @@ export function startShell(sections: ShellSection[] = []): void {
   let warning = '';
   let developer: DeveloperService | null = null;
   let remembered: RememberedBase | null = null;
+  const ownerKey = new OwnerKeyLogin(dialog);
 
   const snapshot = () => ({
     version: __STUDIO_VERSION__, build: __STUDIO_BUILD__,
     connected: !!runtime, display: runtime?.display || '', user, warning,
     remembered: remembered?.display() || '',
-    sections: sections.map(({ id, title }) => ({ id, title })),
+    // Разделы владельца видны только вошедшему владельцем: вошедший по логину разработчик их не получает
+    sections: owner ? sections.map(({ id, title }) => ({ id, title })) : [],
   });
   const push = () => { if (win && !win.isDestroyed()) win.webContents.send('studio:state', snapshot()); };
   const progress = (phase: string) => { if (win && !win.isDestroyed()) win.webContents.send('studio:progress', { phase }); };
 
-  const disconnect = async () => {
-    operation?.abort();
+  /** Сбрасывает соединение и вход, не трогая текущую операцию: подключение к другой базе начинается с этого сброса, внутри своей же операции */
+  const release = async () => {
     token = ''; user = null; owner = false; warning = '';
+    ownerKey.forget();
     const previous = runtime; runtime = null;
     if (previous) await previous.stop().catch(() => {});
+  };
+  /** Отключение по просьбе человека: заодно прерывает долгую операцию (иначе подключение продолжило бы работу над сброшенным состоянием) */
+  const disconnect = async () => {
+    operation?.abort();
+    await release();
   };
   /** Одна длинная операция за раз: второй щелчок не запускает вторую базу */
   const busy = async <T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> => {
@@ -70,7 +84,8 @@ export function startShell(sections: ShellSection[] = []): void {
   };
 
   const connectTo = (uri: string, remember: boolean) => busy(async signal => {
-    await disconnect();
+    // Не disconnect(): он прерывает текущую операцию, то есть само это подключение, и человек видел «Подключение к общей базе отменено»
+    await release();
     runtime = await startDatabaseRuntime({
       uri, signal, dialog, parentWindow: win, onProgress: (phase: string) => progress(phase),
       onUnexpectedExit: () => { void disconnect().then(push); },
@@ -96,7 +111,17 @@ export function startShell(sections: ShellSection[] = []): void {
       token = signed.token; user = signed.user; owner = signed.owner;
       return snapshot();
     }),
-    logout: async () => { token = ''; user = null; owner = false; return snapshot(); },
+    ownerSelectKey: async () => {
+      if (!win) throw new StudioFailure('Окно недоступно.');
+      return ownerKey.select(win);
+    },
+    ownerLogin: async args => busy(async signal => {
+      if (!runtime) throw new StudioFailure('Сначала подключитесь к общей базе.');
+      const signed = await ownerKey.login(runtime.origin, text(args.password, 1024), signal);
+      token = signed.token; user = signed.user; owner = signed.owner;
+      return snapshot();
+    }),
+    logout: async () => { token = ''; user = null; owner = false; ownerKey.forget(); return snapshot(); },
     disconnect: async () => { await disconnect(); return snapshot(); },
     modules: async (): Promise<StudioModule[]> => {
       if (!runtime || !token) throw new StudioFailure('Войдите в Flux Studio.');
@@ -122,11 +147,22 @@ export function startShell(sections: ShellSection[] = []): void {
       capture: async rect => (await win!.webContents.capturePage(rect)).toPNG(),
     });
     win = new BrowserWindow({
-      width: 1180, height: 800, minWidth: 880, minHeight: 600, title: `Flux Studio ${__STUDIO_VERSION__}`,
-      backgroundColor: '#0f172a', autoHideMenuBar: true,
+      width: 1280, height: 800, minWidth: 960, minHeight: 620, title: `${PRODUCT_NAME} ${__STUDIO_VERSION__}`,
+      // Окно такое же, как у Flux: без системной рамки, кнопки окна рисует плавающая панелька (src/components/window)
+      backgroundColor: '#0f172a', autoHideMenuBar: true, frame: false, titleBarStyle: 'hidden', hasShadow: true, roundedCorners: true, show: false,
+      icon: windowIcon(),
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true },
     });
     win.setMenu(null);
+    // Показываем окно, когда страница готова: человек сразу видит стартовую заставку, а не белый экран
+    win.once('ready-to-show', () => win?.show());
+    win.on('maximize', () => win?.webContents.send('window:maximized-changed', true));
+    win.on('unmaximize', () => win?.webContents.send('window:maximized-changed', false));
+    const fromWindow = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) => (win && event.sender === win.webContents ? win : null);
+    ipcMain.on('window:minimize', event => { fromWindow(event)?.minimize(); });
+    ipcMain.on('window:maximize', event => { const w = fromWindow(event); if (w) (w.isMaximized() ? w.unmaximize() : w.maximize()); });
+    ipcMain.on('window:close', event => { fromWindow(event)?.close(); });
+    ipcMain.handle('window:is-maximized', event => !!fromWindow(event)?.isMaximized());
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
     // CSP ограничивает ресурсы, но не самостоятельный переход iframe подпрограммы по ссылке

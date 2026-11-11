@@ -10,24 +10,46 @@ const fluxVersion = require('../../package.json').version;
 
 class RuntimeError extends Error {}
 const failure = message => new RuntimeError(message);
+/** Только настоящая отмена человеком; остальные отказы называют свою причину */
 const canceled = () => failure('Подключение к общей базе отменено.');
 
+/** Адрес не разобран: что именно не так, сказано словами, но без самого адреса (в нём пароль) */
+const addressFailure = reason => failure(`Адрес базы не подходит: ${reason} Образец: mysql://ПОЛЬЗОВАТЕЛЬ:ПАРОЛЬ@сервер:3306/база.`);
+
 function parseDatabaseUri(value) {
-  try {
-    if (typeof value !== 'string' || value.length > 4096 || /[\\#\u0000-\u0020\u007f]/.test(value) || /%(?![\da-fA-F]{2})/.test(value)) throw new Error();
-    const url = new URL(value);
-    const dialect = { 'mysql:': 'mysql', 'mariadb:': 'mysql' }[url.protocol];
-    const username = decodeURIComponent(url.username), password = decodeURIComponent(url.password);
-    const database = decodeURIComponent(url.pathname.slice(1));
-    if (!dialect || !url.hostname || !username || !password || !database || url.hash ||
-        /[\u0000-\u001f\u007f]/.test(username + password + database) || database.includes('/') ||
-        (url.port && (!/^\d+$/.test(url.port) || Number(url.port) < 1 || Number(url.port) > 65535))) throw new Error();
-    for (const [name, value] of url.searchParams) if (name !== 'ssl' || !['true', 'false'].includes(value)) throw new Error();
-    const port = url.port || '3306';
-    return { uri: url.toString(), dialect, display: `MariaDB / MySQL · ${url.hostname}:${port}/${database}` };
-  } catch {
-    throw failure('Введите адрес общей MariaDB / MySQL в формате mysql:// или mariadb:// с пользователем, паролем и именем базы.');
+  if (typeof value !== 'string' || !value.trim()) throw addressFailure('он пуст.');
+  if (value.length > 4096) throw addressFailure('он слишком длинный.');
+  if (/[\\#\u0000-\u0020\u007f]/.test(value) || /%(?![\da-fA-F]{2})/.test(value)) {
+    throw addressFailure('в нём есть пробел, «\\», «#» или некорректная последовательность «%». Специальные знаки пароля записываются как %XX.');
   }
+  let url;
+  try { url = new URL(value); }
+  catch {
+    // URL не принимает порт вне 0–65535: это самая частая опечатка, скажем о ней прямо
+    const port = /@[^/@]*:([^/@:]*)(?:\/|$)/.exec(value)?.[1];
+    if (port !== undefined && (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535)) throw addressFailure('порт должен быть числом от 1 до 65535.');
+    throw addressFailure('он не разбирается как адрес.');
+  }
+  const dialect = { 'mysql:': 'mysql', 'mariadb:': 'mysql' }[url.protocol];
+  if (!dialect) throw addressFailure(`адрес должен начинаться с mysql:// или mariadb:// (сейчас «${url.protocol.replace(/:$/, '')}://»).`);
+  if (!url.hostname) throw addressFailure('не указан сервер базы (после «@»).');
+  let username, password, database;
+  try { username = decodeURIComponent(url.username); password = decodeURIComponent(url.password); database = decodeURIComponent(url.pathname.slice(1)); }
+  catch { throw addressFailure('в нём некорректная последовательность «%».'); }
+  if (!username || !password) throw addressFailure('не указан пользователь или пароль базы.');
+  if (!database || database.includes('/')) throw addressFailure('не указано имя базы (после последней «/»).');
+  if (/[\u0000-\u001f\u007f]/.test(username + password + database) || url.hash) throw addressFailure('в нём есть недопустимые знаки.');
+  if (url.port && (!/^\d+$/.test(url.port) || Number(url.port) < 1 || Number(url.port) > 65535)) throw addressFailure('порт должен быть числом от 1 до 65535.');
+  for (const [name, flag] of url.searchParams) if (name !== 'ssl' || !['true', 'false'].includes(flag)) throw addressFailure('из параметров поддерживается только ssl=true или ssl=false.');
+  const port = url.port || '3306';
+  return { uri: url.toString(), dialect, display: `MariaDB / MySQL · ${url.hostname}:${port}/${database}` };
+}
+
+/** Строка из журнала Flux для человека: без адресов и паролей, одной строкой, не длиннее 160 знаков */
+function logLine(text) {
+  const line = String(text).split(/\r?\n/).map(part => part.trim()).filter(Boolean).pop() || '';
+  return line.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[адрес скрыт]').replace(/(password|passwd|pwd|token|secret)\s*[=:]\s*\S+/gi, '$1=[скрыто]')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 160);
 }
 
 async function inspectExecutable(file, fileSystem) {
@@ -157,10 +179,14 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
     }
     check();
     if (!file) {
-      if (!dialog?.showOpenDialog) throw failure('Выберите portable Flux EXE для подключения к общей базе.');
+      const expected = `Flux-${deps.version}-x64.exe`;
+      const where = deps.env.PORTABLE_EXECUTABLE_DIR ? `рядом со Studio (в папке ${deps.env.PORTABLE_EXECUTABLE_DIR})` : 'рядом со Studio';
+      const notFound = `Не найден Flux ${where}: нужен файл ${expected}. Положите его в одну папку с этой программой и подключитесь снова или выберите файл вручную.`;
+      if (!dialog?.showOpenDialog) throw failure(notFound);
       const options = { title: 'Выберите portable Flux (Flux*.exe)', properties: ['openFile'], filters: [{ name: 'Portable Flux', extensions: ['exe'] }] };
       const selection = await abortable(parentWindow ? dialog.showOpenDialog(parentWindow, options) : dialog.showOpenDialog(options), controller.signal);
-      if (selection.canceled || !selection.filePaths?.[0]) throw canceled();
+      // Окно выбора закрыто без выбора: не «отмена вообще», а понятная причина, что делать
+      if (selection.canceled || !selection.filePaths?.[0]) throw failure(`${notFound} Файл не выбран, подключение не выполнено.`);
       file = selection.filePaths[0];
     }
     await inspectExecutable(file, deps.fs);
@@ -177,17 +203,24 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
     // Переменные загрузчика Owner относятся к другому EXE и не должны передаваться Flux.
     delete env.PORTABLE_EXECUTABLE_DIR;
     delete env.PORTABLE_EXECUTABLE_FILE;
-    child = deps.spawn(file, ['--flux-company-server'], { windowsHide: true, env, stdio: ['ignore','pipe','pipe'] });
+    try { child = deps.spawn(file, ['--flux-company-server'], { windowsHide: true, env, stdio: ['ignore','pipe','pipe'] }); }
+    catch (error) { throw failure(`Windows не дал запустить Flux${error?.code ? ` (${error.code})` : ''}. Проверьте права на папку и антивирус, затем запустите ${path.basename(file)} вручную: если он не открывается, проблема в самом Flux.`); }
     record('process.spawned',{pid:child.pid,port});
-    // Регистрируем только коды ошибок и объём вывода: строки дочернего процесса
-    // могут содержать SQL или реквизиты и не должны попадать в журнал Owner.
-    for(const name of ['stdout','stderr'])child[name]?.on('data',chunk=>{const text=String(chunk);const codes=[...new Set(text.match(/\b(?:P\d{4}|EACCES|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ER_[A-Z_]{3,50})\b/g)||[])];if(codes.length)record('process.diagnostic',{stream:name,codes});});
-    deadline = setTimeout(() => {record('startup.timeout');controller.abort(failure('Локальный обработчик Flux не подтвердил подключение к общей БД за две минуты. Проверьте журнал, права и доступность базы.'));}, deps.startupTimeoutMs);
+    // В журнал Owner попадают только коды ошибок и объём вывода: строки дочернего процесса могут содержать SQL или
+    // реквизиты. Последнюю строку (без адресов и паролей) оставляем только для сообщения человеку об отказе запуска.
+    let lastLine = '';
+    for(const name of ['stdout','stderr'])child[name]?.on('data',chunk=>{const text=String(chunk);const mine=logLine(text);if(mine)lastLine=mine;const codes=[...new Set(text.match(/\b(?:P\d{4}|EACCES|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ER_[A-Z_]{3,50})\b/g)||[])];if(codes.length)record('process.diagnostic',{stream:name,codes});});
+    deadline = setTimeout(() => {record('startup.timeout');controller.abort(failure(`Flux запустился, но за две минуты не подтвердил подключение к базе${lastHealth ? ` (последний ответ проверки: ${lastHealth})` : ' (проверка /api/health не отвечала)'}. Проверьте, что сервер базы доступен с этого компьютера: адрес, порт, брандмауэр.`));}, deps.startupTimeoutMs);
+    let lastHealth = '';
     const childFailed = (code,childSignal) => {
       record('process.exit',{ready,code:typeof code==='number'?code:code?.code??null,signal:childSignal??null});
       const unexpected = ready && !stopping && !unexpectedExitNotified;
       if (unexpected) unexpectedExitNotified = true;
-      controller.abort(failure('Локальный сервер Flux завершился. Проверьте portable EXE и доступность общей базы.'));
+      let reason;
+      if (ready) reason = failure('Локальный сервер Flux завершился. Проверьте portable EXE и доступность общей базы.');
+      else if (code instanceof Error) reason = failure(`Windows не дал запустить Flux${code.code ? ` (${code.code})` : ''}. Проверьте права на папку и антивирус, затем запустите ${path.basename(file)} вручную.`);
+      else reason = failure(`Flux не запустился: процесс завершился${typeof code === 'number' ? ` с кодом ${code}` : childSignal ? ` (сигнал ${childSignal})` : ''}${lastLine ? `. Последняя строка его журнала: «${lastLine}»` : ''}. Запустите ${path.basename(file)} вручную: если он не открывается, проблема в самом Flux (версия, антивирус, права).`);
+      controller.abort(reason);
       if (unexpected) {
         try { Promise.resolve(onUnexpectedExit?.()).catch(() => {}); } catch {}
       }
@@ -203,6 +236,12 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
       try { health = await abortable(deps.requestHealth(port, controller.signal, deps.requestTimeoutMs), controller.signal); }
       catch(error) {if(++polls===1||polls%20===0)record('health.retry',{attempt:polls,code:error?.code??null});check(); }
       check();
+      if (health) lastHealth = `${health.statusCode}${health.body?.code ? ` ${String(health.body.code).slice(0, 60)}` : ''}`;
+      // Flux поднялся, но сам сообщает, что база недоступна: ждать две минуты нечего
+      if (health?.statusCode === 503 && /^(REMOTE|LOCAL)_DATABASE_UNAVAILABLE$/.test(String(health.body?.code || ''))) {
+        const said = logLine(health.body?.error || '');
+        throw failure(`Flux запустился, но база не ответила${said ? `: «${said}»` : ''}. Проверьте адрес, порт, пользователя и пароль базы, а также что сервер базы доступен с этого компьютера.`);
+      }
       if (health?.statusCode === 200 && health.body?.ok === true) {
         if (health.body.databaseMode !== 'REMOTE' || health.body.dialect !== database.dialect) {
           throw failure('Flux не подтвердил подключение к указанной общей базе. Обновите portable Flux и проверьте настройки.');
@@ -218,7 +257,7 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
   } catch (error) {
     record('startup.failure',{error});
     try { await stop(); } catch (cleanupError) { throw cleanupError instanceof RuntimeError ? cleanupError : failure('Не удалось завершить локальное подключение Flux.'); }
-    throw error instanceof RuntimeError ? error : failure('Не удалось подключиться к общей базе. Проверьте portable Flux EXE, адрес и доступность базы.');
+    throw error instanceof RuntimeError ? error : failure('Не удалось подключиться к общей базе: непредвиденная ошибка при запуске Flux. Проверьте portable Flux EXE, адрес и доступность базы.');
   }
 }
 

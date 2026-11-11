@@ -1,0 +1,8 @@
+/* Оформление Flux целиком: токены, шрифты, fx-* и Tailwind — тот же файл, что собирает сам Flux (src/index.css).
+   Tailwind находит нужные классы только в перечисленных источниках, а не по всему репозиторию. */
+@import "../../src/index.css";
+@source "./";
+@source "../shared";
+@source "../../src/components/auth";
+@source "../../src/components/window";
+@source "../owner/console";

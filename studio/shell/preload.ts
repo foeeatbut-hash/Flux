@@ -18,3 +18,14 @@ contextBridge.exposeInMainWorld('studio', Object.freeze({
   onState: (fn: unknown) => subscribe('studio:state', fn),
   onProgress: (fn: unknown) => subscribe('studio:progress', fn),
 }));
+
+/** Кнопки окна — тот же мост, что у Flux (window.electron.windowControls), чтобы одна и та же плавающая панелька работала в обеих программах */
+contextBridge.exposeInMainWorld('electron', Object.freeze({
+  windowControls: Object.freeze({
+    minimize: () => ipcRenderer.send('window:minimize'),
+    maximize: () => ipcRenderer.send('window:maximize'),
+    close: () => ipcRenderer.send('window:close'),
+    isMaximized: () => ipcRenderer.invoke('window:is-maximized'),
+    onMaximizedChange: (fn: unknown) => subscribe('window:maximized-changed', fn),
+  }),
+}));

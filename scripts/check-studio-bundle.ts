@@ -19,10 +19,20 @@ import path from 'node:path';
 /** Метки, которых нет и не должно быть в коде разработчика. Каждая обязана встречаться в сборке владельца: scripts/test-studio-bundle.ts */
 export const OWNER_MARKERS = [
   'signUpdate', 'issueLicense', 'publicConfig', 'publishRevocation', 'withdrawUpdate',
-  'flux-owner-login', 'FLUXPUBLIC1', 'privatePem', 'vault.flux-owner', 'owner:action', 'generateVaults',
+  'FLUXPUBLIC1', 'owner:action', 'generateVaults',
   // Разделы владельца, перешедшие из Flux (этап 4в): подпись выпусков и сертификатов, назначение обновлений, окно разделов
   'moduleClaimFor', 'signModule', 'signCampaign', 'console:action', 'FLUXUPDCMD1', 'FLUXUPDAUTH1',
 ];
+/**
+ * Вход владельца файлом ключа (решение владельца 11 ноября 2026: одинаковый вход во всех программах) — это не «код владельца»:
+ * выбрать файл .flux-owner, расшифровать его паролем и подписать одноразовый запрос сервера. Кода, который что-то выпускает
+ * или подписывает для других (лицензии, обновления, подписи выпусков, создание и запись хранилища), здесь нет и не будет.
+ * Эти метки обязаны быть в КАЖДОЙ сборке, включая сборку разработчика: без них вход владельца в ней сломан (проверка ниже).
+ */
+export const OWNER_LOGIN_MARKERS: Record<string, string> = {
+  'flux-owner-login': 'studio/shared/ownerKey.ts', privatePem: 'studio/shared/vaultRead.cjs',
+  'vault.flux-owner': 'studio/shared/ownerKey.ts', signOwnerChallenge: 'studio/shared/ownerKey.ts',
+};
 /** Файлы владельца вне studio/owner: общий импорт любого из них тянет код владельца в чужой бандл, даже под другим именем функции */
 export const OWNER_PATHS = [
   /^studio\/owner\//, /^license\/ownerKey\.ts$/, /^modules\/trust\/owner\.ts$/, /^modules\/trust\/ownerEdit\.ts$/, /^electron\/ownerLogin\.ts$/,
@@ -37,7 +47,6 @@ export const OUTSIDE_MARKERS: Record<string, string> = {
   // Тексты отказов сборщиков подписи переживают переименование функций и файла
   'Описание правки не прошло проверку': 'modules/trust/owner.ts', 'Запрос разработчика повреждён': 'modules/trust/owner.ts',
   'Нужен подписанный владельцем выпуск тестового канала': 'modules/trust/owner.ts',
-  signOwnerChallenge: 'electron/ownerLogin.ts',
   OWNER_PUBLIC_KEY_HEX: 'license/ownerKey.ts', OWNER_BACKUP_PUBLIC_KEY_HEX: 'license/ownerKey.ts', LICENSE_SIGNING_PUBLIC_KEY_HEX: 'license/ownerKey.ts',
 };
 const OWNER_DIRECTORIES = ['owner', 'ui'];
@@ -75,7 +84,11 @@ export function checkBundle(dir: string, asar?: string): string[] {
     const text = raw + '\n' + readable(raw);
     for (const marker of [...OWNER_MARKERS, ...Object.keys(OUTSIDE_MARKERS)]) if (text.includes(marker)) problems.push(`${label}: найдена метка кода владельца «${marker}»`);
   };
-  for (const file of filesOf(app)) scan(path.relative(dir, file).replace(/\\/g, '/'), fs.readFileSync(file, 'latin1'));
+  const texts = filesOf(app).map((file) => [path.relative(dir, file).replace(/\\/g, '/'), fs.readFileSync(file, 'latin1')] as const);
+  for (const [label, raw] of texts) scan(label, raw);
+  // Вход владельца файлом ключа обязан быть: иначе владелец не войдёт в Studio прежним файлом
+  const everything = texts.map(([, raw]) => raw).join('\n');
+  for (const marker of Object.keys(OWNER_LOGIN_MARKERS)) if (!everything.includes(marker)) problems.push(`в пакете нет входа владельца файлом ключа (не найдена метка «${marker}»)`);
   if (asar) scan(`asar ${path.basename(asar)}`, fs.readFileSync(asar, 'latin1'));
   return problems;
 }
