@@ -36,6 +36,11 @@ export interface ModulePublishingDeps {
   can?: (user: any, feature: string) => boolean;
   /** Только для проверок с одноразовым ключом; HTTP ключ не выбирает */
   modulePublicKeyHex?: string;
+  /**
+   * Дополнительные условия приёма запросов от Flux Studio (server/routes/studioDeveloper.ts): ЯВНОЕ право
+   * разработки и запрет присылать версию чужой подпрограммы. Без него действует только общая проверка `can`.
+   */
+  studioGate?: { allowed: (req: Request) => Promise<boolean>; ownership: (db: any, req: Request, moduleId: string) => Promise<string | null> };
 }
 
 const isOwner = (req: Request) => (req as any).authUser?.role === 'OWNER';
@@ -52,6 +57,18 @@ function requestView(r: any) {
     decidedBy: r.decidedBy, decidedAt: r.decidedAt, review: r.review ? JSON.parse(r.review) : null,
     meta: claim?.meta || null,
   };
+}
+
+/** Сколько запросов одного разработчика могут ждать проверки владельца одновременно */
+export const MAX_PENDING_PER_AUTHOR = 5;
+
+/** Текст отказа, если отчёта проверки нет, он не читается или в нём есть «не прошло»; пусто — отчёт годится */
+export function checksRefusal(checks: string): string {
+  let report: any;
+  try { report = JSON.parse(checks || ''); } catch { return 'К запросу не приложен отчёт проверки Studio: отправьте из Studio после проверки.'; }
+  if (!report || typeof report !== 'object') return 'К запросу не приложен отчёт проверки Studio: отправьте из Studio после проверки.';
+  if (report.ok !== true || (Array.isArray(report.items) && report.items.some((i: any) => i?.status === 'fail'))) return 'В отчёте проверки есть «не прошло»: такой запрос не принимается.';
+  return '';
 }
 
 export function registerModulePublishingRoutes(app: Express, deps: ModulePublishingDeps): void {
@@ -72,13 +89,16 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
 
   app.post('/api/modules/requests', async (req: Request, res: Response) => {
     // Права проверяет сервер: окно разработчика может быть любым
-    if (!can(req, 'module.develop')) return fail(res, 403, 'Присылать подпрограммы на публикацию могут только разработчики: нужно право «Разработка подпрограмм»');
+    if (!can(req, 'module.develop') || (deps.studioGate && !await deps.studioGate.allowed(req))) {
+      return fail(res, 403, 'Присылать подпрограммы на публикацию могут только разработчики: нужно право «Разработка подпрограмм»');
+    }
     const db = deps.getPrisma(), signature = String(req.body?.signature || '').trim();
     let bundle: Uint8Array;
     try { bundle = new Uint8Array(Buffer.from(String(req.body?.bundle || ''), 'base64')); } catch { return fail(res, 400, 'Пакет не прочитан'); }
     try {
       const existing = await db.moduleRequest.findUnique({ where: { signatureHash: signatureHash(signature) } });
-      if (existing) return res.json({ id: existing.id, duplicate: true });
+      // Повтор той же подписи отдаёт id только автору (владельцу — любой): чужому запросу не отвечаем
+      if (existing) return isOwner(req) || existing.authorId === userId(req) ? res.json({ id: existing.id, duplicate: true }) : fail(res, 409, 'Этот запрос уже отправлен');
       const trust = await loadTrust(db, rootHex());
       const checked = verifyRequest({ signature, bundle, rootHex: rootHex(), certificates: trust.certificates });
       if (!checked.ok) return fail(res, 400, checked.why);
@@ -87,6 +107,11 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
       if (byOwner ? !isOwner(req) : trust.certificates.get(claim.author)?.userId !== userId(req)) {
         return fail(res, 403, byOwner ? 'Изменения владельца присылает только владелец' : 'Ключ разработчика выдан другому профилю');
       }
+      const foreign = !byOwner && deps.studioGate ? await deps.studioGate.ownership(db, req, claim.moduleId) : null;
+      if (foreign) return fail(res, 403, foreign);
+      // Отчёт проверки Studio — условие отправки: запрос без отчёта или с «не прошло» не принимается. Сервер не может
+      // перепроверить его сам (проверки Studio ему недоступны), поэтому это декларация автора, и владелец видит её как «заявлено автором»
+      if (!byOwner && checksRefusal(claim.meta.checks)) return fail(res, 400, checksRefusal(claim.meta.checks));
       // «Что нового» обязательно: без него пользователь в Store не поймёт, зачем обновляться
       if (!claim.meta.changelog.trim()) return fail(res, 400, 'Заполните «что нового»: без него выложить нельзя');
       if (!byOwner && claim.meta.channel === 'production' && !can(req, 'module.publish')) {
@@ -100,7 +125,13 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
         if (moduleId !== claim.moduleId || !(await releaseBundle(db, claim.baseRelease))) return fail(res, 400, 'Выпуск, от которого считается разница, не найден');
       }
       const parent = claim.parentRequest ? await db.moduleRequest.findUnique({ where: { id: claim.parentRequest } }) : null;
-      if (claim.parentRequest && (!parent || parent.moduleId !== claim.moduleId)) return fail(res, 400, 'Предыдущий запрос не найден');
+      if (claim.parentRequest && (!parent || parent.moduleId !== claim.moduleId || (!byOwner && parent.authorId !== userId(req)))) return fail(res, 400, 'Предыдущий запрос не найден');
+      // Ожидающих проверки запросов у одного автора немного: иначе база растёт пакетами по 32 МиБ без границы.
+      // Запрос, который заменяет прежний ожидающий, предел не увеличивает
+      if (!byOwner) {
+        const waiting = await db.moduleRequest.count({ where: { authorId: userId(req), state: 'pending', ...(parent ? { id: { not: parent.id } } : {}) } });
+        if (waiting >= MAX_PENDING_PER_AUTHOR) return fail(res, 429, `У вас уже ${MAX_PENDING_PER_AUTHOR} запросов ждут проверки владельца. Дождитесь решения или отправьте исправление к одному из них.`);
+      }
       // Правка владельца не трогает код: исходники и build/runtime.js остаются теми, что прислал разработчик (решение этапа 4в)
       if (byOwner && parent) {
         const bad = ownerEditViolations(unpackBundle(await readBundle(db, parent.id, parent.chunkCount)), unpackBundle(bundle));

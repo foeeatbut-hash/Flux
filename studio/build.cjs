@@ -15,6 +15,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const esbuild = require('esbuild');
+const { buildDeveloperAssets, loadStaticValidation } = require('./build-assets.cjs');
 
 const root = path.resolve(__dirname, '..');
 const pkg = require(path.join(root, 'package.json'));
@@ -29,6 +30,12 @@ const TARGETS = {
     description: 'Flux Studio — сборка владельца: лицензии, выпуск обновлений Flux и подписи',
   },
 };
+
+/** Точка подключения редакторов: настоящий раздел, если он есть в репозитории, иначе заглушка «раздел в работе» */
+function editorsEntry() {
+  const real = path.join(root, 'studio/renderer/editors/index.tsx');
+  return fs.existsSync(real) ? real : path.join(root, 'studio/renderer/editorsStub.tsx');
+}
 
 /**
  * Собирает пакет приложения в <outDir>/app и возвращает карту сборки основного процесса.
@@ -52,12 +59,22 @@ async function buildStudio({ target, outDir, extraMain = null }) {
   const metafiles = { main: mainBuild.metafile };
   const preload = await esbuild.build({ ...node, entryPoints: [path.join(root, 'studio/shell/preload.ts')], outfile: path.join(app, 'preload.cjs') });
   metafiles.preload = preload.metafile;
+  // Окну Studio, как и подпрограмме, eval запрещён: мост проверяет сообщения готовыми проверщиками, а не собирает их на лету
+  const staticValidation = await loadStaticValidation(esbuild);
   const renderer = await esbuild.build({
+    plugins: [{ name: 'static-bridge-validators', setup(plugin) {
+      plugin.onResolve({ filter: /^\.\/schemas$/ }, args => /[\\/]modules[\\/]bridge\.ts$/.test(args.importer) ? { path: 'validators', namespace: 'bridge-validators' } : null);
+      plugin.onLoad({ filter: /.*/, namespace: 'bridge-validators' }, () => ({ contents: staticValidation, loader: 'js', resolveDir: root }));
+    } }],
+    // Редакторы формы и кода — отдельный раздел (studio/renderer/editors); пока его нет, подставляется заглушка
+    alias: { 'studio-editors': editorsEntry() },
     entryPoints: [path.join(root, 'studio/renderer/main.tsx')], outfile: path.join(app, 'renderer', 'renderer.js'), bundle: true, platform: 'browser',
     format: 'iife', jsx: 'automatic', legalComments: 'none', metafile: true, logLevel: 'silent', minify: true,
     define: { 'process.env.NODE_ENV': '"production"' },
   });
   metafiles.renderer = renderer.metafile;
+  // Окно подпрограммы, рабочий поток контрольных примеров и заготовки проектов (в упакованной Studio esbuild нет)
+  Object.assign(metafiles, await buildDeveloperAssets({ app, esbuild }));
   for (const file of ['index.html', 'styles.css']) fs.copyFileSync(path.join(root, 'studio/renderer', file), path.join(app, 'renderer', file));
 
   if (target === 'owner') {
@@ -104,6 +121,8 @@ function pack({ target, outDir, release }) {
     npmRebuild: false, nodeGypRebuild: false, buildDependenciesFromSource: false,
     directories: { app: path.join(outDir, 'app'), output: release },
     files: ['**/*'],
+    // Рабочий поток контрольных примеров запускается как файл: из app.asar его не открыть
+    asarUnpack: ['controls-worker.cjs'],
     win: { target: [{ target: 'portable', arch: ['x64'] }], icon: path.join(root, 'build/icon.png'), artifactName: spec.exe.replace(/\.exe$/, '.${ext}') },
     portable: { requestExecutionLevel: 'user' },
   };
@@ -114,7 +133,7 @@ function pack({ target, outDir, release }) {
   return path.join(release, spec.exe);
 }
 
-module.exports = { buildStudio, pack, TARGETS };
+module.exports = { buildStudio, pack, TARGETS, editorsEntry };
 
 if (require.main === module) {
   const target = process.argv[2];

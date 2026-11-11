@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { ALL_ACTIONS } from './actions';
 
 /** В окно попадают только перечисленные действия: произвольного IPC у страницы нет */
-const ALLOWED = ['state', 'connect', 'login', 'logout', 'disconnect', 'modules', 'openSection', 'cancel'];
+const ALLOWED = ALL_ACTIONS;
 
 function subscribe(channel: string, fn: unknown): () => void {
   if (typeof fn !== 'function') return () => {};

@@ -26,6 +26,8 @@ import { packBundle, unpackBundle } from '../modules/trust/bundle';
 import { openEnvelope, sealEnvelope } from '../modules/trust/envelope';
 import { describeBundle } from '../modules/trust/verify';
 import { hexOf, moduleBundle, newKey, requestEnvelope } from './fixtures/moduleTrust';
+import { DeveloperKeyring } from '../studio/shared/keyring';
+import { studioRequest } from '../studio/shell/api';
 
 const Database = require('better-sqlite3');
 const vaultApi = require('../studio/owner/src/vault.cjs');
@@ -110,6 +112,22 @@ async function main() {
   const second = (await owner.certificates()).requests[0];
   await owner.declineCertificate({ key: second.key });
   ok('отклонённый запрос исчезает, сертификата нет', (await owner.certificates()).requests.length === 0 && await count('ModuleCertificate') === 1);
+  // Кнопка разработчика «Отправить владельцу» (studio/shell/developer.ts, действие keyRequestSend): настоящий ключ из хранилища
+  // Studio и настоящий запрос оболочки на настоящий маршрут, без заглушки
+  const aes = crypto.createHash('sha256').update('studio-dev-test').digest();
+  const ring = new DeveloperKeyring(fs.mkdtempSync(path.join(dir, 'ring-')), {
+    isEncryptionAvailable: () => true, getSelectedStorageBackend: () => 'gnome_libsecret',
+    encryptString: (plain: string) => { const iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', aes, iv); const body = Buffer.concat([c.update(plain, 'utf8'), c.final()]); return Buffer.concat([iv, c.getAuthTag(), body]); },
+    decryptString: (data: Buffer) => { const d = crypto.createDecipheriv('aes-256-gcm', aes, data.subarray(0, 12)); d.setAuthTag(data.subarray(12, 28)); return Buffer.concat([d.update(data.subarray(28)), d.final()]).toString('utf8'); },
+  } as any);
+  const created = ring.create();
+  const shellKey = ring.info().publicKey;
+  await studioRequest(origin, 'certRequest', { token: 'developer', body: { key: shellKey, name: 'Разработчик Studio' } });
+  const fromShell = (await owner.certificates()).requests.find((r: any) => r.key === shellKey);
+  ok('запрос оболочки разработчика дошёл до очереди владельца: ключ, имя, профиль из сессии', !!created && fromShell?.name === 'Разработчик Studio' && fromShell.userId === 'developer');
+  const shellAsk = await studioRequest(origin, 'certRequest', { token: 'stranger', body: { key: hexOf(newKey()) } }).then(() => 'принят', (e: any) => String(e.status || e.message));
+  ok('без права разработки оболочка получает отказ сервера', shellAsk === '403');
+  await owner.declineCertificate({ key: shellKey });
   // Очередь: чужую ожидающую запись не перезаписать, у профиля не больше трёх ожидающих запросов
   const takenKey = hexOf(newKey());
   ok('первый запрос с ключом принят', (await call('developer', '/api/modules/certificate-requests', 'POST', { key: takenKey, name: 'Первый' })).status === 200);
