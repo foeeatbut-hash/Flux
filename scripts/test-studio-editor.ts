@@ -416,6 +416,8 @@ console.log('Рендерер Flux: единицы, пояснения, усло
     fixtures++;
     eq(`фикстура ${dir}: проходит общую схему`, validateSchema(formSchema, form), []);
     validateModuleForm(form, dir, ['project', 'equipment', 'tag', 'specification', 'catalog']);
+    // Прежний рендерер не знает условий показа, единиц и пояснений: формы, которые их используют (пример «Переводчик»), с ним не сравниваются
+    if (/"(?:visibleIf|unit|hint)"/.test(JSON.stringify(form))) { ok(`фикстура ${dir}: использует условия, единицы или пояснения - со старым рендерером не сравнивается`, true); continue; }
     eq(`фикстура ${dir}: рисуется как прежним рендерером`, draw(renderForm, form, data), draw(legacy, form, data));
   }
   ok('проверены все фикстуры', fixtures >= 4);
