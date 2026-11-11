@@ -69,6 +69,15 @@
       "timeoutMs": 30000
     },
     {
+      "id": "shell-store-icon-unit",
+      "path": "scripts/test-store-icon.tsx",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 60000
+    },
+    {
       "id": "shell-taskbar-unit",
       "path": "scripts/test-taskbar.ts",
       "layer": "unit",
@@ -1097,6 +1106,39 @@
           "scenario": "Открыть Главную кнопкой Пуска и закрыть/повторить после обновления",
           "expected": [
             "Открывается одно окно только по запросу"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "shell.store-icon",
+      "program": "shell",
+      "label": "Значок Flux Store в Пуске, на столе и на панели задач",
+      "sources": [
+        "src/components/icons/AppIcons.tsx"
+      ],
+      "triggers": [
+        "button"
+      ],
+      "risk": "cosmetic",
+      "expected": [
+        "Значок Store нарисован в том же стиле, что значки остальных программ, одинаков в обеих темах и на всех трёх размерах"
+      ],
+      "checks": [
+        {
+          "suite": "shell-store-icon-unit",
+          "layer": "unit",
+          "claims": [
+            "Сетка 32×32, обводка и цвета только из набора значков, нет цветов по теме; мутации чужого цвета, толстой обводки и другой сетки роняют проверку; снимки до и после в обеих темах — артефакт CI"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Открыть Пуск, рабочий стол и панель задач в светлой и тёмной теме на Windows при 100 % и 150 %",
+          "expected": [
+            "Значок Store читается на 24, 32 и 48 px и не выбивается из набора"
           ]
         }
       ]

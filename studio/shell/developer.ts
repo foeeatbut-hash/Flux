@@ -141,7 +141,7 @@ export class DeveloperService {
         if (this.drafts.exists(id)) throw new StudioFailure(`Проект «${id}» уже есть на этом компьютере.`);
         const s = this.session();
         const files = createFromTemplate(this.deps.assets.templatesRoot, template, { id, name, author: s.user.name || s.user.id });
-        this.drafts.create(id, files, { template });
+        this.drafts.create(id, files, { template, ...(TEMPLATES.find(t => t.id === template)?.changelog ? { changelog: TEMPLATES.find(t => t.id === template)!.changelog } : {}) });
         return { id };
       }
       case 'draftImport': return this.importRequest(text(args.requestId, 64));

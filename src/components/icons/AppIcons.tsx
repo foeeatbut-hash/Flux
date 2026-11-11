@@ -359,15 +359,29 @@ export function UsersAppIcon(props: FluxAppIconProps) {
   );
 }
 
-/** 22. Flux Store (`/store`): сумка с зелёным «+» — поставить подпрограмму */
+/** 22. Flux Store (`/store`): лавка с зелёно-белым навесом — взять программу */
 export function StoreAppIcon(props: FluxAppIconProps) {
   return (
     <SvgBox {...props}>
-      <path d="M11 11V9.2a5 5 0 0 1 10 0V11" stroke="#475569" strokeWidth="1.4" strokeLinecap="round" />
-      <path d="M5.6 11h20.8l-1.2 15.2a1.8 1.8 0 0 1-1.8 1.6H8.6a1.8 1.8 0 0 1-1.8-1.6z" fill="#e9f1f7" stroke="#475569" strokeWidth="1.25" strokeLinejoin="round" />
-      <path d="M16 11h10.4l-1.2 15.2a1.8 1.8 0 0 1-1.8 1.6H16z" fill="#d8e3ee" />
-      <circle cx="16" cy="19.4" r="4.6" fill="#10b981" stroke="#475569" strokeWidth="1.15" />
-      <path d="M16 17v4.8M13.6 19.4h4.8" stroke="#ffffff" strokeWidth="1.5" strokeLinecap="round" />
+      {/* Корпус лавки: светлая стена с тенью справа, как у «Главной» */}
+      <rect x="5.2" y="11.6" width="21.6" height="16.2" rx="1.4" fill="#e9f1f7" stroke="#475569" strokeWidth="1.25" />
+      <path d="M16 11.6h9.4a1.4 1.4 0 0 1 1.4 1.4v13.4a1.4 1.4 0 0 1-1.4 1.4H16z" fill="#d8e3ee" />
+      <rect x="5.2" y="11.6" width="21.6" height="16.2" rx="1.4" stroke="#475569" strokeWidth="1.25" />
+      {/* Витрина и дверь */}
+      <rect x="7.6" y="16.4" width="6.2" height="5.4" rx="0.8" fill="#bae6fd" stroke="#475569" strokeWidth="1.05" />
+      <path d="M8.8 18.2l2.2-1.2" stroke="#f8fafc" strokeWidth="0.95" strokeLinecap="round" />
+      <rect x="17" y="16.4" width="7.4" height="11.4" rx="0.9" fill="#f5d06f" stroke="#a6761b" strokeWidth="1.1" />
+      <path d="M20.7 16.4h3.7a.9.9 0 0 1 .9.9v9.6a.9.9 0 0 1-.9.9h-3.7z" fill="#e6bc53" />
+      <rect x="17" y="16.4" width="7.4" height="11.4" rx="0.9" stroke="#a6761b" strokeWidth="1.1" />
+      <circle cx="19" cy="22.6" r="0.7" fill="#78530d" />
+      {/* Навес: шесть полос и волна по нижней кромке */}
+      <path d="M6.00 5.6H9.33L7.33 12.4A2.17 2.17 0 0 1 3.00 12.4z" fill="#10b981" />
+      <path d="M9.33 5.6H12.67L11.67 12.4A2.17 2.17 0 0 1 7.33 12.4z" fill="#f8fafc" />
+      <path d="M12.67 5.6H16.00L16.00 12.4A2.17 2.17 0 0 1 11.67 12.4z" fill="#10b981" />
+      <path d="M16.00 5.6H19.33L20.33 12.4A2.17 2.17 0 0 1 16.00 12.4z" fill="#f8fafc" />
+      <path d="M19.33 5.6H22.67L24.67 12.4A2.17 2.17 0 0 1 20.33 12.4z" fill="#10b981" />
+      <path d="M22.67 5.6H26.00L29.00 12.4A2.17 2.17 0 0 1 24.67 12.4z" fill="#f8fafc" />
+      <path d="M6.0 5.6H26.0L29.0 12.4a2.17 2.17 0 0 1 -4.33 0a2.17 2.17 0 0 1 -4.33 0a2.17 2.17 0 0 1 -4.33 0a2.17 2.17 0 0 1 -4.33 0a2.17 2.17 0 0 1 -4.33 0a2.17 2.17 0 0 1 -4.33 0z" stroke="#475569" strokeWidth="1.25" strokeLinejoin="round" />
     </SvgBox>
   );
 }
