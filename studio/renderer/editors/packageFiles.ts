@@ -1,8 +1,8 @@
 /**
- * Файлы пакета подпрограммы ↔ модель редакторов.
+ * Файлы пакета программы ↔ модель редакторов.
  *
  * Оболочка Studio отдаёт текстовые файлы проекта (путь → содержимое). Форма — form.json; читает
- * подпрограмма — `reads` в manifest.json; значения state и calc.out, которые подпрограмма объявляет
+ * программа — `reads` в manifest.json; значения state и calc.out, которые программа объявляет
  * в договоре, лежат в contract.json (свой файл пакета: манифест схемой не расширяется). Если
  * contract.json ещё нет, значения выводятся из привязок формы и из кода — как стартовое описание.
  */
@@ -94,7 +94,7 @@ export function contractChanges(files: Record<string, string>, next: ContractDra
     [CONTRACT_FILE]: `${JSON.stringify({ version: 1, state: next.state, outputs: next.outputs }, null, 2)}\n`,
   };
   const manifest = parse(files[MANIFEST_FILE]);
-  if (!manifest || typeof manifest !== 'object') return { changed, error: 'manifest.json не читается как JSON: список «Что читает подпрограмма» не сохранён.' };
+  if (!manifest || typeof manifest !== 'object') return { changed, error: 'manifest.json не читается как JSON: список «Что читает программа» не сохранён.' };
   const reads = next.reads.filter(isResource);
   if (JSON.stringify(manifest.reads) !== JSON.stringify(reads)) changed[MANIFEST_FILE] = `${JSON.stringify({ ...manifest, reads }, null, 2)}\n`;
   return { changed, error: '' };

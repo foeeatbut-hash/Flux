@@ -182,7 +182,7 @@ async function main() {
     const everyFile = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? everyFile(path.join(dir, e.name)) : [path.join(dir, e.name)]);
     const data = path.join(temp, 'data');
     ok('адрес без «запомнить» нигде не сохранён', !fs.existsSync(data) || everyFile(data).every((f) => !fs.readFileSync(f, 'latin1').includes('U:P@H')));
-    ok('в окно уходит только перечисленный набор состояния', Object.keys((await call('state')).value).sort().join() === 'build,connected,display,name,remembered,sections,user,version,warning');
+    ok('в окно уходит только перечисленный набор состояния', Object.keys((await call('state')).value).sort().join() === 'build,connected,display,name,owner,remembered,sections,user,version,warning');
 
 
     console.log('Подключение: операция не отменяет сама себя');
@@ -215,14 +215,14 @@ async function main() {
     const ownerIn = await call('ownerLogin', { password: vaultPassword });
     ok('владелец входит файлом ключа', ownerIn.ok && ownerIn.value.user.id === 'owner');
     ok('токен владельца окну не уходит', !JSON.stringify([ownerIn, electron.__sent, await call('state')]).includes('token-owner'));
-    ok('разделы владельца видны вошедшему владельцем', (await call('state')).value.sections.length === 1);
+    ok('разделы владельца видны вошедшему владельцем', (await call('state')).value.owner === true && (await call('state')).value.sections.length === 1);
     ok('и раздел из точки входа открывается', (await call('openSection', { id: 'extra' })).ok);
     ok('закрытый ключ не лежит в данных программы', !fs.existsSync(data) || !everyFile(data).some((f) => fs.readFileSync(f, 'latin1').includes('PRIVATE KEY')));
     ok('после входа выбор файла сброшен: повторный вход без выбора отказан', /выберите файл/i.test((await call('ownerLogin', { password: vaultPassword })).error));
     await call('logout');
-    ok('после выхода разделов владельца нет', (await call('state')).value.sections.length === 0);
+    ok('после выхода разделов владельца нет', (await call('state')).value.owner === false);
     const afterDev = await call('login', { symbol: 'dev', password: 'dev-pass' });
-    ok('вошедший по логину разработчик не получает разделов владельца', afterDev.ok && afterDev.value.sections.length === 0);
+    ok('вошедший по логину разработчик не получает разделов владельца', afterDev.ok && afterDev.value.owner === false);
     await call('disconnect');
 
     console.log('Запомненный адрес');

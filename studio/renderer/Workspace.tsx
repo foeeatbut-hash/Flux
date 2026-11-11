@@ -13,7 +13,7 @@ import Errors from './sections/Errors';
  * Права и данные решает сервер и главный процесс; окно показывает их ответы.
  */
 const NAV: Array<[string, string, React.ReactNode]> = [
-  ['modules', 'Подпрограммы', <Boxes key="m" />], ['project', 'Проект подпрограммы', <FolderCode key="p" />], ['editor', 'Редактор', <FilePen key="e" />],
+  ['modules', 'Программы', <Boxes key="m" />], ['project', 'Проект программы', <FolderCode key="p" />], ['editor', 'Редактор', <FilePen key="e" />],
   ['check', 'Проверка перед отправкой', <ShieldCheck key="c" />], ['publish', 'Публикация', <Send key="s" />], ['errors', 'Ошибки', <Bug key="b" />],
 ];
 
@@ -29,8 +29,8 @@ export default function Workspace({ state, onState, theme, onToggleTheme }: { st
         <div className="fx-gh">{state.name}<span className="fx-n ml-auto data">{state.version}</span></div>
         {NAV.map(([id, title, icon]) => <button key={id} type="button" className="fx-li" aria-current={section === id ? 'true' : undefined} onClick={() => setSection(id)}>{icon}{title}</button>)}
         {current && <p className="fx-note px-2" title="Открытый проект">Проект: <span className="code">{current}</span></p>}
-        {state.sections.length > 0 && <div className="fx-gh mt-2">Управление</div>}
-        {state.sections.map(item => <button key={item.id} type="button" className="fx-li" onClick={() => void open(item.id)}><KeyRound />{item.title}</button>)}
+        {state.owner && state.sections.length > 0 && <div className="fx-gh mt-2">Управление</div>}
+        {state.owner && state.sections.map(item => <button key={item.id} type="button" className="fx-li" onClick={() => void open(item.id)}><KeyRound />{item.title}</button>)}
         <div className="flex-1" />
         <div className="fx-note px-2 truncate" title={state.display}>{state.user?.name || state.user?.id}</div>
         <button type="button" className="fx-li" onClick={onToggleTheme} aria-label="Переключить тему">{theme === 'dark' ? <Sun /> : <Moon />}{theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}</button>

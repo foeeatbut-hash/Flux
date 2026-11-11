@@ -24,7 +24,7 @@ const pkg = require(path.join(root, 'package.json'));
 const TARGETS = {
   developer: {
     entry: 'studio/entry-developer.ts', productName: 'Flux Studio', appId: 'ru.flux.studio', exe: 'FluxStudio.exe',
-    description: 'Flux Studio — программа разработчика подпрограмм Flux', subtitle: 'Программа разработчика подпрограмм',
+    description: 'Flux Studio — программа разработчика программ Flux', subtitle: 'Программа разработчика программ',
   },
   owner: {
     entry: 'studio/entry-owner.ts', productName: 'Flux Studio — Владелец', appId: 'ru.flux.studio.owner', exe: 'FluxStudio-Владелец.exe',
@@ -60,7 +60,7 @@ async function buildStudio({ target, outDir, extraMain = null }) {
   const metafiles = { main: mainBuild.metafile };
   const preload = await esbuild.build({ ...node, entryPoints: [path.join(root, 'studio/shell/preload.ts')], outfile: path.join(app, 'preload.cjs') });
   metafiles.preload = preload.metafile;
-  // Окну Studio, как и подпрограмме, eval запрещён: мост проверяет сообщения готовыми проверщиками, а не собирает их на лету
+  // Окну Studio, как и программе, eval запрещён: мост проверяет сообщения готовыми проверщиками, а не собирает их на лету
   const staticValidation = await loadStaticValidation(esbuild);
   const renderer = await esbuild.build({
     plugins: [{ name: 'static-bridge-validators', setup(plugin) {
@@ -74,7 +74,7 @@ async function buildStudio({ target, outDir, extraMain = null }) {
     define: { 'process.env.NODE_ENV': '"production"' },
   });
   metafiles.renderer = renderer.metafile;
-  // Окно подпрограммы, рабочий поток контрольных примеров и заготовки проектов (в упакованной Studio esbuild нет)
+  // Окно программы, рабочий поток контрольных примеров и заготовки проектов (в упакованной Studio esbuild нет)
   Object.assign(metafiles, await buildDeveloperAssets({ app, esbuild }));
   // Оформление и заставка — из самого Flux (studio/build-renderer.cjs); свои у Studio только имена токенов для разделов
   await buildFluxCss(path.join(app, 'renderer'));
@@ -92,7 +92,7 @@ async function buildStudio({ target, outDir, extraMain = null }) {
     // Разделы владельца (запросы на публикацию, выпуски, сертификаты, обновления Flux): отдельное окно рядом с окном лицензий
     const consoleDir = path.join(app, 'ui', 'console');
     fs.mkdirSync(consoleDir, { recursive: true });
-    // Мост подпрограмм проверяет сообщения схемами Ajv; в окне eval запрещён, поэтому схемы компилируются здесь, при сборке
+    // Мост программ проверяет сообщения схемами Ajv; в окне eval запрещён, поэтому схемы компилируются здесь, при сборке
     const generator = path.join(outDir, 'static-validators.gen.cjs');
     await esbuild.build({ entryPoints: [path.join(root, 'studio/owner/console/static-validators.ts')], outfile: generator, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent' });
     const validatorCode = require(generator).staticValidators();

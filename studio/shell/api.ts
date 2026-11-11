@@ -24,15 +24,15 @@ const ROUTES = {
   releases: { method: 'GET', path: '/api/studio/releases' },
   /** Единственная запись Studio в рабочую базу при публикации: подписанный запрос (сервер проверяет подпись и право) */
   submit: { method: 'POST', path: '/api/modules/requests' },
-  /** Ошибки: обращения по своим подпрограммам и счётчики сбоев — существующие маршруты Flux, сервер сам отбирает «свои» */
+  /** Ошибки: обращения по своим программам и счётчики сбоев — существующие маршруты Flux, сервер сам отбирает «свои» */
   reports: { method: 'GET', path: '/api/feedback/reports' },
   crashes: { method: 'GET', path: '/api/modules/crashes' },
-  /** Отметка «исправлено в версии»: смена состояния обращения по подпрограмме, право проверяет сервер */
+  /** Отметка «исправлено в версии»: смена состояния обращения по программе, право проверяет сервер */
   transition: { method: 'POST', path: '/api/feedback/reports/:id/transition' },
 } as const;
 export type StudioRoute = keyof typeof ROUTES;
 
-/** Ответ сервера Studio короткий; больше мегабайта — признак чужого или сломанного ответа. Пакет подпрограммы — отдельно */
+/** Ответ сервера Studio короткий; больше мегабайта — признак чужого или сломанного ответа. Пакет программы — отдельно */
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_BUNDLE_BYTES = 40 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 20_000;

@@ -29,7 +29,7 @@ class Win {
   constructor(options) { this.options = options; this.closedHandlers = []; this.destroyed = false;
     this.webContents = { setWindowOpenHandler() {}, on() {}, send() {}, mainFrame: {}, id: windows.length };
     windows.push(this); }
-  setMenu() {} loadFile(file) { this.file = file; return Promise.resolve(); } isDestroyed() { return this.destroyed; }
+  setMenu() {} once() {} show() {} loadFile(file) { this.file = file; return Promise.resolve(); } isDestroyed() { return this.destroyed; }
   isMinimized() { return false; } restore() {} focus() { this.focused = (this.focused || 0) + 1; }
   on(event, fn) { if (event === 'closed') this.closedHandlers.push(fn); }
   close() { this.destroyed = true; this.closedHandlers.forEach(fn => fn()); }
@@ -37,7 +37,8 @@ class Win {
 module.exports = {
   __handlers: handlers, __windows: windows, __save: (file) => { nextSave = file; },
   app: { whenReady: () => Promise.resolve(), on() {}, quit() {}, getPath: () => process.env.STUDIO_TEST_USERDATA },
-  BrowserWindow: Win, ipcMain: { handle: (channel, fn) => handlers.set(channel, fn), removeHandler: (channel) => handlers.delete(channel) },
+  BrowserWindow: Win, nativeImage: { createFromPath: () => ({}) },
+  ipcMain: { on() {}, handle: (channel, fn) => handlers.set(channel, fn), removeHandler: (channel) => handlers.delete(channel) },
   protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false },
   clipboard: { writeText() {} }, shell: { openPath: async () => '' },
   dialog: { showSaveDialog: async () => ({ canceled: false, filePath: nextSave }), showOpenDialog: async () => ({ canceled: true, filePaths: [] }), showMessageBox: async () => ({ response: 0 }) },

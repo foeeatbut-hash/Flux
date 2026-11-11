@@ -37,7 +37,7 @@ export default function Editor({ id }: { id: string }) {
     <section aria-label="Редактор" className="fx-page">
       <SectionHead title="Редактор" />
       <div className="fx-page-body p-4 studio-body">
-      {!id && <div className="empty">Сначала откройте проект в разделе «Проект подпрограммы».</div>}
+      {!id && <div className="empty">Сначала откройте проект в разделе «Проект программы».</div>}
       {error && <p className="fx-error" role="alert">{error}</p>}
       {id && draft && (
         <Suspense fallback={<div className="empty">Загрузка редактора…</div>}>

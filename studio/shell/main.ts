@@ -30,7 +30,7 @@ const PRODUCT_NAME = typeof __STUDIO_NAME__ === 'string' ? __STUDIO_NAME__ : 'Fl
 const windowIcon = () => nativeImage.createFromPath(path.join(__dirname, 'icon.png'));
 type ShellAction = typeof SHELL_ACTIONS[number];
 
-// Подпрограмма запускается в окне Studio тем же протоколом и в той же изоляции, что во Flux (modules/protocol.ts)
+// Программа запускается в окне Studio тем же протоколом и в той же изоляции, что во Flux (modules/protocol.ts)
 protocol.registerSchemesAsPrivileged([{ scheme: MODULE_SCHEME, privileges: { standard: true, secure: true, corsEnabled: true, supportFetchAPI: true } }]);
 
 /** Файл рабочего потока лежит рядом с программой; из app.asar поток не запустить, поэтому он распакован */
@@ -52,8 +52,8 @@ export function startShell(sections: ShellSection[] = []): void {
     version: __STUDIO_VERSION__, build: __STUDIO_BUILD__, name: PRODUCT_NAME,
     connected: !!runtime, display: runtime?.display || '', user, warning,
     remembered: remembered?.display() || '',
-    // Разделы владельца видны только вошедшему владельцем: вошедший по логину разработчик их не получает
-    sections: owner ? sections.map(({ id, title }) => ({ id, title })) : [],
+    // Список разделов сборки; окно показывает его только вошедшему владельцем (флаг owner от сервера)
+    owner, sections: sections.map(({ id, title }) => ({ id, title })),
   });
   const push = () => { if (win && !win.isDestroyed()) win.webContents.send('studio:state', snapshot()); };
   const progress = (phase: string) => { if (win && !win.isDestroyed()) win.webContents.send('studio:progress', { phase }); };
@@ -165,7 +165,7 @@ export function startShell(sections: ShellSection[] = []): void {
     ipcMain.handle('window:is-maximized', event => !!fromWindow(event)?.isMaximized());
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
-    // CSP ограничивает ресурсы, но не самостоятельный переход iframe подпрограммы по ссылке
+    // CSP ограничивает ресурсы, но не самостоятельный переход iframe программы по ссылке
     win.webContents.on('will-frame-navigate', event => { if (event.frame?.url.startsWith(`${MODULE_SCHEME}:`)) event.preventDefault(); });
     protocol.handle(MODULE_SCHEME, request => {
       const asset = request.method === 'GET' ? developer?.asset(request.url) : null;

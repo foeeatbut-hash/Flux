@@ -3,12 +3,12 @@
  *
  * Собирается настоящий пакет разработчика. Мост окна с главным процессом подключён к НАСТОЯЩЕЙ службе
  * разработчика (studio/shell/developer.ts: ключ, проекты, тестовая база, проверка, запуск); сервер Flux заменён
- * маленькой заглушкой с готовыми ответами. Подпрограмма запускается в настоящем <iframe sandbox> с настоящим
+ * маленькой заглушкой с готовыми ответами. Программа запускается в настоящем <iframe sandbox> с настоящим
  * runtime.js и настоящим мостом — только адрес страницы http://127.0.0.1 вместо flux-module:// (Chromium без Electron
  * не знает эту схему), для чего в копии index.html расширен frame-src.
  *
  * Что проверяется: навигация шести разделов; создание проекта и его файлы; запуск на тестовой базе (данные позиции
- * видны в окне подпрограммы, журнал моста пишет чтения); непройденная и пройденная проверка; ключ, запрос сертификата,
+ * видны в окне программы, журнал моста пишет чтения); непройденная и пройденная проверка; ключ, запрос сертификата,
  * отправка, статусы и замечания владельца, «исправить и отправить заново»; ошибки и отметка «исправлено»;
  * заглушка редактора; в обеих темах — сплошной фон, нет горизонтальной прокрутки (1180 и 1024), поля подписаны,
  * контраст. Снимки — каталог FLUX_STUDIO_SHOTS (артефакт CI).
@@ -56,7 +56,7 @@ async function main() {
   fs.mkdirSync(shots, { recursive: true });
   const built = await buildStudio({ target: 'developer', outDir: path.join(temp, 'developer') });
   const renderer = path.join(built.app, 'renderer');
-  // Только для проверки: Chromium без Electron не знает схему flux-module, поэтому подпрограмма открывается по http с loopback
+  // Только для проверки: Chromium без Electron не знает схему flux-module, поэтому программа открывается по http с loopback
   const indexFile = path.join(renderer, 'index.html');
   fs.writeFileSync(indexFile, fs.readFileSync(indexFile, 'utf8').replace('frame-src flux-module:', 'frame-src flux-module: http://127.0.0.1:*'));
 
@@ -96,7 +96,7 @@ async function main() {
     engine: createControlsEngine({ workerFile: path.join(built.app, 'controls-worker.cjs'), timeoutMs: 5000 }),
     capture: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4, 5, 6, 7, 8]),
   });
-  // Страницу и runtime запущенной подпрограммы отдаёт та же функция, что обслуживает flux-module://
+  // Страницу и runtime запущенной программы отдаёт та же функция, что обслуживает flux-module://
   const assets = http.createServer((req, res) => {
     const asset = service.asset(`flux-module://run${req.url?.split('#')[0].split('?')[0]}`);
     if (!asset) { res.writeHead(404).end(); return; }
@@ -125,7 +125,7 @@ async function main() {
           if (action === 'logout') return { ok: true, value: {} };
           if (action === 'modules') return { ok: true, value: requestRows().map(r => ({ moduleId: r.moduleId, version: r.version, state: r.state, createdAt: r.createdAt, requests: 1 })) };
           const value: any = await service.handle(action as any, args || {});
-          // Страница подпрограммы лежит на loopback-сервере теста
+          // Страница программы лежит на loopback-сервере теста
           if (action === 'runStart') value.url = `${assetsOrigin}/index.html`;
           return { ok: true, value };
         } catch (e: any) { return { ok: false, error: String(e?.message || e) }; }
@@ -133,14 +133,14 @@ async function main() {
       await page.addInitScript(`window.studio = { onState: () => () => {}, onProgress: () => () => {}, call: (a, g) => window.__studioCall(a, g) };`);
       await page.goto('file://' + path.join(renderer, 'index.html'));
       const nav = page.getByRole('navigation', { name: 'Разделы Studio' });
-      await page.getByRole('heading', { name: 'Подпрограммы' }).waitFor();
-      const names = ['Подпрограммы', 'Проект подпрограммы', 'Редактор', 'Проверка перед отправкой', 'Публикация', 'Ошибки'];
+      await page.getByRole('heading', { name: 'Программы' }).waitFor();
+      const names = ['Программы', 'Проект программы', 'Редактор', 'Проверка перед отправкой', 'Публикация', 'Ошибки'];
       ok(`${theme}: в навигации шесть разделов в нужном порядке`, (await nav.getByRole('button').allInnerTexts()).filter(t => names.includes(t)).join('|') === names.join('|') );
-      await measure(page, `${theme}/подпрограммы`);
+      await measure(page, `${theme}/программы`);
 
       // Проект
-      await nav.getByRole('button', { name: 'Проект подпрограммы' }).click();
-      await page.getByRole('heading', { name: 'Проект подпрограммы' }).waitFor();
+      await nav.getByRole('button', { name: 'Проект программы' }).click();
+      await page.getByRole('heading', { name: 'Проект программы' }).waitFor();
       await page.getByText('Проектов пока нет').waitFor();
       ok(`${theme}: языков в списке заготовок семь`, (await page.locator('#tpl option').count()) === 7);
       await page.selectOption('#tpl', 'typescript');
@@ -158,11 +158,11 @@ async function main() {
       await frame.getByText('Вентилятор радиальный').waitFor();
       await frame.getByText('Статистика числовых параметров').waitFor();
       const shown = async () => (await frame.locator('#module-root').innerText()).replace(/\s+/g, ' ');
-      // Расчёт идёт в Worker подпрограммы после первой отрисовки: ждём результат по состоянию окна, а не по таймеру
+      // Расчёт идёт в Worker программы после первой отрисовки: ждём результат по состоянию окна, а не по таймеру
       for (let i = 0; i < 100 && !/Значений 4/.test(await shown()); i++) await page.waitForTimeout(50);
       const text = await shown();
-      ok(`${theme}: подпрограмма показала позицию из тестовой базы и свой расчёт (${text.slice(0, 120)})`, text.includes('ВР-80-75') && /Значений 4/.test(text) && /Сумма 6031\.5/.test(text));
-      ok(`${theme}: окно подпрограммы изолировано (sandbox без allow-same-origin)`, (await page.locator('[data-testid="studio-module-frame"]').getAttribute('sandbox')) === 'allow-scripts');
+      ok(`${theme}: программа показала позицию из тестовой базы и свой расчёт (${text.slice(0, 120)})`, text.includes('ВР-80-75') && /Значений 4/.test(text) && /Сумма 6031\.5/.test(text));
+      ok(`${theme}: окно программы изолировано (sandbox без allow-same-origin)`, (await page.locator('[data-testid="studio-module-frame"]').getAttribute('sandbox')) === 'allow-scripts');
       ok(`${theme}: журнал моста записал чтение`, (await page.locator('table.log').innerText()).includes('equipment'));
       await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-2-run.png`), fullPage: true });
       ok(`${theme}: файл тестовой базы лежит в каталоге данных`, fs.existsSync(path.join(data, 'test-base.sqlite')));
@@ -203,7 +203,7 @@ async function main() {
       await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-4-check-failed.png`), fullPage: true });
 
       // Снять обе темы и проверить снова
-      await nav.getByRole('button', { name: 'Проект подпрограммы' }).click();
+      await nav.getByRole('button', { name: 'Проект программы' }).click();
       await page.getByRole('button', { name: 'Запустить' }).waitFor();
       await page.selectOption('#run-entity', 'p1-e-fan');
       await page.getByRole('button', { name: 'Запустить' }).click();
@@ -246,7 +246,7 @@ async function main() {
       // Ошибки
       await nav.getByRole('button', { name: 'Ошибки' }).click();
       await page.getByRole('cell', { name: 'Расчёт зависает на больших позициях' }).waitFor();
-      ok(`${theme}: обращения и счётчики сбоев по своей подпрограмме`, (await page.locator('tbody').nth(1).innerText()).includes('Не уложилась во время') && (await page.locator('tbody').first().innerText()).includes('Не могу продолжить'));
+      ok(`${theme}: обращения и счётчики сбоев по своей программе`, (await page.locator('tbody').nth(1).innerText()).includes('Не уложилась во время') && (await page.locator('tbody').first().innerText()).includes('Не могу продолжить'));
       ok(`${theme}: отметка недоступна, пока версия не вида 1.2.3`, await page.getByRole('button', { name: 'Отметить' }).isDisabled());
       await page.fill(`#fix-${reportId}`, '1.2.0');
       await page.getByRole('button', { name: 'Отметить' }).click();

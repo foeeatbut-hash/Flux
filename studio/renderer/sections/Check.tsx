@@ -34,7 +34,7 @@ export default function Check({ id, onGo }: { id: string; onGo: (section: string
       <SectionHead title="Проверка перед отправкой" />
       <div className="fx-page-body p-4 studio-body">
       <p className="fx-hint">Проверка идёт на этом компьютере по проекту «{id || '—'}». Отчёт прикладывается к запросу и виден владельцу.</p>
-      {!id && <div className="empty">Сначала откройте проект в разделе «Проект подпрограммы».</div>}
+      {!id && <div className="empty">Сначала откройте проект в разделе «Проект программы».</div>}
       {id && <>
         <div className="field"><label htmlFor="changelog">Что нового</label>
           <textarea id="changelog" rows={3} maxLength={4000} value={changelog} onChange={e => setChangelog(e.target.value)} />

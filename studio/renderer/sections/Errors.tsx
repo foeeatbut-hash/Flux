@@ -1,6 +1,6 @@
 /**
- * Раздел «Ошибки»: обращения пользователей и счётчики сбоев по своим подпрограммам.
- * Данных проектов здесь нет: сервер отдаёт разработчику только обезличенное (обращения по подпрограмме и счётчики по видам сбоя).
+ * Раздел «Ошибки»: обращения пользователей и счётчики сбоев по своим программам.
+ * Данных проектов здесь нет: сервер отдаёт разработчику только обезличенное (обращения по программе и счётчики по видам сбоя).
  * «Исправлено в версии» переводит обращение на проверку автору, ему во Flux приходит «Обновить».
  */
 import React, { useCallback, useEffect, useState } from 'react';
@@ -32,12 +32,12 @@ export default function Errors() {
     <section aria-label="Ошибки" className="fx-page">
       <SectionHead title="Ошибки" />
       <div className="fx-page-body p-4 studio-body">
-      <p className="fx-hint">Обращения и счётчики сбоев по вашим подпрограммам. Данные проектов пользователей сюда не попадают.</p>
+      <p className="fx-hint">Обращения и счётчики сбоев по вашим программам. Данные проектов пользователей сюда не попадают.</p>
       {error && <p className="fx-error" role="alert">{error}</p>}
       <h3>Обращения</h3>
-      {data && data.reports.length === 0 && <div className="empty">Обращений по вашим подпрограммам нет.</div>}
+      {data && data.reports.length === 0 && <div className="empty">Обращений по вашим программам нет.</div>}
       {data && data.reports.length > 0 && (
-        <table className="fx-table"><thead><tr><th>№</th><th>Подпрограмма</th><th>Обращение</th><th>Влияние</th><th>Состояние</th><th>Исправлено в версии</th></tr></thead>
+        <table className="fx-table"><thead><tr><th>№</th><th>Программа</th><th>Обращение</th><th>Влияние</th><th>Состояние</th><th>Исправлено в версии</th></tr></thead>
           <tbody>{data.reports.map(r => (
             <tr key={r.id}><td>{r.number}</td><td><span className="code">{r.moduleId}</span> {r.moduleVersion}</td><td>{r.title}</td>
               <td>{IMPACT[r.impact] || r.impact}</td><td>{STATUS[r.status] || r.status}</td>
@@ -50,7 +50,7 @@ export default function Errors() {
       <h3>Счётчики сбоев</h3>
       {data && data.crashes.length === 0 && <div className="empty">Сбоев не зарегистрировано.</div>}
       {data && data.crashes.length > 0 && (
-        <table className="fx-table"><thead><tr><th>Подпрограмма</th><th>Версия</th><th>Вид</th><th>Случаев</th></tr></thead>
+        <table className="fx-table"><thead><tr><th>Программа</th><th>Версия</th><th>Вид</th><th>Случаев</th></tr></thead>
           <tbody>{data.crashes.map((c, i) => <tr key={i}><td className="code">{c.moduleId}</td><td>{c.version}</td><td>{KIND[c.kind] || c.kind}</td><td>{c.count}</td></tr>)}</tbody></table>
       )}
       </div>

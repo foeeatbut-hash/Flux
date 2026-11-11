@@ -1,5 +1,5 @@
 /**
- * Раздел «Проект подпрограммы»: создать из заготовки, открыть свой запрос как проект, тестовая база, запуск.
+ * Раздел «Проект программы»: создать из заготовки, открыть свой запрос как проект, тестовая база, запуск.
  * Черновик хранится на этом компьютере (studio/shared/drafts.ts); в общую базу уходит только отправка.
  */
 import React, { useCallback, useEffect, useState } from 'react';
@@ -45,12 +45,12 @@ export default function Projects({ current, onOpen }: { current: string; onOpen:
     setError('');
     try { const made = await call<{ id: string }>('draftImport', { requestId: id }); await reload(); onOpen(made.id); } catch (e) { fail(e); }
   };
-  // Свои подпрограммы, которых ещё нет на этом компьютере: по последнему запросу каждой
+  // Свои программы, которых ещё нет на этом компьютере: по последнему запросу каждой
   const own = requests ? [...new Map(requests.map(r => [r.moduleId, r])).values()].filter(r => !drafts.some(d => d.id === r.moduleId)) : [];
 
   return (
-    <section aria-label="Проект подпрограммы" className="fx-page">
-      <SectionHead title="Проект подпрограммы" />
+    <section aria-label="Проект программы" className="fx-page">
+      <SectionHead title="Проект программы" />
       <div className="fx-page-body p-4 studio-body">
       <p className="fx-hint">Черновик лежит на этом компьютере. В общую базу уходит только запрос на публикацию.</p>
       {error && <p className="fx-error" role="alert">{error}</p>}
@@ -72,7 +72,7 @@ export default function Projects({ current, onOpen }: { current: string; onOpen:
       </form>
 
       <h3>Проекты на этом компьютере</h3>
-      {drafts.length === 0 ? <div className="empty">Проектов пока нет. Создайте новый из заготовки или откройте свою подпрограмму ниже.</div> : (
+      {drafts.length === 0 ? <div className="empty">Проектов пока нет. Создайте новый из заготовки или откройте свою программу ниже.</div> : (
         <table className="fx-table"><thead><tr><th>Проект</th><th>Язык</th><th>Версия</th><th></th></tr></thead>
           <tbody>{drafts.map(d => (
             <tr key={d.id} aria-selected={d.id === current}>
@@ -82,8 +82,8 @@ export default function Projects({ current, onOpen }: { current: string; onOpen:
       )}
 
       {own.length > 0 && <>
-        <h3>Ваши подпрограммы в общей базе</h3>
-        <table className="fx-table"><thead><tr><th>Подпрограмма</th><th>Версия</th><th>Последняя отправка</th><th></th></tr></thead>
+        <h3>Ваши программы в общей базе</h3>
+        <table className="fx-table"><thead><tr><th>Программа</th><th>Версия</th><th>Последняя отправка</th><th></th></tr></thead>
           <tbody>{own.map(r => (
             <tr key={r.moduleId}><td className="code">{r.moduleId}</td><td>{r.version}</td><td>{r.createdAt.slice(0, 10)}</td>
               <td className="end"><button className="fx-btn" onClick={() => importRequest(r.id)}>Открыть как проект</button></td></tr>))}</tbody></table>

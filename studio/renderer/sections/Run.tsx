@@ -1,7 +1,7 @@
 /**
- * Запуск подпрограммы на тестовой базе: тот же протокол flux-module://, та же изоляция (<iframe sandbox>, CSP) и тот же
+ * Запуск программы на тестовой базе: тот же протокол flux-module://, та же изоляция (<iframe sandbox>, CSP) и тот же
  * мост (modules/bridge.ts), что во Flux. Окно читает данные не из Flux, а у главного процесса — из тестовой SQLite.
- * Журнал показывает каждое сообщение моста: чтения, сообщения подпрограммы (flux.log), расчёты и сбои.
+ * Журнал показывает каждое сообщение моста: чтения, сообщения программы (flux.log), расчёты и сбои.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { createModuleBridge } from '../../../modules/bridge';
@@ -41,7 +41,7 @@ export default function Run({ id }: { id: string }) {
 
   useEffect(() => { setStarted(null); setLog([]); setError(''); void call<{ context: BaseContext[] }>('testBase').then(b => setContexts(b.context)).catch(() => {}); }, [id]);
 
-  // Мост живёт, пока открыт запуск; закрытие окна подпрограммы закрывает и его
+  // Мост живёт, пока открыт запуск; закрытие окна программы закрывает и его
   useEffect(() => {
     if (!started) return;
     const manifest = { ...started.manifest, author: '', contractVersion: 1, logic: '' } as unknown as ModuleManifest;
@@ -83,7 +83,7 @@ export default function Run({ id }: { id: string }) {
     try {
       for (const name of ['light', 'dark']) {
         root.classList.toggle('dark', name === 'dark'); bridge.current?.notify('changed');
-        // Окно подпрограммы перерисовывается после «changed»; сигнала готовности у него нет, поэтому короткая пауза
+        // Окно программы перерисовывается после «changed»; сигнала готовности у него нет, поэтому короткая пауза
         await new Promise(r => setTimeout(r, 500));
         const box = frame.current!.getBoundingClientRect();
         await call('runShot', { id, theme: name, rect: { x: box.x, y: box.y, width: box.width, height: box.height } });

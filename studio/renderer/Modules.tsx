@@ -7,7 +7,7 @@ interface Module { moduleId: string; version: string; state: string; createdAt: 
 /** Цвет точки состояния в словаре Flux (Status): слово всегда рядом */
 export const TONE: Record<string, Tone> = { warn: 'amber', bad: 'rose', ok: 'emerald', muted: 'slate' };
 
-/** Раздел «Подпрограммы»: свои подпрограммы, версия и состояние последней отправки */
+/** Раздел «Программы»: свои программы, версия и состояние последней отправки */
 export default function Modules() {
   const [modules, setModules] = useState<Module[] | null>(null);
   const [error, setError] = useState('');
@@ -20,16 +20,16 @@ export default function Modules() {
     return () => { live = false; };
   }, []);
   return (
-    <section aria-label="Подпрограммы" className="fx-page">
-      <SectionHead title="Подпрограммы" count={modules ? `${modules.length}` : undefined} />
+    <section aria-label="Программы" className="fx-page">
+      <SectionHead title="Программы" count={modules ? `${modules.length}` : undefined} />
       <div className="fx-page-body">
         {error && <p className="fx-error p-4" role="alert">{error}</p>}
         {modules && modules.length === 0 && (
-          <Empty title="Вы ещё не отправляли подпрограмм" text="Создайте проект в разделе «Проект подпрограммы»: черновик лежит на этом компьютере, в общую базу уходит только запрос на публикацию." />
+          <Empty title="Вы ещё не отправляли программ" text="Создайте проект в разделе «Проект программы»: черновик лежит на этом компьютере, в общую базу уходит только запрос на публикацию." />
         )}
         {modules && modules.length > 0 && (
           <table className="fx-table">
-            <thead><tr><th>Подпрограмма</th><th>Версия</th><th>Состояние</th><th className="text-right">Отправок</th></tr></thead>
+            <thead><tr><th>Программа</th><th>Версия</th><th>Состояние</th><th className="text-right">Отправок</th></tr></thead>
             <tbody>{modules.map(m => (
               <tr key={m.moduleId}>
                 <td className="code">{m.moduleId}</td><td className="data">{m.version}</td>

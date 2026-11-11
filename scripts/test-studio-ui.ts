@@ -6,7 +6,7 @@
  * FLUX_STUDIO_SHOTS (по умолчанию в TEMP) и уходят артефактом CI, в git не кладутся.
  *
  * Что проверяется по состояниям: «Подключение» (поля, запомненная база), «Вход» (отказ сервера, вход владельца: выбор
- * файла, неверный пароль, успех), «Подпрограммы» пустые и со списком; у владельца — разделы в меню только после входа
+ * файла, неверный пароль, успех), «Программы» пустые и со списком; у владельца — разделы в меню только после входа
  * владельца. В обеих темах: фон сплошной, нет горизонтальной прокрутки, поля подписаны, контраст основного текста
  * не ниже 4.5:1, нет ошибок страницы; тема переключается кнопкой, выбор запоминается.
  *
@@ -26,7 +26,7 @@ const shots = process.env.FLUX_STUDIO_SHOTS || path.join(os.tmpdir(), 'flux-stud
 /** Заглушка моста: ведёт себя как главный процесс, но без Electron */
 const bridge = (build: string, sections: { id: string; title: string }[], modules: unknown[], remembered = '') => `(() => {
   const name = ${JSON.stringify(build === 'owner' ? 'Flux Studio — Владелец' : 'Flux Studio')};
-  let state = { version: '9.9.9', build: ${JSON.stringify(build)}, name, connected: false, display: '', remembered: ${JSON.stringify(remembered)}, user: null, warning: '', sections: [] };
+  let state = { version: '9.9.9', build: ${JSON.stringify(build)}, name, connected: false, display: '', remembered: ${JSON.stringify(remembered)}, user: null, owner: false, warning: '', sections: ${JSON.stringify(sections)} };
   const listeners = new Set(); window.__calls = [];
   const push = () => listeners.forEach(fn => fn(state));
   window.electron = { windowControls: { minimize() { window.__calls.push(['window:minimize']); }, maximize() {}, close() {}, isMaximized: async () => false, onMaximizedChange: () => () => {} } };
@@ -47,12 +47,12 @@ const bridge = (build: string, sections: { id: string; title: string }[], module
       if (action === 'ownerSelectKey') return { ok: true, value: { canceled: false, name: 'vault.flux-owner' } };
       if (action === 'ownerLogin') {
         if (args.password !== 'правильный пароль владельца') return { ok: false, error: 'Не удалось расшифровать хранилище. Проверьте пароль именно этого файла, раскладку и Caps Lock.' };
-        state = { ...state, user: { id: 'owner', name: 'Владелец' }, sections: ${JSON.stringify(sections)} }; return { ok: true, value: state };
+        state = { ...state, user: { id: 'owner', name: 'Владелец' }, owner: true }; return { ok: true, value: state };
       }
       if (action === 'modules') return { ok: true, value: ${JSON.stringify(modules)} };
       if (action === 'openSection') return { ok: true, value: { opened: true } };
-      if (action === 'disconnect') { state = { ...state, connected: false, user: null, sections: [] }; return { ok: true, value: state }; }
-      if (action === 'logout') { state = { ...state, user: null, sections: [] }; return { ok: true, value: state }; }
+      if (action === 'disconnect') { state = { ...state, connected: false, user: null, owner: false }; return { ok: true, value: state }; }
+      if (action === 'logout') { state = { ...state, user: null, owner: false }; return { ok: true, value: state }; }
       return { ok: true, value: state };
     },
   };
@@ -146,7 +146,7 @@ async function main() {
         await page.screenshot({ path: path.join(shots, `studio-${target}-${theme}-2b-owner-refused.png`) });
         await page.getByLabel('Пароль ключа владельца').fill('правильный пароль владельца');
         await submit.click();
-        await page.getByRole('heading', { name: 'Подпрограммы' }).waitFor();
+        await page.getByRole('heading', { name: 'Программы' }).waitFor();
         ok(`${tag}: владелец вошёл ключом`, true);
         const nav = await page.getByRole('navigation', { name: 'Разделы Studio' }).innerText();
         ok(`${tag}: раздел владельца в меню — ${target === 'owner' ? 'есть' : 'нет'}`, nav.includes('Лицензии и выпуск обновлений') === (target === 'owner'));
@@ -158,10 +158,10 @@ async function main() {
         await page.locator('#login-input').waitFor();
         await page.fill('#login-input', 'dev'); await page.fill('#password-input', 'good');
         await page.getByRole('button', { name: 'Войти', exact: true }).click();
-        await page.getByRole('heading', { name: 'Подпрограммы' }).waitFor();
+        await page.getByRole('heading', { name: 'Программы' }).waitFor();
         await page.getByRole('cell', { name: 'equipment-inspector' }).waitFor();
         ok(`${tag}: состояние показано по-русски`, (await page.locator('tbody').innerText()).includes('На проверке'));
-        await measure(page, `${tag}/подпрограммы`);
+        await measure(page, `${tag}/программы`);
         ok(`${tag}: разделов владельца у вошедшего по логину нет`, !(await page.getByRole('navigation', { name: 'Разделы Studio' }).innerText()).includes('Лицензии и выпуск обновлений'));
         await page.screenshot({ path: path.join(shots, `studio-${target}-${theme}-3-modules.png`) });
         // Тема переключается кнопкой, выбор запоминается (тот же ключ, что у Flux)
@@ -184,7 +184,7 @@ async function main() {
     const empty = await open(browser, path.join(temp, 'developer', 'app', 'renderer', 'index.html'), 'light', bridge('developer', [], []));
     await empty.page.getByLabel('URI базы MariaDB/MySQL').fill('x'); await empty.page.getByRole('button', { name: 'Подключиться' }).click();
     await empty.page.fill('#login-input', 'dev'); await empty.page.fill('#password-input', 'good'); await empty.page.getByRole('button', { name: 'Войти', exact: true }).click();
-    await empty.page.getByText('Вы ещё не отправляли подпрограмм').waitFor();
+    await empty.page.getByText('Вы ещё не отправляли программ').waitFor();
     ok('пустой список объяснён, а не пуст', true);
     await empty.page.screenshot({ path: path.join(shots, 'studio-developer-light-4-empty.png') });
     console.log(`\nFlux Studio: окна — ${passed} проверок пройдено, снимки: ${shots}`);

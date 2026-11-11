@@ -90,7 +90,7 @@ export default function Publish({ id, onGo, onOpen }: { id: string; onGo: (secti
       <KeyCard />
       <div className="panel" aria-labelledby="send-title">
         <h3 id="send-title">Отправить на публикацию</h3>
-        {!id ? <div className="empty small">Откройте проект в разделе «Проект подпрограммы».</div> : state && <>
+        {!id ? <div className="empty small">Откройте проект в разделе «Проект программы».</div> : state && <>
           <p className="fx-hint">Проект «{id}». Перед отправкой Studio заново прогоняет проверку; если она не пройдена, отправка недоступна.</p>
           <div className="field"><label htmlFor="pub-changelog">Что нового</label>
             <textarea id="pub-changelog" rows={2} maxLength={4000} value={state.changelog} onChange={e => patch({ changelog: e.target.value })} /></div>
@@ -111,7 +111,7 @@ export default function Publish({ id, onGo, onOpen }: { id: string; onGo: (secti
       <h3>Мои запросы</h3>
       {requests && requests.length === 0 && <div className="empty">Вы ещё ничего не отправляли.</div>}
       {requests && requests.length > 0 && (
-        <table className="fx-table"><thead><tr><th>Подпрограмма</th><th>Версия</th><th>Состояние</th><th>Замечания владельца</th><th></th></tr></thead>
+        <table className="fx-table"><thead><tr><th>Программа</th><th>Версия</th><th>Состояние</th><th>Замечания владельца</th><th></th></tr></thead>
           <tbody>{requests.map(r => (
             <tr key={r.id}>
               <td className="code">{r.moduleId}</td><td>{r.version}</td>
