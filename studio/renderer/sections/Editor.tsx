@@ -4,6 +4,7 @@
  * Пока редакторов в сборке нет, build.cjs подставляет заглушку «раздел в работе».
  */
 import React, { Suspense, useCallback, useEffect, useState } from 'react';
+import { SectionHead } from '../../../src/components/ui/controls';
 import type { EditorDraft } from '../../shared/editorContract';
 import { call } from '../call';
 
@@ -33,15 +34,17 @@ export default function Editor({ id }: { id: string }) {
   }, [id, load]);
 
   return (
-    <section aria-labelledby="editor-title">
-      <h2 id="editor-title">Редактор</h2>
+    <section aria-label="Редактор" className="fx-page">
+      <SectionHead title="Редактор" />
+      <div className="fx-page-body p-4 studio-body">
       {!id && <div className="empty">Сначала откройте проект в разделе «Проект подпрограммы».</div>}
-      {error && <p className="error" role="alert">{error}</p>}
+      {error && <p className="fx-error" role="alert">{error}</p>}
       {id && draft && (
         <Suspense fallback={<div className="empty">Загрузка редактора…</div>}>
           <Editors moduleId={id} draft={draft} onChange={onChange} />
         </Suspense>
       )}
+      </div>
     </section>
   );
 }

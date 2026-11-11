@@ -49,7 +49,7 @@ export function startShell(sections: ShellSection[] = []): void {
   const ownerKey = new OwnerKeyLogin(dialog);
 
   const snapshot = () => ({
-    version: __STUDIO_VERSION__, build: __STUDIO_BUILD__,
+    version: __STUDIO_VERSION__, build: __STUDIO_BUILD__, name: PRODUCT_NAME,
     connected: !!runtime, display: runtime?.display || '', user, warning,
     remembered: remembered?.display() || '',
     // Разделы владельца видны только вошедшему владельцем: вошедший по логину разработчик их не получает

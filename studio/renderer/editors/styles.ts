@@ -131,8 +131,7 @@ const css = `
 .ed-pv-frame[data-width="narrow"] { width: 360px; }
 .ed-pv-empty { padding: 12px; color: var(--flux-text-muted); }
 .ed { --tok-keyword: #6d28d9; --tok-string: #047857; --tok-number: #b45309; --tok-name: #0f172a; --tok-type: #0369a1; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ed { --tok-keyword: #c4b5fd; --tok-string: #6ee7b7; --tok-number: #fcd34d; --tok-name: #f1f5f9; --tok-type: #7dd3fc; } }
-:root[data-theme="dark"] .ed { --tok-keyword: #c4b5fd; --tok-string: #6ee7b7; --tok-number: #fcd34d; --tok-name: #f1f5f9; --tok-type: #7dd3fc; }
+:root.dark .ed { --tok-keyword: #c4b5fd; --tok-string: #6ee7b7; --tok-number: #fcd34d; --tok-name: #f1f5f9; --tok-type: #7dd3fc; }
 @media (max-width: 1000px) { .ed-form { grid-template-columns: 1fr; overflow: auto; } .ed-col + .ed-col { border-left: 0; border-top: 1px solid var(--border); } .ed-code { grid-template-columns: 1fr; } }
 `;
 

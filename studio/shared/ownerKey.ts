@@ -35,13 +35,13 @@ export interface OpenDialog {
 }
 
 /** Окно выбора файла ключа с прежним расположением по умолчанию (~/.flux-owner); файл сразу проверяется на формат. */
-export async function chooseOwnerKeyFile(dialog: OpenDialog, window: unknown): Promise<{ canceled: true } | { canceled: false; file: string; name: string } | { ok: false; error: string }> {
+export async function chooseOwnerKeyFile(dialog: OpenDialog, window: unknown): Promise<{ canceled: true } | { canceled: false; ok?: undefined; file: string; name: string } | { canceled: false; ok: false; error: string }> {
   const result = await dialog.showOpenDialog(window, { title: 'Основное или запасное хранилище владельца Flux', defaultPath: path.join(os.homedir(), '.flux-owner', 'vault.flux-owner'), properties: ['openFile'], filters: [{ name: 'Хранилище владельца', extensions: ['flux-owner'] }] });
   if (result.canceled || !result.filePaths[0]) return { canceled: true };
   const file = result.filePaths[0];
   try {
     if ((await fs.stat(file)).size > MAX_BYTES) throw new Error('Файл хранилища слишком велик.');
     inspectVault(await fs.readFile(file, 'utf8'));
-  } catch (e: any) { return { ok: false, error: e.message || 'Не удалось прочитать файл хранилища.' }; }
+  } catch (e: any) { return { canceled: false, ok: false, error: e.message || 'Не удалось прочитать файл хранилища.' }; }
   return { canceled: false, file, name: path.basename(file) };
 }

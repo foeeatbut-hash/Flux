@@ -3,12 +3,13 @@
  * окно ничего не решает про права и ключи: оно вызывает перечисленные действия и показывает ответ.
  */
 export interface Snapshot {
-  version: string; build: string; connected: boolean; display: string; warning: string; remembered: string;
+  version: string; build: string; name: string; connected: boolean; display: string; warning: string; remembered: string;
   user: { id: string; name: string } | null; sections: { id: string; title: string }[];
 }
 export type Reply<T> = { ok: boolean; value: T; error: string };
 declare global {
   interface Window {
+    __bootSplashDone?: (instant: boolean) => void;
     studio: {
       call: <T = unknown>(action: string, args?: object) => Promise<Reply<T>>;
       onState: (fn: (state: Snapshot) => void) => () => void;

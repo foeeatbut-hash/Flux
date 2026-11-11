@@ -182,7 +182,7 @@ async function main() {
     const everyFile = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? everyFile(path.join(dir, e.name)) : [path.join(dir, e.name)]);
     const data = path.join(temp, 'data');
     ok('адрес без «запомнить» нигде не сохранён', !fs.existsSync(data) || everyFile(data).every((f) => !fs.readFileSync(f, 'latin1').includes('U:P@H')));
-    ok('в окно уходит только перечисленный набор состояния', Object.keys((await call('state')).value).sort().join() === 'build,connected,display,remembered,sections,user,version,warning');
+    ok('в окно уходит только перечисленный набор состояния', Object.keys((await call('state')).value).sort().join() === 'build,connected,display,name,remembered,sections,user,version,warning');
 
 
     console.log('Подключение: операция не отменяет сама себя');

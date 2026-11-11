@@ -17,9 +17,9 @@ export class OwnerKeyLogin {
   /** Выбор файла: окно выбора открыто в папке прежнего хранилища; непригодный файл сбрасывает прежний выбор */
   async select(parent: unknown): Promise<{ canceled: boolean; name?: string; ok?: false; error?: string }> {
     const chosen = await chooseOwnerKeyFile(this.dialog, parent);
-    if ('canceled' in chosen && chosen.canceled) return { canceled: true };
+    if (chosen.canceled === true) return { canceled: true };
     this.file = '';
-    if ('ok' in chosen) return { canceled: false, ok: false, error: chosen.error };
+    if ('error' in chosen) return { canceled: false, ok: false, error: chosen.error };
     this.file = chosen.file;
     return { canceled: false, name: chosen.name };
   }

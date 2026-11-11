@@ -14,9 +14,9 @@ export function setupOwnerLogin(configuredServer: () => string) {
     if (!window || !trustedAuthSender(event)) throw new Error('Вход владельца доступен только в основном окне.');
     const chosen = await chooseOwnerKeyFile(dialog, window);
     // Отмена выбора оставляет прежний выбранный файл; непригодный файл его сбрасывает
-    if ('canceled' in chosen && chosen.canceled) return { canceled: true };
+    if (chosen.canceled === true) return { canceled: true };
     selected.delete(event.sender.id);
-    if ('ok' in chosen) return chosen;
+    if ('error' in chosen) return { ok: false, error: chosen.error };
     selected.set(event.sender.id, chosen.file);
     event.sender.once('destroyed', () => { selected.delete(event.sender.id); signing.delete(event.sender.id); });
     return { canceled: false, name: chosen.name };

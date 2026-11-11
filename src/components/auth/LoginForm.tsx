@@ -31,7 +31,7 @@ export default function LoginForm({ initialLogin = '', initialRemember = false, 
   return (
           <form onSubmit={submit} className="space-y-5">
             <div>
-              <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1.5 label-login">
+              <label htmlFor="login-input" className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1.5 label-login">
                 Логин
               </label>
               <div className="relative group">
@@ -53,7 +53,7 @@ export default function LoginForm({ initialLogin = '', initialRemember = false, 
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1.5 label-password">
+              <label htmlFor="password-input" className="block text-xs font-semibold text-slate-550 dark:text-slate-400 mb-1.5 label-password">
                 Пароль
               </label>
               <div className="relative group">

@@ -59,7 +59,7 @@ function ElectronTitleBar() {
   const displays = useWindowStore(s => s.displays);
   const activeDisplayId = useWindowStore(s => s.activeDisplayId);
   const monitor = displayWorkspace.enabled ? displays.find(d => d.id === activeDisplayId) || displays.find(d => d.primary) || displays[0] : null;
-  const lane = monitor?.workArea || { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
+  const getLane = () => monitor?.workArea || { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight };
   const location = useLocation();
   // Журнал переехал сюда из круглой нашлёпки у правого края: она висела поверх
   // содержимого, закрывала его углом и жила отдельно от всего остального
@@ -68,7 +68,7 @@ function ElectronTitleBar() {
   const reportBtn = React.useRef<HTMLButtonElement>(null);
   return (
     <FloatingFrame
-      label="Flux" ariaLabel="Управление окном Flux" closeTitle="Закрыть Flux" lane={lane} forceVisible={problemOpen}
+      label="Flux" ariaLabel="Управление окном Flux" closeTitle="Закрыть Flux" getLane={getLane} forceVisible={problemOpen}
       hidden={location.pathname === '/sticker' || location.pathname === '/capture' || location.pathname === '/native-app'}
       extra={({ btn, btnBox, noDrag }) => (
         <>

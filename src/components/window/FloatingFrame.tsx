@@ -24,8 +24,8 @@ export interface FloatingFrameProps {
   label: string;
   ariaLabel: string;
   closeTitle: string;
-  /** Полоса экрана, в пределах которой панелька ходит (рабочая область монитора) */
-  lane: { x: number; y: number; w: number; h?: number };
+  /** Полоса экрана, в пределах которой панелька ходит (рабочая область монитора); читается при каждой отрисовке, чтобы ширина окна была свежей */
+  getLane: () => { x: number; y: number; w: number; h?: number };
   /** Кнопки программы слева от кнопок окна (у Flux — «сообщить о проблеме»); получают размеры кнопок панельки */
   extra?: (styles: FrameStyles) => React.ReactNode;
   /** Панелька остаётся на виду, пока открыто связанное с ней окно (панель обращения) */
@@ -34,7 +34,8 @@ export interface FloatingFrameProps {
   hidden?: boolean;
 }
 
-export default function FloatingFrame({ label, ariaLabel, closeTitle, lane, extra, forceVisible = false, hidden = false }: FloatingFrameProps) {
+export default function FloatingFrame({ label, ariaLabel, closeTitle, getLane, extra, forceVisible = false, hidden = false }: FloatingFrameProps) {
+  const lane = getLane();
   const isElectron = typeof window !== 'undefined' && !!(window as any).electron;
   const wc = isElectron ? (window as any).electron?.windowControls : null;
   const [maximized, setMaximized] = React.useState(false);

@@ -78,10 +78,11 @@ export default function Run({ id }: { id: string }) {
   };
   const shoot = async () => {
     setShots('');
-    const root = document.documentElement, before = root.dataset.theme;
+    // Тема окна — класс dark на <html>, как во Flux; на время снимков переключаем его и возвращаем как было
+    const root = document.documentElement, before = root.classList.contains('dark');
     try {
       for (const name of ['light', 'dark']) {
-        root.dataset.theme = name; bridge.current?.notify('changed');
+        root.classList.toggle('dark', name === 'dark'); bridge.current?.notify('changed');
         // Окно подпрограммы перерисовывается после «changed»; сигнала готовности у него нет, поэтому короткая пауза
         await new Promise(r => setTimeout(r, 500));
         const box = frame.current!.getBoundingClientRect();
@@ -89,7 +90,7 @@ export default function Run({ id }: { id: string }) {
       }
       setShots('Снимки обеих тем сохранены в проекте (store/light.png, store/dark.png).');
     } catch (e) { setError((e as Error).message); }
-    finally { if (before) root.dataset.theme = before; else delete root.dataset.theme; bridge.current?.notify('changed'); }
+    finally { root.classList.toggle('dark', before); bridge.current?.notify('changed'); }
   };
 
   return (
@@ -106,13 +107,13 @@ export default function Run({ id }: { id: string }) {
           <select id="run-entity" value={pick.entityId} disabled={pick.entry === 'start'} onChange={e => setPick({ ...pick, entityId: e.target.value })}>
             <option value="">—</option>{(entities || []).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></div>
       </div>
-      {error && <p className="error" role="alert">{error}</p>}
+      {error && <p className="fx-error" role="alert">{error}</p>}
       <div className="row">
-        <button className="primary" onClick={start}>{started ? 'Перезапустить' : 'Запустить'}</button>
-        {started && <button className="secondary" onClick={shoot}>Снять обе темы</button>}
+        <button className="fx-btn fx-btn-primary" onClick={start}>{started ? 'Перезапустить' : 'Запустить'}</button>
+        {started && <button className="fx-btn" onClick={shoot}>Снять обе темы</button>}
       </div>
-      {shots && <p className="hint" role="status">{shots}</p>}
-      {started && started.language === 'python' && <p className="hint">Python исполняет общая среда Flux, в Studio её нет: форма откроется, расчёт — нет. Его проверит Flux при первом запуске выпуска.</p>}
+      {shots && <p className="fx-hint" role="status">{shots}</p>}
+      {started && started.language === 'python' && <p className="fx-hint">Python исполняет общая среда Flux, в Studio её нет: форма откроется, расчёт — нет. Его проверит Flux при первом запуске выпуска.</p>}
       {started && (
         <iframe ref={frame} title={started.manifest.name} className="module-frame" data-testid="studio-module-frame"
           sandbox={MODULE_SANDBOX} referrerPolicy="no-referrer" src={`${started.url}#${started.session}`}

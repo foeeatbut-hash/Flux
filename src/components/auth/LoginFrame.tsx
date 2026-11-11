@@ -15,12 +15,14 @@ interface LoginFrameProps {
   version: string;
   error?: string;
   errorTitle?: string;
+  /** Для программ, где ошибку должен озвучить экранный диктор (Flux Studio); у Flux атрибута нет */
+  errorRole?: 'alert';
   /** Под карточкой: панель подключения к базе */
   below?: React.ReactNode;
   children: React.ReactNode;
 }
 
-export default function LoginFrame({ theme, onToggleTheme, title, version, error = '', errorTitle = 'Ошибка авторизации', below, children }: LoginFrameProps) {
+export default function LoginFrame({ theme, onToggleTheme, title, version, error = '', errorTitle = 'Ошибка авторизации', errorRole, below, children }: LoginFrameProps) {
   return (
     <div
       id="login-screen-root"
@@ -54,6 +56,7 @@ export default function LoginFrame({ theme, onToggleTheme, title, version, error
           <AnimatePresence mode="wait">
             {error && (
               <motion.div
+                role={errorRole}
                 initial={{ opacity: 0, y: 8 }}
                 transition={TRANSITION.enter}
                 animate={{ opacity: 1, y: 0 }}

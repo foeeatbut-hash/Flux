@@ -16,6 +16,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const esbuild = require('esbuild');
 const { buildDeveloperAssets, loadStaticValidation } = require('./build-assets.cjs');
+const { buildFluxCss, writeRendererPage } = require('./build-renderer.cjs');
 
 const root = path.resolve(__dirname, '..');
 const pkg = require(path.join(root, 'package.json'));
@@ -23,11 +24,11 @@ const pkg = require(path.join(root, 'package.json'));
 const TARGETS = {
   developer: {
     entry: 'studio/entry-developer.ts', productName: 'Flux Studio', appId: 'ru.flux.studio', exe: 'FluxStudio.exe',
-    description: 'Flux Studio — программа разработчика подпрограмм Flux',
+    description: 'Flux Studio — программа разработчика подпрограмм Flux', subtitle: 'Программа разработчика подпрограмм',
   },
   owner: {
     entry: 'studio/entry-owner.ts', productName: 'Flux Studio — Владелец', appId: 'ru.flux.studio.owner', exe: 'FluxStudio-Владелец.exe',
-    description: 'Flux Studio — сборка владельца: лицензии, выпуск обновлений Flux и подписи',
+    description: 'Flux Studio — сборка владельца: лицензии, выпуск обновлений Flux и подписи', subtitle: 'Сборка владельца',
   },
 };
 
@@ -49,7 +50,7 @@ async function buildStudio({ target, outDir, extraMain = null }) {
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(path.join(app, 'renderer'), { recursive: true });
 
-  const define = { __STUDIO_VERSION__: JSON.stringify(pkg.version), __STUDIO_BUILD__: JSON.stringify(target) };
+  const define = { __STUDIO_VERSION__: JSON.stringify(pkg.version), __STUDIO_BUILD__: JSON.stringify(target), __STUDIO_NAME__: JSON.stringify(spec.productName) };
   const node = { bundle: true, platform: 'node', format: 'cjs', external: ['electron'], legalComments: 'none', define, metafile: true, logLevel: 'silent' };
 
   const entryPoints = [path.join(root, spec.entry)];
@@ -75,7 +76,10 @@ async function buildStudio({ target, outDir, extraMain = null }) {
   metafiles.renderer = renderer.metafile;
   // Окно подпрограммы, рабочий поток контрольных примеров и заготовки проектов (в упакованной Studio esbuild нет)
   Object.assign(metafiles, await buildDeveloperAssets({ app, esbuild }));
-  for (const file of ['index.html', 'styles.css']) fs.copyFileSync(path.join(root, 'studio/renderer', file), path.join(app, 'renderer', file));
+  // Оформление и заставка — из самого Flux (studio/build-renderer.cjs); свои у Studio только имена токенов для разделов
+  await buildFluxCss(path.join(app, 'renderer'));
+  writeRendererPage(path.join(app, 'renderer'), { name: spec.productName, subtitle: spec.subtitle, stages: [[0, 'Загрузка интерфейса…'], [2, 'Подготовка Studio…']] });
+  fs.copyFileSync(path.join(root, 'studio/renderer/styles.css'), path.join(app, 'renderer', 'styles.css'));
 
   if (target === 'owner') {
     // Раздел владельца — отдельные файлы рядом с оболочкой. Расположение (owner/main.cjs и ../ui) то же,

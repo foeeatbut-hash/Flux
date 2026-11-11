@@ -4,6 +4,7 @@
  * «Исправлено в версии» переводит обращение на проверку автору, ему во Flux приходит «Обновить».
  */
 import React, { useCallback, useEffect, useState } from 'react';
+import { SectionHead } from '../../../src/components/ui/controls';
 import { call } from '../call';
 
 interface Report { id: string; number: number; title: string; moduleId: string; moduleVersion: string; status: string; impact: string; revision: number; resolvedVersion: string | null; createdAt: string; known: boolean }
@@ -28,29 +29,31 @@ export default function Errors() {
   const open = (r: Report) => !['DONE', 'REJECTED', 'DUPLICATE', 'WITHDRAWN', 'VERIFY'].includes(r.status);
 
   return (
-    <section aria-labelledby="errors-title">
-      <h2 id="errors-title">Ошибки</h2>
-      <p className="muted">Обращения и счётчики сбоев по вашим подпрограммам. Данные проектов пользователей сюда не попадают.</p>
-      {error && <p className="error" role="alert">{error}</p>}
+    <section aria-label="Ошибки" className="fx-page">
+      <SectionHead title="Ошибки" />
+      <div className="fx-page-body p-4 studio-body">
+      <p className="fx-hint">Обращения и счётчики сбоев по вашим подпрограммам. Данные проектов пользователей сюда не попадают.</p>
+      {error && <p className="fx-error" role="alert">{error}</p>}
       <h3>Обращения</h3>
       {data && data.reports.length === 0 && <div className="empty">Обращений по вашим подпрограммам нет.</div>}
       {data && data.reports.length > 0 && (
-        <table><thead><tr><th>№</th><th>Подпрограмма</th><th>Обращение</th><th>Влияние</th><th>Состояние</th><th>Исправлено в версии</th></tr></thead>
+        <table className="fx-table"><thead><tr><th>№</th><th>Подпрограмма</th><th>Обращение</th><th>Влияние</th><th>Состояние</th><th>Исправлено в версии</th></tr></thead>
           <tbody>{data.reports.map(r => (
             <tr key={r.id}><td>{r.number}</td><td><span className="code">{r.moduleId}</span> {r.moduleVersion}</td><td>{r.title}</td>
               <td>{IMPACT[r.impact] || r.impact}</td><td>{STATUS[r.status] || r.status}</td>
               <td>{r.resolvedVersion ? r.resolvedVersion : open(r) ? (
                 <span className="row tight"><label className="sr" htmlFor={`fix-${r.id}`}>Версия исправления, обращение {r.number}</label>
                   <input id={`fix-${r.id}`} className="short" placeholder="1.2.3" value={fix[r.id] || ''} onChange={e => setFix({ ...fix, [r.id]: e.target.value })} />
-                  <button className="secondary" disabled={!/^\d+\.\d+\.\d+$/.test(fix[r.id] || '')} onClick={() => mark(r)}>Отметить</button></span>
-              ) : <span className="muted">—</span>}</td></tr>))}</tbody></table>
+                  <button className="fx-btn" disabled={!/^\d+\.\d+\.\d+$/.test(fix[r.id] || '')} onClick={() => mark(r)}>Отметить</button></span>
+              ) : <span className="fx-hint">—</span>}</td></tr>))}</tbody></table>
       )}
       <h3>Счётчики сбоев</h3>
       {data && data.crashes.length === 0 && <div className="empty">Сбоев не зарегистрировано.</div>}
       {data && data.crashes.length > 0 && (
-        <table><thead><tr><th>Подпрограмма</th><th>Версия</th><th>Вид</th><th>Случаев</th></tr></thead>
+        <table className="fx-table"><thead><tr><th>Подпрограмма</th><th>Версия</th><th>Вид</th><th>Случаев</th></tr></thead>
           <tbody>{data.crashes.map((c, i) => <tr key={i}><td className="code">{c.moduleId}</td><td>{c.version}</td><td>{KIND[c.kind] || c.kind}</td><td>{c.count}</td></tr>)}</tbody></table>
       )}
+      </div>
     </section>
   );
 }
