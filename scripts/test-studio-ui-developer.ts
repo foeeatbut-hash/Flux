@@ -143,7 +143,7 @@ async function main() {
       await nav.getByRole('button', { name: 'Проект программы' }).click();
       await page.getByRole('heading', { name: 'Проект программы' }).waitFor();
       await page.getByText('Проектов пока нет').waitFor();
-      ok(`${theme}: языков в списке заготовок семь`, (await page.locator('#tpl option').count()) === 7);
+      ok(`${theme}: в списке заготовок семь языков и пример «Переводчик»`, (await page.locator('#tpl option').count()) === 8);
       await page.selectOption('#tpl', 'typescript');
       await page.fill('#pid', 'demo-ui'); await page.fill('#pname', 'Пример для окна');
       await page.getByRole('button', { name: 'Создать проект' }).click();

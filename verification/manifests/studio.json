@@ -249,6 +249,17 @@
       "timeoutMs": 300000
     },
     {
+      "id": "studio-translator",
+      "path": "scripts/test-studio-translator.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
       "id": "studio-publish",
       "path": "scripts/test-studio-publish.ts",
       "layer": "api-db",
@@ -788,6 +799,43 @@
           "scenario": "Запустить заготовку в FluxStudio.exe на Windows, снять обе темы",
           "expected": [
             "Подпрограмма открывается под flux-module://, снимки сохраняются (capturePage)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "studio.translator-sample",
+      "program": "studio",
+      "label": "Пример «Переводчик терминов»: путь от заготовки до Store",
+      "sources": [
+        "modules/fixtures/translator/manifest.json",
+        "modules/fixtures/translator/form.json",
+        "modules/fixtures/translator/logic/main.ts",
+        "modules/fixtures/translator/examples/controls.json",
+        "docs/methodology/03-programs/studio.md"
+      ],
+      "triggers": [
+        "раздел «Проект подпрограммы» → «Новый проект из заготовки» → «Пример: Переводчик терминов»"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Пример создаётся одним действием, проходит проверку перед отправкой целиком и принимается проверкой запроса; перевод и поиск по словарю дают проверенные результаты"
+      ],
+      "checks": [
+        {
+          "suite": "studio-translator",
+          "layer": "unit",
+          "claims": [
+            "Заготовка создаётся и проходит проверку без доработок; словарь не меньше 300 пар и однозначен в обе стороны; перевод, окончания, множественное число, поиск по части слова, подсказки, столбец, слова вне словаря; мутации словаря, поиска, сети и записи роняют проверку; запрос принимает серверная проверка"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Пройти путь на Windows: создать пример в FluxStudio.exe, запустить на тестовой базе, снять обе темы, отправить, выпустить в FluxStudio-Владелец.exe, установить из Store во Flux",
+          "expected": [
+            "Программа «Переводчик терминов» появляется в Store, ставится и показывает перевод наименования и параметров открытой позиции"
           ]
         }
       ]

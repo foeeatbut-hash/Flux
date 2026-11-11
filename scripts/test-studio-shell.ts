@@ -265,7 +265,7 @@ async function main() {
     ok('статус «запрос отправлен» виден, пока сертификата нет', (await call('keyCertificate')).value.status === 'requested');
     certificates.push(sealEnvelope('certificate', { v: 1, key: key.publicKey, userId: 'dev', name: 'Разработчик', iat: Date.now() }, rootKey));
     ok('после выдачи владельцем сертификат виден', (await call('keyCertificate')).value.status === 'issued');
-    ok('заготовок семь', (await call('templates')).value.length === 7);
+    ok('заготовок восемь: семь языков и пример «Переводчик»', (await call('templates')).value.length === 8 && (await call('templates')).value.some((t: any) => t.id === 'translator'));
     ok('неверный идентификатор отклоняется', (await call('draftCreate', { template: 'typescript', id: 'Bad Id', name: 'x' })).ok === false);
     ok('неизвестная заготовка отклоняется', (await call('draftCreate', { template: 'cobol', id: 'demo', name: 'x' })).ok === false);
     ok('проект создан из заготовки', (await call('draftCreate', { template: 'typescript', id: 'demo-ts', name: 'Пример' })).ok);

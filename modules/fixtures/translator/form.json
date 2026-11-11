@@ -1,0 +1,727 @@
+{
+  "version": 1,
+  "groups": [
+    {
+      "title": "Что переводится",
+      "fields": [
+        {
+          "label": "Источник строк",
+          "bind": "calc.out.source",
+          "hint": "Список из состояния программы либо наименования и параметры открытой позиции, теги и строки спецификации"
+        },
+        {
+          "label": "Строк",
+          "bind": "calc.out.total"
+        },
+        {
+          "label": "Пар в словаре",
+          "bind": "calc.out.dictionarySize"
+        },
+        {
+          "label": "Ограничение",
+          "bind": "calc.out.truncated",
+          "visibleIf": {
+            "bind": "calc.out.truncated",
+            "op": "filled"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Итог перевода",
+      "fields": [
+        {
+          "label": "Переведено полностью",
+          "bind": "calc.out.full"
+        },
+        {
+          "label": "По основам слов",
+          "bind": "calc.out.approx"
+        },
+        {
+          "label": "Частично",
+          "bind": "calc.out.partial"
+        },
+        {
+          "label": "Нет в словаре",
+          "bind": "calc.out.none"
+        },
+        {
+          "label": "Нечего переводить",
+          "bind": "calc.out.skipped"
+        },
+        {
+          "label": "Слов нет в словаре",
+          "bind": "calc.out.missingWords"
+        }
+      ]
+    },
+    {
+      "title": "Перевод строк",
+      "fields": [
+        {
+          "label": "Строка 1",
+          "bind": "calc.out.row1",
+          "visibleIf": {
+            "bind": "calc.out.row1",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 2",
+          "bind": "calc.out.row2",
+          "visibleIf": {
+            "bind": "calc.out.row2",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 3",
+          "bind": "calc.out.row3",
+          "visibleIf": {
+            "bind": "calc.out.row3",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 4",
+          "bind": "calc.out.row4",
+          "visibleIf": {
+            "bind": "calc.out.row4",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 5",
+          "bind": "calc.out.row5",
+          "visibleIf": {
+            "bind": "calc.out.row5",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 6",
+          "bind": "calc.out.row6",
+          "visibleIf": {
+            "bind": "calc.out.row6",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 7",
+          "bind": "calc.out.row7",
+          "visibleIf": {
+            "bind": "calc.out.row7",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 8",
+          "bind": "calc.out.row8",
+          "visibleIf": {
+            "bind": "calc.out.row8",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 9",
+          "bind": "calc.out.row9",
+          "visibleIf": {
+            "bind": "calc.out.row9",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 10",
+          "bind": "calc.out.row10",
+          "visibleIf": {
+            "bind": "calc.out.row10",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 11",
+          "bind": "calc.out.row11",
+          "visibleIf": {
+            "bind": "calc.out.row11",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 12",
+          "bind": "calc.out.row12",
+          "visibleIf": {
+            "bind": "calc.out.row12",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 13",
+          "bind": "calc.out.row13",
+          "visibleIf": {
+            "bind": "calc.out.row13",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 14",
+          "bind": "calc.out.row14",
+          "visibleIf": {
+            "bind": "calc.out.row14",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 15",
+          "bind": "calc.out.row15",
+          "visibleIf": {
+            "bind": "calc.out.row15",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 16",
+          "bind": "calc.out.row16",
+          "visibleIf": {
+            "bind": "calc.out.row16",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 17",
+          "bind": "calc.out.row17",
+          "visibleIf": {
+            "bind": "calc.out.row17",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 18",
+          "bind": "calc.out.row18",
+          "visibleIf": {
+            "bind": "calc.out.row18",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 19",
+          "bind": "calc.out.row19",
+          "visibleIf": {
+            "bind": "calc.out.row19",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 20",
+          "bind": "calc.out.row20",
+          "visibleIf": {
+            "bind": "calc.out.row20",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 21",
+          "bind": "calc.out.row21",
+          "visibleIf": {
+            "bind": "calc.out.row21",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 22",
+          "bind": "calc.out.row22",
+          "visibleIf": {
+            "bind": "calc.out.row22",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 23",
+          "bind": "calc.out.row23",
+          "visibleIf": {
+            "bind": "calc.out.row23",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 24",
+          "bind": "calc.out.row24",
+          "visibleIf": {
+            "bind": "calc.out.row24",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 25",
+          "bind": "calc.out.row25",
+          "visibleIf": {
+            "bind": "calc.out.row25",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 26",
+          "bind": "calc.out.row26",
+          "visibleIf": {
+            "bind": "calc.out.row26",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 27",
+          "bind": "calc.out.row27",
+          "visibleIf": {
+            "bind": "calc.out.row27",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 28",
+          "bind": "calc.out.row28",
+          "visibleIf": {
+            "bind": "calc.out.row28",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 29",
+          "bind": "calc.out.row29",
+          "visibleIf": {
+            "bind": "calc.out.row29",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 30",
+          "bind": "calc.out.row30",
+          "visibleIf": {
+            "bind": "calc.out.row30",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 31",
+          "bind": "calc.out.row31",
+          "visibleIf": {
+            "bind": "calc.out.row31",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 32",
+          "bind": "calc.out.row32",
+          "visibleIf": {
+            "bind": "calc.out.row32",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 33",
+          "bind": "calc.out.row33",
+          "visibleIf": {
+            "bind": "calc.out.row33",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 34",
+          "bind": "calc.out.row34",
+          "visibleIf": {
+            "bind": "calc.out.row34",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 35",
+          "bind": "calc.out.row35",
+          "visibleIf": {
+            "bind": "calc.out.row35",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 36",
+          "bind": "calc.out.row36",
+          "visibleIf": {
+            "bind": "calc.out.row36",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 37",
+          "bind": "calc.out.row37",
+          "visibleIf": {
+            "bind": "calc.out.row37",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 38",
+          "bind": "calc.out.row38",
+          "visibleIf": {
+            "bind": "calc.out.row38",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 39",
+          "bind": "calc.out.row39",
+          "visibleIf": {
+            "bind": "calc.out.row39",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Строка 40",
+          "bind": "calc.out.row40",
+          "visibleIf": {
+            "bind": "calc.out.row40",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Не показано",
+          "bind": "calc.out.moreRows",
+          "visibleIf": {
+            "bind": "calc.out.moreRows",
+            "op": "filled"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Слов нет в словаре",
+      "visibleIf": {
+        "bind": "calc.out.missingWords",
+        "op": "ne",
+        "value": "0"
+      },
+      "fields": [
+        {
+          "label": "Слово 1",
+          "bind": "calc.out.gap1",
+          "visibleIf": {
+            "bind": "calc.out.gap1",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 2",
+          "bind": "calc.out.gap2",
+          "visibleIf": {
+            "bind": "calc.out.gap2",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 3",
+          "bind": "calc.out.gap3",
+          "visibleIf": {
+            "bind": "calc.out.gap3",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 4",
+          "bind": "calc.out.gap4",
+          "visibleIf": {
+            "bind": "calc.out.gap4",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 5",
+          "bind": "calc.out.gap5",
+          "visibleIf": {
+            "bind": "calc.out.gap5",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 6",
+          "bind": "calc.out.gap6",
+          "visibleIf": {
+            "bind": "calc.out.gap6",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 7",
+          "bind": "calc.out.gap7",
+          "visibleIf": {
+            "bind": "calc.out.gap7",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 8",
+          "bind": "calc.out.gap8",
+          "visibleIf": {
+            "bind": "calc.out.gap8",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 9",
+          "bind": "calc.out.gap9",
+          "visibleIf": {
+            "bind": "calc.out.gap9",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 10",
+          "bind": "calc.out.gap10",
+          "visibleIf": {
+            "bind": "calc.out.gap10",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 11",
+          "bind": "calc.out.gap11",
+          "visibleIf": {
+            "bind": "calc.out.gap11",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 12",
+          "bind": "calc.out.gap12",
+          "visibleIf": {
+            "bind": "calc.out.gap12",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 13",
+          "bind": "calc.out.gap13",
+          "visibleIf": {
+            "bind": "calc.out.gap13",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 14",
+          "bind": "calc.out.gap14",
+          "visibleIf": {
+            "bind": "calc.out.gap14",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 15",
+          "bind": "calc.out.gap15",
+          "visibleIf": {
+            "bind": "calc.out.gap15",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 16",
+          "bind": "calc.out.gap16",
+          "visibleIf": {
+            "bind": "calc.out.gap16",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 17",
+          "bind": "calc.out.gap17",
+          "visibleIf": {
+            "bind": "calc.out.gap17",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 18",
+          "bind": "calc.out.gap18",
+          "visibleIf": {
+            "bind": "calc.out.gap18",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 19",
+          "bind": "calc.out.gap19",
+          "visibleIf": {
+            "bind": "calc.out.gap19",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Слово 20",
+          "bind": "calc.out.gap20",
+          "visibleIf": {
+            "bind": "calc.out.gap20",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Не показано",
+          "bind": "calc.out.moreGaps",
+          "visibleIf": {
+            "bind": "calc.out.moreGaps",
+            "op": "filled"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Поиск по части слова",
+      "visibleIf": {
+        "bind": "calc.out.query",
+        "op": "filled"
+      },
+      "fields": [
+        {
+          "label": "Запрос",
+          "bind": "calc.out.query"
+        },
+        {
+          "label": "Найдено записей",
+          "bind": "calc.out.foundCount"
+        },
+        {
+          "label": "Запись 1",
+          "bind": "calc.out.found1",
+          "visibleIf": {
+            "bind": "calc.out.found1",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Запись 2",
+          "bind": "calc.out.found2",
+          "visibleIf": {
+            "bind": "calc.out.found2",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Запись 3",
+          "bind": "calc.out.found3",
+          "visibleIf": {
+            "bind": "calc.out.found3",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Запись 4",
+          "bind": "calc.out.found4",
+          "visibleIf": {
+            "bind": "calc.out.found4",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Запись 5",
+          "bind": "calc.out.found5",
+          "visibleIf": {
+            "bind": "calc.out.found5",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Запись 6",
+          "bind": "calc.out.found6",
+          "visibleIf": {
+            "bind": "calc.out.found6",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Запись 7",
+          "bind": "calc.out.found7",
+          "visibleIf": {
+            "bind": "calc.out.found7",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Запись 8",
+          "bind": "calc.out.found8",
+          "visibleIf": {
+            "bind": "calc.out.found8",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Запись 9",
+          "bind": "calc.out.found9",
+          "visibleIf": {
+            "bind": "calc.out.found9",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Запись 10",
+          "bind": "calc.out.found10",
+          "visibleIf": {
+            "bind": "calc.out.found10",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Не показано",
+          "bind": "calc.out.moreFound",
+          "visibleIf": {
+            "bind": "calc.out.moreFound",
+            "op": "filled"
+          }
+        }
+      ]
+    },
+    {
+      "title": "Похожие записи",
+      "visibleIf": {
+        "bind": "calc.out.similarCount",
+        "op": "ne",
+        "value": "0"
+      },
+      "fields": [
+        {
+          "label": "Запись 1",
+          "bind": "calc.out.similar1",
+          "visibleIf": {
+            "bind": "calc.out.similar1",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Запись 2",
+          "bind": "calc.out.similar2",
+          "visibleIf": {
+            "bind": "calc.out.similar2",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Запись 3",
+          "bind": "calc.out.similar3",
+          "visibleIf": {
+            "bind": "calc.out.similar3",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Запись 4",
+          "bind": "calc.out.similar4",
+          "visibleIf": {
+            "bind": "calc.out.similar4",
+            "op": "filled"
+          }
+        },
+        {
+          "label": "Запись 5",
+          "bind": "calc.out.similar5",
+          "visibleIf": {
+            "bind": "calc.out.similar5",
+            "op": "filled"
+          }
+        }
+      ]
+    }
+  ],
+  "tables": []
+}

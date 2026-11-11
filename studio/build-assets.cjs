@@ -12,7 +12,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const SENTINEL = { form: '@@FLUX_MODULE_FORM@@', worker: '@@FLUX_MODULE_WORKER@@' };
 /** Какие папки modules/fixtures нужны заготовкам проектов: по языку и общие форма с контрольными примерами */
-const TEMPLATE_DIRS = ['typescript', 'python', 'c', 'cpp', 'rust', 'go', 'csharp', 'stats'];
+const TEMPLATE_DIRS = ['typescript', 'python', 'c', 'cpp', 'rust', 'go', 'csharp', 'stats', 'translator'];
 const SKIP = new Set(['target', 'node_modules', 'bin', 'obj']);
 
 function copyTemplate(from, to) {
