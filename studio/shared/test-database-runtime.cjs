@@ -234,6 +234,40 @@ async function main() {
       const slow = fixture({ requestHealth: async () => ({ statusCode: 503, body: { ok: false } }), startupTimeoutMs: 40 });
       await rejection(slow, /последний ответ проверки: 503/);
     });
+    await test('Строка журнала: последняя содержательная, не «at …»; пароль скрыт в URL и в JSON', async () => {
+      const g = fixture();
+      g.deps.spawn = () => {
+        const child = new EventEmitter(); child.pid = nextPid++; child.exitCode = null; child.signalCode = null;
+        child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => true; g.children.push(child);
+        setTimeout(() => {
+          child.stderr.emit('data', Buffer.from('Error: bad config {"password":"temporary-test-pass","user":"u"} password: temporary-test-pass\n    at Object.<anonymous> (C:\\app\\main.js:10:5)\n    at Module._compile (node:internal/modules:1:1)\n'));
+          child.exitCode = 1; child.emit('exit', 1, null);
+        }, 5);
+        return child;
+      };
+      g.deps.requestHealth = () => new Promise(() => {});
+      const error = await rejection(g, /Flux не запустился: процесс завершился с кодом 1/);
+      assert.match(error.message, /«Error: bad config \{"password":\[скрыто\],"user":"u"\} password: \[скрыто\]»/);
+      assert.doesNotMatch(error.message, /at Object|main\.js/);
+    });
+    await test('Причина: порт занят — сразу, без двух минут ожидания, и по выходу процесса, и по строке журнала', async () => {
+      for (const mode of ['exit', 'alive']) {
+        const g = fixture({ startupTimeoutMs: 60000 });
+        g.deps.spawn = () => {
+          const child = new EventEmitter(); child.pid = nextPid++; child.exitCode = null; child.signalCode = null;
+          child.stdout = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => true; g.children.push(child);
+          setTimeout(() => {
+            child.stderr.emit('data', Buffer.from('Error: listen EADDRINUSE: address already in use 127.0.0.1:43210\n'));
+            if (mode === 'exit') { child.exitCode = 1; child.emit('exit', 1, null); }
+          }, 5);
+          return child;
+        };
+        g.deps.requestHealth = () => new Promise(() => {});
+        const started = Date.now();
+        const error = await rejection(g, /Порт 43210 занят другой программой/);
+        assert.match(error.message, /Подключитесь снова/); assert.ok(Date.now() - started < 5000, 'быстрый отказ');
+      }
+    });
     await test('Отмена человеком остаётся «отменено», а отказы — нет', async () => {
       const controller = new AbortController();
       const f = fixture({ requestHealth: async () => { controller.abort(); throw new Error(uri); } }); f.options.signal = controller.signal;

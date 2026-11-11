@@ -43,6 +43,7 @@ export function startShell(sections: ShellSection[] = []): void {
   let user: StudioUser | null = null;
   let owner = false;
   let operation: AbortController | null = null;
+  let pending: Promise<void> | null = null;
   let warning = '';
   let developer: DeveloperService | null = null;
   let remembered: RememberedBase | null = null;
@@ -68,6 +69,8 @@ export function startShell(sections: ShellSection[] = []): void {
   /** Отключение по просьбе человека: заодно прерывает долгую операцию (иначе подключение продолжило бы работу над сброшенным состоянием) */
   const disconnect = async () => {
     operation?.abort();
+    // Прерванное подключение само гасит запущенный Flux в своём catch; закрытие окна не должно уйти раньше, чем процесс остановлен
+    if (pending) await Promise.race([pending, new Promise(resolve => setTimeout(resolve, 15_000))]);
     await release();
   };
   /** Одна длинная операция за раз: второй щелчок не запускает вторую базу */
@@ -75,8 +78,10 @@ export function startShell(sections: ShellSection[] = []): void {
     if (operation) throw new StudioFailure('Дождитесь завершения текущей операции или отмените её.');
     const controller = new AbortController();
     operation = controller;
-    try { return await fn(controller.signal); }
-    finally { operation = null; progress(''); }
+    const run = fn(controller.signal);
+    pending = run.then(() => undefined, () => undefined);
+    try { return await run; }
+    finally { operation = null; pending = null; progress(''); }
   };
   const text = (value: unknown, max: number): string => {
     if (typeof value !== 'string' || value.length > max) throw new StudioFailure('Некорректные данные формы.');
@@ -159,6 +164,8 @@ export function startShell(sections: ShellSection[] = []): void {
     win.on('maximize', () => win?.webContents.send('window:maximized-changed', true));
     win.on('unmaximize', () => win?.webContents.send('window:maximized-changed', false));
     const fromWindow = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) => (win && event.sender === win.webContents ? win : null);
+    for (const channel of ['window:minimize', 'window:maximize', 'window:close']) ipcMain.removeAllListeners(channel);
+    ipcMain.removeHandler('window:is-maximized');
     ipcMain.on('window:minimize', event => { fromWindow(event)?.minimize(); });
     ipcMain.on('window:maximize', event => { const w = fromWindow(event); if (w) (w.isMaximized() ? w.unmaximize() : w.maximize()); });
     ipcMain.on('window:close', event => { fromWindow(event)?.close(); });

@@ -130,14 +130,14 @@ async function main() {
       class Win { constructor(o){ created = this; this.options=o; this.webContents={ setWindowOpenHandler(){}, on(){}, send:(c,d)=>sent.push([c,d]), mainFrame:{}, capturePage: async () => ({ toPNG: () => Buffer.from([0x89,0x50,0x4e,0x47,1,2,3,4,5,6,7,8]) }) }; }
         setMenu(){} loadFile(){ return Promise.resolve(); } on(){} once(){} show(){} isDestroyed(){ return false; } }
       module.exports = { __handlers: handlers, __sent: sent, __win: () => created,
-        app: { whenReady: () => Promise.resolve(), on(){} , quit(){}, getPath: () => process.env.STUDIO_TEST_DATA },
-        BrowserWindow: Win, dialog: { showOpenDialog: async () => process.env.STUDIO_TEST_VAULT ? { canceled: false, filePaths: [process.env.STUDIO_TEST_VAULT] } : { canceled: true, filePaths: [] } }, ipcMain: { handle: (c, f) => handlers.set(c, f), on: (c, f) => handlers.set('on:' + c, f) },
+        app: { whenReady: () => Promise.resolve(), on: (e, f) => handlers.set('app:' + e, f), quit(){ globalThis.__quitAt = globalThis.__cleaned === true ? 'после очистки' : 'до очистки'; }, getPath: () => process.env.STUDIO_TEST_DATA },
+        BrowserWindow: Win, dialog: { showOpenDialog: async () => process.env.STUDIO_TEST_VAULT ? { canceled: false, filePaths: [process.env.STUDIO_TEST_VAULT] } : { canceled: true, filePaths: [] } }, ipcMain: { handle: (c, f) => handlers.set(c, f), on: (c, f) => handlers.set('on:' + c, f), removeAllListeners() {}, removeHandler() {} },
         nativeImage: { createFromPath: () => ({}) },
         protocol: { registerSchemesAsPrivileged(){}, handle: (scheme, fn) => handlers.set('protocol:' + scheme, fn) },
         // Хранилище с настоящим обратимым преобразованием: без него адрес не расшифровать, а открытым текстом он на диск не попадает
         safeStorage: { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(Buffer.from(s, 'utf8').toString('hex').split('').reverse().join('')), decryptString: (b) => Buffer.from(Buffer.from(b).toString().split('').reverse().join(''), 'hex').toString('utf8') } };`);
     const runtimeStub = path.join(temp, 'runtime.cjs');
-    fs.writeFileSync(runtimeStub, `let stops = 0; module.exports = { __stops: () => stops, startDatabaseRuntime: async (o) => { if (o.signal && o.signal.aborted) throw new Error('Подключение к общей базе отменено.'); return ({ origin: ${JSON.stringify(origin)}, display: 'MariaDB / MySQL · stub', stop: async () => { stops++; } }); }, __last: null };`);
+    fs.writeFileSync(runtimeStub, `let stops = 0; module.exports = { __stops: () => stops, startDatabaseRuntime: async (o) => { if (process.env.STUDIO_TEST_SLOW) return new Promise((_, reject) => o.signal.addEventListener('abort', () => setTimeout(() => { globalThis.__cleaned = true; reject(new Error('Подключение к общей базе отменено.')); }, 250))); if (o.signal && o.signal.aborted) throw new Error('Подключение к общей базе отменено.'); return ({ origin: ${JSON.stringify(origin)}, display: 'MariaDB / MySQL · stub', stop: async () => { stops++; } }); }, __last: null };`);
     const out = path.join(temp, 'main.cjs');
     process.env.STUDIO_TEST_DATA = path.join(temp, 'data');
     // Окно подпрограммы, рабочий поток и заготовки лежат рядом с main.cjs, как в упакованной Studio
@@ -224,6 +224,16 @@ async function main() {
     const afterDev = await call('login', { symbol: 'dev', password: 'dev-pass' });
     ok('вошедший по логину разработчик не получает разделов владельца', afterDev.ok && afterDev.value.owner === false);
     await call('disconnect');
+
+    console.log('Закрытие окна посреди подключения');
+    process.env.STUDIO_TEST_SLOW = '1';
+    const hanging = call('connect', { uri: 'mysql://U:P@H:3306/Flux' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    electron.__handlers.get('app:window-all-closed')();
+    await hanging;
+    for (let i = 0; i < 100 && !(globalThis as any).__quitAt; i++) await new Promise((resolve) => setTimeout(resolve, 50));
+    ok('программа закрывается только после остановки запущенного Flux (дочерний процесс не остаётся)', (globalThis as any).__cleaned === true && (globalThis as any).__quitAt === 'после очистки');
+    delete process.env.STUDIO_TEST_SLOW;
 
     console.log('Запомненный адрес');
     ok('до запоминания сохранённой базы нет', (await call('state')).value.remembered === '');

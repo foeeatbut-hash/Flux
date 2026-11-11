@@ -33,6 +33,7 @@ export default function ConnectScreen({ state, onDone, theme, onToggleTheme }: {
         {saved ? <>
           <p className="fx-hint">Сохранённая база: <strong data-testid="remembered">{state.remembered}</strong>. Адрес хранится на этом компьютере в защищённом хранилище Windows.</p>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {busy && <button type="button" className="fx-btn" onClick={() => void window.studio.call('cancel')}>Отмена</button>}
             <button type="button" className="fx-btn" onClick={() => setOther(true)} disabled={busy}>Другая база</button>
             <button type="button" className="fx-btn" onClick={() => void forget()} disabled={busy}>Забыть адрес</button>
             <button type="button" className="fx-btn fx-btn-primary" onClick={() => void run('connectRemembered')} disabled={busy}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}{busy ? 'Подключаемся…' : 'Подключиться'}</button>

@@ -45,10 +45,12 @@ function parseDatabaseUri(value) {
   return { uri: url.toString(), dialect, display: `MariaDB / MySQL · ${url.hostname}:${port}/${database}` };
 }
 
-/** Строка из журнала Flux для человека: без адресов и паролей, одной строкой, не длиннее 160 знаков */
+/** Строка из журнала Flux для человека: последняя содержательная (не «at …» стека), без адресов и паролей, не длиннее 160 знаков */
 function logLine(text) {
-  const line = String(text).split(/\r?\n/).map(part => part.trim()).filter(Boolean).pop() || '';
-  return line.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[адрес скрыт]').replace(/(password|passwd|pwd|token|secret)\s*[=:]\s*\S+/gi, '$1=[скрыто]')
+  const lines = String(text).split(/\r?\n/).map(part => part.trim()).filter(Boolean);
+  const line = [...lines].reverse().find(part => !/^at\s/.test(part)) || '';
+  return line.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[адрес скрыт]')
+    .replace(/(password|passwd|pwd|token|secret)(["']?\s*[=:]\s*)(?:"[^"]*"|'[^']*'|\S+)/gi, '$1$2[скрыто]')
     .replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 160);
 }
 
@@ -208,8 +210,8 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
     record('process.spawned',{pid:child.pid,port});
     // В журнал Owner попадают только коды ошибок и объём вывода: строки дочернего процесса могут содержать SQL или
     // реквизиты. Последнюю строку (без адресов и паролей) оставляем только для сообщения человеку об отказе запуска.
-    let lastLine = '';
-    for(const name of ['stdout','stderr'])child[name]?.on('data',chunk=>{const text=String(chunk);const mine=logLine(text);if(mine)lastLine=mine;const codes=[...new Set(text.match(/\b(?:P\d{4}|EACCES|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ER_[A-Z_]{3,50})\b/g)||[])];if(codes.length)record('process.diagnostic',{stream:name,codes});});
+    let lastLine = '', portBusy = false;
+    for(const name of ['stdout','stderr'])child[name]?.on('data',chunk=>{const text=String(chunk);const mine=logLine(text);if(mine)lastLine=mine;if(!ready&&!controller.signal.aborted&&/EADDRINUSE|address already in use/i.test(text)){portBusy=true;controller.abort(failure(`Порт ${port} занят другой программой, и Flux не смог его занять. Подключитесь снова: порт будет выбран заново; если не помогает, закройте программу, занявшую порт, или перезагрузите компьютер.`));}const codes=[...new Set(text.match(/\b(?:P\d{4}|EACCES|EADDRINUSE|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ER_[A-Z_]{3,50})\b/g)||[])];if(codes.length)record('process.diagnostic',{stream:name,codes});});
     deadline = setTimeout(() => {record('startup.timeout');controller.abort(failure(`Flux запустился, но за две минуты не подтвердил подключение к базе${lastHealth ? ` (последний ответ проверки: ${lastHealth})` : ' (проверка /api/health не отвечала)'}. Проверьте, что сервер базы доступен с этого компьютера: адрес, порт, брандмауэр.`));}, deps.startupTimeoutMs);
     let lastHealth = '';
     const childFailed = (code,childSignal) => {
@@ -219,6 +221,7 @@ async function startDatabaseRuntime({ uri, signal, dialog, parentWindow, onProgr
       let reason;
       if (ready) reason = failure('Локальный сервер Flux завершился. Проверьте portable EXE и доступность общей базы.');
       else if (code instanceof Error) reason = failure(`Windows не дал запустить Flux${code.code ? ` (${code.code})` : ''}. Проверьте права на папку и антивирус, затем запустите ${path.basename(file)} вручную.`);
+      else if (portBusy) reason = failure(`Порт ${port} занят другой программой. Подключитесь снова: порт будет выбран заново.`);
       else reason = failure(`Flux не запустился: процесс завершился${typeof code === 'number' ? ` с кодом ${code}` : childSignal ? ` (сигнал ${childSignal})` : ''}${lastLine ? `. Последняя строка его журнала: «${lastLine}»` : ''}. Запустите ${path.basename(file)} вручную: если он не открывается, проблема в самом Flux (версия, антивирус, права).`);
       controller.abort(reason);
       if (unexpected) {
