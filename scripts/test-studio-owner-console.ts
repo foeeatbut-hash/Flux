@@ -22,8 +22,9 @@ import { registerModulePublishingRoutes } from '../server/routes/modulePublishin
 import { registerUpdateCampaignRoutes } from '../server/routes/updateCampaigns';
 import { requiresOwner } from '../server/accessPolicy';
 import { signUpdateEnvelope, verifiedDeviceChain } from '../electron/updateCommand';
-import { unpackBundle } from '../modules/trust/bundle';
-import { openEnvelope } from '../modules/trust/envelope';
+import { packBundle, unpackBundle } from '../modules/trust/bundle';
+import { openEnvelope, sealEnvelope } from '../modules/trust/envelope';
+import { describeBundle } from '../modules/trust/verify';
 import { hexOf, moduleBundle, newKey, requestEnvelope } from './fixtures/moduleTrust';
 
 const Database = require('better-sqlite3');
@@ -109,8 +110,36 @@ async function main() {
   const second = (await owner.certificates()).requests[0];
   await owner.declineCertificate({ key: second.key });
   ok('отклонённый запрос исчезает, сертификата нет', (await owner.certificates()).requests.length === 0 && await count('ModuleCertificate') === 1);
+  // Очередь: чужую ожидающую запись не перезаписать, у профиля не больше трёх ожидающих запросов
+  const takenKey = hexOf(newKey());
+  ok('первый запрос с ключом принят', (await call('developer', '/api/modules/certificate-requests', 'POST', { key: takenKey, name: 'Первый' })).status === 200);
+  sessions.dev3 = { id: 'dev3', name: 'Третий', role: 'ENGINEER_AUTO' };
+  const hijack = await call('dev3', '/api/modules/certificate-requests', 'POST', { key: takenKey, name: 'Подмена' });
+  ok('другой разработчик не перезаписывает чужую запись, зная ключ (409)', hijack.status === 409);
+  ok('запись осталась за первым профилем', (await owner.certificates()).requests.find((r: any) => r.key === takenKey).userId === 'developer');
+  ok('повтор своего запроса допустим и обновляет имя', (await call('developer', '/api/modules/certificate-requests', 'POST', { key: takenKey, name: 'Новое имя' })).status === 200
+    && (await owner.certificates()).requests.find((r: any) => r.key === takenKey).name === 'Новое имя');
+  ok('второй и третий запросы одного профиля приняты', (await call('developer', '/api/modules/certificate-requests', 'POST', { key: hexOf(newKey()) })).status === 200
+    && (await call('developer', '/api/modules/certificate-requests', 'POST', { key: hexOf(newKey()) })).status === 200);
+  const fourth = await call('developer', '/api/modules/certificate-requests', 'POST', { key: hexOf(newKey()) });
+  ok('четвёртый запрос профиля отвергнут понятным текстом (429)', fourth.status === 429 && /уже 3 ожидающих/.test(fourth.body.error));
+  ok('другой профиль очередью не заблокирован', (await call('dev3', '/api/modules/certificate-requests', 'POST', { key: hexOf(newKey()) })).status === 200);
+  for (const ask of (await owner.certificates()).requests) await owner.declineCertificate({ key: ask.key });
+  ok('очередь разобрана', (await owner.certificates()).requests.length === 0);
   await rejects('запасное хранилище сертификат не подписывает', make('owner', { ...vault, kind: 'backup' }).certify({ key: devHex, userId: 'developer' }), /основное хранилище/);
   await rejects('без подключения к базе подписывать нельзя', make('').certify({ key: devHex, userId: 'developer' }), /Подключитесь/);
+
+  console.log('Тестовый канал: назначение тестировщиков');
+  await db.user.create({ data: { id: 'tester-1', symbol: 't1', password: 'x', name: 'Тестировщик 1' } });
+  await db.user.create({ data: { id: 'tester-2', symbol: 't2', password: 'x', name: 'Тестировщик 2' } });
+  await owner.saveTesters({ testers: ['tester-1', 'tester-2', 'tester-1'] });
+  ok('сохранённый список читается обратно без повторов', (await owner.testers()).testers.join() === 'tester-1,tester-2' && (await owner.testers()).users.some((u: any) => u.id === 'tester-1'));
+  await rejects('не массив отвергается', owner.saveTesters({ testers: 'tester-1' } as any), /Некорректный список/);
+  await rejects('несуществующий профиль отвергается главным процессом по формату', owner.saveTesters({ testers: ['tester 1; DROP'] }), /Некорректный номер/);
+  await rejects('несуществующий профиль отвергается сервером', owner.saveTesters({ testers: ['tester-1', 'нет-такого-профиля'.replace(/[^a-z-]/g, 'x')] }), /Неизвестные профили/);
+  ok('после отказов список прежний', (await owner.testers()).testers.join() === 'tester-1,tester-2');
+  ok('не массив на сервере — 400, значения не строки — 400', (await call('owner', '/api/modules/testers', 'PUT', { testers: 'x' })).status === 400 && (await call('owner', '/api/modules/testers', 'PUT', { testers: [1, {}] })).status === 400);
+  ok('чужой профиль без прав владельца список не меняет', (await call('admin', '/api/modules/testers', 'PUT', { testers: [] })).status === 403 && (await owner.testers()).testers.length === 2);
 
   console.log('Запросы на публикацию: просмотр');
   const b100 = moduleBundle('1.0.0');
@@ -150,14 +179,31 @@ async function main() {
   const b110 = moduleBundle('1.1.0', { 'logic/extra.ts': 'export const x = 1;' });
   const r110 = await call('developer', '/api/modules/requests', 'POST', { signature: requestEnvelope(dev, b110, { version: '1.1.0', baseRelease: 'equipment-inspector@1.0.0' }), bundle: Buffer.from(b110).toString('base64') });
   const v110 = await owner.request({ id: r110.body.id });
-  await rejects('править можно только текстовые файлы пакета', owner.ownerEdit({ id: r110.body.id, texts: { 'нет/файла.ts': 'x' }, sha256: v110.sha256 }), /нельзя править/);
+  await rejects('править можно только разрешённые файлы: «нет/файла.ts» отвергается', owner.ownerEdit({ id: r110.body.id, texts: { 'нет/файла.ts': 'x' }, sha256: v110.sha256 }), /только manifest\.json, form\.json/);
+  await rejects('исходный код владелец не правит', owner.ownerEdit({ id: r110.body.id, texts: { 'logic/extra.ts': 'export const x = 2;' }, sha256: v110.sha256 }), /Исходный код/);
+  await rejects('build/runtime.js владелец не правит', owner.ownerEdit({ id: r110.body.id, texts: { 'build/runtime.js': '/* другое */' }, sha256: v110.sha256 }), /build\/runtime\.js/);
+  ok('после отказов правок в базе нет', await count('ModuleRequest') === 2);
   await rejects('без изменений правка не подписывается', owner.ownerEdit({ id: r110.body.id, texts: {}, sha256: v110.sha256 }), /Нет изменений/);
-  const edited = await owner.ownerEdit({ id: r110.body.id, texts: { 'logic/extra.ts': 'export const x = 2;' }, comment: 'поправил', sha256: v110.sha256 });
+  const edited = await owner.ownerEdit({ id: r110.body.id, texts: { 'examples/basic.json': '{"input":{},"expect":{"parameterCount":1}}' }, comment: 'поправил', sha256: v110.sha256 });
   const ownerRequest = (await owner.requests()).requests.find((r: any) => r.id === edited.id);
   ok('правка владельца — отдельный запрос от владельца, прежний помечен', ownerRequest.byOwner && ownerRequest.meta.comment === 'поправил'
     && (await owner.requests()).requests.find((r: any) => r.id === r110.body.id).state === 'edited');
-  const editedBundle = unpackBundle(Buffer.from((await owner.request({ id: edited.id })).bundle, 'base64'));
-  ok('в правке именно изменённый текст', Buffer.from(editedBundle['logic/extra.ts']).toString() === 'export const x = 2;');
+  const editedView = await owner.request({ id: edited.id });
+  const editedBundle = unpackBundle(Buffer.from(editedView.bundle, 'base64'));
+  ok('в правке именно изменённый файл данных, код прежний', Buffer.from(editedBundle['examples/basic.json']).toString().includes('"parameterCount":1')
+    && Buffer.from(editedBundle['logic/extra.ts']).toString() === 'export const x = 1;');
+  ok('хеш пересчитан из байт правки и отличается от хеша пакета разработчика', edited.sha256 === editedView.sha256 && edited.sha256 !== v110.sha256);
+  ok('хеш правки записан в запрос на сервере', (await db.$queryRawUnsafe(`SELECT "sha256" FROM "ModuleRequest" WHERE "id" = '${edited.id}'`))[0].sha256 === edited.sha256);
+  // Сервер не полагается на окно: правка кода, присланная мимо главного процесса, тоже отвергается
+  const sneaky = packBundle({ ...unpackBundle(Buffer.from(v110.bundle, 'base64')), 'logic/extra.ts': 'steal()' });
+  const sneakySig = sealEnvelope('request', { v: 1, moduleId: 'equipment-inspector', version: '1.1.0', baseRelease: null, parentRequest: r110.body.id, author: vault.keys.update.publicHex, iat: Date.now(),
+    meta: { ...v110.request.meta, comment: 'мимо окна', contractVersion: 1 }, ...describeBundle(sneaky) }, rootKey);
+  const sneakyResult = await call('owner', '/api/modules/requests', 'POST', { signature: sneakySig, bundle: Buffer.from(sneaky).toString('base64') });
+  ok('сервер отвергает правку владельца с изменённым кодом', sneakyResult.status === 400 && /Исходный код/.test(sneakyResult.body.error));
+  await rejects('выпуск правки с хешем пакета разработчика не подписывается', owner.release({ id: edited.id, channel: 'test', notBefore: 0, sha256: v110.sha256 }), /изменился/);
+  const releasedEdit = await owner.release({ id: edited.id, channel: 'test', notBefore: 0, sha256: edited.sha256 });
+  ok('выпуск правки подписан именно по её хешу и хеш остался в записи выпуска', releasedEdit.sha256 === edited.sha256
+    && (await db.$queryRawUnsafe(`SELECT "sha256" FROM "ModuleRelease" WHERE "id" = '${releasedEdit.release.id}'`))[0].sha256 === edited.sha256);
   const b120 = moduleBundle('1.2.0');
   const r120 = await call('developer', '/api/modules/requests', 'POST', { signature: requestEnvelope(dev, b120, { version: '1.2.0' }), bundle: Buffer.from(b120).toString('base64') });
   await owner.returnRequest({ id: r120.body.id, note: 'поправь', comments: [{ path: 'logic/main.ts', line: 3, text: 'имя' }, { path: 'x', line: 0, text: 'без строки' }] });

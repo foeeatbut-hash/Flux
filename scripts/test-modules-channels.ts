@@ -124,6 +124,8 @@ async function main() {
   const testRelease = (await call('owner', '/api/modules/releases')).body.releases.find((r: any) => r.version === '1.0.0');
   ok('куски тестового выпуска ему не отдаются', (await call('other', `/api/modules/releases/${testRelease.id}/chunks`)).status === 404);
   ok('назначать тестировщиков может только владелец', (await call('dev', '/api/modules/testers', 'PUT', { testers: ['dev'] })).status === 403);
+  await db.user.create({ data: { id: 'tester', symbol: 'tester', password: 'x', name: 'Тестировщик' } });
+  ok('несуществующий профиль в тестовый канал не назначается', (await call('owner', '/api/modules/testers', 'PUT', { testers: ['tester', 'нет-такого'] })).status === 400);
   ok('владелец назначил тестировщика', (await call('owner', '/api/modules/testers', 'PUT', { testers: ['tester', 'tester', ''] })).body.testers.join() === 'tester');
   ok('тестировщик видит оба канала', (await versionsFor('tester')).join() === '1.0.0,1.0.1' && (await me('tester')).channels.includes('test'));
   ok('куски тестового выпуска тестировщику отдаются', (await call('tester', `/api/modules/releases/${testRelease.id}/chunks`)).status === 200);

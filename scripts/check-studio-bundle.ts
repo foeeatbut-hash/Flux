@@ -25,7 +25,7 @@ export const OWNER_MARKERS = [
 ];
 /** Файлы владельца вне studio/owner: общий импорт любого из них тянет код владельца в чужой бандл, даже под другим именем функции */
 export const OWNER_PATHS = [
-  /^studio\/owner\//, /^license\/ownerKey\.ts$/, /^modules\/trust\/owner\.ts$/, /^electron\/ownerLogin\.ts$/,
+  /^studio\/owner\//, /^license\/ownerKey\.ts$/, /^modules\/trust\/owner\.ts$/, /^modules\/trust\/ownerEdit\.ts$/, /^electron\/ownerLogin\.ts$/,
   /^license\/node\//, /^electron\/updateCommand\.ts$/, /^server\/routes\/owner\.ts$/, /^server\/ownerAuth\.ts$/,
   // Серверная часть владельца: назначение обновлений, очередь запросов на сертификат, снятие разрешений администраторам
   /^server\/routes\/updateCampaigns\.ts$/, /^server\/routes\/moduleCertRequests\.ts$/, /^server\/updateDelegationCleanup\.ts$/,

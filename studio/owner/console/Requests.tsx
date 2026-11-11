@@ -10,6 +10,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { bundleText, unpackBundle, type BundleFiles } from '../../../modules/trust/bundle';
 import { ACCESS_NAMES, connectionsOf, describeConnection } from '../../../modules/connections/model';
 import { manifestOf } from '../../../modules/trust/diff';
+import { ownerEditablePaths } from '../../../modules/trust/ownerEdit';
 import { call } from './api';
 import { Badge, Btn, Dialog, Empty, ErrorLine, Field, Segs, useAction, type Tone } from './ui';
 import Trial from './Trial';
@@ -96,7 +97,7 @@ function RequestView({ summary, onChanged }: { summary: PublishRequest; onChange
       <span className="grow" />
       {pending && <>
         <Btn onClick={() => setDecision('return')}>Вернуть на доработку</Btn>
-        <Btn disabled={!files} onClick={() => setDecision('edit')}>Внести изменения сам</Btn>
+        <Btn disabled={!files} title="Правятся manifest.json, form.json и файлы данных; код — только через «Вернуть на доработку»" onClick={() => setDecision('edit')}>Внести изменения сам</Btn>
         <Btn tone="danger" onClick={() => setDecision('reject')}>Отклонить</Btn>
         <Btn tone="primary" disabled={!data} onClick={() => setDecision('release')}>Выпустить</Btn></>}
     </div>
@@ -189,7 +190,7 @@ function ReleaseDialog({ request, sha256, onClose, onDone }: { request: PublishR
 }
 
 function EditDialog({ request, sha256, files, start, onClose, onDone }: { request: PublishRequest; sha256: string; files: BundleFiles; start: string; onClose: () => void; onDone: () => void }) {
-  const editable = Object.keys(files).filter(p => bundleText(files, p) !== null);
+  const editable = ownerEditablePaths(files);
   const [path, setPath] = useState(editable.includes(start) ? start : editable[0] || '');
   const [texts, setTexts] = useState<Record<string, string>>({});
   const [comment, setComment] = useState('');
@@ -198,10 +199,11 @@ function EditDialog({ request, sha256, files, start, onClose, onDone }: { reques
   const go = async () => { if (await run(() => call('ownerEdit', { id: request.id, texts, comment, sha256 }))) { onDone(); onClose(); } };
   return <Dialog title="Внести изменения сам" onClose={onClose} busy={busy}
     footer={<><Btn onClick={onClose} disabled={busy}>Отмена</Btn><Btn tone="primary" disabled={busy || !Object.keys(texts).length} onClick={() => void go()}>Подписать правку</Btn></>}>
+    {!editable.length && <p className="hint">В этом пакете нет файлов, которые владелец может править. Исходный код — только через «Вернуть на доработку».</p>}
     <Field label="Файл" id="edit-file"><select id="edit-file" value={path} onChange={e => setPath(e.target.value)}>{editable.map(p => <option key={p} value={p}>{p}</option>)}</select></Field>
     <textarea rows={14} className="mono" aria-label="Содержимое файла" value={text} onChange={e => setTexts({ ...texts, [path]: e.target.value })} />
     <Field label="Комментарий для разработчика" id="edit-comment"><input id="edit-comment" value={comment} onChange={e => setComment(e.target.value)} /></Field>
-    <p className="hint">Правка уходит отдельным запросом от владельца; разработчик увидит её отдельной разницей.</p>
+    <p className="hint">Правятся только manifest.json, form.json и файлы данных. Исходный код и build/runtime.js — через «Вернуть на доработку». Правка уходит отдельным запросом от владельца; разработчик увидит её отдельной разницей.</p>
     <ErrorLine text={error} />
   </Dialog>;
 }

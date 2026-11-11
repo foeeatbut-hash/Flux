@@ -18,6 +18,7 @@ import {
   parseCertificateClaim, parseReleaseClaim, parseRequestClaim, parseRevocationClaim,
 } from '../../modules/trust/claims.js';
 import { unpackBundle } from '../../modules/trust/bundle.js';
+import { OWNER_EDIT_REFUSAL, ownerEditViolations } from '../../modules/trust/ownerEdit.js';
 import { checkChunks, verifyRequest } from '../../modules/trust/verify.js';
 import { diffFiles, diffPermissions, manifestOf } from '../../modules/trust/diff.js';
 import { MODULE_ROOT_KEY_HEX, loadTrust, readBlob, readBundle, signatureHash, writeBlob } from '../moduleStore.js';
@@ -100,6 +101,11 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
       }
       const parent = claim.parentRequest ? await db.moduleRequest.findUnique({ where: { id: claim.parentRequest } }) : null;
       if (claim.parentRequest && (!parent || parent.moduleId !== claim.moduleId)) return fail(res, 400, 'Предыдущий запрос не найден');
+      // Правка владельца не трогает код: исходники и build/runtime.js остаются теми, что прислал разработчик (решение этапа 4в)
+      if (byOwner && parent) {
+        const bad = ownerEditViolations(unpackBundle(await readBundle(db, parent.id, parent.chunkCount)), unpackBundle(bundle));
+        if (bad.length) return fail(res, 400, `${OWNER_EDIT_REFUSAL} Изменены: ${bad.slice(0, 5).join(', ')}.`);
+      }
       const row = await db.moduleRequest.create({ data: {
         moduleId: claim.moduleId, version: claim.version, signature, signatureHash: signatureHash(signature), authorKey: claim.author,
         authorId: userId(req), byOwner, parentId: parent?.id || null, baseRelease: claim.baseRelease, size: claim.size, sha256: claim.sha256,

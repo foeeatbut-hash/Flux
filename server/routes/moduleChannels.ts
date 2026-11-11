@@ -37,6 +37,11 @@ export function registerModuleChannelRoutes(app: Express, deps: ModuleChannelDep
   app.put('/api/modules/testers', requireOwnerMiddleware, async (req: Request, res: Response) => {
     const ids = Array.isArray(req.body?.testers) ? req.body.testers : null;
     if (!ids) return res.status(400).json({ error: 'Ожидался список тестировщиков' });
+    // Только существующие профили: иначе в списке тестового канала накапливаются чужие и выдуманные идентификаторы
+    if (ids.length > 5000 || ids.some((v: unknown) => typeof v !== 'string' || v.length > 80)) return res.status(400).json({ error: 'Список тестировщиков содержит неверные значения' });
+    const known = new Set((await deps.getPrisma().user.findMany({ where: { id: { in: ids.filter(Boolean) } }, select: { id: true } })).map((u: any) => u.id));
+    const unknown = ids.filter((id: string) => id && !known.has(id));
+    if (unknown.length) return res.status(400).json({ error: `Неизвестные профили: ${unknown.slice(0, 5).join(', ')}` });
     const saved = await saveTesters(deps.getPrisma(), ids);
     deps.broadcast('modules:channels', {});
     res.json({ testers: saved });

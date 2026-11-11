@@ -151,8 +151,8 @@ async function main() {
       ok(`${theme}: отчёт проверок разработчика виден`, (await page.getByText('контрольные примеры').count()) > 0);
       await page.getByRole('tab', { name: 'Проверить в работе' }).click();
       await page.getByRole('button', { name: 'Запустить на тестовой базе' }).click();
-      await page.getByText('Этот язык здесь не запускается').waitFor();
-      ok(`${theme}: Python в пробном запуске честно не запускается`, true);
+      await page.getByText('Пробный запуск для этого языка — во Flux').waitFor();
+      ok(`${theme}: Python: понятная надпись «пробный запуск для этого языка — во Flux»`, true);
 
       // Замечание к строке → возврат на доработку
       await page.getByRole('tab', { name: /Файлы/ }).click();

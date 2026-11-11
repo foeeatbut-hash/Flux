@@ -178,6 +178,7 @@ async function main() {
   await publish('calc-t', 'Тестовая', '0.1.0', store('Проба'), 'test');
   await call('admin', '/api/modules/store/calc-t/admission', 'POST', { status: 'admitted' });
   ok('тестовая видна только назначенным', !(await listing('ann', 'calc-t')));
+  await db.user.create({ data: { id: 'ann', symbol: 'ann', password: 'x', name: 'Анна' } }).catch(() => {});
   await call('owner', '/api/modules/testers', 'PUT', { testers: ['ann'] });
   const testing = await listing('ann', 'calc-t');
   ok('тестировщик видит её с пометкой «тестовая»', testing?.testing === true && testing.channel === 'test');

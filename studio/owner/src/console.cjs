@@ -15,6 +15,7 @@ const { signModule } = require('./moduleSigning.ts');
 const { signCampaign, CAMPAIGN_MAX_TARGETS } = require('./campaigns.ts');
 const { unpackBundle, packBundle, bundleText, RUNTIME_FILE } = require('../../../modules/trust/bundle.ts');
 const { describeBundle } = require('../../../modules/trust/verify.ts');
+const { ownerMayEdit, ownerEditViolations, OWNER_EDIT_REFUSAL } = require('../../../modules/trust/ownerEdit.ts');
 
 const b64 = bytes => Buffer.from(bytes).toString('base64');
 const text = (value, max = 20000) => { if (typeof value !== 'string' || value.length > max) throw new Error('Некорректные данные формы.'); return value; };
@@ -72,7 +73,7 @@ function createConsoleActions(ctx, request = consoleRequest) {
       await confirm(`Выпустить ${row.moduleId} ${row.version}?`, `Канал: ${CHANNEL[channel]}\nКогда: ${when(notBefore)}\nПакет: ${sha256Of(bundle).slice(0, 16)}…\n\nВыпуск подписывается вашим ключом из хранилища и сразу уходит в Flux Store.`);
       const signed = signModule(vault, { kind: 'release', requestId: id, requestSignature: signature, bundle: b64(bundle), channel, notBefore });
       const out = await api('POST', `/api/modules/requests/${id}/release`, { signature: signed });
-      return { release: out.release, duplicate: !!out.duplicate };
+      return { release: out.release, duplicate: !!out.duplicate, sha256: sha256Of(bundle) };
     },
     ownerEdit: async a => {
       const vault = need(), id = idOf(a.id);
@@ -81,14 +82,20 @@ function createConsoleActions(ctx, request = consoleRequest) {
       if (row.state !== 'pending') throw new Error('Запрос уже решён.');
       const files = unpackBundle(bundle), edits = a.texts && typeof a.texts === 'object' ? Object.entries(a.texts) : [];
       if (!edits.length) throw new Error('Нет изменений.');
+      const original = { ...files };
       for (const [file, content] of edits) {
+        // Код и runtime.js владелец не правит: правка исходника не пересобирает runtime.js (проверяет и сервер)
+        if (!ownerMayEdit(text(file, 300))) throw new Error(`${OWNER_EDIT_REFUSAL} Файл: ${file}.`);
         if (bundleText(files, file) === null) throw new Error(`Файл ${text(file, 300)} нельзя править как текст.`);
         files[file] = Buffer.from(text(content, 4 * 1024 * 1024), 'utf8');
       }
       const next = packBundle(files);
-      await confirm(`Подписать правку ${row.moduleId} ${row.version}?`, `Изменено файлов: ${edits.length}\nПравка уходит отдельным запросом от владельца; разработчик увидит её отдельной разницей.`);
+      if (ownerEditViolations(original, unpackBundle(next)).length) throw new Error(OWNER_EDIT_REFUSAL);
+      const nextSha = sha256Of(next);
+      await confirm(`Подписать правку ${row.moduleId} ${row.version}?`, `Изменено файлов: ${edits.length}\nПакет после правки: ${nextSha.slice(0, 16)}… (прежний ${sha256Of(bundle).slice(0, 16)}…)\nПравка уходит отдельным запросом от владельца; разработчик увидит её отдельной разницей.`);
       const signed = signModule(vault, { kind: 'owner-edit', parentRequestId: id, parentSignature: signature, bundle: b64(next), comment: text(a.comment || '', 4000) });
-      return api('POST', '/api/modules/requests', { signature: signed, bundle: b64(next) });
+      // Хеш считается заново из байт правки: следующий выпуск сверяется уже с ним, а не с пакетом разработчика
+      return { ...(await api('POST', '/api/modules/requests', { signature: signed, bundle: b64(next) })), sha256: nextSha };
     },
 
     // ---- Выпуски и каналы

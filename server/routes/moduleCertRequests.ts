@@ -12,6 +12,8 @@ import { requireOwnerMiddleware } from '../accessPolicy.js';
 const KEY = /^[0-9a-f]{64}$/;
 const ROW = 'module.certRequest';
 const MAX_PENDING = 500;
+/** Ожидающих запросов от одного профиля: один разработчик не должен занять всю очередь */
+const MAX_PER_PROFILE = 3;
 const rowId = (key: string) => `${ROW}:${key}`;
 const valueOf = (row: any) => { try { return JSON.parse(row.value); } catch { return null; } };
 
@@ -38,7 +40,13 @@ export function registerCertRequestRoutes(app: Express, deps: CertRequestDeps): 
     if (await db.moduleCertificate.findUnique({ where: { keyHex: key } })) return res.status(409).json({ error: 'Для этого ключа сертификат уже выдан.' });
     const pending = await db.appSetting.findMany({ where: { key: ROW, userId: null }, take: MAX_PENDING + 1 });
     const existing = pending.find((row: any) => row.id === rowId(key));
-    if (!existing && pending.length >= MAX_PENDING) return res.status(409).json({ error: 'Очередь запросов на сертификат переполнена. Попросите владельца её разобрать.' });
+    // Чужую ожидающую запись не перезаписываем: зная открытый ключ, подставить в неё свой профиль нельзя
+    if (existing && valueOf(existing)?.userId !== String(user.id)) return res.status(409).json({ error: 'Запрос с этим ключом уже отправлен другим профилем.' });
+    if (!existing) {
+      const mine = pending.filter((row: any) => valueOf(row)?.userId === String(user.id)).length;
+      if (mine >= MAX_PER_PROFILE) return res.status(429).json({ error: `У вас уже ${MAX_PER_PROFILE} ожидающих запроса на сертификат. Дождитесь решения владельца по ним: новый запрос можно отправить после выдачи или отказа.` });
+      if (pending.length >= MAX_PENDING) return res.status(503).json({ error: 'Очередь запросов на сертификат у владельца переполнена. Попробуйте позже или напишите владельцу.' });
+    }
     const value = JSON.stringify({ key, userId: String(user.id), name: String(req.body?.name || user.name || '').slice(0, 200), at: Date.now() });
     await db.appSetting.upsert({ where: { id: rowId(key) }, create: { id: rowId(key), key: ROW, userId: null, value }, update: { value } });
     deps.broadcast('modules:certificate-requests', { key });

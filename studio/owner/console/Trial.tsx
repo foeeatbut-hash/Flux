@@ -68,7 +68,7 @@ export default function Trial({ requestId }: { requestId: string }) {
       <div className="pad" style={{ textAlign: 'center' }}><Btn tone="primary" onClick={() => void start()}>Запустить на тестовой базе</Btn></div><ErrorLine text={error} /></div>;
   }
   if (languageOf(manifest) !== 'typescript') {
-    return <Empty title="Этот язык здесь не запускается" text="Python и WebAssembly исполняет окно Flux. Проверьте код и контрольные примеры в разнице, а запуск — в тестовом канале Flux." />;
+    return <Empty title="Пробный запуск для этого языка — во Flux" text="Python и WebAssembly исполняет окно Flux (общая среда Pyodide и WebAssembly из portable Flux). Проверьте код и контрольные примеры во вкладке «Файлы», а запуск — в тестовом канале Flux." />;
   }
   return <div className="pane">
     <div className="bar"><span className="muted">Тестовая база: вымышленные данные, сети нет, подключения отказывают. Запуск — {manifest.name} {manifest.version}.</span>
