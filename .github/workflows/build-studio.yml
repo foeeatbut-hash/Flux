@@ -9,7 +9,9 @@ on:
   pull_request:
     paths:
       - studio/**
-      - server/routes/studio.ts
+      - server/routes/studio*.ts
+      - server/routes/modulePublishing.ts
+      - modules/**
       - scripts/*studio*.ts
       - package.json
       - package-lock.json
@@ -18,7 +20,9 @@ on:
     branches: [main]
     paths:
       - studio/**
-      - server/routes/studio.ts
+      - server/routes/studio*.ts
+      - server/routes/modulePublishing.ts
+      - modules/**
       - package.json
       - .github/workflows/build-studio*.yml
 
@@ -47,7 +51,12 @@ jobs:
       - name: Вход разработчика и право на сервере
         run: |
           node --import tsx scripts/test-studio-access.ts
+          node --import tsx scripts/test-studio-publish.ts
           node --import tsx scripts/test-studio-shell.ts
+      - name: Ключ разработчика, проект и проверка перед отправкой
+        run: |
+          node --import tsx scripts/test-studio-keyring.ts
+          node --import tsx scripts/test-studio-project.ts
       - name: Две сборки и проверка бандла разработчика (с мутациями)
         run: node --import tsx scripts/test-studio-bundle.ts
       - name: Раздел владельца и прежнее хранилище ключей
@@ -56,7 +65,9 @@ jobs:
         env:
           FLUX_CHROME: /usr/bin/google-chrome
           FLUX_STUDIO_SHOTS: ${{ runner.temp }}/studio-shots
-        run: node --import tsx scripts/test-studio-ui.ts
+        run: |
+          node --import tsx scripts/test-studio-ui.ts
+          node --import tsx scripts/test-studio-ui-developer.ts
       - name: Снимки окон
         if: always()
         uses: actions/upload-artifact@v4
