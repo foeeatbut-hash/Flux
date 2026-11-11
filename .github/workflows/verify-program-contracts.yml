@@ -41,6 +41,24 @@ jobs:
         run: npm run check:coverage -- --report "${{ runner.temp }}/flux-source-inventory.json"
       - name: Сам механизм проверок и новые регрессии
         run: npm run check:verification -- --report "${{ runner.temp }}/flux-infrastructure.json"
+      - name: Значок Flux Store в наборе значков, снимки до и после в обеих темах
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+        run: |
+          set -euo pipefail
+          # «До» — значок из main: без него снимок показывал бы только новый рисунок
+          git fetch --depth=1 origin main
+          git show FETCH_HEAD:src/components/icons/AppIcons.tsx > "${{ runner.temp }}/AppIconsBefore.tsx"
+          STORE_ICON_SHOTS="${{ runner.temp }}/store-icon" STORE_ICON_BEFORE="${{ runner.temp }}/AppIconsBefore.tsx" \
+            node --import tsx scripts/test-store-icon.tsx
+      - name: Снимки значка Store
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: store-icon-before-after
+          path: ${{ runner.temp }}/store-icon/*.png
+          if-no-files-found: warn
+          retention-days: 14
       - name: Регрессии оставшихся функций и запрет ИИ в Flux Office
         run: |
           set -euo pipefail
