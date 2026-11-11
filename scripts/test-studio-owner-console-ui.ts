@@ -64,7 +64,7 @@ const bridge = () => `(() => {
         case 'connect': state = { ...state, connected: true, display: 'MariaDB / MySQL · db.example:3306/Flux', user: { id: 'owner', name: 'Владелец' } }; return ok(state);
         case 'lock': state = { ...state, unlocked: false, connected: false }; return ok(state);
         case 'requests': return ok({ requests });
-        case 'request': return ok(args.id === 'req-1' ? data.detail : { ...data.detail, request: data.other });
+        case 'request': return ok({ ...data.detail, request: requests.find(r => r.id === args.id) });
         case 'returnRequest': requests = requests.map(r => r.id === args.id ? { ...r, state: 'returned' } : r); return ok({ done: true });
         case 'rejectRequest': requests = requests.map(r => r.id === args.id ? { ...r, state: 'rejected' } : r); return ok({ done: true });
         case 'release': requests = requests.map(r => r.id === args.id ? { ...r, state: 'released' } : r); return ok({ release: { id: 'rel-1' } });
@@ -160,8 +160,8 @@ async function main() {
       await page.locator('.code .line', { hasText: '// новое' }).click();
       await page.getByLabel(/Замечание к строке/).fill('Нужен комментарий почему');
       await page.getByRole('button', { name: 'Добавить замечание' }).click();
-      await page.getByRole('tab', { name: /Замечания и проверки · 1/ }).waitFor();
-      ok(`${theme}: замечание к строке сохранено с номером строки`, /logic\/main\.ts:\d+ — Нужен комментарий почему/.test(await page.locator('.scroll').innerText()));
+      await page.getByRole('tab', { name: /Замечания и проверки · 1/ }).click();
+      ok(`${theme}: замечание к строке сохранено с номером строки`, /logic\/main\.ts:\d+ — Нужен комментарий почему/.test(await page.locator('.scroll.sect').innerText()));
       await page.getByRole('button', { name: 'Вернуть на доработку' }).click();
       await page.getByLabel('Общее замечание').fill('Поправьте и пришлите снова');
       await page.getByRole('dialog').getByRole('button', { name: 'Вернуть' }).click();

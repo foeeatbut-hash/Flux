@@ -52,11 +52,20 @@ jobs:
         run: node --import tsx scripts/test-studio-bundle.ts
       - name: Раздел владельца и прежнее хранилище ключей
         run: node --import tsx scripts/test-studio-owner-section.ts
+      - name: Разделы владельца насквозь (подпись, 403 всем, кроме владельца, назначение обновлений) и снятие разрешений
+        run: |
+          node --import tsx scripts/test-studio-owner-console.ts
+          node --import tsx scripts/test-update-delegation-cleanup.ts
       - name: Окна Studio, обе темы
         env:
           FLUX_CHROME: /usr/bin/google-chrome
           FLUX_STUDIO_SHOTS: ${{ runner.temp }}/studio-shots
         run: node --import tsx scripts/test-studio-ui.ts
+      - name: Окно разделов владельца, обе темы
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+          FLUX_STUDIO_SHOTS: ${{ runner.temp }}/studio-shots
+        run: node --import tsx scripts/test-studio-owner-console-ui.ts
       - name: Снимки окон
         if: always()
         uses: actions/upload-artifact@v4

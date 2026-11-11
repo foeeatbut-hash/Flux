@@ -119,8 +119,8 @@ function RequestView({ summary, onChanged }: { summary: PublishRequest; onChange
         {fileDiff?.binary ? <pre className="code">Двоичный файл</pre> : <pre className="code" data-testid="request-code">
           {lines.map((l, i) => <span key={i} className={`line ${l.cls}`} aria-selected={!!aim && l.n === aim.line && aim.path === path}
             onClick={() => l.n && setAim({ path, line: l.n })} title={l.n ? `Строка ${l.n}: нажмите, чтобы оставить замечание` : undefined}>{l.text}{'\n'}</span>)}</pre>}
-        {aim && pending && <div className="sect"><Field label={`Замечание к строке ${aim.line} в ${aim.path}`} hint="Уйдёт разработчику вместе с «Вернуть на доработку».">
-          <textarea rows={2} value={draft} onChange={e => setDraft(e.target.value)} /></Field>
+        {aim && pending && <div className="sect"><Field label={`Замечание к строке ${aim.line} в ${aim.path}`} hint="Уйдёт разработчику вместе с «Вернуть на доработку»." id="line-note">
+          <textarea id="line-note" rows={2} value={draft} onChange={e => setDraft(e.target.value)} /></Field>
           <div className="rows"><Btn tone="primary" disabled={!draft.trim()} onClick={() => { setNotes([...notes, { ...aim, text: draft.trim() }]); setDraft(''); setAim(null); }}>Добавить замечание</Btn>
             <Btn onClick={() => { setAim(null); setDraft(''); }}>Отмена</Btn></div></div>}
       </div>
