@@ -1,11 +1,11 @@
 /**
  * Договор подпрограммы глазами редакторов: какие привязки существуют и какого они типа.
  *
- * Данные Flux берутся из тех же JSON Schema (modules/schemas.ts), по которым оболочка проверяет
+ * Данные Flux берутся из тех же JSON Schema (modules/dataSchemas.ts), по которым оболочка проверяет
  * сообщения и форму при выпуске, — второй список полей не ведётся. Свои значения подпрограммы
  * (state.*, calc.out.*) разработчик объявляет в договоре сам.
  */
-import { dataSchemas } from '../../../modules/schemas';
+import { dataSchemas } from '../../../modules/dataSchemas';
 import { resources } from '../../../modules/contract';
 import type { ContractDraft, Resource, ValueType } from './types';
 

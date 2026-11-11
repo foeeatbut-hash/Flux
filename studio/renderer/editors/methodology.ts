@@ -9,6 +9,9 @@
 import { METHODOLOGY } from './methodology.generated';
 import type { ComponentKind } from './formModel';
 
+/** Текст методологии для экрана: без разметки markdown (обратные кавычки, ссылки) */
+export const plain = (text: string) => text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1').replace(/`/g, '');
+
 export interface PaletteItem {
   kind: ComponentKind;
   title: string;
@@ -34,14 +37,15 @@ export interface Guidance { when: string[]; example: string; source: string }
 export function guidanceFor(item: PaletteItem): Guidance {
   const when = item.sections.flatMap(name => METHODOLOGY.sections[name] ?? []);
   if (item.kind === 'code-field' || item.kind === 'column') when.push(METHODOLOGY.fontRule);
+  const shown = when.map(plain);
   const row = METHODOLOGY.components.find(component => component.what.startsWith(item.row));
   const example = row ? `${row.what}: ${row.cls}${row.component !== '—' ? `; ${row.component}` : ''}` : '';
-  return { when, example, source: `${METHODOLOGY.source}, раздел 5` };
+  return { when: shown, example, source: `${METHODOLOGY.source}, раздел 5` };
 }
 
 /** Сводка правил оформления для вкладки «Правила»: раздел 6 и список раздела 8 */
 export const RULES = {
-  text: METHODOLOGY.textRules,
-  checklist: METHODOLOGY.checklist,
+  text: METHODOLOGY.textRules.map(plain),
+  checklist: METHODOLOGY.checklist.map(plain),
   source: METHODOLOGY.source,
 };

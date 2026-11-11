@@ -6,7 +6,7 @@
  * данных — ошибка типов. Для остальных языков Flux обменивается JSON (`compute(input)`), и
  * редактор показывает справку: какой JSON придёт на вход и какой ждут на выходе.
  */
-import { dataSchemas } from '../../../modules/schemas';
+import { dataSchemas } from '../../../modules/dataSchemas';
 import { resources } from '../../../modules/contract';
 import { unwrapSchema, type Schema } from './contractModel';
 import type { ContractDraft, ContractValue, ValueType } from './types';

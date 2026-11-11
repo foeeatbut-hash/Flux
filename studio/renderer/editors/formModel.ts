@@ -158,4 +158,38 @@ export function updateSelected(source: FormDef, selection: Selection, patch: Rec
   return form;
 }
 
+/** Что тащат: новый компонент из палитры или существующий элемент формы */
+export type DragPayload = { new: ComponentKind } | { move: Selection };
+
+const SIDE: Record<ComponentKind, 'group' | 'field' | 'table' | 'column'> = {
+  group: 'group', field: 'field', 'code-field': 'field', table: 'table', column: 'column',
+};
+
+/**
+ * Бросок на строку структуры. `after` — нижняя половина строки. Поле на группу кладётся в её
+ * конец, колонка на таблицу — тоже; одноимённое кладётся рядом. Непонятный бросок — null.
+ */
+export function applyDrop(form: FormDef, payload: DragPayload, target: Selection, after: boolean): Edit | null {
+  const what = 'new' in payload ? SIDE[payload.new] : payload.move.kind;
+  const bump = after ? 1 : 0;
+  let to: (Selection & { index: number }) | null = null;
+  if (what === 'group' && target.kind === 'group') to = { kind: 'group', g: target.g, index: target.g + bump };
+  else if (what === 'group' && target.kind === 'form') to = { kind: 'group', g: 0, index: form.groups.length };
+  else if (what === 'table' && target.kind === 'table') to = { kind: 'table', t: target.t, index: target.t + bump };
+  else if (what === 'table' && target.kind === 'form') to = { kind: 'table', t: 0, index: form.tables.length };
+  else if (what === 'field' && target.kind === 'field') to = { kind: 'field', g: target.g, f: target.f, index: target.f + bump };
+  else if (what === 'field' && target.kind === 'group') to = { kind: 'field', g: target.g, f: 0, index: form.groups[target.g].fields.length };
+  else if (what === 'field' && target.kind === 'form') {
+    // На пустое место: в последнюю группу, а если групп нет — новая группа с этим полем
+    if (!form.groups.length) return 'new' in payload ? addComponent(form, payload.new, { kind: 'form' }) : null;
+    const last = form.groups.length - 1;
+    to = { kind: 'field', g: last, f: 0, index: form.groups[last].fields.length };
+  } else if (what === 'column' && target.kind === 'column') to = { kind: 'column', t: target.t, c: target.c, index: target.c + bump };
+  else if (what === 'column' && target.kind === 'table') to = { kind: 'column', t: target.t, c: 0, index: form.tables[target.t].columns.length };
+  if (!to) return null;
+  if ('move' in payload) return dropComponent(form, payload.move, to);
+  const where: Selection = to.kind === 'field' ? { kind: 'group', g: to.g } : to.kind === 'column' ? { kind: 'table', t: to.t } : { kind: 'form' };
+  return addComponent(form, payload.new, where, to.index);
+}
+
 export const selectionKey = (s: Selection) => s.kind === 'form' ? 'form' : s.kind === 'group' ? `g${s.g}` : s.kind === 'field' ? `g${s.g}f${s.f}` : s.kind === 'table' ? `t${s.t}` : `t${s.t}c${s.c}`;

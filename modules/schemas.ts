@@ -3,25 +3,8 @@ import { resources, themeKeys } from './contract';
 import { parseConnections, HTTP_METHODS, CONNECT_ERROR_CODES } from './connections/model';
 import { COMPUTE_ERROR_CODES, LANGUAGES, PLATFORMS, SOURCE_LANGUAGES, LOGIC_FILES } from './engine/types';
 
-const text = { type: 'string', maxLength: 8192 };
-const id = { type: 'string', minLength: 1, maxLength: 160 };
-const nullableId = { anyOf: [id, { type: 'null' }] };
-const array = (items: object) => ({ type: 'array', maxItems: 10000, items });
-const object = (properties: Record<string, object>, required = Object.keys(properties)) => ({
-  type: 'object', properties, required, additionalProperties: false,
-});
-const tag = object({ id, identifier: text, name: text, parentId: nullableId });
-export const dataSchemas = {
-  project: { anyOf: [object({ id, name: text, code: text }), { type: 'null' }] },
-  equipment: { anyOf: [object({
-    id, name: text, itemCode: text, equipType: text, version: { type: 'integer', minimum: 0 },
-    params: array(object({ group: text, key: text, value: text, unit: text })),
-    tags: array(tag), composition: array(object({ id, name: text, itemCode: text, parentId: nullableId })),
-  }), { type: 'null' }] },
-  tag: { anyOf: [tag, { type: 'null' }] },
-  specification: object({ rows: array(tag) }),
-  catalog: object({ families: array(object({ id, name: text, code: text, classId: text })) }),
-};
+import { text, id, nullableId, array, object, dataSchemas } from './dataSchemas';
+export { dataSchemas };
 const envelope = { flux: { const: 'module' }, v: { const: 1 }, session: id };
 const encoding = { enum: ['utf8', 'base64'] };
 const socketId = { type: 'string', minLength: 1, maxLength: 64 };

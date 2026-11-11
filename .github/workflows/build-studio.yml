@@ -57,6 +57,13 @@ jobs:
           FLUX_CHROME: /usr/bin/google-chrome
           FLUX_STUDIO_SHOTS: ${{ runner.temp }}/studio-shots
         run: node --import tsx scripts/test-studio-ui.ts
+      - name: Редакторы подпрограммы (модель) и в браузере, обе темы
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+          FLUX_STUDIO_SHOTS: ${{ runner.temp }}/studio-shots
+        run: |
+          node --import tsx scripts/test-studio-editor.ts
+          node --import tsx scripts/test-studio-editor-ui.ts
       - name: Снимки окон
         if: always()
         uses: actions/upload-artifact@v4

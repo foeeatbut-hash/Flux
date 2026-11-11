@@ -6,7 +6,7 @@
  * мегабайт, а Studio открывается без сети): неизвестные и неразрешённые данные Flux, значения,
  * не объявленные в договоре, и автодополнение по тем же схемам.
  */
-import { dataSchemas } from '../../../modules/schemas';
+import { dataSchemas } from '../../../modules/dataSchemas';
 import { resources } from '../../../modules/contract';
 import { isResource, stepSchema, unwrapSchema, valueType, type Schema } from './contractModel';
 import type { CodeLanguage, ContractDraft } from './types';

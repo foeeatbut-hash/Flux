@@ -5,7 +5,7 @@
  * прежняя верная форма остаётся. Привязки (какого поля нет в договоре) форму не отвергают: пока
  * инженер собирает форму, пустая привязка — обычное состояние, но выпуск с ней не уйдёт.
  */
-import Ajv from 'ajv';
+import { validateSchema } from './miniSchema';
 import { parseJson, type JsonPath, type TextPlace } from './jsonText';
 import { columnKeys, resolveBinding } from './contractModel';
 import type { ContractDraft, FormDef, FormVisibility } from './types';
@@ -63,9 +63,6 @@ export const formSchema = {
   },
 };
 
-const ajv = new Ajv({ allErrors: true, strict: false });
-const validateShape = ajv.compile(formSchema);
-
 const TYPE_NAMES: Record<string, string> = { string: 'строка', number: 'число', integer: 'целое число', boolean: 'да или нет', array: 'список', object: 'объект' };
 const pathOf = (pointer: string): JsonPath => pointer.split('/').slice(1).map(part => {
   const key = part.replace(/~1/g, '/').replace(/~0/g, '~');
@@ -73,7 +70,7 @@ const pathOf = (pointer: string): JsonPath => pointer.split('/').slice(1).map(pa
 });
 const where = (path: JsonPath) => path.length ? ` (${path.map(part => typeof part === 'number' ? `[${part + 1}]` : part).join(' → ')})` : '';
 
-function schemaMessage(error: { keyword: string; params: any; message?: string }, last: string | number | undefined): string {
+function schemaMessage(error: { keyword: string; params: any }, last: string | number | undefined): string {
   const { keyword, params } = error;
   if (keyword === 'required') return `Не хватает поля «${params.missingProperty}»`;
   if (keyword === 'type') return `Ожидается ${TYPE_NAMES[params.type] ?? params.type}`;
@@ -83,7 +80,7 @@ function schemaMessage(error: { keyword: string; params: any; message?: string }
   if (keyword === 'maxItems') return `Слишком много элементов: не больше ${params.limit}`;
   if (keyword === 'uniqueItems') return 'Значения в списке повторяются';
   if (keyword === 'pattern') return 'Имя обработчика — латинские буквы, цифры и «_», не с цифры';
-  return error.message ?? 'Значение не подходит под схему';
+  return 'Значение не подходит под схему';
 }
 
 /** Ошибки разбора и схемы; пустой список — текст можно принять как форму */
@@ -93,15 +90,16 @@ export function structureProblems(source: string): { value?: FormDef; problems: 
     const { line, column, message } = parsed.problem!;
     return { problems: [{ layer: 'syntax', severity: 'error', line, column, message, path: [] }] };
   }
-  if (validateShape(parsed.value)) return { value: parsed.value as FormDef, problems: [] };
+  const errors = validateSchema(formSchema, parsed.value);
+  if (!errors.length) return { value: parsed.value as FormDef, problems: [] };
   const problems: FormDiagnostic[] = [];
-  for (const error of validateShape.errors ?? []) {
+  for (const error of errors) {
     let path = pathOf(error.instancePath);
     let key = false;
     if (error.keyword === 'additionalProperties') {
-      path = [...path, error.params.additionalProperty];
+      path = [...path, error.params.additionalProperty as string];
       key = true;
-      problems.push({ layer: 'schema', severity: 'error', ...parsed.place(path, key), path, message: `Неизвестное поле «${error.params.additionalProperty}»${where(path.slice(0, -1))}` });
+      problems.push({ layer: 'schema', severity: 'error', ...parsed.place(path, key), path, message: `Неизвестное поле «${error.params.additionalProperty as string}»${where(path.slice(0, -1))}` });
       continue;
     }
     problems.push({ layer: 'schema', severity: 'error', ...parsed.place(path, key), path, message: `${schemaMessage(error, path[path.length - 1])}${where(path)}` });

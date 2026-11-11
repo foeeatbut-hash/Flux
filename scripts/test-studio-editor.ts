@@ -13,10 +13,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
+import Ajv from 'ajv';
+import { formSchema } from '../studio/renderer/editors/formSchema';
 import { parseJson } from '../studio/renderer/editors/jsonText';
 import { bindingProblems, structureProblems } from '../studio/renderer/editors/formSchema';
 import { applyForm, applyText, formStateFromForm, recheck } from '../studio/renderer/editors/formStore';
-import { addComponent, dropComponent, moveSelected, removeSelected, serializeForm, updateSelected } from '../studio/renderer/editors/formModel';
+import { addComponent, applyDrop, dropComponent, moveSelected, removeSelected, serializeForm, updateSelected } from '../studio/renderer/editors/formModel';
 import { sampleContract, sampleForm, sampleLogic } from '../studio/renderer/editors/sample';
 import { bindingOptions, columnKeys, resolveBinding } from '../studio/renderer/editors/contractModel';
 import { contractReference, generateContractDts } from '../studio/renderer/editors/contractTypes';
@@ -88,6 +90,23 @@ console.log('Схема формы');
   // Старая форма из пакета Flux остаётся верной
   const fixture = fs.readFileSync(path.join(__dirname, '../modules/fixtures/equipment-inspector/form.json'), 'utf8');
   eq('form.json из modules/fixtures проходит схему', structureProblems(fixture).problems, []);
+}
+
+console.log('Своя проверка схемы согласна с Ajv (Ajv в окне Studio не запускается: CSP без unsafe-eval)');
+{
+  const ajv = new Ajv({ allErrors: true, strict: false });
+  const check = ajv.compile(formSchema);
+  const base = clone(sampleForm()) as any;
+  const mutations: Array<(f: any) => void> = [
+    () => {}, f => { f.version = 2; }, f => { delete f.groups; }, f => { f.groups[0].fields[0].bind = 5; }, f => { f.groups[0].fields[0].extra = 1; },
+    f => { f.groups[1].fields[0].allowed = ['a', 'a']; }, f => { f.groups[0].title = 'x'.repeat(121); }, f => { f.onDataChanged = 'bad name'; },
+    f => { f.groups[1].fields[1].visibleIf.op = 'zz'; }, f => { f.tables[0].columns[0].align = 'start'; }, f => { f.groups[1].fields[1].min = '1'; },
+    f => { f.tables = {}; }, f => { f.groups[0].fields[0].kind = 'mono'; }, f => { f.groups[0].fields[0].required = 'yes'; },
+  ];
+  for (const [i, mutate] of mutations.entries()) {
+    const form = clone(base); mutate(form);
+    eq(`мутация ${i}: решение совпадает с Ajv`, structureProblems(JSON.stringify(form)).problems.length === 0, check(form));
+  }
 }
 
 console.log('Привязки и согласие с проверкой выпуска');
@@ -178,6 +197,14 @@ console.log('Операции над формой: добавление и пе�
   eq('поле нельзя бросить в таблицу', dropComponent(form, { kind: 'field', g: 0, f: 0 }, { kind: 'column', t: 0, c: 0, index: 0 }), null);
   const column = addComponent(form, 'column', { kind: 'table', t: 0 }, 1);
   eq('колонка вставлена на место', [column.form.tables[0].columns[1].label, column.selection], ['Новая колонка', { kind: 'column', t: 0, c: 1 }]);
+  const fresh = applyDrop(form, { new: 'field' }, { kind: 'field', g: 1, f: 1 }, true);
+  eq('новое поле на нижнюю половину строки — после неё', [fresh!.form.groups[1].fields[2].label, fresh!.selection], ['Новое поле', { kind: 'field', g: 1, f: 2 }]);
+  eq('новое поле-код на группу — в её конец', applyDrop(form, { new: 'code-field' }, { kind: 'group', g: 0 }, false)!.form.groups[0].fields[4].kind, 'code');
+  eq('новая группа перед группой', applyDrop(form, { new: 'group' }, { kind: 'group', g: 0 }, false)!.form.groups[0].title, 'Новая группа');
+  eq('поле на другую группу — в её конец', applyDrop(form, { move: { kind: 'field', g: 0, f: 0 } }, { kind: 'group', g: 1 }, false)!.form.groups[1].fields[4].label, 'Проект');
+  eq('колонка на таблицу — в конец', applyDrop(form, { new: 'column' }, { kind: 'table', t: 0 }, false)!.form.tables[0].columns.length, 5);
+  eq('колонку нельзя бросить на поле', applyDrop(form, { new: 'column' }, { kind: 'field', g: 0, f: 0 }, false), null);
+  eq('поле на пустое место пустой формы создаёт группу', applyDrop({ version: 1, groups: [], tables: [] }, { new: 'field' }, { kind: 'form' }, false)!.form.groups.length, 1);
   const onEmpty = addComponent({ version: 1, groups: [], tables: [] }, 'field', { kind: 'form' });
   eq('поле в пустой форме создаёт группу', [onEmpty.form.groups.length, onEmpty.form.groups[0].fields.length], [1, 1]);
   eq('удаление поля выделяет его группу', removeSelected(form, { kind: 'field', g: 0, f: 1 }).selection, { kind: 'group', g: 0 });
