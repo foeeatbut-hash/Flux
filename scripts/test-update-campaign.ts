@@ -67,10 +67,18 @@ async function routeChecks() {
   };
   assert.equal(await invoke({ authUser: { id: 'admin', role: 'USER' }, body: envelope(payload) }), 403);
   assert.equal(await invoke({ authUser: { id: 'admin', role: 'ADMIN', permissions: {} }, body: envelope(payload) }), 403);
+  // Решение владельца (9 ноября 2026): даже администратор с полным правом на сотрудников обновлениями не управляет
+  const manager = { id: 'admin', role: 'ADMIN', isActive: true, permissions: { 'admin.users.manage': { enabled: true, until: null } } };
+  assert.equal(await invoke({ authUser: manager, body: envelope(payload) }), 403);
+  const devicesHandlers = routes.get('GET /api/updates/devices')!;
+  let devicesStatus = 200, devicesPassed = false;
+  devicesHandlers[0]({ authUser: manager }, { status: (n: number) => { devicesStatus = n; return { json: () => {} }; } }, () => { devicesPassed = true; });
+  assert.equal(devicesPassed, false); assert.equal(devicesStatus, 403);
+  assert.equal(routes.has('GET /api/updates/delegation') || routes.has('POST /api/updates/delegation'), false, 'разрешения администратору больше не выдаются');
   const expired = signUpdateEnvelope('FLUXUPDAUTH1', { ...grant, issuedAt: now - 120000, expiresAt: now - 1000 }, owner.privateKey);
   const historical = { ...payload, issuedAt: now - 2000, deadline: now + 298000 };
   assert.equal(await invoke({ authUser: { id: 'admin', role: 'OWNER' }, body: envelope(historical, expired) }), 400);
-  console.log('3 проверки маршрутов пройдено, 0 провалено');
+  console.log('6 проверок маршрутов пройдено, 0 провалено');
 }
 void routeChecks().catch(error => { console.error(error); process.exitCode = 1; });
 

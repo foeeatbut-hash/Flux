@@ -8,7 +8,7 @@ import { chromium } from 'playwright-core';
 const BASE = process.env.FLUX_UI_URL || 'http://127.0.0.1:5173';
 let checks = 0;
 const check = (label: string, condition: boolean) => { assert.ok(condition, label); checks++; };
-async function run() {
+async function run(role: 'owner' | 'admin') {
   const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME || '/usr/bin/chromium', args: ['--no-sandbox'] });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -30,7 +30,7 @@ async function run() {
       if (url.endsWith('/roles')) return route.fulfill({ json: [] });
       return route.fulfill({ json: [] });
     });
-    await page.goto(`${BASE}/scripts/fixtures/users-screen-ui.html`);
+    await page.goto(`${BASE}/scripts/fixtures/users-screen-ui.html?as=${role}`);
     await page.locator('.fx-table').getByText('Раупов Хусрав', { exact: true }).waitFor();
     check('Блока обновлений над списком нет', await page.getByText('Версии и обновления').count() === 0);
     check('Метки «устарела» нет ни у кого', await page.getByText('устарела', { exact: true }).count() === 0);
@@ -53,7 +53,7 @@ async function run() {
     await page.getByRole('tab', { name: 'Список' }).click();
     await page.getByRole('button', { name: 'Добавить сотрудника' }).waitFor();
     check(`Нет ошибок: ${errors.join('; ')}`, errors.length === 0);
-    console.log(`${checks} проверок экрана сотрудников пройдено, 0 провалено`);
+    console.log(`${checks} проверок экрана сотрудников пройдено, 0 провалено (${role})`);
   } finally { await browser.close(); }
 }
-void run().catch(error => { console.error(error); process.exitCode = 1; });
+void (async () => { for (const role of ['owner', 'admin'] as const) await run(role); })().catch(error => { console.error(error); process.exitCode = 1; });
