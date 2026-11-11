@@ -24,7 +24,9 @@ const READY = /\[smoke\] window-created/;
 
 const child = spawn(electron, ['--no-sandbox', '.'], {
   cwd: root,
-  env: { ...process.env, APPDATA: home, HOME: home, USERPROFILE: home, FLUX_START_SMOKE: '1', NODE_OPTIONS: '' },
+  // Свой каталог данных, чтобы не трогать настоящий профиль. Профиль Windows
+  // (USERPROFILE) не подменяем: без него Electron на раннере падает при старте
+  env: { ...process.env, APPDATA: home, ...(process.platform === 'win32' ? {} : { HOME: home }), FLUX_START_SMOKE: '1', NODE_OPTIONS: '', ELECTRON_ENABLE_LOGGING: '1' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let out = '';
@@ -34,7 +36,8 @@ child.stdout.on('data', take); child.stderr.on('data', take);
 const finish = (code: number, message: string) => {
   try { child.kill('SIGKILL'); } catch { /* уже завершён */ }
   console.log(message);
-  if (code) console.log(out.split('\n').filter(line => BAD.test(line) || /^\s+at /.test(line)).slice(0, 20).join('\n'));
+  // При сбое показываем хвост вывода целиком: причина не всегда исключение JS
+  if (code) console.log(out.split('\n').slice(-60).join('\n'));
   process.exit(code);
 };
 const started = Date.now();
