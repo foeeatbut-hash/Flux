@@ -21,6 +21,7 @@ import { DeveloperKeyring, KeyringFailure, type SafeStorageLike } from '../share
 import { buildRequest, PublishRefused } from '../shared/publish';
 import { assembleRuntime, loadRuntimeTemplates, type RuntimeTemplates } from '../shared/runtime';
 import { createFromTemplate, TEMPLATES, TEMPLATE_IDS, validProjectId, type ProjectFiles, type TemplateId } from '../shared/templates';
+import { FLUX_ASSET_FILE, PAGE_URL_FILE, pageProblem, pageTypeOf } from '../../modules/page/model';
 import { TestBase } from '../shared/testBase';
 import type { DeveloperAction } from './actions';
 import { studioRequest, StudioFailure, type StudioUser } from './api';
@@ -50,7 +51,7 @@ const moduleId = (v: unknown): string => {
   return id;
 };
 /** Текст в окне редактируется только у небольших текстовых файлов; остальное (wasm, снимки) показывается размером */
-const TEXT_FILE = /\.(json|ts|js|py|c|cpp|h|rs|go|cs|csproj|toml|mod|sh|md|txt)$|^(Cargo\.lock|go\.sum)$/i;
+const TEXT_FILE = /\.(json|ts|js|mjs|html|css|svg|py|c|cpp|h|rs|go|cs|csproj|toml|mod|sh|md|txt)$|^(Cargo\.lock|go\.sum)$/i;
 const EDIT_LIMIT = 512 * 1024;
 
 /** Отметка «запрос сертификата отправлен» для этого ключа: после выдачи или смены ключа перестаёт совпадать */
@@ -64,6 +65,8 @@ class RequestedMarker {
 interface Run {
   id: string; language: ReturnType<typeof languageOf>; files: ProjectFiles; logicPath: string;
   runtime: string; html: string; css: string; context: LaunchContext; resources: readonly string[];
+  /** Страница программы (договор v2): файлы ui/ отдаются из проекта, а не из собранного runtime.js */
+  page: boolean;
 }
 
 export class DeveloperService {
@@ -98,6 +101,16 @@ export class DeveloperService {
     const run = this.run;
     if (!run || parsed.protocol !== 'flux-module:' || parsed.hostname !== 'run' || parsed.username || parsed.password || parsed.port) return null;
     const file = parsed.pathname === '/' ? 'index.html' : parsed.pathname.slice(1);
+    if (run.page) {
+      // Те же адреса и тот же заголовок CSP, что у Flux (electron/modules.ts): страница в Studio ведёт себя как во Flux
+      if (FLUX_ASSET_FILE.test(file)) {
+        const t = this.runtimeTemplates();
+        const body = file.endsWith('.js') ? t.pageClient : t.pageCss;
+        return body ? { status: 200, type: pageTypeOf(file)!, body, headers: moduleHeaders(pageTypeOf(file)!, false, true) } : null;
+      }
+      const bytes = PAGE_URL_FILE.test(file) ? run.files[file] : undefined;
+      return bytes ? { status: 200, type: pageTypeOf(file)!, body: bytes, headers: moduleHeaders(pageTypeOf(file)!, false, true) } : null;
+    }
     const map: Record<string, [string, string]> = {
       'index.html': [run.html, 'text/html; charset=utf-8'], 'runtime.js': [run.runtime, 'text/javascript; charset=utf-8'], 'flux.css': [run.css, 'text/css; charset=utf-8'],
     };
@@ -140,7 +153,7 @@ export class DeveloperService {
         if (bad) throw new StudioFailure(bad);
         if (this.drafts.exists(id)) throw new StudioFailure(`Проект «${id}» уже есть на этом компьютере.`);
         const s = this.session();
-        const files = createFromTemplate(this.deps.assets.templatesRoot, template, { id, name, author: s.user.name || s.user.id });
+        const files = createFromTemplate(this.deps.assets.templatesRoot, template, { id, name, author: s.user.name || s.user.id }, args.kind === 'page' ? 'page' : 'form');
         this.drafts.create(id, files, { template });
         return { id };
       }
@@ -214,15 +227,16 @@ export class DeveloperService {
 
   private async startRun(id: string, args: Record<string, any>) {
     const files = this.drafts.files(id), manifest = this.manifestOf(files);
-    const built = assembleRuntime(this.runtimeTemplates(), manifest, files);
+    const page = manifest.ui === 'page';
+    const built = page ? { runtime: '', problem: pageProblem(files, manifest.pages) } : assembleRuntime(this.runtimeTemplates(), manifest, files);
     if (built.problem) throw new StudioFailure(built.problem);
     this.testBase.ensure();
     const t = this.runtimeTemplates();
     this.run = {
       id: randomUUID(), language: languageOf(manifest), files, logicPath: manifest.logic, runtime: built.runtime, html: t.html, css: t.css,
-      context: this.context(args), resources: manifest.reads || [],
+      context: this.context(args), resources: manifest.reads || [], page,
     };
-    return { session: this.run.id, url: 'flux-module://run/index.html', language: this.run.language, manifest: { id: manifest.id, name: manifest.name, version: manifest.version, reads: manifest.reads, entries: manifest.entries, connections: manifest.connections || [] }, context: this.run.context };
+    return { session: this.run.id, url: page ? 'flux-module://run/ui/index.html' : 'flux-module://run/index.html', language: this.run.language, manifest: { id: manifest.id, name: manifest.name, version: manifest.version, reads: manifest.reads, entries: manifest.entries, connections: manifest.connections || [], ui: manifest.ui, pages: manifest.pages }, context: this.run.context };
   }
 
   /** Чтение для запущенной подпрограммы — только объявленное в reads и только из тестовой базы */
@@ -274,7 +288,8 @@ export class DeveloperService {
     // Отчёт строится заново в момент отправки: «прошло вчера» не считается, а отчёт из окна не принимается вовсе
     const report = await runChecks({ files, changelog: state.changelog, studioVersion: this.deps.version, engine: this.deps.engine });
     if (!report.ok) throw new StudioFailure('Проверка перед отправкой не пройдена: отправка недоступна. Откройте раздел «Проверка перед отправкой».');
-    const built = assembleRuntime(this.runtimeTemplates(), manifest, files);
+    // У страницы нет runtime.js: пакет несёт ui/ как есть, и подписывается ровно он
+    const built = manifest.ui === 'page' ? { runtime: '', problem: pageProblem(files, manifest.pages) } : assembleRuntime(this.runtimeTemplates(), manifest, files);
     if (built.problem) throw new StudioFailure(built.problem);
     const last = await lastRelease(s, id);
     let request;

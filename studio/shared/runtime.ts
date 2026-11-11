@@ -17,13 +17,14 @@ import type { ModuleManifest } from '../../modules/contract';
 import { compileLogic } from './logicSource';
 import type { ProjectFiles } from './templates';
 
-export interface RuntimeTemplates { frame: string; worker: string; html: string; css: string }
+export interface RuntimeTemplates { frame: string; worker: string; html: string; css: string; /** Клиент flux.* и набор Flux для страниц (договор v2); пусто в сборке без них */ pageClient: string; pageCss: string }
 
 export const SENTINELS = { form: '"@@FLUX_MODULE_FORM@@"', worker: '"@@FLUX_MODULE_WORKER@@"' } as const;
 
 export function loadRuntimeTemplates(dir: string): RuntimeTemplates {
   const read = (name: string) => fs.readFileSync(path.join(dir, name), 'utf8');
-  return { frame: read('frame.js'), worker: read('worker.js'), html: read('index.html'), css: read('flux.css') };
+  const optional = (name: string) => { try { return read(name); } catch { return ''; } };
+  return { frame: read('frame.js'), worker: read('worker.js'), html: read('index.html'), css: read('flux.css'), pageClient: optional('flux.v1.js'), pageCss: optional('flux-ui.v1.css') };
 }
 
 export function assembleRuntime(templates: RuntimeTemplates, manifest: ModuleManifest, files: ProjectFiles): { runtime: string; problem: string } {

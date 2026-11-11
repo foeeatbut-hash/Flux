@@ -28,7 +28,8 @@ export class PublishRefused extends Error {}
 export function buildPackage(files: ProjectFiles, runtime: string): Uint8Array {
   const entries: Record<string, Uint8Array | string> = {};
   for (const [name, bytes] of Object.entries(files)) if (!name.startsWith('build/')) entries[name] = bytes;
-  entries['build/runtime.js'] = runtime;
+  // У страницы (договор v2) runtime.js нет: пакет — это ui/ как есть, и проверка выпуска требует его отсутствия
+  if (runtime) entries['build/runtime.js'] = runtime;
   const bundle = packBundle(entries);
   if (bundle.length > MODULE_BUNDLE_MAX) throw new PublishRefused('Пакет подпрограммы больше 32 МиБ.');
   return bundle;
@@ -41,12 +42,15 @@ export function buildRequest(keyring: DeveloperKeyring, input: PublishInput): { 
   const info = keyring.info();
   if (!info.exists) throw new PublishRefused('Сначала создайте ключ разработчика.');
   const bundle = buildPackage(input.files, input.runtime);
+  // Версия договора в запросе обязана совпасть с manifest.json: форма — v1, страница — v2
+  let contractVersion: number = CONTRACT_VERSION;
+  try { contractVersion = JSON.parse(Buffer.from(input.files['manifest.json']).toString('utf8')).contractVersion; } catch { /* manifest проверит сервер */ }
   const claim = parseRequestClaim({
     v: 1, moduleId: input.moduleId, version: input.version, baseRelease: input.baseRelease, parentRequest: input.parentRequest,
     author: info.publicKey, iat: Date.now(),
     meta: {
       changelog: input.changelog.trim().slice(0, 4000), comment: input.comment.trim().slice(0, 4000), channel: input.channel,
-      checks: reportForRequest(input.report), fluxVersion: input.studioVersion.slice(0, 40), contractVersion: CONTRACT_VERSION,
+      checks: reportForRequest(input.report), fluxVersion: input.studioVersion.slice(0, 40), contractVersion,
     },
     ...describeBundle(bundle),
   });

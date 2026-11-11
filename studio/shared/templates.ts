@@ -14,6 +14,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { LOGIC_FILES, type ModuleLanguage, type SourceLanguage } from '../../modules/engine/types';
 import { MODULE_ID } from '../../modules/trust/claims';
+import { fluxPageTypes, FLUX_TYPES_FILE } from '../../modules/page/types';
+import { PAGE_INDEX, PAGE_SCRIPT, PAGE_STYLE } from './pageTemplate';
+
+/** form — экран из form.json (договор v1); page — свой экран кодом в ui/ (договор v2) */
+export type ProjectKind = 'form' | 'page';
 
 export const TEMPLATE_IDS = ['typescript', 'python', 'c', 'cpp', 'rust', 'go', 'csharp'] as const;
 export type TemplateId = typeof TEMPLATE_IDS[number];
@@ -59,7 +64,7 @@ export function validProjectId(id: string): string {
 }
 
 /** Новый проект из заготовки. Идентификатор, имя и автор подставляются в manifest.json */
-export function createFromTemplate(root: string, template: TemplateId, p: { id: string; name: string; author: string }): ProjectFiles {
+export function createFromTemplate(root: string, template: TemplateId, p: { id: string; name: string; author: string }, kind: ProjectKind = 'form'): ProjectFiles {
   const info = TEMPLATES.find(item => item.id === template);
   if (!info) throw new Error('Неизвестная заготовка.');
   const bad = validProjectId(p.id);
@@ -79,5 +84,14 @@ export function createFromTemplate(root: string, template: TemplateId, p: { id: 
     [LOGIC_FILES[info.language]]: template === 'typescript' ? encode(Buffer.from(read(template, sample.logic)).toString('utf8') + TYPESCRIPT_SETUP) : read(template, sample.logic),
   };
   for (const source of SOURCES[template]) files[source] = read(template, source);
+  if (kind === 'page') {
+    // Страница вместо формы: договор v2, логика и контрольные примеры те же, а экран рисует ui/
+    delete files['form.json'];
+    files['manifest.json'] = encode(`${JSON.stringify({ ...manifest, contractVersion: 2, ui: 'page', store: { category: 'calc', summary: 'Считает статистику чисел и рисует график.' } }, null, 2)}\n`);
+    files['ui/index.html'] = encode(PAGE_INDEX);
+    files['ui/app.js'] = encode(PAGE_SCRIPT);
+    files['ui/style.css'] = encode(PAGE_STYLE);
+    files[FLUX_TYPES_FILE] = encode(fluxPageTypes());
+  }
   return files;
 }

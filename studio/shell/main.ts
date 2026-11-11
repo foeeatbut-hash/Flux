@@ -10,7 +10,7 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, safeStorage } from 'elec
 import path from 'node:path';
 import { startDatabaseRuntime } from '../shared/database-runtime.cjs';
 import { createControlsEngine } from '../shared/controlsEngine';
-import { MODULE_SCHEME } from '../../modules/protocol';
+import { MODULE_SCHEME, pageNavigationAllowed } from '../../modules/protocol';
 import { ownModules, signIn, StudioFailure, type StudioModule, type StudioUser } from './api';
 import { ALL_ACTIONS, SHELL_ACTIONS, type DeveloperAction } from './actions';
 import { DeveloperService } from './developer';
@@ -130,7 +130,8 @@ export function startShell(sections: ShellSection[] = []): void {
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
     // CSP ограничивает ресурсы, но не самостоятельный переход iframe подпрограммы по ссылке
-    win.webContents.on('will-frame-navigate', event => { if (event.frame?.url.startsWith(`${MODULE_SCHEME}:`)) event.preventDefault(); });
+    // Страницы программы-приложения (договор v2) переходят друг на друга внутри пакета — как во Flux
+    win.webContents.on('will-frame-navigate', event => { if (event.frame?.url.startsWith(`${MODULE_SCHEME}:`) && !pageNavigationAllowed(event.frame.url, event.url)) event.preventDefault(); });
     protocol.handle(MODULE_SCHEME, request => {
       const asset = request.method === 'GET' ? developer?.asset(request.url) : null;
       return asset ? new Response(asset.body, { status: asset.status, headers: asset.headers }) : new Response(null, { status: 404 });

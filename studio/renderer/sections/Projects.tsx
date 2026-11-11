@@ -23,7 +23,7 @@ export default function Projects({ current, onOpen }: { current: string; onOpen:
   const [tree, setTree] = useState<Tree | null>(null);
   const [base, setBase] = useState<BaseView | null>(null);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ template: 'typescript', id: '', name: '' });
+  const [form, setForm] = useState({ template: 'typescript', kind: 'form', id: '', name: '' });
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
 
   const reload = useCallback(async () => {
@@ -60,12 +60,17 @@ export default function Projects({ current, onOpen }: { current: string; onOpen:
             <select id="tpl" value={form.template} onChange={e => setForm({ ...form, template: e.target.value })}>
               {templates.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
             </select></div>
+          <div className="field"><label htmlFor="kind">Экран</label>
+            <select id="kind" value={form.kind} onChange={e => setForm({ ...form, kind: e.target.value })}>
+              <option value="form">Форма (form.json)</option>
+              <option value="page">Своя страница (HTML, CSS, JS)</option>
+            </select></div>
           <div className="field"><label htmlFor="pid">Идентификатор</label>
             <input id="pid" value={form.id} maxLength={64} placeholder="my-calculation" onChange={e => setForm({ ...form, id: e.target.value })} /></div>
           <div className="field"><label htmlFor="pname">Название</label>
             <input id="pname" value={form.name} maxLength={80} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
         </div>
-        <p className="hint">{templates.find(t => t.id === form.template)?.note}</p>
+        <p className="hint">{templates.find(t => t.id === form.template)?.note}{form.kind === 'page' ? ' Экран рисует ваша страница ui/index.html: поля, таблицы, графики на canvas или SVG; Flux даёт только мост flux.* и необязательный набор оформления.' : ''}</p>
         <div className="row"><button className="primary" type="submit" disabled={!form.id.trim() || !form.name.trim()}>Создать проект</button></div>
       </form>
 
