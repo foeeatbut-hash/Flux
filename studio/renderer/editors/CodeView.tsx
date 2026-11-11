@@ -5,7 +5,7 @@
  * грузится с CDN. Подсветка размечена классами (cm-tok-*), а не встроенными стилями: цвета
  * лежат в styles.ts и следуют теме Studio, а CSP окна не разрешает style="".
  */
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Annotation, EditorState, type Extension } from '@codemirror/state';
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
@@ -71,12 +71,13 @@ export function CodeView({ value, onChange, language, label, readOnly, marks, co
   change.current = onChange;
   const completion = useRef(complete);
   completion.current = complete;
+  const [unsupported, setUnsupported] = useState(false);
 
   useEffect(() => {
     // CodeMirror кладёт свои стили в <style>, а CSP окна Studio его не пускает. В теневом корне он
     // пользуется constructable stylesheet, который CSP разрешает, — поэтому редактор живёт в нём.
     const shadow = host.current!.shadowRoot ?? host.current!.attachShadow({ mode: 'open' });
-    if (!shadow.adoptedStyleSheets.length && !shadow.querySelector('style')) installShadowStyles(shadow);
+    if (!shadow.adoptedStyleSheets.length && !shadow.querySelector('style') && !installShadowStyles(shadow)) { setUnsupported(true); return; }
     const mount = document.createElement('div');
     mount.style.height = '100%';
     shadow.append(mount);
@@ -106,7 +107,13 @@ export function CodeView({ value, onChange, language, label, readOnly, marks, co
   useEffect(() => {
     const current = view.current;
     if (!current || current.state.doc.toString() === value) return;
-    current.dispatch({ changes: { from: 0, to: current.state.doc.length, insert: value }, annotations: external.of(true) });
+    // Меняется только отличающаяся середина: курсор и выделение остаются на месте, а не прыгают в начало
+    const old = current.state.doc.toString();
+    let start = 0;
+    while (start < old.length && start < value.length && old[start] === value[start]) start++;
+    let endOld = old.length, endNew = value.length;
+    while (endOld > start && endNew > start && old[endOld - 1] === value[endNew - 1]) { endOld--; endNew--; }
+    current.dispatch({ changes: { from: start, to: endOld, insert: value.slice(start, endNew) }, annotations: external.of(true) });
   }, [value, language, label, readOnly]);
 
   useEffect(() => {
@@ -129,5 +136,10 @@ export function CodeView({ value, onChange, language, label, readOnly, marks, co
     current.focus();
   }, [reveal]);
 
-  return <div className="ed-cm" ref={host} data-testid={testId} />;
+  return (
+    <>
+      <div className="ed-cm" ref={host} data-testid={testId} hidden={unsupported} />
+      {unsupported && <p className="ed-error" role="alert">Редактор не запустился: окно не поддерживает нужные стили (constructable stylesheets). Обновите Studio до свежей версии.</p>}
+    </>
+  );
 }

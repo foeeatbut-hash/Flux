@@ -30,7 +30,8 @@ const css = `
 .ed-hint { margin: 4px 0 0; font-size: 12px; line-height: 16px; color: var(--muted); }
 .ed-error { margin: 4px 0 0; font-size: 12px; line-height: 16px; color: var(--danger); }
 
-.ed-form { flex: 1; min-width: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; min-height: 0; }
+.ed-form { flex: 1; min-width: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr) 300px; grid-template-rows: minmax(0, 1fr); min-height: 0; }
+.ed-form[data-locked] { grid-template-rows: auto minmax(0, 1fr); }
 .ed-col { min-height: 0; min-width: 0; overflow: auto; padding: 12px; }
 .ed-col + .ed-col { border-left: 1px solid var(--border); }
 .ed-center { display: flex; flex-direction: column; gap: 12px; padding: 0; overflow: hidden; }
@@ -38,6 +39,8 @@ const css = `
 .ed-structure { flex: 0 1 45%; border-bottom: 1px solid var(--border); }
 .ed-previewbox { flex: 1 1 55%; }
 
+.ed-lock { grid-column: 1 / -1; display: flex; gap: 12px; align-items: center; padding: 8px 12px; background: var(--danger-bg); color: var(--danger); border-bottom: 1px solid var(--border); }
+.ed-form[data-locked] .ed-col[inert], .ed-form[data-locked] section[inert] { opacity: .6; }
 .ed-palette { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .ed-pal { border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
 .ed-pal-main { display: flex; flex-direction: column; align-items: flex-start; width: 100%; padding: 4px 8px; border: 0; background: transparent; text-align: left; cursor: grab; border-radius: 6px; }
@@ -95,6 +98,8 @@ const css = `
 .ed-code-main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .ed-code-side { overflow: auto; padding: 12px; border-left: 1px solid var(--border); }
 .ed-code-side pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: 12px/16px ui-monospace, Consolas, monospace; }
+.ed-code-file { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ed-code-file[hidden] { display: none; }
 .ed-files { display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--border); align-items: center; flex-wrap: wrap; }
 .ed-contract { flex: 1; overflow: auto; padding: 16px; max-width: 880px; display: flex; flex-direction: column; gap: 16px; }
 .ed-vals { width: 100%; border-collapse: collapse; }
@@ -154,32 +159,31 @@ const shadowCss = `
 .cm-tok-type { color: var(--tok-type); }
 `;
 
-let installed = false;
-/** Ставит стили один раз; без constructable stylesheet (старый Chromium) — обычным <style> */
-export function installEditorStyles(root: Document = document): void {
-  if (installed) return;
-  installed = true;
+let installed: boolean | null = null;
+/** Ставит стили один раз через constructable stylesheet (CSP окна не пускает <style>); false — окно их не поддерживает */
+export function installEditorStyles(root: Document = document): boolean {
+  if (installed !== null) return installed;
   try {
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(css);
     root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+    installed = true;
   } catch {
-    const style = root.createElement('style');
-    style.textContent = css;
-    root.head.append(style);
+    installed = false;
   }
+  return installed;
 }
 
-/** Ставит стили редактора кода в теневой корень (constructable stylesheet: CSP окна не пускает <style>) */
-export function installShadowStyles(root: ShadowRoot): void {
+/** Ставит стили редактора кода в теневой корень (constructable stylesheet: CSP окна не пускает <style>); false — не поддерживается */
+export function installShadowStyles(root: ShadowRoot): boolean {
   try {
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(shadowCss);
     root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+    return true;
   } catch {
-    const style = document.createElement('style');
-    style.textContent = shadowCss;
-    root.append(style);
+    // Запасного <style> нет: CSP окна его отвергнет, и редактор остался бы без оформления — лучше сказать об этом прямо
+    return false;
   }
 }
 

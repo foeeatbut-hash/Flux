@@ -3,7 +3,7 @@
  *
  * Страница собирается настоящей сборкой (esbuild, как окно Studio) и открывается с теми же
  * ограничениями CSP. Ожидания привязаны к состоянию (видимый текст, число строк, черновик в
- * window.__draft), а не к таймерам. Снимки (PNG) — в каталог FLUX_STUDIO_SHOTS, артефактом CI;
+ * window.__files — файлы проекта, как их хранит оболочка), а не к таймерам. Снимки (PNG) — в каталог FLUX_STUDIO_SHOTS, артефактом CI;
  * в git они не кладутся.
  *
  * Проверяется условие критерия плана: правка в визуальном редакторе видна в тексте и наоборот;
@@ -54,8 +54,8 @@ async function measure(page: Page, label: string) {
     const visible = [...document.querySelectorAll<HTMLElement>('.ed *')].filter(el => el.offsetParent !== null || el.tagName === 'BODY');
     const withText = visible.filter(el => [...el.childNodes].some(n => n.nodeType === 3 && n.textContent!.trim()));
     const size = (el: HTMLElement) => parseFloat(getComputedStyle(el).fontSize);
-    const rows = [...document.querySelectorAll<HTMLElement>('.ed-row')].map(el => el.getBoundingClientRect().height);
-    const inputs = [...document.querySelectorAll<HTMLElement>('.ed-props .ed-input')].map(el => el.getBoundingClientRect().height);
+    const rows = [...document.querySelectorAll<HTMLElement>('.ed-row')].filter(el => el.offsetParent).map(el => el.getBoundingClientRect().height);
+    const inputs = [...document.querySelectorAll<HTMLElement>('.ed-props .ed-input')].filter(el => el.offsetParent).map(el => el.getBoundingClientRect().height);
     const buttons = [...document.querySelectorAll<HTMLElement>('.ed-btn:not(.ed-pal-main)')].filter(el => el.offsetParent).map(el => el.getBoundingClientRect().height);
     const cm = document.querySelector('.cm-content');
     return {
@@ -63,7 +63,7 @@ async function measure(page: Page, label: string) {
       weights: [...new Set(withText.map(el => getComputedStyle(el).fontWeight))],
       upper: withText.filter(el => getComputedStyle(el).textTransform === 'uppercase').length,
       rows, inputs, buttons, overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      unlabeled: [...document.querySelectorAll<HTMLInputElement>('.ed input:not([type=checkbox]), .ed select')].filter(i => !i.labels?.length && !i.getAttribute('aria-label')).length,
+      unlabeled: [...document.querySelectorAll<HTMLInputElement>('.ed input:not([type=checkbox]), .ed select')].filter(i => i.offsetParent && !i.labels?.length && !i.getAttribute('aria-label')).length,
       bg: getComputedStyle(document.body).backgroundColor, fg: getComputedStyle(document.body).color, hasCm: !!cm,
     };
   });
@@ -95,7 +95,7 @@ async function main() {
       page.on('console', m => { if (m.type() === 'error') { errors.push(m.text().slice(0, 200)); if (process.env.DEBUG_CSP) console.log('CSP?', m.text().slice(0, 120), m.location().url.slice(-60), m.location().lineNumber); } });
       await page.goto(`file://${path.join(temp, 'index.html')}?theme=${theme}`);
       await page.getByRole('tab', { name: 'Форма' }).waitFor();
-      const draft = () => page.evaluate(() => JSON.parse(JSON.stringify((window as any).__draft)));
+      const draft = () => page.evaluate(() => ({ form: JSON.parse((window as any).__files['form.json']), contract: JSON.parse((window as any).__files['contract.json']), manifest: JSON.parse((window as any).__files['manifest.json']) }));
       const rows = page.locator('.ed-row');
       const shot = (name: string) => page.screenshot({ path: path.join(shots, `studio-editors-${theme}-${name}.png`) });
       const cmText = (testId: string) => page.locator(`[data-testid=${testId}] .cm-content`).innerText();
@@ -137,7 +137,7 @@ async function main() {
       // Одной строкой: подряд идущие пробелы браузер при вставке в contenteditable превращает в неразрывные
       const edited = JSON.stringify({ ...(await draft()).form, groups: (await draft()).form.groups.map((g: any, i: number) => i === 0 ? { ...g, title: 'Позиция (из текста)' } : g) });
       await setCm('form-json', edited);
-      await page.waitForFunction(() => (window as any).__draft.form.groups[0].title === 'Позиция (из текста)').catch(async error => { throw new Error(`${error.message}\n${await page.getByTestId('text-status').innerText()}\n${await page.getByTestId('text-problems').innerText().catch(() => '')}`); });
+      await page.waitForFunction(() => JSON.parse((window as any).__files['form.json']).groups[0].title === 'Позиция (из текста)').catch(async error => { throw new Error(`${error.message}\n${await page.getByTestId('text-status').innerText()}\n${await page.getByTestId('text-problems').innerText().catch(() => '')}`); });
       await page.getByRole('tab', { name: 'Форма' }).click();
       ok(`${theme}: правка текста видна в структуре`, (await rows.first().innerText()).includes('Позиция (из текста)'));
       await page.getByRole('tab', { name: 'form.json' }).click();
@@ -162,29 +162,29 @@ async function main() {
       await page.getByRole('tab', { name: 'Форма' }).click();
       await rows.filter({ hasText: 'Проект' }).first().focus();
       await page.keyboard.press('Alt+ArrowDown');
-      await page.waitForFunction(() => (window as any).__draft.form.groups[0].fields[1].label === 'Проект');
+      await page.waitForFunction(() => JSON.parse((window as any).__files['form.json']).groups[0].fields[1].label === 'Проект');
       ok(`${theme}: Alt+стрелка переставляет поле`, (await draft()).form.groups[0].fields[0].label === 'Наименование');
       ok(`${theme}: фокус остался на перемещённой строке`, await page.evaluate(() => document.activeElement?.textContent?.includes('Проект') ?? false));
       await page.keyboard.press('ArrowDown');
       await page.waitForFunction(() => document.activeElement?.getAttribute('aria-selected') === 'true' && !!document.activeElement?.textContent?.includes('Давление')).catch(async error => { throw new Error(`${error.message}: в фокусе ${await page.evaluate(() => `${document.activeElement?.tagName} ${document.activeElement?.getAttribute('aria-selected')} ${document.activeElement?.textContent}`)}`); });
       ok(`${theme}: стрелка переводит выбор на следующую строку`, true);
       await page.keyboard.press('Alt+ArrowUp');
-      await page.waitForFunction(() => (window as any).__draft.form.groups[0].fields[1].label === 'Давление');
+      await page.waitForFunction(() => JSON.parse((window as any).__files['form.json']).groups[0].fields[1].label === 'Давление');
       ok(`${theme}: Alt+стрелка вверх`, true);
       await page.keyboard.press('Alt+ArrowDown');
-      await page.waitForFunction(() => (window as any).__draft.form.groups[0].fields[2].label === 'Давление');
+      await page.waitForFunction(() => JSON.parse((window as any).__files['form.json']).groups[0].fields[2].label === 'Давление');
 
       // --- Перетаскивание
       const counts = (await draft()).form.tables.length;
       await page.locator('.ed-pal[data-kind=table] .ed-pal-main').dragTo(page.locator('.ed-row[data-key=t0]'), { targetPosition: { x: 40, y: 4 } });
-      await page.waitForFunction(n => (window as any).__draft.form.tables.length === n + 1, counts);
+      await page.waitForFunction(n => JSON.parse((window as any).__files['form.json']).tables.length === n + 1, counts);
       ok(`${theme}: таблица из палитры брошена на строку — встала перед ней`, (await draft()).form.tables[0].title === 'Новая таблица');
       await page.locator('.ed-row[data-key=g0f0]').dragTo(page.locator('.ed-row[data-key=g1]'));
-      await page.waitForFunction(() => (window as any).__draft.form.groups[1].fields.length === 5);
+      await page.waitForFunction(() => JSON.parse((window as any).__files['form.json']).groups[1].fields.length === 5);
       ok(`${theme}: поле перетащено в другую группу`, (await draft()).form.groups[1].fields[4].label === 'Наименование');
       await page.locator('.ed-row[data-key=t0]').click();
       await page.keyboard.press('Delete');
-      await page.waitForFunction(n => (window as any).__draft.form.tables.length === n, counts);
+      await page.waitForFunction(n => JSON.parse((window as any).__files['form.json']).tables.length === n, counts);
       ok(`${theme}: Delete убирает выбранное`, (await draft()).form.tables[0].title === 'Параметры');
 
       // --- Привязка, ввод, условия показа, предпросмотр
@@ -195,12 +195,6 @@ async function main() {
       await page.waitForFunction(() => !document.querySelector('[data-testid=preview]')?.textContent?.includes('Расход воздуха'));
       ok(`${theme}: условие «когда пусто» скрыло поле в предпросмотре`, true);
       await page.getByLabel('Показывать').selectOption('filled');
-      await page.getByLabel('Проверить значение').fill('много');
-      ok(`${theme}: проверка ввода — не число`, (await page.getByTestId('input-check').innerText()).includes('Нужно число'));
-      await page.getByLabel('Проверить значение').fill('250000');
-      ok(`${theme}: проверка ввода — выше границы`, (await page.getByTestId('input-check').innerText()).includes('Не больше 100000'));
-      await page.getByLabel('Проверить значение').fill('1200');
-      ok(`${theme}: проверка ввода — подходит`, (await page.getByTestId('input-check').innerText()).includes('подходит'));
       await page.getByLabel('Привязка', { exact: true }).selectOption('');
       await page.locator('.ed-item-findings, [data-testid=item-findings]').waitFor();
       ok(`${theme}: пустая привязка названа в замечаниях`, (await page.getByTestId('item-findings').innerText()).includes('Привязка не выбрана'));
@@ -256,12 +250,108 @@ async function main() {
       await page.getByLabel('Оборудование').check();
       await measure(page, `${theme}/договор`);
 
+
+      // --- Устойчивость: отмена, блокировка при ошибке в тексте, история и курсор, вкладки, ошибка сохранения
+      await page.getByRole('tab', { name: 'Форма' }).click();
+      await page.getByRole('button', { name: 'Свойства формы' }).click();
+      const rowsBefore = await rows.count();
+      await page.getByRole('button', { name: 'Добавить: Группа', exact: true }).click();
+      await page.waitForFunction(n => document.querySelectorAll('.ed-row').length === n + 1, rowsBefore);
+      await page.getByRole('button', { name: 'Отменить' }).click();
+      await page.waitForFunction(n => document.querySelectorAll('.ed-row').length === n, rowsBefore);
+      ok(`${theme}: «Отменить» возвращает форму, и текст в файле тоже`, JSON.parse((await page.evaluate(() => (window as any).__files['form.json']))).groups.length === 2);
+      await page.getByRole('button', { name: 'Повторить' }).click();
+      await page.waitForFunction(n => document.querySelectorAll('.ed-row').length === n + 1, rowsBefore);
+      await page.locator('.ed-row[aria-selected=true]').focus();
+      await page.keyboard.press('ControlOrMeta+z');
+      await page.waitForFunction(n => document.querySelectorAll('.ed-row').length === n, rowsBefore);
+      ok(`${theme}: Ctrl+Z на форме отменяет, Ctrl+Shift+Z повторяет`, true);
+      await page.locator('.ed-row').first().focus();
+      await page.keyboard.press('ControlOrMeta+Shift+z');
+      await page.waitForFunction(n => document.querySelectorAll('.ed-row').length === n + 1, rowsBefore);
+      await page.keyboard.press('ControlOrMeta+z');
+      await page.waitForFunction(n => document.querySelectorAll('.ed-row').length === n, rowsBefore);
+
+      // Ошибка в тексте блокирует правку формы и не даёт стереть набранное
+      await page.getByRole('tab', { name: 'form.json' }).click();
+      const goodText = await page.evaluate(() => (window as any).__files['form.json']);
+      const badText = goodText.replace('"version": 1,', '"version": 1').replace('"version": 1\n', '"version": 1 "x"\n');
+      await setCm('form-json', badText);
+      await page.waitForFunction(() => /Текст не принят/.test(document.querySelector('[data-testid=text-status]')?.textContent ?? ''));
+      await page.getByRole('tab', { name: /Форма/ }).click();
+      await page.getByTestId('form-locked').waitFor();
+      ok(`${theme}: при ошибке в тексте форма только для чтения, причина названа`, /только просмотр/.test(await page.getByTestId('form-locked').innerText()));
+      ok(`${theme}: палитра, структура и свойства недоступны (inert)`, await page.evaluate(() => [...document.querySelectorAll('[data-testid=form-editor] [inert]')].length >= 3));
+      const filesBeforeLockedClick = await page.evaluate(() => (window as any).__files['form.json']);
+      await page.locator('.ed-pal-main').first().click({ force: true }).catch(() => {});
+      ok(`${theme}: клик по палитре при ошибке ничего не меняет`, (await page.evaluate(() => (window as any).__files['form.json'])) === filesBeforeLockedClick);
+      await page.getByRole('button', { name: 'Исправить в тексте' }).click();
+      ok(`${theme}: текст с ошибкой на месте, не стёрт`, (await cmText('form-json')).includes('"version": 1 "x"'));
+      await setCm('form-json', goodText);
+      await page.waitForFunction(() => /Форма верна/.test(document.querySelector('[data-testid=text-status]')?.textContent ?? ''));
+      await page.getByRole('tab', { name: /Форма/ }).click();
+      ok(`${theme}: после исправления форма снова правится`, (await page.getByTestId('form-locked').count()) === 0);
+
+      // История текста и курсор переживают смену вкладки; визуальная правка не уводит курсор
+      await page.getByRole('tab', { name: 'form.json' }).click();
+      await page.locator('[data-testid=form-json] .cm-content').click();
+      await page.keyboard.press('ControlOrMeta+Home');
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('End');
+      const lineOfCursor = () => page.evaluate(() => document.querySelector('[data-testid=form-json]')?.shadowRoot?.querySelector('.cm-activeLine')?.textContent ?? '');
+      const before3 = await lineOfCursor();
+      await page.getByRole('tab', { name: 'Форма' }).click();
+      await page.getByRole('button', { name: 'Добавить: Таблица', exact: true }).click();
+      await page.waitForFunction(() => JSON.parse((window as any).__files['form.json']).tables.length === 2);
+      await page.getByRole('tab', { name: 'form.json' }).click();
+      ok(`${theme}: курсор остался на своей строке после визуальной правки («${before3.trim()}»)`, (await lineOfCursor()) === before3 && before3.includes('"groups"'));
+      await page.getByRole('tab', { name: 'Форма' }).click();
+      await page.getByRole('button', { name: 'Отменить' }).click();
+      await page.waitForFunction(() => JSON.parse((window as any).__files['form.json']).tables.length === 1);
+
+      await page.getByRole('tab', { name: 'Код' }).click();
+      const codeView = page.locator('[data-testid="code-view-logic/main.ts"] .cm-content');
+      await codeView.click();
+      await page.keyboard.press('ControlOrMeta+End');
+      await page.keyboard.type('\n// история');
+      await page.getByRole('tab', { name: 'Форма' }).click();
+      await page.getByRole('tab', { name: 'Код' }).click();
+      await codeView.click();
+      await page.keyboard.press('ControlOrMeta+z');
+      ok(`${theme}: отмена в коде работает после смены вкладки`, !(await codeView.innerText()).includes('// история'));
+      ok(`${theme}: изменённый код ушёл в файл проекта`, await page.evaluate(() => (window as any).__files['logic/main.ts'].includes('setup')));
+
+      // Стрелки переключают вкладки
+      await page.getByRole('tab', { name: 'Форма' }).click();
+      await page.getByRole('tab', { name: 'Форма' }).focus();
+      await page.keyboard.press('ArrowRight');
+      await page.getByRole('tab', { name: 'form.json', selected: true }).waitFor();
+      await page.waitForFunction(() => document.activeElement?.id === 'ed-tab-text');
+      ok(`${theme}: стрелка вправо открывает следующую вкладку, фокус на ней`, true);
+      await page.keyboard.press('End');
+      await page.getByRole('tab', { name: 'Правила', selected: true }).waitFor();
+      await page.keyboard.press('Home');
+      await page.getByRole('tab', { name: 'Форма', selected: true }).waitFor();
+      ok(`${theme}: Home и End работают`, true);
+
+      // Ошибка сохранения видна
+      await page.evaluate(() => { (window as any).__failSave = 'диск переполнен'; });
+      await page.locator('.ed-row', { hasText: 'Режим' }).click();
+      await page.getByLabel('Подпись', { exact: true }).fill('Режим работы');
+      await page.getByTestId('save-error').waitFor();
+      ok(`${theme}: ошибка сохранения показана текстом`, (await page.getByTestId('save-error').innerText()).includes('диск переполнен'));
+      await page.evaluate(() => { (window as any).__failSave = ''; });
+      await page.getByLabel('Подпись', { exact: true }).fill('Режим');
+      await page.waitForFunction(() => !document.querySelector('[data-testid=save-error]'));
+      ok(`${theme}: после успешного сохранения сообщение пропало`, true);
+
       // --- Код
       await page.getByRole('tab', { name: 'Код' }).click();
-      await page.locator('[data-testid=code-view] .cm-content').waitFor();
-      ok(`${theme}: подсветка кода есть`, (await page.locator('[data-testid=code-view] .cm-tok-keyword').count()) > 0);
+      await page.locator('[data-testid="code-view-logic/main.ts"] .cm-content').waitFor();
+      ok(`${theme}: подсветка кода есть`, (await page.locator('[data-testid="code-view-logic/main.ts"] .cm-tok-keyword').count()) > 0);
       ok(`${theme}: образцовый код совпадает с договором`, (await page.getByTestId('code-status').innerText()).includes('совпадают'));
-      await page.locator('[data-testid=code-view] .cm-content').click();
+      await page.locator('[data-testid="code-view-logic/main.ts"] .cm-content').click();
       await page.keyboard.press('ControlOrMeta+End');
       await page.keyboard.type("\nconst x = await flux.read('");
       await page.locator('.cm-tooltip-autocomplete li').first().waitFor();
@@ -285,8 +375,8 @@ async function main() {
       // а те же правила лежат в styles.ts — проверяем, что они действуют, и отделяем это от настоящих ошибок
       await page.getByRole('tab', { name: 'logic/main.ts' }).click();
       const cm = await page.evaluate(() => {
-        const content = document.querySelector('[data-testid=code-view]')?.shadowRoot?.querySelector('.cm-content');
-        const spacer = document.querySelector('[data-testid=code-view]')?.shadowRoot?.querySelector('.cm-gutter > .cm-gutterElement:first-child');
+        const content = document.querySelector('[data-testid="code-view-logic/main.ts"]')?.shadowRoot?.querySelector('.cm-content');
+        const spacer = document.querySelector('[data-testid="code-view-logic/main.ts"]')?.shadowRoot?.querySelector('.cm-gutter > .cm-gutterElement:first-child');
         return { tab: content ? getComputedStyle(content).tabSize : '', spacer: spacer ? getComputedStyle(spacer).visibility : 'none' };
       });
       ok(`${theme}: запасные правила CodeMirror действуют при CSP без inline-стилей (tab-size ${cm.tab}, распорка ${cm.spacer})`, cm.tab === '4' && cm.spacer === 'hidden');

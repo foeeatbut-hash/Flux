@@ -26,6 +26,12 @@ export function formStateFromForm(form: FormDef, contract: ContractDraft): FormS
   return { text, form, textValid: true, problems: [], bindings: bindingProblems(text, form, contract) };
 }
 
+/** Состояние по тексту form.json из проекта: при ошибке форма пуста, текст сохранён, правка визуально заблокирована */
+export function formStateFromText(text: string, contract: ContractDraft): FormState {
+  const base = formStateFromForm({ version: 1, groups: [], tables: [] }, contract);
+  return applyText(base, text, contract);
+}
+
 export function applyText(state: FormState, text: string, contract: ContractDraft): FormState {
   const { value, problems } = structureProblems(text);
   if (!value) return { ...state, text, textValid: false, problems, bindings: [] };

@@ -73,3 +73,16 @@ export function SelectField({ label, value, onChange, children, hint, error }: {
     </Field>
   );
 }
+
+/** Стрелки, Home и End в списке вкладок: выбор и фокус переходят на соседнюю вкладку (roving tabindex) */
+export function tabKeys<T extends string>(event: React.KeyboardEvent<HTMLElement>, order: T[], current: T, set: (key: T) => void) {
+  const index = order.indexOf(current);
+  const next = event.key === 'ArrowRight' ? (index + 1) % order.length
+    : event.key === 'ArrowLeft' ? (index - 1 + order.length) % order.length
+    : event.key === 'Home' ? 0 : event.key === 'End' ? order.length - 1 : -1;
+  if (next < 0) return;
+  event.preventDefault();
+  set(order[next]);
+  const tabs = event.currentTarget.querySelectorAll<HTMLElement>('[role=tab]');
+  requestAnimationFrame(() => tabs[next]?.focus());
+}

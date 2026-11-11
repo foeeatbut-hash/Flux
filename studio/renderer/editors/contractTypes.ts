@@ -3,7 +3,8 @@
  *
  * Для TypeScript и JavaScript из договора создаётся настоящий файл `.d.ts`: он описывает только
  * разрешённые чтения и объявленные значения, поэтому опечатка в поле или чтение не разрешённых
- * данных — ошибка типов. Для остальных языков Flux обменивается JSON (`compute(input)`), и
+ * данных — ошибка типов у того, кто подключит файл к компилятору (тест проверяет его настоящим
+ * tsc). Ни Studio, ни выпуск (modules/build.ts) по нему типы пока не проверяют. Для остальных языков Flux обменивается JSON (`compute(input)`), и
  * редактор показывает справку: какой JSON придёт на вход и какой ждут на выходе.
  */
 import { dataSchemas } from '../../../modules/dataSchemas';
@@ -42,9 +43,10 @@ export function schemaToTs(schema: Schema, indent = ''): string {
   }
 }
 
-const members = (values: ContractValue[], indent: string) => values.map(value => {
+const valueTs = (value: ContractValue) => value.type === 'array' && value.items ? `${VALUE_TS[value.items]}[]` : VALUE_TS[value.type];
+const members = (values: ContractValue[], indent: string) => values.filter((value, i, all) => all.findIndex(other => other.name === value.name) === i).map(value => {
   const note = [value.description, value.unit && `единица: ${value.unit}`].filter(Boolean).join('; ');
-  return `${note ? `${indent}/** ${note.replace(/\*\//g, '* /')} */\n` : ''}${indent}${prop(value.name)}?: ${VALUE_TS[value.type]};`;
+  return `${note ? `${indent}/** ${note.replace(/\*\//g, '* /')} */\n` : ''}${indent}${prop(value.name)}?: ${valueTs(value)};`;
 }).join('\n');
 
 /** Файл `.d.ts` для логики на TypeScript и JavaScript; в пакете лежит как `contract.d.ts` рядом с каталогом logic/ */

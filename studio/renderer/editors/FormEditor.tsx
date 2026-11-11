@@ -19,6 +19,9 @@ interface Props {
   data: Record<string, unknown>;
   findings: Finding[];
   onForm: (form: FormDef) => void;
+  history: { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void };
+  /** Перейти на вкладку с текстом form.json (к ошибке) */
+  onGoText: () => void;
 }
 
 /** Куда вставить новый компонент, чтобы он встал после выбранного, а не в конец */
@@ -30,8 +33,9 @@ function insertionIndex(kind: ComponentKind, selection: Selection): number | und
   return undefined;
 }
 
-export function FormEditor({ state, contract, data, findings, onForm }: Props) {
+export function FormEditor({ state, contract, data, findings, onForm, history, onGoText }: Props) {
   const { form } = state;
+  const locked = !state.textValid;
   const [selection, setSelection] = useState<Selection>({ kind: 'form' });
   const paletteDrag = useRef<DragPayload | null>(null);
 
@@ -53,24 +57,32 @@ export function FormEditor({ state, contract, data, findings, onForm }: Props) {
   const own = findings.filter(finding => selectionKey(selectionOfJsonPath(parsePathString(finding.path))) === key);
 
   return (
-    <div className="ed-form" data-testid="form-editor">
-      <div className="ed-col">
+    <div className="ed-form" data-testid="form-editor" data-locked={locked || undefined}>
+      {locked && (
+        <div className="ed-lock" role="alert" data-testid="form-locked">
+          <span>В form.json есть ошибка{state.problems[0] ? ` (строка ${state.problems[0].line})` : ''}. Пока она не исправлена, здесь только просмотр: любая правка стёрла бы ваш текст.</span>
+          <button type="button" className="ed-btn" onClick={onGoText}>Исправить в тексте</button>
+        </div>
+      )}
+      <div className="ed-col" inert={locked}>
         <FormPalette onAdd={add} onDragStart={kind => { paletteDrag.current = { new: kind }; }} onDragEnd={() => { paletteDrag.current = null; }} />
       </div>
       <div className="ed-col ed-center">
-        <section className="ed-structure" aria-label="Структура формы">
+        <section className="ed-structure" aria-label="Структура формы" inert={locked}>
           <div className="ed-toolbar">
             <h3 className="ed-title">Структура</h3>
             <button type="button" className="ed-btn" onClick={() => setSelection({ kind: 'form' })} aria-label="Свойства формы">Свойства формы</button>
+            <button type="button" className="ed-btn" onClick={history.undo} disabled={!history.canUndo || locked}>Отменить</button>
+            <button type="button" className="ed-btn" onClick={history.redo} disabled={!history.canRedo || locked}>Повторить</button>
           </div>
           <FormTree form={form} selection={current} onSelect={setSelection} onEdit={apply} flagged={flagged} paletteDrag={paletteDrag} />
-          <p className="ed-hint">Стрелки — перейти, Alt + стрелка — переставить, Delete — удалить. Можно перетащить мышью.</p>
+          <p className="ed-hint">Стрелки — перейти, Alt + стрелка — переставить, Delete — удалить, Ctrl + Z — отменить. Можно перетащить мышью.</p>
         </section>
         <section className="ed-previewbox">
           <FormPreview form={form} data={data} textValid={state.textValid} />
         </section>
       </div>
-      <div className="ed-col">
+      <div className="ed-col" inert={locked}>
         <h3 className="ed-title">Свойства</h3>
         <FormProps form={form} selection={current} contract={contract} messages={messages} findings={own}
           patch={change => onForm(updateSelected(form, current, change))} />

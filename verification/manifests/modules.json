@@ -96,7 +96,10 @@
         "src/components/modules/ConnectionPrompt.tsx",
         "src/components/store/ConnectionGrants.tsx",
         "src/components/store/ModuleJournalView.tsx",
-        "scripts/fixtures/fakeCom.ts"
+        "scripts/fixtures/fakeCom.ts",
+        "modules/dataSchemas.ts",
+        "modules/formSchema.ts",
+        "modules/miniSchema.ts"
       ]
     }
   ],

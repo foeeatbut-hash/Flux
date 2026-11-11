@@ -11,6 +11,7 @@ const RESOURCE_NAMES: Record<Resource, string> = { project: 'Проект', equi
 const TYPES: Array<[ValueType, string]> = [['string', 'Строка'], ['number', 'Число'], ['integer', 'Целое'], ['boolean', 'Да или нет'], ['object', 'Объект'], ['array', 'Список']];
 
 function Values({ title, hint, values, onChange, id }: { title: string; hint: string; values: ContractValue[]; onChange: (values: ContractValue[]) => void; id: string }) {
+  const dup = (name: string) => !!name && values.filter(value => value.name === name).length > 1;
   const set = (index: number, patch: Partial<ContractValue>) => onChange(values.map((value, i) => i === index ? { ...value, ...patch } : value));
   return (
     <section aria-label={title} data-testid={`values-${id}`}>
@@ -22,11 +23,17 @@ function Values({ title, hint, values, onChange, id }: { title: string; hint: st
           <tbody>
             {values.map((value, i) => (
               <tr key={i}>
-                <td><input className="ed-input" aria-label={`${title}: имя ${i + 1}`} value={value.name} spellCheck={false} onChange={event => set(i, { name: event.target.value.replace(/[^A-Za-z0-9_$]/g, '') })} /></td>
+                <td><input className="ed-input" aria-label={`${title}: имя ${i + 1}`} value={value.name} spellCheck={false} aria-invalid={dup(value.name) ? true : undefined} onChange={event => set(i, { name: event.target.value.replace(/[^A-Za-z0-9_$]/g, '') })} /></td>
                 <td>
-                  <select className="ed-input" aria-label={`${title}: тип ${value.name || i + 1}`} value={value.type} onChange={event => set(i, { type: event.target.value as ValueType })}>
+                  <select className="ed-input" aria-label={`${title}: тип ${value.name || i + 1}`} value={value.type} onChange={event => set(i, { type: event.target.value as ValueType, items: event.target.value === 'array' ? value.items : undefined })}>
                     {TYPES.map(([key, text]) => <option key={key} value={key}>{text}</option>)}
                   </select>
+                  {value.type === 'array' && (
+                    <select className="ed-input" aria-label={`${title}: элементы ${value.name || i + 1}`} value={value.items ?? ''} onChange={event => set(i, { items: (event.target.value || undefined) as ValueType | undefined })}>
+                      <option value="">Элементы любого вида</option>
+                      {TYPES.filter(([key]) => key !== 'array').map(([key, text]) => <option key={key} value={key}>{text}</option>)}
+                    </select>
+                  )}
                 </td>
                 <td><input className="ed-input" aria-label={`${title}: единица ${value.name || i + 1}`} value={value.unit ?? ''} onChange={event => set(i, { unit: event.target.value || undefined })} /></td>
                 <td><input className="ed-input" aria-label={`${title}: описание ${value.name || i + 1}`} value={value.description ?? ''} onChange={event => set(i, { description: event.target.value || undefined })} /></td>
@@ -36,6 +43,7 @@ function Values({ title, hint, values, onChange, id }: { title: string; hint: st
           </tbody>
         </table>
       )}
+      {values.some(value => dup(value.name)) && <p className="ed-error" role="alert">Имена повторяются: в договоре у значения должно быть своё имя.</p>}
       <div className="ed-actions"><button type="button" className="ed-btn" onClick={() => onChange([...values, { name: '', type: 'string' }])}>Добавить значение</button></div>
     </section>
   );

@@ -42,14 +42,21 @@
         "studio/renderer/editors/methodology.generated.ts",
         "studio/renderer/editors/methodology.ts",
         "studio/renderer/editors/methodologyTypes.ts",
-        "studio/renderer/editors/miniSchema.ts",
         "studio/renderer/editors/paths.ts",
         "studio/renderer/editors/previewModel.ts",
         "studio/renderer/editors/sample.ts",
         "studio/renderer/editors/styles.ts",
         "studio/renderer/editors/types.ts",
         "scripts/gen-studio-editor-methodology.ts",
-        "modules/dataSchemas.ts"
+        "modules/dataSchemas.ts",
+        "studio/renderer/editors/harness/index.html",
+        "studio/renderer/editors/packageFiles.ts",
+        "studio/renderer/editors/shellContract.ts",
+        "docs/methodology/01-design.md",
+        "modules/formSchema.ts",
+        "modules/miniSchema.ts",
+        "modules/runtime/form.ts",
+        "modules/validateForm.ts"
       ]
     }
   ],

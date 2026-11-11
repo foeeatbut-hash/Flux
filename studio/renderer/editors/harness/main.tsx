@@ -8,23 +8,29 @@
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import Editors from '../index';
-import { sampleDraft } from '../sample';
-import type { ModuleDraft } from '../types';
+import { sampleFiles } from '../sample';
 
-declare global { interface Window { __draft: ModuleDraft; __changes: number } }
+declare global { interface Window { __files: Record<string, string>; __changes: number; __failSave: string } }
 
 const theme = new URLSearchParams(location.search).get('theme');
 if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
 
+/** Оболочка в миниатюре: хранит файлы проекта, принимает изменённые и отдаёт обновлённый черновик */
 function Harness() {
-  const [draft, setDraft] = useState<ModuleDraft>(() => sampleDraft());
-  window.__draft = draft;
+  const [files, setFiles] = useState<Record<string, string>>(() => sampleFiles());
+  window.__files = files;
   return (
     <div style={{ height: '100vh' }}>
-      <Editors moduleId="equipment-inspector" draft={draft} onChange={next => { window.__changes = (window.__changes ?? 0) + 1; setDraft(next); }} />
+      <Editors moduleId="equipment-inspector" draft={{ files, binary: [] }} onChange={async changed => {
+        window.__changes = (window.__changes ?? 0) + 1;
+        if (window.__failSave) return window.__failSave;
+        setFiles(previous => ({ ...previous, ...changed }));
+        return '';
+      }} />
     </div>
   );
 }
 
 window.__changes = 0;
+window.__failSave = '';
 createRoot(document.getElementById('root')!).render(<Harness />);

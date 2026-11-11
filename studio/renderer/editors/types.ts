@@ -59,12 +59,6 @@ export interface ModuleDraft {
   contract: ContractDraft;
 }
 
-export interface EditorProps {
-  moduleId: string;
-  draft: ModuleDraft;
-  onChange: (draft: ModuleDraft) => void;
-}
-
 /** Результат любой проверки: что не так, где и по какому правилу */
 export interface Finding {
   rule: string;

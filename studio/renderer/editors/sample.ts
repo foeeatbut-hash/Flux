@@ -71,6 +71,18 @@ export const samplePython = `def compute(input):
     return {"state": {}, "calc": {"out": {"parameterCount": len(equipment.get("params") or [])}}}
 `;
 
+/** Файлы проекта в том виде, в каком их отдаёт оболочка Studio (studio/shared/editorContract.ts) */
+export const sampleFiles = (): Record<string, string> => {
+  const contract = sampleContract();
+  return {
+    'manifest.json': `${JSON.stringify({ id: 'equipment-inspector', name: 'Параметры позиции', version: '1.0.0', author: 'Flux', contractVersion: 1, entries: ['start', 'equipment', 'tag'], reads: contract.reads, logic: 'logic/main.ts' }, null, 2)}\n`,
+    'form.json': `${JSON.stringify(sampleForm(), null, 2)}\n`,
+    'contract.json': `${JSON.stringify({ version: 1, state: contract.state, outputs: contract.outputs }, null, 2)}\n`,
+    'logic/main.ts': sampleLogic,
+    'examples/controls.json': '[]\n',
+  };
+};
+
 export const sampleDraft = (): ModuleDraft => ({
   form: sampleForm(),
   code: [{ path: 'logic/main.ts', language: 'typescript', text: sampleLogic }],

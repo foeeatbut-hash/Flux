@@ -21,7 +21,8 @@ import { parseJson } from '../studio/renderer/editors/jsonText';
 import { bindingProblems, structureProblems } from '../studio/renderer/editors/formSchema';
 import { applyForm, applyText, formStateFromForm, recheck } from '../studio/renderer/editors/formStore';
 import { addComponent, applyDrop, dropComponent, moveSelected, removeSelected, serializeForm, updateSelected } from '../studio/renderer/editors/formModel';
-import { sampleContract, sampleData, sampleForm, sampleLogic } from '../studio/renderer/editors/sample';
+import { codeFiles, contractChanges, contractFromFiles, inferValues, languageOfPath } from '../studio/renderer/editors/packageFiles';
+import { sampleContract, sampleFiles, sampleData, sampleForm, sampleLogic } from '../studio/renderer/editors/sample';
 import { bindingOptions, columnKeys, resolveBinding } from '../studio/renderer/editors/contractModel';
 import { contractReference, generateContractDts } from '../studio/renderer/editors/contractTypes';
 import { checkOther, checkScript, completeScript } from '../studio/renderer/editors/codeSupport';
@@ -250,6 +251,11 @@ console.log('Типы из договора — настоящим компил�
   ok('договор без equipment: образцовая логика не компилируется', compile(sampleLogic, narrow).length > 0);
   ok('единица измерения попала в подсказку', dts.includes('единица: м³/ч'));
   ok('тип плоской структуры совпадает со схемой', /params: \{[\s\S]*?value: string;[\s\S]*?\}\[\];/.test(dts));
+  const withArray: ContractDraft = { ...contract, outputs: [...contract.outputs, { name: 'rows', type: 'array', items: 'number' }, { name: 'rows', type: 'string' }] };
+  const arrayDts = generateContractDts(withArray);
+  ok('список с типом элементов — number[], дубль имени отброшен', arrayDts.includes('rows?: number[];') && (arrayDts.match(/rows\?:/g) ?? []).length === 1);
+  eq('number[] в calc.out компилируется', compile(withBody('calc.out = { rows: [1, 2] };'), arrayDts), []);
+  ok('строка в number[] — ошибка типов', compile(withBody("calc.out = { rows: ['a'] };"), arrayDts).length > 0);
   const reference = contractReference(contract);
   ok('справка для остальных языков описывает вход и выход', reference.includes('Вход compute(input)') && reference.includes('"calc"') && reference.includes('parameterCount — integer'));
   ok('справка не содержит неразрешённых данных', !reference.includes('"catalog"'));
@@ -326,6 +332,25 @@ console.log('Методология');
   }
   ok('«Форма»: правило про placeholder пришло из документа', guidanceFor(PALETTE.find(p => p.kind === 'field')!).when.some(t => t.includes('Placeholder')));
   ok('«Таблица»: числа и даты вправо', guidanceFor(PALETTE.find(p => p.kind === 'table')!).when.some(t => t.includes('по правому краю')));
+}
+
+console.log('Файлы пакета и договор оболочки (files, binary, onChange(changed))');
+{
+  const files = sampleFiles();
+  const fromFiles = contractFromFiles(files);
+  eq('reads из manifest.json, значения из contract.json', [fromFiles.reads, fromFiles.state.map(v => v.name), fromFiles.outputs.map(v => v.name)], [contract.reads, ['recalculations', 'mode', 'airflow'], ['parameterCount', 'pressure']]);
+  const noContract = { ...files }; delete noContract['contract.json'];
+  const inferred = contractFromFiles(noContract);
+  ok('без contract.json значения выводятся из формы и кода', ['mode', 'airflow', 'recalculations'].every(n => inferred.state.some(v => v.name === n)) && inferred.outputs.some(v => v.name === 'parameterCount'));
+  eq('вывод из кода: calc.out = { … } и state.x', inferValues({ 'logic/main.ts': 'state.a = 1; calc.out = { b: 1, c: 2 }; obj.state.zzz;' }), { state: [{ name: 'a', type: 'string' }], outputs: [{ name: 'b', type: 'string' }, { name: 'c', type: 'string' }] });
+  const broken = contractFromFiles({ ...files, 'contract.json': JSON.stringify({ state: [{ name: 'a b', type: 'string' }, { name: 'ok', type: 'zzz' }, { name: 'dup', type: 'string' }, { name: 'dup', type: 'number' }], outputs: 5 }) });
+  eq('битый contract.json: лишнее отброшено, дубли тоже', [broken.state.map(v => v.name), broken.outputs], [['dup'], []]);
+  const changes = contractChanges(files, { ...contract, reads: ['project'] });
+  eq('смена reads пишет manifest.json и contract.json, остальное в манифесте цело', [Object.keys(changes.changed).sort(), JSON.parse(changes.changed['manifest.json']).reads, JSON.parse(changes.changed['manifest.json']).id, changes.error], [['contract.json', 'manifest.json'], ['project'], 'equipment-inspector', '']);
+  eq('те же reads — manifest.json не трогаем', Object.keys(contractChanges(files, contract).changed), ['contract.json']);
+  ok('битый manifest.json — понятная ошибка', /manifest\.json не читается/.test(contractChanges({ ...files, 'manifest.json': '{' }, contract).error));
+  eq('файлы кода: logic/main первым, примеры и .d.ts не код', codeFiles({ 'src/a.rs': '', 'logic/main.py': '', 'examples/x.ts': '', 'logic/main.ts': '', 'contract.d.ts': '', 'form.json': '{}' }).map(f => f.path), ['logic/main.py', 'logic/main.ts', 'src/a.rs']);
+  eq('языки по расширению', ['a.ts', 'a.py', 'a.rs', 'a.cpp', 'a.c', 'a.go', 'a.cs', 'a.txt'].map(languageOfPath), ['typescript', 'python', 'rust', 'cpp', 'c', 'go', 'csharp', null]);
 }
 
 console.log('Рендерер Flux: единицы, пояснения, условия показа; старые формы выглядят как раньше');
