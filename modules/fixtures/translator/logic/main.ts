@@ -283,7 +283,7 @@ const DICTIONARY = `
 общий|general
 технический|technical
 рабочий|working
-расчетный|calculated
+расчетный|design
 номинальный|nominal
 максимальный|maximum
 минимальный|minimum
@@ -335,10 +335,10 @@ const DICTIONARY = `
 электромагнитный клапан|solenoid valve
 шаровой кран|ball valve
 задвижка|gate valve
-затвор|butterfly valve
+поворотный затвор|butterfly valve
 вентиль|globe valve
 клапан|valve
-кран|tap
+кран|cock
 концевой выключатель|limit switch
 реле давления|pressure switch
 реле уровня|level switch
@@ -382,7 +382,7 @@ const DICTIONARY = `
 настройка|tuning
 измерение|measurement
 контроль|monitoring
-регулирование|regulation
+регулирование|regulating control
 управление|control
 автоматика|automation
 прибор|instrument
@@ -427,7 +427,7 @@ const DICTIONARY = `
 хомут|clamp
 муфта|coupling
 ниппель|nipple
-штуцер|fitting nipple
+штуцер|nozzle
 патрубок|branch pipe
 коллектор|manifold
 насос|pump
@@ -664,7 +664,7 @@ const DICTIONARY = `
 техническое задание|technical specification
 технические условия|technical conditions
 технический паспорт|technical passport
-паспорт|datasheet
+паспорт|passport
 руководство по эксплуатации|operation manual
 руководство по монтажу|installation manual
 инструкция|instruction
@@ -683,7 +683,7 @@ const DICTIONARY = `
 проектная документация|design documentation
 стадия|stage
 раздел|section
-том|book
+том|document volume
 лист|sheet
 ревизия|revision
 версия|version
@@ -695,7 +695,7 @@ const DICTIONARY = `
 утвердил|approved by
 согласовано|agreed
 номер|number
-шифр|cipher
+шифр|document code
 обозначение|designation
 наименование|name
 примечание|note
