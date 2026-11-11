@@ -5,7 +5,7 @@
 html,body{margin:0}
 body{background:var(--flux-surface);color:var(--flux-text);font-family:var(--font-sans);font-size:13px;line-height:20px}
 button,input,select,textarea{font:inherit}
-button{height:var(--flux-control-h,28px);padding:0 12px;border:1px solid var(--flux-accent);border-radius:var(--flux-radius-sm,4px);background:var(--flux-accent);color:var(--flux-accent-on);font-weight:500;cursor:pointer;max-width:100%}
+button{min-height:var(--flux-control-h,28px);padding:3px 12px;line-height:20px;border:1px solid var(--flux-accent);border-radius:var(--flux-radius-sm,4px);background:var(--flux-accent);color:var(--flux-accent-on);font-weight:500;cursor:pointer;max-width:100%}
 button:hover{background:var(--flux-accent-hover);border-color:var(--flux-accent-hover)}
 button.secondary,button[data-tab]{background:var(--flux-surface);border-color:var(--flux-line-strong);color:var(--flux-text)}
 button.secondary:hover,button[data-tab]:hover{background:var(--flux-hover);border-color:var(--flux-line-strong)}

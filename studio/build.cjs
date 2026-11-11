@@ -24,11 +24,11 @@ const pkg = require(path.join(root, 'package.json'));
 const TARGETS = {
   developer: {
     entry: 'studio/entry-developer.ts', productName: 'Flux Studio', appId: 'ru.flux.studio', exe: 'FluxStudio.exe',
-    description: 'Flux Studio — программа разработчика программ Flux', subtitle: 'Программа разработчика программ',
+    description: 'Flux Studio — программа разработчика программ Flux', subtitle: 'Программа разработчика', icon: 'studio-developer',
   },
   owner: {
     entry: 'studio/entry-owner.ts', productName: 'Flux Studio — Владелец', appId: 'ru.flux.studio.owner', exe: 'FluxStudio-Владелец.exe',
-    description: 'Flux Studio — сборка владельца: лицензии, выпуск обновлений Flux и подписи', subtitle: 'Сборка владельца',
+    description: 'Flux Studio — сборка владельца: лицензии, выпуск обновлений Flux и подписи', subtitle: 'Сборка владельца', icon: 'studio-owner',
   },
 };
 
@@ -80,6 +80,8 @@ async function buildStudio({ target, outDir, extraMain = null }) {
   await buildFluxCss(path.join(app, 'renderer'));
   writeRendererPage(path.join(app, 'renderer'), { name: spec.productName, subtitle: spec.subtitle, stages: [[0, 'Загрузка интерфейса…'], [2, 'Подготовка Studio…']] });
   fs.copyFileSync(path.join(root, 'studio/renderer/styles.css'), path.join(app, 'renderer', 'styles.css'));
+  // Значок окна и панели задач — тот же файл, что значок exe (electron-builder берёт .ico из studio/icons)
+  for (const ext of ['ico', 'png']) fs.copyFileSync(path.join(root, 'studio/icons', `${spec.icon}.${ext}`), path.join(app, `icon.${ext}`));
 
   if (target === 'owner') {
     // Раздел владельца — отдельные файлы рядом с оболочкой. Расположение (owner/main.cjs и ../ui) то же,
@@ -124,18 +126,24 @@ async function buildStudio({ target, outDir, extraMain = null }) {
   return { app, outDir, spec, metafiles };
 }
 
-function pack({ target, outDir, release }) {
+/** Настройки electron-builder для сборки; отдельной функцией, чтобы проверки видели значок и имя файла, не запуская упаковку */
+function builderConfig({ target, outDir, release }) {
   const spec = TARGETS[target];
-  const config = {
+  return {
     appId: spec.appId, productName: spec.productName, electronVersion: pkg.devDependencies.electron,
     npmRebuild: false, nodeGypRebuild: false, buildDependenciesFromSource: false,
     directories: { app: path.join(outDir, 'app'), output: release },
     files: ['**/*'],
     // Рабочий поток контрольных примеров запускается как файл: из app.asar его не открыть
     asarUnpack: ['controls-worker.cjs'],
-    win: { target: [{ target: 'portable', arch: ['x64'] }], icon: path.join(root, 'build/icon.png'), artifactName: spec.exe.replace(/\.exe$/, '.${ext}') },
+    win: { target: [{ target: 'portable', arch: ['x64'] }], icon: path.join(root, 'studio/icons', `${spec.icon}.ico`), artifactName: spec.exe.replace(/\.exe$/, '.${ext}') },
     portable: { requestExecutionLevel: 'user' },
   };
+}
+
+function pack({ target, outDir, release }) {
+  const spec = TARGETS[target];
+  const config = builderConfig({ target, outDir, release });
   const file = path.join(outDir, 'builder.json');
   fs.writeFileSync(file, JSON.stringify(config, null, 2));
   const result = spawnSync(process.execPath, [require.resolve('electron-builder/cli.js'), '--config', file, '--win', 'portable', '--x64', '--publish', 'never'], { cwd: root, stdio: 'inherit' });
@@ -143,7 +151,7 @@ function pack({ target, outDir, release }) {
   return path.join(release, spec.exe);
 }
 
-module.exports = { buildStudio, pack, TARGETS, editorsEntry };
+module.exports = { buildStudio, pack, builderConfig, TARGETS, editorsEntry };
 
 if (require.main === module) {
   const target = process.argv[2];

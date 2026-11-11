@@ -27,7 +27,7 @@ const ACTIONS = ALL_ACTIONS;
 const PRODUCT_NAME = typeof __STUDIO_NAME__ === 'string' ? __STUDIO_NAME__ : 'Flux Studio';
 
 /** Значок окна и панели задач — тот же файл, что значок exe (studio/build.cjs кладёт его рядом с main.cjs) */
-const windowIcon = () => nativeImage.createFromPath(path.join(__dirname, 'icon.png'));
+const windowIcon = () => nativeImage.createFromPath(path.join(__dirname, process.platform === 'win32' ? 'icon.ico' : 'icon.png'));
 type ShellAction = typeof SHELL_ACTIONS[number];
 
 // Программа запускается в окне Studio тем же протоколом и в той же изоляции, что во Flux (modules/protocol.ts)
