@@ -9,7 +9,9 @@
   --ok-bg: var(--flux-accent-soft);
 }
 html, body, #root { height: 100%; margin: 0; }
-body { background: var(--flux-surface); color: var(--flux-text); font-family: var(--font-sans); font-size: 13px; line-height: 20px; }
+body { background: var(--flux-surface); color: var(--flux-text); font-family: var(--font-sans); }
+/* Размер текста 13/20 — у рабочей области (как у раздела Flux, fx-page); экран входа остаётся на размере Flux по умолчанию */
+.studio-work { font-size: 13px; line-height: 20px; }
 
 /* Привычные разделам имена — на классах словаря Flux (01-design.md, раздел 5) */
 .studio-body h3 { margin: 16px 0 8px; font-size: 13px; line-height: 20px; font-weight: 600; letter-spacing: normal; }

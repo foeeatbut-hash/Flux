@@ -185,6 +185,16 @@ export function startShell(sections: ShellSection[] = []): void {
       } catch (error: any) { return { ok: false, error: error instanceof StudioFailure ? error.message : String(error?.message || 'Операция не выполнена.').slice(0, 400) }; }
     });
     void win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+    // Отметка для scripts/test-studio-electron-start.ts: настоящий запуск дошёл до экрана входа (заставка погасла, рамка окна на месте)
+    if (process.env.FLUX_START_SMOKE) {
+      const poll = setInterval(async () => {
+        if (!win || win.isDestroyed()) { clearInterval(poll); return; }
+        try {
+          const shown = await win.webContents.executeJavaScript("!!document.querySelector('#login-screen-root') && !document.getElementById('boot-splash') && !!document.querySelector('[role=toolbar]') && document.getElementById('login-screen-root').innerText");
+          if (shown) { clearInterval(poll); console.log(`[smoke] studio-login-screen ${JSON.stringify({ build: __STUDIO_BUILD__, text: String(shown).replace(/\s+/g, ' ').slice(0, 120) })}`); }
+        } catch { /* страница ещё загружается */ }
+      }, 300);
+    }
     win.on('closed', () => { win = null; });
   });
   app.on('window-all-closed', () => { void disconnect().finally(() => app.quit()); });

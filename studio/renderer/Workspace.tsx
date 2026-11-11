@@ -24,7 +24,7 @@ export default function Workspace({ state, onState, theme, onToggleTheme }: { st
   const [current, setCurrent] = useState('');
   const open = async (id: string) => { const reply = await window.studio.call('openSection', { id }); setError(reply.ok ? '' : reply.error); };
   return (
-    <div className="flex h-full min-h-0 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+    <div className="studio-work flex h-full min-h-0 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
       <nav className="fx-side w-60 shrink-0 flex flex-col gap-0.5 p-2" aria-label="Разделы Studio">
         <div className="fx-gh">{state.name}<span className="fx-n ml-auto data">{state.version}</span></div>
         {NAV.map(([id, title, icon]) => <button key={id} type="button" className="fx-li" aria-current={section === id ? 'true' : undefined} onClick={() => setSection(id)}>{icon}{title}</button>)}
