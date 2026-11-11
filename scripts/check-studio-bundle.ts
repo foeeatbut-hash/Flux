@@ -18,13 +18,17 @@ import path from 'node:path';
 
 /** Метки, которых нет и не должно быть в коде разработчика. Каждая обязана встречаться в сборке владельца: scripts/test-studio-bundle.ts */
 export const OWNER_MARKERS = [
-  'signUpdate', 'signUpdateDelegation', 'issueLicense', 'publicConfig', 'authorizeUpdates', 'publishRevocation', 'withdrawUpdate',
+  'signUpdate', 'issueLicense', 'publicConfig', 'publishRevocation', 'withdrawUpdate',
   'flux-owner-login', 'FLUXPUBLIC1', 'privatePem', 'vault.flux-owner', 'owner:action', 'generateVaults',
+  // Разделы владельца, перешедшие из Flux (этап 4в): подпись выпусков и сертификатов, назначение обновлений, окно разделов
+  'moduleClaimFor', 'signModule', 'signCampaign', 'console:action', 'FLUXUPDCMD1', 'FLUXUPDAUTH1',
 ];
 /** Файлы владельца вне studio/owner: общий импорт любого из них тянет код владельца в чужой бандл, даже под другим именем функции */
 export const OWNER_PATHS = [
-  /^studio\/owner\//, /^license\/ownerKey\.ts$/, /^modules\/trust\/owner\.ts$/, /^electron\/moduleSigning\.ts$/, /^electron\/ownerLogin\.ts$/,
+  /^studio\/owner\//, /^license\/ownerKey\.ts$/, /^modules\/trust\/owner\.ts$/, /^electron\/ownerLogin\.ts$/,
   /^license\/node\//, /^electron\/updateCommand\.ts$/, /^server\/routes\/owner\.ts$/, /^server\/ownerAuth\.ts$/,
+  // Серверная часть владельца: назначение обновлений, очередь запросов на сертификат, снятие разрешений администраторам
+  /^server\/routes\/updateCampaigns\.ts$/, /^server\/routes\/moduleCertRequests\.ts$/, /^server\/updateDelegationCleanup\.ts$/,
 ];
 /** Метки кода владельца, который лежит вне studio/owner: у каждой в OUTSIDE_SOURCES указан файл, где она обязана быть (иначе метка устарела) */
 export const OUTSIDE_MARKERS: Record<string, string> = {
@@ -33,7 +37,7 @@ export const OUTSIDE_MARKERS: Record<string, string> = {
   // Тексты отказов сборщиков подписи переживают переименование функций и файла
   'Описание правки не прошло проверку': 'modules/trust/owner.ts', 'Запрос разработчика повреждён': 'modules/trust/owner.ts',
   'Нужен подписанный владельцем выпуск тестового канала': 'modules/trust/owner.ts',
-  moduleClaimFor: 'electron/moduleSigning.ts', signOwnerChallenge: 'electron/ownerLogin.ts',
+  signOwnerChallenge: 'electron/ownerLogin.ts',
   OWNER_PUBLIC_KEY_HEX: 'license/ownerKey.ts', OWNER_BACKUP_PUBLIC_KEY_HEX: 'license/ownerKey.ts', LICENSE_SIGNING_PUBLIC_KEY_HEX: 'license/ownerKey.ts',
 };
 const OWNER_DIRECTORIES = ['owner', 'ui'];

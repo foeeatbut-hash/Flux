@@ -163,6 +163,17 @@ function createConsoleActions(ctx, request = consoleRequest) {
       }
       return { ids };
     },
+
+    // ---- Пробный запуск: страница подпрограммы из пакета запроса, который сейчас на экране
+    trialLoad: async a => {
+      // Берётся тот же пакет, что показан на экране: запуск не может отличаться от просмотра
+      const id = idOf(a.id), loaded = await actions.request({ id });
+      const files = unpackBundle(Buffer.from(loaded.bundle, 'base64'));
+      const runtime = files[RUNTIME_FILE];
+      if (!runtime) throw new Error('В пакете нет собранной подпрограммы (build/runtime.js).');
+      trial = { id, runtime };
+      return { manifest: JSON.parse(Buffer.from(files['manifest.json'] || '{}').toString('utf8')) };
+    },
   };
   return actions;
 }
@@ -175,6 +186,7 @@ const TRIAL_HTML = '<!doctype html><html lang="ru"><head><meta charset="utf-8"><
   + '</style></head><body><main id="module-root">Загрузка…</main><script src="./runtime.js"></script></body></html>';
 const SCHEME = 'flux-module';
 let consoleWindow = null, trial = null, handlerSet = false;
+const trialState = () => trial;
 
 /** Пробный запуск: страница и runtime.js берутся из пакета запроса, который сейчас на экране; больше ничего не отдаётся */
 function trialHandler({ protocol }, CSP) {
@@ -207,15 +219,6 @@ async function openConsole(ctx, tab = 'requests') {
   trialHandler(electron, MODULE_CSP);
   await ctx.refreshVault();
   const actions = createConsoleActions(ctx);
-  actions.trialLoad = async a => {
-    // Берётся тот же пакет, что показан на экране: запуск не может отличаться от просмотра
-    const id = idOf(a.id), loaded = await actions.request({ id });
-    const files = unpackBundle(Buffer.from(loaded.bundle, 'base64'));
-    const runtime = files[RUNTIME_FILE];
-    if (!runtime) throw new Error('В пакете нет собранной подпрограммы (build/runtime.js).');
-    trial = { id, runtime };
-    return { manifest: JSON.parse(Buffer.from(files['manifest.json'] || '{}').toString('utf8')) };
-  };
   const win = new BrowserWindow({ width: 1280, height: 860, minWidth: 900, minHeight: 600, title: `Flux Studio — Владелец ${ctx.version}`, backgroundColor: '#101722',
     webPreferences: { preload: path.join(__dirname, 'console-preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
   consoleWindow = win;
@@ -254,4 +257,4 @@ function publicState(ctx) {
   return { version: s.version, unlocked: s.unlocked, vaultExists: s.vaultExists, backupSession: s.backupSession, kind: s.kind, connected: !!ctx.token(), display: ctx.display(), user: ctx.user() ? { id: ctx.user().id, name: ctx.user().name } : null };
 }
 
-module.exports = { createConsoleActions, openConsole, routeAllowed, publicState, ALLOWED };
+module.exports = { createConsoleActions, openConsole, routeAllowed, publicState, trialState, ALLOWED };

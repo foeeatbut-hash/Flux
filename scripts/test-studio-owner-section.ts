@@ -37,7 +37,7 @@ class Win {
 module.exports = {
   __handlers: handlers, __windows: windows, __save: (file) => { nextSave = file; },
   app: { whenReady: () => Promise.resolve(), on() {}, quit() {}, getPath: () => process.env.STUDIO_TEST_USERDATA },
-  BrowserWindow: Win, ipcMain: { handle: (channel, fn) => handlers.set(channel, fn) },
+  BrowserWindow: Win, ipcMain: { handle: (channel, fn) => handlers.set(channel, fn), removeHandler: (channel) => handlers.delete(channel) },
   clipboard: { writeText() {} }, shell: { openPath: async () => '' },
   dialog: { showSaveDialog: async () => ({ canceled: false, filePath: nextSave }), showOpenDialog: async () => ({ canceled: true, filePaths: [] }), showMessageBox: async () => ({ response: 0 }) },
 };`;
@@ -71,7 +71,8 @@ async function main() {
     console.log('Сборка владельца');
     const built = await run('owner', home);
     const state = (await built.shellCall('state')).value;
-    ok('оболочка показывает раздел владельца', state.sections.length === 1 && state.sections[0].id === 'owner' && state.build === 'owner');
+    ok('оболочка показывает разделы владельца: запросы на публикацию, выпуски, сертификаты, обновления Flux и лицензии',
+      state.sections.map((x: any) => x.id).join() === 'publish,releases,certificates,updates,owner' && state.build === 'owner');
     ok('до открытия окна владельца нет', built.electron.__windows.length === 1);
     ok('раздел открывается из оболочки', (await built.shellCall('openSection', { id: 'owner' })).ok === true && built.electron.__windows.length === 2);
     const ownerWindow = built.electron.__windows[1];
@@ -86,6 +87,19 @@ async function main() {
     ok('окно видит прежний путь хранилища и ту же версию, что у Flux', initial.vaultExists === true && initial.vaultPath === vaultFile && initial.version === version);
     ok('неизвестное действие отклоняется', (await ownerCall('exec')).ok === false);
 
+    console.log('Разделы владельца (запросы на публикацию, выпуски, сертификаты, обновления Flux)');
+    const before = built.electron.__windows.length;
+    ok('раздел «Запросы на публикацию» открывается из оболочки', (await built.shellCall('openSection', { id: 'publish' })).ok === true && built.electron.__windows.length === before + 1);
+    const consoleWindow = built.electron.__windows[before];
+    ok('окно разделов грузит свой интерфейс с изоляцией и своим мостом', /ui[\\/]console[\\/]index\.html$/.test(consoleWindow.file) && consoleWindow.options.webPreferences.contextIsolation === true
+      && consoleWindow.options.webPreferences.nodeIntegration === false && consoleWindow.options.webPreferences.sandbox === true && /owner[\\/]console-preload\.cjs$/.test(consoleWindow.options.webPreferences.preload));
+    ok('другой раздел владельца открывается в том же окне', (await built.shellCall('openSection', { id: 'updates' })).ok === true && built.electron.__windows.length === before + 1 && consoleWindow.focused >= 1);
+    const consoleCall = (action: string, args: object = {}, sender = consoleWindow) => built.electron.__handlers.get('console:action')({ sender: sender.webContents, senderFrame: sender.webContents.mainFrame }, action, args);
+    ok('действия разделов принимает только их окно', (await consoleCall('state', {}, built.shellWindow)).ok === false && (await consoleCall('state', {}, ownerWindow)).ok === false && (await consoleCall('state')).ok === true);
+    ok('чужое и неизвестное действие отклоняется', (await consoleCall('exec')).ok === false && (await consoleCall('openFlux')).ok === false && (await consoleCall('export')).ok === false);
+    ok('хранилище общее с окном лицензий и пока заперто', (await consoleCall('state')).value.unlocked === false);
+    ok('без хранилища и подключения разделы ничего не подписывают и не читают', (await consoleCall('release', { id: 'x', channel: 'test', sha256: 'a' })).ok === false && (await consoleCall('requests')).ok === false && (await consoleCall('assignUpdate', {})).ok === false);
+
     console.log('Прежнее хранилище владельца');
     ok('неверный пароль не открывает', (await ownerCall('unlock', { password: 'неверный-пароль-хранилища' })).ok === false);
     const unlocked = await ownerCall('unlock', { password: legacy.passphrase });
@@ -93,15 +107,18 @@ async function main() {
     ok('закреплённые открытые ключи прежние: лицензии и обновления не перевыпускаются',
       JSON.stringify(Object.fromEntries(Object.keys(legacy.publicKeys).map((k) => [k, unlocked.value.publicKeys[k]]))) === JSON.stringify(legacy.publicKeys));
     ok('закрытые ключи не отдаются окну', !JSON.stringify(unlocked.value).includes('PRIVATE KEY'));
+    const shared = await consoleCall('state');
+    ok('окно разделов видит открытое хранилище, но не ключи, лицензии и реестры', shared.value.unlocked === true && !JSON.stringify(shared.value).match(/PRIVATE KEY|licenses|publicKeys|revocations/));
+    ok('открытое хранилище без подключения к базе: запросы по-прежнему закрыты', (await consoleCall('requests')).ok === false);
     ok('без подключения публикация обновления закрыта', (await ownerCall('publish', { version: '9.9.9', changelog: 'x' })).ok === false);
     ok('закрытие окна запирает хранилище, а Studio остаётся', (ownerWindow.close(), (await ownerCall('state')).ok === false || (await ownerCall('state')).value.unlocked === false));
     ok('оболочка жива после закрытия окна владельца', (await built.shellCall('state')).ok === true);
     fs.rmSync(vaultFile);
     const again = await built.shellCall('openSection', { id: 'owner' });
-    ok('раздел открывается снова новым окном', again.ok && built.electron.__windows.length === 3);
+    ok('раздел открывается снова новым окном', again.ok && built.electron.__windows.length === before + 2);
 
     console.log('Новое хранилище');
-    const second = built.electron.__windows[2];
+    const second = built.electron.__windows[before + 1];
     const call2 = (action: string, args: object = {}) => built.electron.__handlers.get('owner:action')({ sender: second.webContents, senderFrame: second.webContents.mainFrame }, action, args);
     ok('без файла окно говорит, что хранилища нет', (await call2('state')).value.vaultExists === false);
     built.electron.__save(path.join(home, 'backup.flux-owner'));
@@ -115,7 +132,8 @@ async function main() {
     const devState = (await developer.shellCall('state')).value;
     ok('в сборке разработчика разделов владельца нет', devState.sections.length === 0 && devState.build === 'developer');
     ok('раздел владельца не открывается', (await developer.shellCall('openSection', { id: 'owner' })).ok === false && developer.electron.__windows.length === 1);
-    ok('канала владельца у разработчика нет вовсе', !developer.electron.__handlers.has('owner:action') && !fs.existsSync(path.join(developer.app, 'owner')));
+    ok('канала владельца у разработчика нет вовсе', !developer.electron.__handlers.has('owner:action') && !developer.electron.__handlers.has('console:action') && !fs.existsSync(path.join(developer.app, 'owner')) && !fs.existsSync(path.join(developer.app, 'ui')));
+    ok('разделы владельца у разработчика не открываются', (await developer.shellCall('openSection', { id: 'publish' })).ok === false && (await developer.shellCall('openSection', { id: 'updates' })).ok === false);
 
     console.log(`\nFlux Studio: раздел владельца в готовой сборке — ${passed} проверок пройдено`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
