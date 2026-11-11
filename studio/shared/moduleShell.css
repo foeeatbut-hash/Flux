@@ -1,0 +1,33 @@
+/* Оформление окна подпрограммы при запуске из Studio.
+   Во Flux окно получает общий flux.css из сборки интерфейса; в Studio интерфейса Flux нет, поэтому здесь
+   только то, что использует форма (modules/runtime/form.ts), теми же именами классов и токенов.
+   Цвета приходят от оболочки (--flux-*) на каждое сообщение, значения ниже — запасные до первого. */
+:root {
+  --flux-surface: #ffffff; --flux-bg: #f8fafc; --flux-hover: #f1f5f9; --flux-sel: #e2e8f0; --flux-line: #e2e8f0;
+  --flux-text: #0f172a; --flux-text-muted: #64748b; --flux-accent: #059669;
+}
+* { box-sizing: border-box; }
+body { font-family: system-ui, "Segoe UI", sans-serif; }
+.p-3 { padding: 12px; }
+.flex { display: flex; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-4 { gap: 16px; }
+.min-h-8 { min-height: 32px; }
+.min-w-0 { min-width: 0; }
+.w-full { width: 100%; }
+.table-fixed { table-layout: fixed; }
+.text-sm { font-size: 13px; line-height: 20px; }
+.text-right { text-align: right; }
+.tabular-nums { font-variant-numeric: tabular-nums; }
+.font-mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+.break-words { overflow-wrap: anywhere; }
+.border-b { border-bottom: 1px solid; }
+.border-\[var\(--flux-line\)\] { border-color: var(--flux-line); }
+.fx-label { font-size: 12px; font-weight: 500; color: var(--flux-text-muted); }
+.fx-group-title { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--flux-text); }
+.fx-note { margin: 0; font-size: 12px; color: var(--flux-text-muted); }
+.fx-table { border-collapse: collapse; }
+.fx-table th { height: 28px; padding: 0 8px; text-align: left; font-size: 12px; font-weight: 500; color: var(--flux-text-muted); background: var(--flux-bg); border-bottom: 1px solid var(--flux-line); }
+.fx-table td { height: 32px; padding: 0 8px; border-bottom: 1px solid var(--flux-line); color: var(--flux-text); }
+.fx-table tbody tr:hover td { background: var(--flux-hover); }
