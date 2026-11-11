@@ -11,11 +11,27 @@ const ROUTES = {
   login: { method: 'POST', path: '/api/login' },
   session: { method: 'GET', path: '/api/studio/session' },
   modules: { method: 'GET', path: '/api/studio/modules' },
+  /** Версия Flux в общей базе: для предупреждения «обновите Studio»; без входа */
+  health: { method: 'GET', path: '/api/health' },
+  certificate: { method: 'GET', path: '/api/studio/certificate' },
+  /** Запрос сертификата владельцу: профиль сервер берёт из входа, в теле только открытый ключ и имя */
+  certRequest: { method: 'POST', path: '/api/modules/certificate-requests' },
+  requests: { method: 'GET', path: '/api/studio/requests' },
+  requestBundle: { method: 'GET', path: '/api/studio/requests/:id/bundle' },
+  releases: { method: 'GET', path: '/api/studio/releases' },
+  /** Единственная запись Studio в рабочую базу при публикации: подписанный запрос (сервер проверяет подпись и право) */
+  submit: { method: 'POST', path: '/api/modules/requests' },
+  /** Ошибки: обращения по своим подпрограммам и счётчики сбоев — существующие маршруты Flux, сервер сам отбирает «свои» */
+  reports: { method: 'GET', path: '/api/feedback/reports' },
+  crashes: { method: 'GET', path: '/api/modules/crashes' },
+  /** Отметка «исправлено в версии»: смена состояния обращения по подпрограмме, право проверяет сервер */
+  transition: { method: 'POST', path: '/api/feedback/reports/:id/transition' },
 } as const;
 export type StudioRoute = keyof typeof ROUTES;
 
-/** Ответ сервера Studio короткий; больше мегабайта — признак чужого или сломанного ответа */
+/** Ответ сервера Studio короткий; больше мегабайта — признак чужого или сломанного ответа. Пакет подпрограммы — отдельно */
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+const MAX_BUNDLE_BYTES = 40 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 20_000;
 
 export class StudioFailure extends Error {
@@ -47,7 +63,22 @@ async function readLimited(response: Response): Promise<string> {
   }
 }
 
-export interface RequestOptions { token?: string; body?: unknown; signal?: AbortSignal; timeoutMs?: number }
+export interface RequestOptions {
+  token?: string; body?: unknown; signal?: AbortSignal; timeoutMs?: number;
+  /** Подстановки в путь (`:id`): только безопасные идентификаторы, иначе окно могло бы дописать путь */
+  params?: Record<string, string>;
+  query?: Record<string, string | number>;
+}
+
+function urlOf(base: string, path: string, options: RequestOptions): string {
+  const filled = path.replace(/:([a-z]+)/g, (_m, name: string) => {
+    const value = options.params?.[name];
+    if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(value)) throw new StudioFailure('Некорректный идентификатор в запросе.');
+    return value;
+  });
+  const query = Object.entries(options.query || {}).map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`).join('&');
+  return base + filled + (query ? `?${query}` : '');
+}
 
 export async function studioRequest<T = any>(origin: string, route: StudioRoute, options: RequestOptions = {}): Promise<T> {
   const target = ROUTES[route];
@@ -55,9 +86,10 @@ export async function studioRequest<T = any>(origin: string, route: StudioRoute,
   const base = loopbackOrigin(origin);
   const signals = [AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS)];
   if (options.signal) signals.push(options.signal);
+  const url = urlOf(base, target.path, options);
   let response: Response;
   try {
-    response = await fetch(base + target.path, {
+    response = await fetch(url, {
       method: target.method, signal: AbortSignal.any(signals), redirect: 'error',
       headers: { 'Content-Type': 'application/json', ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}) },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -71,26 +103,44 @@ export async function studioRequest<T = any>(origin: string, route: StudioRoute,
   try { json = text ? JSON.parse(text) : null; } catch { /* не JSON — сообщим общим текстом ниже */ }
   if (!response.ok) {
     // Тексты отказов пишет сервер по-русски и без секретов — показываем их как есть, но с пределом
-    const said = typeof json?.error === 'string' ? json.error : typeof json?.message === 'string' ? json.message : '';
+    const said = typeof json?.error === 'string' ? json.error : typeof json?.error?.message === 'string' ? json.error.message : typeof json?.message === 'string' ? json.message : '';
     throw new StudioFailure(said.slice(0, 400) || `Flux ответил ошибкой ${response.status}.`, response.status);
   }
   if (json === null || typeof json !== 'object') throw new StudioFailure('Flux вернул непонятный ответ.', response.status);
   return json as T;
 }
 
+/** Пакет своего запроса: бинарный ответ, предел больше, чем у обычных */
+export async function studioBinary(origin: string, route: StudioRoute, options: RequestOptions = {}): Promise<Uint8Array> {
+  const target = ROUTES[route];
+  const base = loopbackOrigin(origin);
+  const url = urlOf(base, target.path, options);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: target.method, redirect: 'error', signal: AbortSignal.timeout(options.timeoutMs ?? 60_000),
+      headers: options.token ? { Authorization: `Bearer ${options.token}` } : {},
+    });
+  } catch { throw new StudioFailure('Не удалось связаться с локальным обработчиком Flux.'); }
+  if (!response.ok) throw new StudioFailure(response.status === 404 ? 'Запрос не найден.' : `Flux ответил ошибкой ${response.status}.`, response.status);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.length > MAX_BUNDLE_BYTES) throw new StudioFailure('Пакет слишком большой.');
+  return bytes;
+}
+
 export interface StudioUser { id: string; name: string }
 export interface StudioModule { moduleId: string; version: string; state: string; createdAt: string; requests: number }
 
 /** Вход: логин и пароль из Flux, затем проверка права на самом сервере */
-export async function signIn(origin: string, symbol: string, password: string, signal?: AbortSignal): Promise<{ token: string; user: StudioUser }> {
+export async function signIn(origin: string, symbol: string, password: string, signal?: AbortSignal): Promise<{ token: string; user: StudioUser; owner: boolean }> {
   if (typeof symbol !== 'string' || !symbol.trim() || symbol.length > 200 || typeof password !== 'string' || password.length > 1024) {
     throw new StudioFailure('Введите логин и пароль Flux.');
   }
   const login = await studioRequest<{ token?: string }>(origin, 'login', { body: { symbol: symbol.trim(), password }, signal });
   if (typeof login.token !== 'string' || login.token.length < 8 || login.token.length > 10_000) throw new StudioFailure('Flux не выдал сессию. Повторите вход.');
-  const session = await studioRequest<{ ok?: boolean; user?: StudioUser }>(origin, 'session', { token: login.token, signal });
+  const session = await studioRequest<{ ok?: boolean; owner?: boolean; user?: StudioUser }>(origin, 'session', { token: login.token, signal });
   if (session.ok !== true || !session.user) throw new StudioFailure('Flux не подтвердил право входа в Studio.');
-  return { token: login.token, user: { id: String(session.user.id), name: String(session.user.name || '') } };
+  return { token: login.token, user: { id: String(session.user.id), name: String(session.user.name || '') }, owner: session.owner === true };
 }
 
 export async function ownModules(origin: string, token: string, signal?: AbortSignal): Promise<StudioModule[]> {

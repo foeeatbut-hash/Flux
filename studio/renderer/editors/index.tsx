@@ -20,14 +20,14 @@ import { FormTextEditor } from './FormTextEditor';
 import { CodeEditor } from './CodeEditor';
 import { ContractEditor } from './ContractEditor';
 import { RulesPanel } from './RulesPanel';
-import type { EditorProps } from './shellContract';
+import type { EditorProps } from '../../shared/editorContract';
 import type { CodeFile, ContractDraft, FormDef } from './types';
 
 export { checkFormDesign } from './designCheck';
 export { serializeForm } from './formModel';
 export { structureProblems, bindingProblems } from './formSchema';
 export { generateContractDts, contractReference } from './contractTypes';
-export type { EditorProps, EditorDraft } from './shellContract';
+export type { EditorProps, EditorDraft } from '../../shared/editorContract';
 export type { ModuleDraft, Finding, FormDef, CodeFile, ContractDraft } from './types';
 
 type Tab = 'form' | 'text' | 'code' | 'contract' | 'rules';
@@ -48,24 +48,27 @@ export default function Editors({ moduleId, draft, onChange }: EditorProps) {
 
   // --- Договор: локальная копия, чтобы ввод не ждал ответа оболочки
   const [contract, setContract] = useState<ContractDraft>(() => contractFromFiles(files));
-  const pendingContract = useRef<string | null>(null);
+  const pendingContract = useRef<Set<string>>(new Set());
   useEffect(() => {
     const fromFiles = JSON.stringify(contractFromFiles(files));
-    if (pendingContract.current === fromFiles) pendingContract.current = null;
-    else if (pendingContract.current === null && fromFiles !== JSON.stringify(contract)) setContract(JSON.parse(fromFiles));
+    if (pendingContract.current.has(fromFiles)) return;
+    if (fromFiles !== JSON.stringify(contract)) { pendingContract.current.add(fromFiles); setContract(JSON.parse(fromFiles)); }
   }, [files]);
 
   // --- Форма: текст и последняя верная форма в одном состоянии
   const [state, setState] = useState<FormState>(() => formStateFromText(files[FORM_FILE] ?? serializeForm({ version: 1, groups: [], tables: [] }), contract));
-  const written = useRef<string | undefined>(files[FORM_FILE]);
+  // Все тексты, которые мы сами отдали оболочке: её ответ на более раннюю правку не должен откатить набранное позже
+  const written = useRef<Set<string>>(new Set(files[FORM_FILE] === undefined ? [] : [files[FORM_FILE]]));
+  const lastSaved = useRef<string | undefined>(files[FORM_FILE]);
   const history = useRef<{ past: FormDef[]; future: FormDef[]; textAt: number }>({ past: [], future: [], textAt: 0 });
   const data = useMemo(() => sampleData(), []);
 
   // Файл изменили снаружи (откат, другой редактор): форма и текст берутся из него, отмена начинается заново
   useEffect(() => {
     const text = files[FORM_FILE];
-    if (text === undefined || text === written.current || text === state.text) return;
-    written.current = text;
+    if (text === undefined || written.current.has(text) || text === state.text) return;
+    written.current.add(text);
+    lastSaved.current = text;
     history.current = { past: [], future: [], textAt: 0 };
     setState(formStateFromText(text, contract));
   }, [files[FORM_FILE]]);
@@ -83,7 +86,7 @@ export default function Editors({ moduleId, draft, onChange }: EditorProps) {
       h.future = [];
     }
     setState(next);
-    if (next.textValid && next.text !== written.current) { written.current = next.text; save({ [FORM_FILE]: next.text }); }
+    if (next.textValid && next.text !== lastSaved.current) { lastSaved.current = next.text; written.current.add(next.text); save({ [FORM_FILE]: next.text }); }
     redraw();
   };
 
@@ -95,7 +98,8 @@ export default function Editors({ moduleId, draft, onChange }: EditorProps) {
     h.textAt = 0;
     const next = formStateFromForm(form, contract);
     setState(next);
-    written.current = next.text;
+    written.current.add(next.text);
+    lastSaved.current = next.text;
     save({ [FORM_FILE]: next.text });
     redraw();
   };
@@ -107,12 +111,13 @@ export default function Editors({ moduleId, draft, onChange }: EditorProps) {
 
   // --- Код: тоже локально, по той же причине
   const [codeText, setCodeText] = useState<Record<string, string>>({});
-  const writtenCode = useRef<Record<string, string>>({});
+  const writtenCode = useRef<Record<string, Set<string>>>({});
+  const remember = (path: string, text: string) => { (writtenCode.current[path] ??= new Set()).add(text); };
   const code: CodeFile[] = useMemo(() => codeFiles(files).map(file => ({ ...file, text: codeText[file.path] ?? file.text })), [files, codeText]);
   useEffect(() => {
     setCodeText(previous => {
       const next = { ...previous };
-      for (const file of codeFiles(files)) if (file.text !== writtenCode.current[file.path] && file.text !== previous[file.path]) { next[file.path] = file.text; writtenCode.current[file.path] = file.text; }
+      for (const file of codeFiles(files)) if (!writtenCode.current[file.path]?.has(file.text) && file.text !== previous[file.path]) { next[file.path] = file.text; remember(file.path, file.text); }
       return next;
     });
   }, [files]);
@@ -123,7 +128,7 @@ export default function Editors({ moduleId, draft, onChange }: EditorProps) {
       if (before && before.text !== file.text) changed[file.path] = file.text;
     }
     if (!Object.keys(changed).length) return;
-    Object.assign(writtenCode.current, changed);
+    for (const [path, text] of Object.entries(changed)) remember(path, text);
     setCodeText(previous => ({ ...previous, ...changed }));
     save(changed);
   };
@@ -131,7 +136,7 @@ export default function Editors({ moduleId, draft, onChange }: EditorProps) {
   const onContract = (next: ContractDraft) => {
     setContract(next);
     setState(previous => recheck(previous, next));
-    pendingContract.current = JSON.stringify(next);
+    pendingContract.current.add(JSON.stringify(next));
     const { changed, error } = contractChanges(files, next);
     save(changed);
     if (error) setSaveError(error);

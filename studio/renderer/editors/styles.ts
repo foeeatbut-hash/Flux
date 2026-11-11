@@ -26,6 +26,7 @@ const css = `
 .ed-btn:focus-visible, .ed-tab:focus-visible, .ed-row:focus-visible, .ed-input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .ed-muted { color: var(--muted); }
 .ed-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.ed-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .ed-strong { font-weight: 600; }
 .ed-hint { margin: 4px 0 0; font-size: 12px; line-height: 16px; color: var(--muted); }
 .ed-error { margin: 4px 0 0; font-size: 12px; line-height: 16px; color: var(--danger); }

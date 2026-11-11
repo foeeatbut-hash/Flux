@@ -33,6 +33,8 @@ export interface UpdateDeps {
   broadcast: (event: string, payload: unknown) => void;
   /** Права человека (module.develop, module.publish); без него модульные маршруты разработчика закрыты */
   can?: (user: any, feature: string) => boolean;
+  /** Условия приёма запросов от Flux Studio (явное право, чужая подпрограмма); см. server/routes/studioDeveloper.ts */
+  studioGate?: import('./routes/modulePublishing.js').ModulePublishingDeps['studioGate'];
   /** Internal dependency for isolated fixtures. HTTP requests never select a verification key. */
   updatePublicKeyHex?: string;
 }

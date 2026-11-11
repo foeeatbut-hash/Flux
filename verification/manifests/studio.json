@@ -51,12 +51,33 @@
         "modules/dataSchemas.ts",
         "studio/renderer/editors/harness/index.html",
         "studio/renderer/editors/packageFiles.ts",
-        "studio/renderer/editors/shellContract.ts",
         "docs/methodology/01-design.md",
         "modules/formSchema.ts",
         "modules/miniSchema.ts",
         "modules/runtime/form.ts",
-        "modules/validateForm.ts"
+        "modules/validateForm.ts",
+        "studio/shell/actions.ts",
+        "studio/shell/developer.ts",
+        "studio/shell/developerServer.ts",
+        "studio/shell/remembered.ts",
+        "studio/shared/keyring.ts",
+        "studio/shared/templates.ts",
+        "studio/shared/testBase.ts",
+        "studio/shared/checks.ts",
+        "studio/shared/drafts.ts",
+        "studio/shared/publish.ts",
+        "studio/shared/runtime.ts",
+        "studio/shared/controlsEngine.ts",
+        "studio/shared/logicSource.ts",
+        "studio/build-assets.cjs",
+        "server/routes/studioDeveloper.ts",
+        "studio/renderer/call.ts",
+        "studio/renderer/sections/Projects.tsx",
+        "studio/renderer/sections/Run.tsx",
+        "studio/renderer/sections/Editor.tsx",
+        "studio/renderer/sections/Check.tsx",
+        "studio/renderer/sections/Publish.tsx",
+        "studio/renderer/sections/Errors.tsx"
       ]
     }
   ],
@@ -170,6 +191,57 @@
         "loopback-http"
       ],
       "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-keyring",
+      "path": "scripts/test-studio-keyring.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-project",
+      "path": "scripts/test-studio-project.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-publish",
+      "path": "scripts/test-studio-publish.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files",
+        "loopback-http"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-ui-developer",
+      "path": "scripts/test-studio-ui-developer.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files",
+        "loopback-http"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_CHROME"
+        }
+      ],
       "timeoutMs": 300000
     }
   ],
@@ -400,6 +472,285 @@
           "layer": "unit",
           "claims": [
             "Таймауты, отмена, проверка ответов, только локальный адрес"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "studio.developer-key",
+      "program": "studio",
+      "label": "Ключ разработчика и запрос сертификата",
+      "sources": [
+        "studio/shared/keyring.ts",
+        "studio/shell/developer.ts",
+        "studio/renderer/sections/Publish.tsx"
+      ],
+      "triggers": [
+        "кнопки «Создать ключ», «Запросить сертификат у владельца»"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Закрытая часть ключа только в защищённом хранилище ОС; нет хранилища — отказ, а не хранение открытым текстом"
+      ],
+      "checks": [
+        {
+          "suite": "studio-keyring",
+          "layer": "unit",
+          "claims": [
+            "Ключ создаётся, подпись проверяется открытым ключом, закрытой части нет на диске, в ответе окну и в запросе сертификата; без хранилища и при basic_text ключ не создаётся; чужая учётная запись не подписывает; мутация «шифрование выключено» ловится"
+          ]
+        },
+        {
+          "suite": "studio-shell",
+          "layer": "unit",
+          "claims": [
+            "Ответ окну — только открытая часть; в ответах и запросе нет токена и закрытого ключа"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Создать ключ в FluxStudio.exe на Windows, закрыть и открыть программу, отправить запрос",
+          "expected": [
+            "Ключ сохраняется между запусками, подпись проходит (DPAPI)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "studio.remembered-base",
+      "program": "studio",
+      "label": "Запомненный адрес базы и предупреждение «обновите Studio»",
+      "sources": [
+        "studio/shell/remembered.ts",
+        "studio/shell/main.ts",
+        "studio/shell/developerServer.ts",
+        "studio/renderer/main.tsx"
+      ],
+      "triggers": [
+        "кнопка «Подключиться» с «запомнить»",
+        "запуск"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Адрес с паролем хранится только зашифрованным; Studio старее Flux в базе — предупреждение"
+      ],
+      "checks": [
+        {
+          "suite": "studio-shell",
+          "layer": "unit",
+          "claims": [
+            "Адрес без «запомнить» не сохраняется, с ним — зашифрованным; окну виден только сервер и база; «Забыть адрес»; предупреждение при более новом Flux"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "studio.test-base",
+      "program": "studio",
+      "label": "Тестовая база с образцами",
+      "sources": [
+        "studio/shared/testBase.ts",
+        "studio/shell/developer.ts",
+        "studio/renderer/sections/Projects.tsx"
+      ],
+      "triggers": [
+        "раздел «Проект подпрограммы»",
+        "«Сбросить тестовую базу»"
+      ],
+      "risk": "normal",
+      "expected": [
+        "SQLite с образцами в каталоге данных Studio; чтение по договору v1; рабочей базы в ней нет"
+      ],
+      "checks": [
+        {
+          "suite": "studio-project",
+          "layer": "unit",
+          "claims": [
+            "Создание, сброс, чтение всех ресурсов по схеме договора, чужой проект и инъекция в идентификаторе ничего не отдают"
+          ]
+        },
+        {
+          "suite": "studio-ui-developer",
+          "layer": "browser-live",
+          "claims": [
+            "Сброс в окне возвращает образцы"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "studio.project",
+      "program": "studio",
+      "label": "Проект подпрограммы: заготовки, черновики, запуск",
+      "sources": [
+        "studio/shared/templates.ts",
+        "studio/shared/drafts.ts",
+        "studio/shared/runtime.ts",
+        "studio/shell/developer.ts",
+        "studio/renderer/sections/Projects.tsx",
+        "studio/renderer/sections/Run.tsx"
+      ],
+      "triggers": [
+        "раздел «Проект подпрограммы»"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Заготовки семи языков; черновик на этом компьютере; запуск в той же изоляции и тем же мостом, что во Flux"
+      ],
+      "checks": [
+        {
+          "suite": "studio-project",
+          "layer": "unit",
+          "claims": [
+            "Заготовка каждого языка проходит проверку; пути вне проекта отклоняются; runtime.js собирается без esbuild"
+          ]
+        },
+        {
+          "suite": "studio-shell",
+          "layer": "unit",
+          "claims": [
+            "Страница и runtime отдаются по flux-module://run только запущенной подпрограммы; чтение — только объявленное в reads из тестовой базы"
+          ]
+        },
+        {
+          "suite": "studio-ui-developer",
+          "layer": "browser-live",
+          "claims": [
+            "Настоящий iframe sandbox с настоящим runtime показывает данные тестовой базы; журнал моста; снимки обеих тем"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Запустить заготовку в FluxStudio.exe на Windows, снять обе темы",
+          "expected": [
+            "Подпрограмма открывается под flux-module://, снимки сохраняются (capturePage)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "studio.checks",
+      "program": "studio",
+      "label": "Проверка перед отправкой",
+      "sources": [
+        "studio/shared/checks.ts",
+        "studio/shared/controlsEngine.ts",
+        "studio/renderer/sections/Check.tsx"
+      ],
+      "triggers": [
+        "раздел «Проверка перед отправкой»"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Не прошло — отправка недоступна; границы проверки названы «не проверяется автоматически»"
+      ],
+      "checks": [
+        {
+          "suite": "studio-project",
+          "layer": "unit",
+          "claims": [
+            "Проверка падает на сломанном и зависшем расчёте, неизвестной привязке, чтении без объявления, записи, запрещённых обращениях, испорченном .wasm, пустом «что нового», отсутствии снимков и контрольных примеров, методологии текстов"
+          ]
+        },
+        {
+          "suite": "studio-ui-developer",
+          "layer": "browser-live",
+          "claims": [
+            "Непройденная и пройденная проверка в обеих темах"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "Проверить заготовку на Windows: рабочий поток контрольных примеров из app.asar.unpacked",
+          "expected": [
+            "Примеры выполняются"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "studio.publish",
+      "program": "studio",
+      "label": "Отправить на публикацию и статусы запросов",
+      "sources": [
+        "studio/shared/publish.ts",
+        "studio/shell/developer.ts",
+        "studio/shell/developerServer.ts",
+        "server/routes/studioDeveloper.ts",
+        "server/routes/modulePublishing.ts",
+        "studio/renderer/sections/Publish.tsx"
+      ],
+      "triggers": [
+        "кнопка «Отправить на публикацию»",
+        "«Исправить и отправить заново»"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Запрос подписан ключом разработчика и принят сервером; чужую подпрограмму не прислать и не увидеть; право module.develop — явное"
+      ],
+      "checks": [
+        {
+          "suite": "studio-project",
+          "layer": "unit",
+          "claims": [
+            "Запрос принимается verifyRequest с сертификатом владельца; отчёт «не прошло», пустое «что нового», нет ключа — запрос не собирается"
+          ]
+        },
+        {
+          "suite": "studio-publish",
+          "layer": "api-db",
+          "claims": [
+            "Явное право (администратор без него — 403; без крючка Studio проходил бы); чужая подпрограмма не отправляется и не видна; пакет только автору; сертификат, выпуски"
+          ]
+        },
+        {
+          "suite": "studio-shell",
+          "layer": "unit",
+          "claims": [
+            "Отправка проходит проверку подписи; повторная продолжает историю; без ключа и при непройденной проверке отказ"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "studio.errors",
+      "program": "studio",
+      "label": "Раздел «Ошибки»",
+      "sources": [
+        "studio/shell/developerServer.ts",
+        "studio/renderer/sections/Errors.tsx"
+      ],
+      "triggers": [
+        "раздел «Ошибки»",
+        "«Отметить»"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Обращения и счётчики сбоев по своим подпрограммам; «исправлено в версии» уходит на проверку автору"
+      ],
+      "checks": [
+        {
+          "suite": "studio-shell",
+          "layer": "unit",
+          "claims": [
+            "В окно не уходит лишнее из ответа сервера; неверная версия отклоняется; отметка уходит с ревизией"
+          ]
+        },
+        {
+          "suite": "studio-ui-developer",
+          "layer": "browser-live",
+          "claims": [
+            "Таблицы обращений и счётчиков, отметка в обеих темах"
           ]
         }
       ],

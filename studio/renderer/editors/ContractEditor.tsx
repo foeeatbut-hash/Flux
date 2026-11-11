@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { resources } from '../../../modules/contract';
-import { Check } from './controls';
+import { Check, HiddenLabelInput, HiddenLabelSelect } from './controls';
 import type { ContractDraft, ContractValue, Resource, ValueType } from './types';
 
 const RESOURCE_NAMES: Record<Resource, string> = { project: 'Проект', equipment: 'Оборудование', tag: 'Тег', specification: 'Спецификация', catalog: 'Каталог' };
@@ -23,20 +23,20 @@ function Values({ title, hint, values, onChange, id }: { title: string; hint: st
           <tbody>
             {values.map((value, i) => (
               <tr key={i}>
-                <td><input className="ed-input" aria-label={`${title}: имя ${i + 1}`} value={value.name} spellCheck={false} aria-invalid={dup(value.name) ? true : undefined} onChange={event => set(i, { name: event.target.value.replace(/[^A-Za-z0-9_$]/g, '') })} /></td>
+                <td><HiddenLabelInput label={`${title}: имя ${i + 1}`} value={value.name} spellCheck={false} aria-invalid={dup(value.name) ? true : undefined} onChange={event => set(i, { name: event.target.value.replace(/[^A-Za-z0-9_$]/g, '') })} /></td>
                 <td>
-                  <select className="ed-input" aria-label={`${title}: тип ${value.name || i + 1}`} value={value.type} onChange={event => set(i, { type: event.target.value as ValueType, items: event.target.value === 'array' ? value.items : undefined })}>
+                  <HiddenLabelSelect label={`${title}: тип ${value.name || i + 1}`} value={value.type} onChange={event => set(i, { type: event.target.value as ValueType, items: event.target.value === 'array' ? value.items : undefined })}>
                     {TYPES.map(([key, text]) => <option key={key} value={key}>{text}</option>)}
-                  </select>
+                  </HiddenLabelSelect>
                   {value.type === 'array' && (
-                    <select className="ed-input" aria-label={`${title}: элементы ${value.name || i + 1}`} value={value.items ?? ''} onChange={event => set(i, { items: (event.target.value || undefined) as ValueType | undefined })}>
+                    <HiddenLabelSelect label={`${title}: элементы ${value.name || i + 1}`} value={value.items ?? ''} onChange={event => set(i, { items: (event.target.value || undefined) as ValueType | undefined })}>
                       <option value="">Элементы любого вида</option>
                       {TYPES.filter(([key]) => key !== 'array').map(([key, text]) => <option key={key} value={key}>{text}</option>)}
-                    </select>
+                    </HiddenLabelSelect>
                   )}
                 </td>
-                <td><input className="ed-input" aria-label={`${title}: единица ${value.name || i + 1}`} value={value.unit ?? ''} onChange={event => set(i, { unit: event.target.value || undefined })} /></td>
-                <td><input className="ed-input" aria-label={`${title}: описание ${value.name || i + 1}`} value={value.description ?? ''} onChange={event => set(i, { description: event.target.value || undefined })} /></td>
+                <td><HiddenLabelInput label={`${title}: единица ${value.name || i + 1}`} value={value.unit ?? ''} onChange={event => set(i, { unit: event.target.value || undefined })} /></td>
+                <td><HiddenLabelInput label={`${title}: описание ${value.name || i + 1}`} value={value.description ?? ''} onChange={event => set(i, { description: event.target.value || undefined })} /></td>
                 <td><button type="button" className="ed-btn is-danger" aria-label={`Удалить ${value.name || i + 1}`} onClick={() => onChange(values.filter((_, at) => at !== i))}>Удалить</button></td>
               </tr>
             ))}

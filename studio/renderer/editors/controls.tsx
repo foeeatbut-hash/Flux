@@ -86,3 +86,13 @@ export function tabKeys<T extends string>(event: React.KeyboardEvent<HTMLElement
   const tabs = event.currentTarget.querySelectorAll<HTMLElement>('[role=tab]');
   requestAnimationFrame(() => tabs[next]?.focus());
 }
+
+/** Поле таблицы: подпись есть для читалки экрана и проверок как настоящий <label>, но на экране скрыта */
+export function HiddenLabelInput({ label, ...props }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+  const id = useId();
+  return <><label className="ed-sr" htmlFor={id}>{label}</label><input id={id} className="ed-input" {...props} /></>;
+}
+export function HiddenLabelSelect({ label, children, ...props }: { label: string; children: React.ReactNode } & React.SelectHTMLAttributes<HTMLSelectElement>) {
+  const id = useId();
+  return <><label className="ed-sr" htmlFor={id}>{label}</label><select id={id} className="ed-input" {...props}>{children}</select></>;
+}

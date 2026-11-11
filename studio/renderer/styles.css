@@ -4,17 +4,23 @@
   --bg: #f1f5f9; --surface: #ffffff; --surface-2: #f8fafc; --border: #cbd5e1; --text: #0f172a; --muted: #475569;
   --accent: #0d9488; --accent-text: #ffffff; --danger: #b91c1c; --danger-bg: #fef2f2; --ok: #047857; --warn: #b45309;
   --focus: #0f766e; --radius: 10px;
+  /* Токены окна подпрограммы: те же имена, что во Flux; мост отдаёт их подпрограмме при запуске и смене темы */
+  --flux-surface: var(--surface); --flux-bg: var(--surface-2); --flux-hover: #f1f5f9; --flux-sel: #e2e8f0; --flux-line: var(--border);
+  --flux-text: var(--text); --flux-text-muted: var(--muted); --flux-accent: var(--accent);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0f172a; --surface: #1e293b; --surface-2: #172033; --border: #334155; --text: #f1f5f9; --muted: #94a3b8;
     --accent: #2dd4bf; --accent-text: #042f2e; --danger: #fca5a5; --danger-bg: #3b1d1d; --ok: #6ee7b7; --warn: #fcd34d; --focus: #5eead4;
+    --flux-hover: #243246; --flux-sel: #334155;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0f172a; --surface: #1e293b; --surface-2: #172033; --border: #334155; --text: #f1f5f9; --muted: #94a3b8;
   --accent: #2dd4bf; --accent-text: #042f2e; --danger: #fca5a5; --danger-bg: #3b1d1d; --ok: #6ee7b7; --warn: #fcd34d; --focus: #5eead4;
+  --flux-hover: #243246; --flux-sel: #334155;
 }
+:root[data-theme="light"] { --flux-hover: #f1f5f9; --flux-sel: #e2e8f0; }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
 #root { height: 100%; }
@@ -51,3 +57,33 @@ th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--bo
 th { font-size: 12px; color: var(--muted); font-weight: 600; background: var(--surface-2); }
 tr:last-child td { border-bottom: 0; }
 .empty { margin-top: 16px; padding: 32px; text-align: center; border: 1px dashed var(--border); border-radius: var(--radius); color: var(--muted); background: var(--surface); }
+
+/* Разделы разработчика */
+h3 { margin: 24px 0 8px; font-size: 15px; font-weight: 600; }
+h4 { margin: 16px 0 8px; font-size: 13px; font-weight: 600; }
+.panel { margin-top: 16px; padding: 16px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.panel h3 { margin-top: 0; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.grid .field { margin: 8px 0; }
+select, textarea { padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text); font: inherit; max-width: 100%; }
+textarea { resize: vertical; width: 100%; }
+select:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+.end { text-align: right; }
+.short { width: 90px; }
+.counts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--muted); }
+.dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--danger); }
+.verdict { margin: 12px 0; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); }
+.verdict.ok { color: var(--ok); border-color: var(--ok); } .verdict.bad { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
+.warning { margin: 0 0 16px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--warn); color: var(--warn); background: var(--surface); }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 12px 0; }
+.facts dt { color: var(--muted); } .facts dd { margin: 0; }
+.nav-current { margin: 12px 10px 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.check { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.row.tight { flex-wrap: nowrap; align-items: center; }
+.empty.small { padding: 12px; }
+.module-frame { display: block; width: 100%; height: 360px; margin-top: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--flux-surface); }
+.log td { padding: 4px 10px; } .log tr.warn td { color: var(--warn); } .log tr.error td { color: var(--danger); }
+tr[aria-selected="true"] td { background: var(--flux-sel); }

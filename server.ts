@@ -18,6 +18,7 @@ import { readAppVersion } from './server/presence.js';
 import { registerSockets } from './server/sockets.js';
 import { registerUpdateRoutes } from './server/updates.js';
 import { registerStudioRoutes } from './server/routes/studio.js';
+import { registerStudioDeveloperRoutes, studioPublishGate } from './server/routes/studioDeveloper.js';
 import { registerLimitRoutes } from './server/limits.js';
 import { registerFeedbackRoutes } from './server/routes/feedback.js';
 import { registerPolicyRoutes } from './server/routes/policy.js';
@@ -897,9 +898,12 @@ registerUpdateRoutes(app, {
   notifyAll: (category, title, body, route, by) => notifyAll(category, title, body, route, by),
   broadcast: (event, payload) => { try { io.emit(event, payload); } catch (_) {} },
   can: userCan,
+  // Запросы от Studio: явное право разработки и запрет присылать версию чужой подпрограммы
+  studioGate: studioPublishGate({ permissionsOf: effectivePermsOf }),
 });
 // Вход в Flux Studio: право разработки или вход владельца проверяет сервер
 registerStudioRoutes(app, { getPrisma: () => prisma, permissionsOf: effectivePermsOf });
+registerStudioDeveloperRoutes(app, { getPrisma: () => prisma, permissionsOf: effectivePermsOf });
 
 // Насколько большой файл примет эта база — server/limits.ts. Окно спрашивает
 // заранее, чтобы отказ звучал до переноса, а не после получаса ожидания
