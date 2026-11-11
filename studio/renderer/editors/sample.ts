@@ -33,8 +33,8 @@ export const sampleForm = (): FormDef => ({
     {
       title: 'Расчёт',
       fields: [
-        { label: 'Режим', bind: 'state.mode', allowed: ['зима', 'лето'], required: true, hint: 'От режима зависят поправки к расходу.' },
-        { label: 'Расход воздуха', bind: 'state.airflow', unit: 'м³/ч', min: 0, max: 100000, placeholder: '1200', visibleIf: { bind: 'state.mode', op: 'filled' } },
+        { label: 'Режим', bind: 'state.mode', hint: 'От режима зависят поправки к расходу.' },
+        { label: 'Расход воздуха', bind: 'state.airflow', unit: 'м³/ч', visibleIf: { bind: 'state.mode', op: 'filled' } },
         { label: 'Параметров', bind: 'calc.out.parameterCount' },
         { label: 'Пересчётов', bind: 'state.recalculations' },
       ],

@@ -5,7 +5,7 @@
  * прежняя верная форма остаётся. Привязки (какого поля нет в договоре) форму не отвергают: пока
  * инженер собирает форму, пустая привязка — обычное состояние, но выпуск с ней не уйдёт.
  */
-import { validateSchema } from './miniSchema';
+import { describeSchemaError, formShapeErrors, pathOfPointer, whereInForm } from '../../../modules/formSchema';
 import { parseJson, type JsonPath, type TextPlace } from './jsonText';
 import { columnKeys, resolveBinding } from './contractModel';
 import type { ContractDraft, FormDef, FormVisibility } from './types';
@@ -17,72 +17,6 @@ export interface FormDiagnostic extends TextPlace {
   path: JsonPath;
 }
 
-const text = (max: number) => ({ type: 'string', maxLength: max });
-const visibility = {
-  type: 'object', additionalProperties: false, required: ['bind', 'op'],
-  properties: { bind: text(256), op: { enum: ['eq', 'ne', 'filled', 'empty'] }, value: text(256) },
-};
-export const formSchema = {
-  type: 'object', additionalProperties: false, required: ['version', 'groups', 'tables'],
-  properties: {
-    version: { const: 1 },
-    onDataChanged: { type: 'string', pattern: '^[A-Za-z_][A-Za-z0-9_]{0,127}$' },
-    groups: {
-      type: 'array', maxItems: 64, items: {
-        type: 'object', additionalProperties: false, required: ['title', 'fields'],
-        properties: {
-          title: text(120), visibleIf: visibility,
-          fields: {
-            type: 'array', maxItems: 128, items: {
-              type: 'object', additionalProperties: false, required: ['label', 'bind'],
-              properties: {
-                label: text(120), bind: text(256), kind: { const: 'code' }, unit: text(32),
-                allowed: { type: 'array', maxItems: 64, uniqueItems: true, items: text(120) },
-                min: { type: 'number' }, max: { type: 'number' }, required: { type: 'boolean' },
-                placeholder: text(120), hint: text(300), visibleIf: visibility,
-              },
-            },
-          },
-        },
-      },
-    },
-    tables: {
-      type: 'array', maxItems: 32, items: {
-        type: 'object', additionalProperties: false, required: ['title', 'bind', 'columns'],
-        properties: {
-          title: text(120), bind: text(256), visibleIf: visibility,
-          columns: {
-            type: 'array', maxItems: 32, items: {
-              type: 'object', additionalProperties: false, required: ['label', 'key'],
-              properties: { label: text(120), key: text(256), align: { const: 'end' }, unit: text(32) },
-            },
-          },
-        },
-      },
-    },
-  },
-};
-
-const TYPE_NAMES: Record<string, string> = { string: 'строка', number: 'число', integer: 'целое число', boolean: 'да или нет', array: 'список', object: 'объект' };
-const pathOf = (pointer: string): JsonPath => pointer.split('/').slice(1).map(part => {
-  const key = part.replace(/~1/g, '/').replace(/~0/g, '~');
-  return /^(0|[1-9]\d*)$/.test(key) ? Number(key) : key;
-});
-const where = (path: JsonPath) => path.length ? ` (${path.map(part => typeof part === 'number' ? `[${part + 1}]` : part).join(' → ')})` : '';
-
-function schemaMessage(error: { keyword: string; params: any }, last: string | number | undefined): string {
-  const { keyword, params } = error;
-  if (keyword === 'required') return `Не хватает поля «${params.missingProperty}»`;
-  if (keyword === 'type') return `Ожидается ${TYPE_NAMES[params.type] ?? params.type}`;
-  if (keyword === 'enum') return `Допустимо только: ${params.allowedValues.map((v: unknown) => `«${v}»`).join(', ')}`;
-  if (keyword === 'const') return last === 'version' ? 'Поддерживается форма версии 1: version должен быть 1' : `Допустимо только значение «${params.allowedValue}»`;
-  if (keyword === 'maxLength') return `Слишком длинный текст: не больше ${params.limit} знаков`;
-  if (keyword === 'maxItems') return `Слишком много элементов: не больше ${params.limit}`;
-  if (keyword === 'uniqueItems') return 'Значения в списке повторяются';
-  if (keyword === 'pattern') return 'Имя обработчика — латинские буквы, цифры и «_», не с цифры';
-  return 'Значение не подходит под схему';
-}
-
 /** Ошибки разбора и схемы; пустой список — текст можно принять как форму */
 export function structureProblems(source: string): { value?: FormDef; problems: FormDiagnostic[] } {
   const parsed = parseJson(source);
@@ -90,19 +24,14 @@ export function structureProblems(source: string): { value?: FormDef; problems: 
     const { line, column, message } = parsed.problem!;
     return { problems: [{ layer: 'syntax', severity: 'error', line, column, message, path: [] }] };
   }
-  const errors = validateSchema(formSchema, parsed.value);
+  const errors = formShapeErrors(parsed.value);
   if (!errors.length) return { value: parsed.value as FormDef, problems: [] };
   const problems: FormDiagnostic[] = [];
   for (const error of errors) {
-    let path = pathOf(error.instancePath);
-    let key = false;
-    if (error.keyword === 'additionalProperties') {
-      path = [...path, error.params.additionalProperty as string];
-      key = true;
-      problems.push({ layer: 'schema', severity: 'error', ...parsed.place(path, key), path, message: `Неизвестное поле «${error.params.additionalProperty as string}»${where(path.slice(0, -1))}` });
-      continue;
-    }
-    problems.push({ layer: 'schema', severity: 'error', ...parsed.place(path, key), path, message: `${schemaMessage(error, path[path.length - 1])}${where(path)}` });
+    let path = pathOfPointer(error.instancePath);
+    const extra = error.keyword === 'additionalProperties';
+    if (extra) path = [...path, error.params.additionalProperty as string];
+    problems.push({ layer: 'schema', severity: 'error', ...parsed.place(path, extra), path, message: `${describeSchemaError(error, path[path.length - 1])}${whereInForm(extra ? path.slice(0, -1) : path)}` });
   }
   problems.sort((a, b) => a.line - b.line || a.column - b.column);
   return { problems };
@@ -131,7 +60,6 @@ export function bindingProblems(source: string, form: FormDef, contract: Contrac
         if (!resolved.ok) report([...at, 'bind'], `Привязка «${field.bind}»: ${resolved.reason}`);
         else if (resolved.type === 'array') report([...at, 'bind'], `Привязка «${field.bind}» — список: для списка нужна таблица`);
       }
-      if (field.min !== undefined && field.max !== undefined && field.min > field.max) report([...at, 'min'], 'Наименьшее значение больше наибольшего');
       checkVisibility(field.visibleIf, at, contract, report);
     });
   });
@@ -139,9 +67,11 @@ export function bindingProblems(source: string, form: FormDef, contract: Contrac
     const at: JsonPath = ['tables', t];
     checkVisibility(table.visibleIf, at, contract, report);
     if (!table.bind) { report([...at, 'bind'], 'Привязка не выбрана: выберите список из данных Flux'); return; }
+    // Тот же запрет, что при выпуске (modules/validateForm.ts): строки таблицы дают только данные Flux
+    if (!table.bind.startsWith('flux.')) { report([...at, 'bind'], `Таблица «${table.bind}» должна ссылаться на список из данных Flux (flux.…): state и calc.out в таблицу не выводятся`); return; }
     const resolved = resolveBinding(table.bind, contract);
     if (!resolved.ok) { report([...at, 'bind'], `Привязка «${table.bind}»: ${resolved.reason}`); return; }
-    if (resolved.type !== 'array') { report([...at, 'bind'], `Таблица «${table.bind}» должна ссылаться на список, а там ${TYPE_NAMES[resolved.type] ?? resolved.type}`); return; }
+    if (resolved.type !== 'array') { report([...at, 'bind'], `Таблица «${table.bind}» должна ссылаться на список, а там ${resolved.type}`); return; }
     const keys = columnKeys(table.bind, contract);
     table.columns.forEach((column, c) => {
       if (!column.key) report([...at, 'columns', c, 'key'], 'Колонка без поля: выберите, что показывать');

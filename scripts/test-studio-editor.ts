@@ -14,18 +14,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 import Ajv from 'ajv';
-import { formSchema } from '../studio/renderer/editors/formSchema';
+import { formSchema } from '../modules/formSchema';
+import { validateSchema } from '../modules/miniSchema';
+import { binding as readFlux, isVisible as visible, renderForm, type ModuleForm } from '../modules/runtime/form';
 import { parseJson } from '../studio/renderer/editors/jsonText';
 import { bindingProblems, structureProblems } from '../studio/renderer/editors/formSchema';
 import { applyForm, applyText, formStateFromForm, recheck } from '../studio/renderer/editors/formStore';
 import { addComponent, applyDrop, dropComponent, moveSelected, removeSelected, serializeForm, updateSelected } from '../studio/renderer/editors/formModel';
-import { sampleContract, sampleForm, sampleLogic } from '../studio/renderer/editors/sample';
+import { sampleContract, sampleData, sampleForm, sampleLogic } from '../studio/renderer/editors/sample';
 import { bindingOptions, columnKeys, resolveBinding } from '../studio/renderer/editors/contractModel';
 import { contractReference, generateContractDts } from '../studio/renderer/editors/contractTypes';
 import { checkOther, checkScript, completeScript } from '../studio/renderer/editors/codeSupport';
 import { checkFormDesign } from '../studio/renderer/editors/designCheck';
 import { PALETTE, guidanceFor } from '../studio/renderer/editors/methodology';
-import { buildPreview, isVisible, validateInput } from '../studio/renderer/editors/previewModel';
 import { extractMethodology, generate, TARGET } from './gen-studio-editor-methodology';
 import { validateModuleForm } from '../modules/validateForm';
 import type { ContractDraft, FormDef } from '../studio/renderer/editors/types';
@@ -80,8 +81,9 @@ console.log('Схема формы');
   const missing = mutate(form => { delete form.groups[1].fields[0].bind; });
   ok('нет bind: «Не хватает поля»', missing.problems.some(p => /Не хватает поля «bind»/.test(p.message)));
   ok('нет bind: строка внутри второй группы', missing.problems[0].line > typoText.findIndex(line => line.includes('Расчёт')));
-  const wrongType = mutate(form => { form.groups[1].fields[1].min = 'ноль'; });
-  ok('min строкой: «Ожидается число»', wrongType.problems.some(p => /Ожидается число/.test(p.message)));
+  const wrongType = mutate(form => { form.groups[1].fields[1].unit = 5; });
+  ok('unit числом: «Ожидается строка»', wrongType.problems.some(p => /Ожидается строка/.test(p.message)));
+  ok('удалённое свойство ввода (min) названо неизвестным', mutate(form => { form.groups[1].fields[1].min = 0; }).problems.some(p => /Неизвестное поле «min»/.test(p.message)));
   const wrongOp = mutate(form => { form.groups[1].fields[1].visibleIf.op = 'maybe'; });
   ok('неизвестное условие показа перечисляет допустимые', wrongOp.problems.some(p => /«eq», «ne», «filled», «empty»/.test(p.message)));
   const wrongKind = mutate(form => { form.groups[0].fields[2].kind = 'mono'; });
@@ -99,13 +101,17 @@ console.log('Своя проверка схемы согласна с Ajv (Ajv �
   const base = clone(sampleForm()) as any;
   const mutations: Array<(f: any) => void> = [
     () => {}, f => { f.version = 2; }, f => { delete f.groups; }, f => { f.groups[0].fields[0].bind = 5; }, f => { f.groups[0].fields[0].extra = 1; },
-    f => { f.groups[1].fields[0].allowed = ['a', 'a']; }, f => { f.groups[0].title = 'x'.repeat(121); }, f => { f.onDataChanged = 'bad name'; },
-    f => { f.groups[1].fields[1].visibleIf.op = 'zz'; }, f => { f.tables[0].columns[0].align = 'start'; }, f => { f.groups[1].fields[1].min = '1'; },
-    f => { f.tables = {}; }, f => { f.groups[0].fields[0].kind = 'mono'; }, f => { f.groups[0].fields[0].required = 'yes'; },
+    f => { f.groups[0].title = 'x'.repeat(121); }, f => { f.onDataChanged = 'bad name'; },
+    f => { f.groups[1].fields[1].visibleIf.op = 'zz'; }, f => { f.tables[0].columns[0].align = 'start'; }, f => { f.groups[1].fields[1].unit = 5; },
+    f => { f.tables = {}; }, f => { f.groups[0].fields[0].kind = 'mono'; }, f => { f.groups[0].fields[0].hint = 5; },
+    // ключи, которые находятся по цепочке прототипов: Ajv их отвергает, наивная проверка пропускала
+    f => { JSON.parse; Object.defineProperty(f, 'constructor', { value: 1, enumerable: true }); }, f => { Object.defineProperty(f.groups[0], 'toString', { value: 1, enumerable: true }); },
+    f => { Object.defineProperty(f, '__proto__', { value: {}, enumerable: true }); }, f => { Object.defineProperty(f.groups[0].fields[0], 'hasOwnProperty', { value: 1, enumerable: true }); },
   ];
   for (const [i, mutate] of mutations.entries()) {
     const form = clone(base); mutate(form);
     eq(`мутация ${i}: решение совпадает с Ajv`, structureProblems(JSON.stringify(form)).problems.length === 0, check(form));
+    eq(`мутация ${i}: и Studio, и выпуск решают так же`, validateSchema(formSchema, form).length === 0, check(form));
   }
 }
 
@@ -131,7 +137,7 @@ console.log('Привязки и согласие с проверкой выпу
   ok('колонка вне схемы', /нет поля «zzz»/.test(bad(f => { f.tables[0].columns[0].key = 'zzz'; })[0].message));
   ok('список в поле', /нужна таблица/.test(bad(f => { f.groups[0].fields[0].bind = 'flux.equipment.params'; })[0].message));
   ok('условие показа с чужой привязкой', /Условие показа/.test(bad(f => { f.groups[1].fields[1].visibleIf!.bind = 'state.nope'; })[0].message));
-  ok('min больше max', /Наименьшее значение больше/.test(bad(f => { f.groups[1].fields[1].min = 5; f.groups[1].fields[1].max = 1; })[0].message));
+  ok('таблица на state — как при выпуске', /должна ссылаться на список из данных Flux/.test(bad(f => { f.tables[0].bind = 'state.mode'; })[0].message));
   // Мутация договора: убрали чтение equipment — привязки сломались
   const noEquipment: ContractDraft = { ...contract, reads: ['project', 'tag'] };
   ok('договор без equipment ломает привязки', bindingProblems(text, form, noEquipment).length >= 3);
@@ -163,7 +169,7 @@ console.log('Один источник истины: визуальный и т�
   eq('текст остаётся как набран', state.text, edited);
   // Неверный текст не затирает форму
   const keep = state.form;
-  const broken = applyText(state, edited.replace('"unit": "Па"', '"unit": "Па"\n"min": 1'), contract);
+  const broken = applyText(state, edited.replace('"unit": "Па"', '"unit": "Па"\n"hint": 1'), contract);
   ok('при ошибке форма прежняя', broken.form === keep && !broken.textValid);
   ok('ошибка с номером строки и словами', broken.problems.length === 1 && broken.problems[0].line > 1 && /Ожидалось/.test(broken.problems[0].message));
   const schemaBroken = applyText(state, edited.replace('"bind": "calc.out.pressure"', '"bind": 5'), contract);
@@ -173,7 +179,7 @@ console.log('Один источник истины: визуальный и т�
   ok('после исправления форма принимает текст', fixed.textValid && fixed.form.groups[0].fields[4].label === 'Напор воздуха' && fixed.problems.length === 0);
   // Визуальная правка при испорченном тексте — текст пересоздаётся из последней верной формы
   const visual = applyForm(broken, broken.form, contract);
-  ok('визуальная правка заменяет испорченный текст верным', visual.textValid && !visual.text.includes('"min": 1\n'));
+  ok('визуальная правка заменяет испорченный текст верным', visual.textValid && !visual.text.includes('"hint": 1\n'));
   // Договор меняется — привязки перепроверяются
   const lessReads = recheck(state, { ...contract, reads: ['project'] });
   ok('смена договора обновляет замечания по привязкам', lessReads.bindings.length > state.bindings.length);
@@ -209,7 +215,7 @@ console.log('Операции над формой: добавление и пе�
   eq('поле в пустой форме создаёт группу', [onEmpty.form.groups.length, onEmpty.form.groups[0].fields.length], [1, 1]);
   eq('удаление поля выделяет его группу', removeSelected(form, { kind: 'field', g: 0, f: 1 }).selection, { kind: 'group', g: 0 });
   eq('удаление убирает именно его', names(removeSelected(form, { kind: 'field', g: 0, f: 1 }).form), ['Проект', 'Код позиции', 'Тег']);
-  const cleared = updateSelected(form, { kind: 'field', g: 1, f: 1 }, { unit: undefined, min: undefined });
+  const cleared = updateSelected(form, { kind: 'field', g: 1, f: 1 }, { unit: undefined, hint: undefined });
   ok('сброс свойства убирает его из текста', !('unit' in cleared.groups[1].fields[1]) && !serializeForm(cleared).includes('"unit": "м³/ч"'));
   ok('исходная форма не изменена', form.groups[1].fields[1].unit === 'м³/ч');
 }
@@ -287,7 +293,6 @@ console.log('checkFormDesign');
   ok('слишком длинная подпись', rule(f => { f.groups[0].fields[0].label = 'Расход воздуха на приточной установке первого этажа'; }, 'text-long').length === 1);
   ok('точка в конце подписи', rule(f => { f.groups[0].fields[0].label = 'Проект.'; }, 'text-dot').length === 1);
   ok('повтор подписи в группе', rule(f => { f.groups[0].fields[1].label = 'Проект'; }, 'text-duplicate').length === 1);
-  ok('подсказка в поле повторяет подпись', rule(f => { f.groups[1].fields[1].placeholder = 'расход воздуха'; }, 'placeholder-repeat').length === 1);
   ok('пояснение из двух предложений', rule(f => { f.groups[1].fields[0].hint = 'Первое. Второе.'; }, 'hint-sentence').length === 1);
   ok('единица дважды', rule(f => { f.groups[1].fields[1].label = 'Расход воздуха (м³/ч)'; }, 'unit-duplicate').length === 1);
   ok('пустая группа', rule(f => { f.groups[0].fields = []; }, 'group-empty').length === 1);
@@ -323,24 +328,97 @@ console.log('Методология');
   ok('«Таблица»: числа и даты вправо', guidanceFor(PALETTE.find(p => p.kind === 'table')!).when.some(t => t.includes('по правому краю')));
 }
 
-console.log('Предпросмотр и проверка ввода');
+console.log('Рендерер Flux: единицы, пояснения, условия показа; старые формы выглядят как раньше');
 {
-  const data: Record<string, unknown> = { state: { mode: 'зима', airflow: '1200' }, flux: { equipment: { params: [] } } };
-  const withMode = buildPreview(sampleForm(), data);
-  ok('поле с условием видно, когда режим выбран', withMode.form.groups[1].fields.some(f => f.label === 'Расход воздуха'));
-  eq('единица дописана к значению', (withMode.data.preview as unknown[][])[1][1], '1200 м³/ч');
-  const noMode = buildPreview(sampleForm(), { ...data, state: { mode: '' } });
-  ok('поле с условием скрыто, когда режим пуст', !noMode.form.groups[1].fields.some(f => f.label === 'Расход воздуха'));
-  ok('условия eq / ne / empty', isVisible({ bind: 'state.mode', op: 'eq', value: 'зима' }, data) && !isVisible({ bind: 'state.mode', op: 'ne', value: 'зима' }, data) && isVisible({ bind: 'state.none', op: 'empty' }, data));
-  const field = sampleForm().groups[1].fields[1];
-  eq('число в допуске', validateInput(field, '1200'), null);
-  ok('меньше min', /Не меньше 0/.test(validateInput(field, '-1')!));
-  ok('больше max', /Не больше 100000 м³\/ч/.test(validateInput(field, '200000')!));
-  ok('не число', /Нужно число/.test(validateInput(field, 'много')!));
-  const mode = sampleForm().groups[1].fields[0];
-  ok('вне списка допустимых', /Допустимо только: зима, лето/.test(validateInput(mode, 'осень')!));
-  ok('обязательное пустое — словом', /Укажите значение/.test(validateInput(mode, ' ')!));
-  eq('необязательное пустое допустимо', validateInput(field, ''), null);
+  // Минимальный DOM: хватает renderForm. Снимок — дерево тегов, классов и текста.
+  class Node { children: Node[] = []; className = ''; textContent = ''; constructor(public tag: string) {} append(...nodes: Node[]) { this.children.push(...nodes); } replaceChildren() { this.children = []; } }
+  (globalThis as any).document = { createElement: (tag: string) => new Node(tag) };
+  const dump = (node: Node): unknown => [node.tag, node.className, node.textContent, node.children.map(dump)];
+  const draw = (render: (root: any, form: any, data: any) => void, form: unknown, data: unknown) => { const root = new Node('div'); render(root, form, data); return JSON.stringify(dump(root)); };
+  // Прежний рендерер дословно: эталон «как раньше»
+  const legacy = (root: any, form: any, data: any) => {
+    const element = (tag: string, className: string, text?: unknown) => { const node = new Node(tag); node.className = className; if (text !== undefined) node.textContent = String(text ?? '—'); return node; };
+    root.replaceChildren();
+    for (const group of form.groups) {
+      const section = element('section', 'p-3');
+      section.append(element('h2', 'fx-group-title', group.title));
+      for (const field of group.fields) {
+        const row = element('div', 'flex items-center justify-between gap-4 min-h-8 border-b border-[var(--flux-line)]');
+        row.append(element('span', 'fx-label', field.label), element('span', `text-sm break-words min-w-0${field.kind === 'code' ? ' font-mono' : ''}`, readFlux(data, field.bind) ?? '—'));
+        section.append(row);
+      }
+      root.append(section);
+    }
+    for (const definition of form.tables) {
+      const section = element('section', 'p-3 min-w-0');
+      section.append(element('h2', 'fx-group-title', definition.title));
+      const table = element('table', 'fx-table w-full table-fixed');
+      const head = new Node('thead'), header = new Node('tr');
+      for (const column of definition.columns) header.append(element('th', `break-words${column.align === 'end' ? ' text-right' : ''}`, column.label));
+      head.append(header); table.append(head);
+      const body = new Node('tbody');
+      const rows = readFlux(data, definition.bind);
+      if (Array.isArray(rows)) for (const row of rows) {
+        const tr = new Node('tr');
+        for (const column of definition.columns) tr.append(element('td', `break-words${column.align === 'end' ? ' text-right tabular-nums' : ''}`, readFlux(row, column.key) ?? '—'));
+        body.append(tr);
+      }
+      table.append(body); section.append(table); root.append(section);
+    }
+  };
+  const data = sampleData();
+  let fixtures = 0;
+  for (const dir of fs.readdirSync(path.join(__dirname, '../modules/fixtures'))) {
+    const file = path.join(__dirname, '../modules/fixtures', dir, 'form.json');
+    if (!fs.existsSync(file)) continue;
+    const form = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fixtures++;
+    eq(`фикстура ${dir}: проходит общую схему`, validateSchema(formSchema, form), []);
+    validateModuleForm(form, dir, ['project', 'equipment', 'tag', 'specification', 'catalog']);
+    eq(`фикстура ${dir}: рисуется как прежним рендерером`, draw(renderForm, form, data), draw(legacy, form, data));
+  }
+  ok('проверены все фикстуры', fixtures >= 4);
+
+  const form = sampleForm() as unknown as ModuleForm;
+  const text = (json: string) => json;
+  const shown = draw(renderForm, form, data);
+  ok('единица стоит после значения', text(shown).includes('1200 м³/ч'));
+  ok('пояснение выведено под полем', text(shown).includes('От режима зависят поправки к расходу.'));
+  const hidden = draw(renderForm, form, { ...data, state: { ...data.state, mode: '' } });
+  ok('условие «заполнено» скрывает поле, когда режим пуст', !hidden.includes('Расход воздуха') && shown.includes('Расход воздуха'));
+  ok('условия eq / ne / empty', visible({ bind: 'state.mode', op: 'eq', value: 'зима' }, data) && !visible({ bind: 'state.mode', op: 'ne', value: 'зима' }, data) && visible({ bind: 'state.none', op: 'empty' }, data));
+  ok('условие группы скрывает всю группу', !draw(renderForm, { ...form, groups: [{ ...form.groups[1], visibleIf: { bind: 'state.mode', op: 'eq', value: 'лето' } }] }, data).includes('Расчёт'));
+  ok('условие таблицы скрывает таблицу', !draw(renderForm, { ...form, tables: [{ ...form.tables[0], visibleIf: { bind: 'state.mode', op: 'eq', value: 'лето' } }] }, data).includes('Параметры'));
+  ok('единица колонки — в шапке', draw(renderForm, { version: 1, groups: [], tables: [{ title: 'T', bind: 'flux.equipment.params', columns: [{ label: 'Мощность', key: 'value', unit: 'кВт' }] }] }, data).includes('Мощность, кВт'));
+  ok('пустое значение без единицы — тире', draw(renderForm, { version: 1, groups: [{ title: 'G', fields: [{ label: 'X', bind: 'state.zzz', unit: 'Па' }] }], tables: [] }, data).includes('"—"'));
+}
+
+console.log('Выпуск и Studio решают одинаково (modules/validateForm.ts)');
+{
+  const contractAll: ContractDraft = { ...contract, reads: ['project', 'equipment', 'tag', 'specification', 'catalog'] };
+  const flux = (form: unknown) => { try { validateModuleForm(form, 'sample', contractAll.reads); return true; } catch { return false; } };
+  const studio = (form: FormDef) => { const text = JSON.stringify(form, null, 2); return structureProblems(text).problems.length === 0 && bindingProblems(text, form, contractAll).filter(p => p.severity === 'error').length === 0; };
+  const cases: Array<[string, (f: any) => void]> = [
+    ['образец', () => {}], ['опечатка в пути', f => { f.groups[0].fields[0].bind = 'flux.equipment.nme'; }], ['чужие данные', f => { f.groups[0].fields[0].bind = 'flux.bogus.x'; }],
+    ['таблица на state', f => { f.tables[0].bind = 'state.mode'; }], ['таблица на calc.out', f => { f.tables[0].bind = 'calc.out.pressure'; }],
+    ['таблица на не-список', f => { f.tables[0].bind = 'flux.equipment.name'; }], ['колонка вне схемы', f => { f.tables[0].columns[0].key = 'zzz'; }],
+    ['пустая колонка', f => { f.tables[0].columns[0].key = ''; }], ['список в поле', f => { f.groups[0].fields[0].bind = 'flux.equipment.params'; }],
+    ['условие на чужую привязку', f => { f.groups[1].fields[1].visibleIf.bind = 'flux.bogus.x'; }], ['условие eq без значения', f => { f.groups[1].fields[1].visibleIf = { bind: 'state.mode', op: 'eq' }; }],
+    ['лишний ключ', f => { f.groups[0].fields[0].color = 'red'; }], ['лишний ключ формы', f => { f.extra = 1; }], ['версия 2', f => { f.version = 2; }],
+    ['пустая привязка', f => { f.groups[0].fields[0].bind = ''; }],
+  ];
+  for (const [name, mutate] of cases) {
+    const form = clone(sampleForm()) as any; mutate(form);
+    const byFlux = flux(form), byStudio = studio(form);
+    // Studio строже выпуска (проверяет ещё объявленные state и calc.out), но мягче быть не вправе
+    ok(`${name}: выпуск ${byFlux ? 'принимает' : 'отвергает'}, Studio ${byStudio ? 'принимает' : 'отвергает'}`, !byStudio || byFlux);
+  }
+  ok('образец принят обоими', flux(sampleForm()) && studio(sampleForm()));
+  throws('validateForm: таблица на state отвергнута', () => validateModuleForm({ version: 1, groups: [], tables: [{ title: 'T', bind: 'state.rows', columns: [{ label: 'A', key: 'a' }] }] }, 'm', []));
+  throws('validateForm: лишний ключ отвергнут с понятным текстом', () => validateModuleForm({ version: 1, groups: [{ title: 'G', fields: [{ label: 'X', bind: 'state.x', colour: 1 }] }], tables: [] }, 'm', []));
+  try { validateModuleForm({ version: 1, groups: [{ title: 'G', fields: [{ label: 'X', bind: 'state.x', colour: 1 }] }], tables: [] }, 'm', []); } catch (error) { ok('текст ошибки называет поле и место', /Неизвестное поле «colour»/.test((error as Error).message) && /\[1\]/.test((error as Error).message)); }
+  throws('miniSchema: неизвестное слово схемы — исключение', () => validateSchema({ type: 'string', minLength: 1 }, 'x'));
+  throws('miniSchema: additionalProperties-схема — исключение', () => validateSchema({ type: 'object', additionalProperties: { type: 'string' } }, {}));
 }
 
 console.log(`\nПройдено проверок: ${passed}`);

@@ -1,9 +1,9 @@
 /**
  * Типы черновика подпрограммы для редакторов Studio.
  *
- * Форма — тот же form.json, что читает Flux (modules/runtime/form.ts), плюс необязательные поля
- * описания ввода (единицы, допустимые значения, обязательность, условие видимости). Лишние для
- * Flux поля не мешают: modules/validateForm.ts их не отвергает, а прежние формы остаются верными.
+ * Форма — тот же form.json, что читает и рисует Flux (modules/runtime/form.ts, схема —
+ * modules/formSchema.ts): единица, пояснение и условие показа исполняются во Flux так же, как в
+ * предпросмотре Studio.
  */
 import type { Resource } from '../../../modules/contract';
 
@@ -22,14 +22,6 @@ export interface FormField {
   kind?: 'code';
   /** Единица измерения, показывается после значения */
   unit?: string;
-  /** Допустимые значения: ввод вне списка отклоняется */
-  allowed?: string[];
-  /** Для числового ввода: границы включительно */
-  min?: number;
-  max?: number;
-  required?: boolean;
-  /** Пример значения в пустом поле («AHU-01»), а не повтор подписи */
-  placeholder?: string;
   /** Одно предложение, и только там, где без него ошибутся */
   hint?: string;
   visibleIf?: FormVisibility;
@@ -51,7 +43,7 @@ export interface CodeFile { path: string; language: CodeLanguage; text: string }
 
 export type ValueType = 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array';
 /** Значение, которое подпрограмма отдаёт (calc.out.*) или хранит (state.*) */
-export interface ContractValue { name: string; type: ValueType; unit?: string; description?: string }
+export interface ContractValue { name: string; type: ValueType; /** Для списка: тип элемента */ items?: ValueType; unit?: string; description?: string }
 
 /** Договор подпрограммы: что она читает у Flux и что кладёт в state и calc.out */
 export interface ContractDraft {

@@ -5,7 +5,6 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { renderForm } from '../../../modules/runtime/form';
-import { buildPreview } from './previewModel';
 import type { FormDef } from './types';
 
 type PreviewTheme = 'light' | 'dark';
@@ -27,8 +26,7 @@ export function FormPreview({ form, data, textValid }: { form: FormDef; data: Re
 
   useEffect(() => {
     if (!root.current) return;
-    const preview = buildPreview(form, data);
-    renderForm(root.current, preview.form, preview.data);
+    renderForm(root.current, form, data);
   }, [form, data]);
 
   return (

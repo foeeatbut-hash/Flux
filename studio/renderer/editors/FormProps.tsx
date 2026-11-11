@@ -2,11 +2,10 @@
  * Свойства выбранного компонента формы: подпись, единицы, допустимые значения, обязательность,
  * привязка к входу или выходу договора, условие показа и проверка ввода на примере.
  */
-import React, { useState } from 'react';
+import React from 'react';
 import { columnKeys, bindingOptions, type BindingOption } from './contractModel';
 import { itemAt, type Selection } from './formModel';
-import { validateInput } from './previewModel';
-import { Check, CommittedField, SelectField, TextField } from './controls';
+import { Check, SelectField, TextField } from './controls';
 import type { ContractDraft, Finding, FormColumn, FormDef, FormField, FormGroup, FormTable, FormVisibility } from './types';
 
 const KIND_LABEL: Record<BindingOption['kind'], string> = { input: 'Данные Flux (вход)', output: 'Результат расчёта (выход)', state: 'Своё состояние' };
@@ -44,20 +43,6 @@ function Visibility({ rule, options, onChange }: { rule?: FormVisibility; option
   );
 }
 
-function InputCheck({ field }: { field: FormField }) {
-  const [sample, setSample] = useState('');
-  const result = sample === '' && !field.required ? null : validateInput(field, sample);
-  return (
-    <>
-      <h4 className="ed-section">Проверка ввода</h4>
-      <TextField label="Проверить значение" value={sample} onChange={setSample} placeholder={field.placeholder || 'Введите пример'} />
-      <p className={result ? 'ed-error' : 'ed-hint'} role="status" data-testid="input-check">
-        {sample === '' && !field.required ? 'Введите пример, чтобы увидеть ответ формы.' : result ?? 'Значение подходит.'}
-      </p>
-    </>
-  );
-}
-
 interface Props {
   form: FormDef;
   selection: Selection;
@@ -71,7 +56,6 @@ export function FormProps({ form, selection, contract, patch, messages, findings
   const item = itemAt(form, selection);
   const options = bindingOptions(contract);
   const scalar = options.filter(option => option.type !== 'array' && option.type !== 'object');
-  const numberOrUndefined = (text: string) => text.trim() === '' || Number.isNaN(Number(text.replace(',', '.'))) ? undefined : Number(text.replace(',', '.'));
   let body: React.ReactNode = null;
 
   if (selection.kind === 'form') {
@@ -92,18 +76,8 @@ export function FormProps({ form, selection, contract, patch, messages, findings
         <BindSelect label="Привязка" value={field.bind} options={scalar} onChange={value => patch({ bind: value })} hint="Откуда берётся значение: вход договора, выход расчёта или своё состояние." />
         <Check label="Код (моноширинный шрифт)" checked={field.kind === 'code'} onChange={value => patch({ kind: value ? 'code' : undefined })} />
         <TextField label="Единица" value={field.unit ?? ''} onChange={value => patch({ unit: value })} placeholder="м³/ч" />
-        <Check label="Обязательное" checked={!!field.required} onChange={value => patch({ required: value ? true : undefined })} />
-        <h4 className="ed-section">Допустимые значения</h4>
-        <CommittedField label="Список через запятую" value={(field.allowed ?? []).join(', ')} placeholder="зима, лето"
-          onCommit={text => patch({ allowed: text.split(',').map(part => part.trim()).filter(Boolean) })} hint="Пусто — подойдёт любое значение." />
-        <div className="ed-pair">
-          <CommittedField label="Не меньше" value={field.min === undefined ? '' : String(field.min)} onCommit={text => patch({ min: numberOrUndefined(text) })} />
-          <CommittedField label="Не больше" value={field.max === undefined ? '' : String(field.max)} onCommit={text => patch({ max: numberOrUndefined(text) })} />
-        </div>
-        <TextField label="Пример в пустом поле" value={field.placeholder ?? ''} onChange={value => patch({ placeholder: value })} placeholder="AHU-01" />
-        <TextField label="Пояснение" value={field.hint ?? ''} onChange={value => patch({ hint: value })} />
+        <TextField label="Пояснение" value={field.hint ?? ''} onChange={value => patch({ hint: value })} hint="Одно предложение под полем, и только там, где без него ошибутся." />
         <Visibility rule={field.visibleIf} options={options} onChange={rule => patch({ visibleIf: rule })} />
-        <InputCheck field={field} />
       </>
     );
   } else if (item && selection.kind === 'table') {
@@ -112,7 +86,7 @@ export function FormProps({ form, selection, contract, patch, messages, findings
     body = (
       <>
         <TextField label="Заголовок таблицы" value={table.title} onChange={value => patch({ title: value })} />
-        <BindSelect label="Список" value={table.bind} options={options.filter(option => option.type === 'array')} onChange={value => patch({ bind: value })} hint="Таблица показывает строки списка из данных Flux." />
+        <BindSelect label="Список" value={table.bind} options={options.filter(option => option.type === 'array' && option.path.startsWith('flux.'))} onChange={value => patch({ bind: value })} hint="Таблица показывает строки списка из данных Flux; state и calc.out в таблицу не выводятся." />
         <button type="button" className="ed-btn" disabled={!missing.length}
           onClick={() => patch({ columns: [...table.columns, ...missing.map(key => ({ label: key, key }))] })}>Добавить все колонки списка</button>
         <Visibility rule={table.visibleIf} options={options} onChange={rule => patch({ visibleIf: rule })} />

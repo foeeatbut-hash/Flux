@@ -36,7 +36,7 @@ const SIZE_KEY = /^(width|height|minWidth|maxWidth|minHeight|maxHeight|gap|paddi
 const KNOWN: Record<string, string[]> = {
   form: ['version', 'onDataChanged', 'groups', 'tables'],
   group: ['title', 'fields', 'visibleIf'],
-  field: ['label', 'bind', 'kind', 'unit', 'allowed', 'min', 'max', 'required', 'placeholder', 'hint', 'visibleIf'],
+  field: ['label', 'bind', 'kind', 'unit', 'hint', 'visibleIf'],
   table: ['title', 'bind', 'columns', 'visibleIf'],
   column: ['label', 'key', 'align', 'unit'],
 };
@@ -107,7 +107,6 @@ export function checkFormDesign(form: unknown, options: { contract?: ContractDra
       const label = typeof field.label === 'string' ? field.label.trim().toLowerCase() : '';
       if (label && seen.has(label)) add('text-duplicate', 'warning', `${fp}.label`, `Подпись «${field.label}» повторяется в группе: поля не различить`, 'раздел 6');
       seen.add(label);
-      if (typeof field.placeholder === 'string' && label && field.placeholder.trim().toLowerCase() === label) add('placeholder-repeat', 'warning', `${fp}.placeholder`, 'Подсказка в поле повторяет подпись: нужен пример значения («AHU-01»)', 'раздел 5, «Форма»');
       if (typeof field.hint === 'string' && (field.hint.trim().match(/[.!?](\s|$)/g) ?? []).length > 1) add('hint-sentence', 'warning', `${fp}.hint`, 'Пояснение длиннее одного предложения', 'раздел 6');
       if (typeof field.unit === 'string' && field.unit && typeof field.label === 'string' && field.label.includes(`(${field.unit})`)) add('unit-duplicate', 'warning', `${fp}.label`, `Единица «${field.unit}» уже указана отдельно: уберите её из подписи`, 'раздел 5, «Форма»');
       const bind = typeof field.bind === 'string' ? field.bind : '';

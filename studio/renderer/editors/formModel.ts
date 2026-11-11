@@ -18,7 +18,7 @@ export interface Edit { form: FormDef; selection: Selection }
 
 export const emptyForm = (): FormDef => ({ version: 1, groups: [], tables: [] });
 
-const FIELD_ORDER: Array<keyof FormField> = ['label', 'bind', 'kind', 'unit', 'allowed', 'min', 'max', 'required', 'placeholder', 'hint', 'visibleIf'];
+const FIELD_ORDER: Array<keyof FormField> = ['label', 'bind', 'kind', 'unit', 'hint', 'visibleIf'];
 const ordered = <T extends object>(value: T, order: string[]): T => {
   const out: Record<string, unknown> = {};
   for (const key of order) if (key in value && (value as any)[key] !== undefined) out[key] = (value as any)[key];
@@ -150,7 +150,7 @@ export function updateSelected(source: FormDef, selection: Selection, patch: Rec
   const item = itemAt(form, selection) as unknown as Record<string, unknown> | null;
   if (!item) return form;
   for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined || value === '' || (Array.isArray(value) && !value.length && key === 'allowed')) delete item[key];
+    if (value === undefined || value === '') delete item[key];
     else item[key] = value;
   }
   // Подпись и привязка обязательны по схеме: пустой текст оставляем пустой строкой, а не убираем
