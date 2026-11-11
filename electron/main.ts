@@ -200,8 +200,9 @@ app.whenReady().then(async () => {
     .then((removed) => { if (removed.length) appendLog('INFO', 'Обновление', `Убрано старых папок загрузки: ${removed.length}`); })
     .catch(() => { /* уборка — удобство, а не условие запуска */ });
 
+  // path — импорт модуля сверху. Повторное `const path` здесь затеняло его на всю
+  // функцию, и вызов setupModuleProtocol(path.join(...)) выше падал до создания окна
   const fs = require('fs');
-  const path = require('path');
 
   let ventAppDataPath = '';
   try {
@@ -230,6 +231,8 @@ app.whenReady().then(async () => {
   // заставкой из index.html. Встроенный Express-сервер поднимается ниже,
   // как только будет вычислен DATABASE_URL.
   createWindow();
+  // Отметка для scripts/test-electron-start-smoke.ts: запуск дошёл до окна
+  if (process.env.FLUX_START_SMOKE) console.log('[smoke] window-created');
 
   // Захват с экрана: трей, горячая клавиша, пульт (см. electron/capture.ts)
   setupCapture(() => mainWindow);

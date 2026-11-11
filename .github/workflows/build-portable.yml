@@ -86,6 +86,11 @@ jobs:
       - name: Сборка Electron
         run: npm run build:electron
 
+      # Настоящий запуск: главный процесс доходит до создания окна. Заглушки этого
+      # не проверяют — ошибка в теле whenReady роняла запуск молча
+      - name: Проверка запуска собранного Flux
+        run: node --import tsx scripts/test-electron-start-smoke.ts
+
       # На Windows-раннере better-sqlite3 пересобирается под ABI Electron самим
       # electron-builder (npmRebuild по умолчанию), поэтому prepare:win-native не нужен
       - name: Портативный exe (x64)
