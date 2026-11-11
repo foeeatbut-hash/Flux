@@ -128,6 +128,8 @@ console.log('Метаданные health');
     const res: any = {
       json(value: any) { body = value; return this; },
       status(code: number) { statusCode = code; return this; },
+      // health ставит Cache-Control: no-store — заглушка обязана это принять
+      setHeader() { return this; },
     };
     await health({}, res);
     return { statusCode, body };

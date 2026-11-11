@@ -31,7 +31,9 @@ function launch(argv: string[], lockGranted: boolean) {
       if (name === 'electron') return electron;
       if (name === 'path') return path;
       if (name === './updates') return { parseApplyArgs };
-      return {};
+      // main.ts при загрузке вызывает функции соседних модулей (например, регистрацию
+      // схемы подпрограмм): заглушка отвечает пустой функцией на любое имя
+      return new Proxy({}, { get: () => () => undefined });
     },
     module,
     exports: module.exports,
