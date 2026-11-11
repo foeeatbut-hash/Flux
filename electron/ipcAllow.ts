@@ -23,7 +23,6 @@ export const INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   'modules:remove',
   'modules:rollback',
   'modules:synced',
-  'modules:sign',
   // Итог контрольных примеров выпуска на этом компьютере (electron/moduleControls.ts)
   'modules:controls',
   'modules:controls-result',

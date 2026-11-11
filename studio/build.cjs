@@ -80,11 +80,30 @@ async function buildStudio({ target, outDir, extraMain = null }) {
   if (target === 'owner') {
     // Раздел владельца — отдельные файлы рядом с оболочкой. Расположение (owner/main.cjs и ../ui) то же,
     // что было у отдельной программы, поэтому пути внутри её кода не менялись.
-    for (const name of ['main', 'preload']) {
+    for (const name of ['main', 'preload', 'console-preload']) {
       const built = await esbuild.build({ ...node, entryPoints: [path.join(root, `studio/owner/src/${name}.cjs`)], outfile: path.join(app, 'owner', `${name}.cjs`) });
       metafiles[`owner-${name}`] = built.metafile;
     }
     fs.cpSync(path.join(root, 'studio/owner/ui'), path.join(app, 'ui'), { recursive: true });
+    // Разделы владельца (запросы на публикацию, выпуски, сертификаты, обновления Flux): отдельное окно рядом с окном лицензий
+    const consoleDir = path.join(app, 'ui', 'console');
+    fs.mkdirSync(consoleDir, { recursive: true });
+    // Мост подпрограмм проверяет сообщения схемами Ajv; в окне eval запрещён, поэтому схемы компилируются здесь, при сборке
+    const generator = path.join(outDir, 'static-validators.gen.cjs');
+    await esbuild.build({ entryPoints: [path.join(root, 'studio/owner/console/static-validators.ts')], outfile: generator, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent' });
+    const validatorCode = require(generator).staticValidators();
+    fs.rmSync(generator);
+    const staticValidation = { name: 'static-validators', setup(plugin) {
+      plugin.onResolve({ filter: /(?:^|\/)schemas$/ }, args => (args.importer.replace(/\\/g, '/').endsWith('modules/bridge.ts') ? { path: 'validators', namespace: 'module-validators' } : undefined));
+      plugin.onLoad({ filter: /.*/, namespace: 'module-validators' }, () => ({ contents: validatorCode, loader: 'js', resolveDir: root }));
+    } };
+    const consoleBuild = await esbuild.build({
+      entryPoints: [path.join(root, 'studio/owner/console/main.tsx')], outfile: path.join(consoleDir, 'console.js'), bundle: true, platform: 'browser',
+      format: 'iife', jsx: 'automatic', legalComments: 'none', metafile: true, logLevel: 'silent', minify: true, define: { 'process.env.NODE_ENV': '"production"' },
+      plugins: [staticValidation],
+    });
+    metafiles['owner-console'] = consoleBuild.metafile;
+    for (const file of ['index.html', 'console.css']) fs.copyFileSync(path.join(root, 'studio/owner/console', file), path.join(consoleDir, file));
   }
 
   fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({

@@ -21,6 +21,8 @@ import { parseJson } from '../studio/renderer/editors/jsonText';
 import { bindingProblems, structureProblems } from '../studio/renderer/editors/formSchema';
 import { applyForm, applyText, formStateFromForm, recheck } from '../studio/renderer/editors/formStore';
 import { addComponent, applyDrop, dropComponent, moveSelected, removeSelected, serializeForm, updateSelected } from '../studio/renderer/editors/formModel';
+import { ownerEditablePaths, ownerEditViolations, ownerMayEdit } from '../modules/trust/ownerEdit';
+import { diffFiles } from '../modules/trust/diff';
 import { codeFiles, contractChanges, contractFromFiles, inferValues, languageOfPath } from '../studio/renderer/editors/packageFiles';
 import { sampleContract, sampleFiles, sampleData, sampleForm, sampleLogic } from '../studio/renderer/editors/sample';
 import { bindingOptions, columnKeys, resolveBinding } from '../studio/renderer/editors/contractModel';
@@ -351,6 +353,20 @@ console.log('Файлы пакета и договор оболочки (files, 
   ok('битый manifest.json — понятная ошибка', /manifest\.json не читается/.test(contractChanges({ ...files, 'manifest.json': '{' }, contract).error));
   eq('файлы кода: logic/main первым, примеры и .d.ts не код', codeFiles({ 'src/a.rs': '', 'logic/main.py': '', 'examples/x.ts': '', 'logic/main.ts': '', 'contract.d.ts': '', 'form.json': '{}' }).map(f => f.path), ['logic/main.py', 'logic/main.ts', 'src/a.rs']);
   eq('языки по расширению', ['a.ts', 'a.py', 'a.rs', 'a.cpp', 'a.c', 'a.go', 'a.cs', 'a.txt'].map(languageOfPath), ['typescript', 'python', 'rust', 'cpp', 'c', 'go', 'csharp', null]);
+}
+
+console.log('Стык с окном владельца: contract.json в составе пакета, править его владелец не вправе');
+{
+  const enc = (text: string) => new TextEncoder().encode(text);
+  const files = sampleFiles();
+  const bundle = Object.fromEntries(Object.entries(files).map(([name, text]) => [name, enc(text)]));
+  ok('владелец не правит contract.json, form.json и код', !ownerMayEdit('contract.json') && !ownerMayEdit('form.json') && !ownerMayEdit('logic/main.ts'));
+  ok('manifest.json, data/ и examples/ владелец править может', ownerMayEdit('manifest.json') && ownerMayEdit('data/x.json') && ownerMayEdit('examples/controls.json'));
+  eq('правка contract.json владельцем отвергается', ownerEditViolations(bundle, { ...bundle, 'contract.json': enc('{}') }), ['contract.json']);
+  eq('правка manifest.json и examples/ допускается', ownerEditViolations(bundle, { ...bundle, 'manifest.json': enc('{}'), 'examples/controls.json': enc('[1]') }), []);
+  ok('окно предлагает править только разрешённые файлы, без contract.json', !ownerEditablePaths(bundle).includes('contract.json') && ownerEditablePaths(bundle).includes('manifest.json'));
+  ok('в составе пакета (сравнение выпусков) contract.json виден владельцу', diffFiles(null, bundle).some(file => file.path === 'contract.json' && file.status === 'added'));
+  eq('изменение значений договора видно как изменённый файл', diffFiles(bundle, { ...bundle, 'contract.json': enc(files['contract.json'].replace('airflow', 'flow')) }).filter(file => file.status !== 'same').map(file => file.path), ['contract.json']);
 }
 
 console.log('Рендерер Flux: единицы, пояснения, условия показа; старые формы выглядят как раньше');

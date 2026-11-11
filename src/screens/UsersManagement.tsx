@@ -9,7 +9,6 @@ import { positionView, positionNames } from '../lib/positions';
 import { usePresenceStore, presenceLabel } from '../store/presenceStore';
 import PresencePanel from '../components/users/PresencePanel';
 import EmployeeImportDialog from '../components/users/EmployeeImportDialog';
-import UpdateCampaignPanel from '../components/users/UpdateCampaignPanel';
 import DepartmentsTab from '../components/users/DepartmentsTab';
 import DepartmentFilterPane, { matchesDepartmentFilter, type DepartmentFilter } from '../components/users/DepartmentFilterPane';
 import PositionsTab from '../components/users/PositionsTab';
@@ -25,8 +24,6 @@ import { useNavigate } from 'react-router-dom';
 import RoleIcon from '../components/RoleIcon';
 import { PanelLeft, Plus, Search } from 'lucide-react';
 import { countOf } from '../lib/plural';
-import { updateService, type UpdateDevice } from '../services/updateService';
-import { isNewer } from '../lib/updates';
 import { SectionHead, Tabs, Toolbar, FilterSeg, Seg, Btn, Input, Empty, Status, Chip, Avatar } from '../components/ui';
 
 export default function UsersManagement() {
@@ -55,9 +52,7 @@ export default function UsersManagement() {
   const [isLoading, setIsLoading] = useState(false);
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
-  // Вкладки: список — главное, обновления вынесены отдельно, чтобы не
-  // сдвигать список вниз. focus — с какого сотрудника открыта вкладка «Обновления»
-  const [tab, setTab] = useState<'list' | 'departments' | 'positions' | 'updates'>('list');
+  const [tab, setTab] = useState<'list' | 'departments' | 'positions'>('list');
   // Подразделения (docs/departments.md): фильтр-дерево, отметка строк для перевода, окна мастера
   const departments = useDepartmentStore((s) => s.departments);
   const rootId = useDepartmentStore((s) => s.rootId);
@@ -69,9 +64,6 @@ export default function UsersManagement() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [batch, setBatch] = useState<{ message: string; token: string } | null>(null);
   const [newDept, setNewDept] = useState('');
-  const [focus, setFocus] = useState<{ userId: string; n: number } | undefined>();
-  const [devices, setDevices] = useState<UpdateDevice[]>([]);
-  const [latest, setLatest] = useState('');
   // Справочник должностей; уровни доступа (OWNER, ADMIN) в нём не должности
   const [roles, setRoles] = useState<Role[]>([]);
   const positions = React.useMemo(() => positionsOnly(roles), [roles]);
@@ -140,21 +132,6 @@ export default function UsersManagement() {
     if (isNaN(left)) return 'ok';
     if (left < 0) return 'expired';
     return left < SOON_DAYS * 864e5 ? 'soon' : 'ok';
-  };
-
-  // Версии программ сотрудников для колонки «Версия». Ошибка запроса не
-  // ломает список: колонка просто остаётся пустой
-  useEffect(() => {
-    if (!mayManage || tab !== 'list') return;
-    let alive = true;
-    updateService.devices().then(r => { if (alive) { setDevices(r.devices); setLatest(r.releases[0]?.version || ''); } }).catch(() => {});
-    return () => { alive = false; };
-  }, [mayManage, tab]);
-  const versionOf = (id: string) => {
-    const mine = devices.filter(d => d.userId === id);
-    if (!mine.length) return null;
-    const versions = [...new Set(mine.map(d => d.version).filter(Boolean))];
-    return { label: versions.length > 1 ? 'разные' : versions[0] || '?', stale: !!latest && mine.some(d => d.version && isNewer(latest, d.version)) };
   };
 
   const counts = React.useMemo(() => {
@@ -236,7 +213,7 @@ export default function UsersManagement() {
         count={countOf(counts.total, 'сотрудник')}
         actions={(mayCreate || mayManage) && <>{<Btn onClick={() => setIsImportOpen(true)} title="Импортировать список сотрудников">Импортировать</Btn>}{mayCreate && <Btn tone="primary" onClick={() => openCreate()} title="Добавить сотрудника"><Plus />Добавить сотрудника</Btn>}</>}
       >
-        <Tabs label="Разделы" value={tab} onChange={setTab} tabs={[{ value: 'list', label: 'Список' }, { value: 'departments', label: 'Подразделения' }, ...(mayPositions ? [{ value: 'positions' as const, label: 'Должности' }] : []), ...(mayManage ? [{ value: 'updates' as const, label: 'Обновления' }] : [])]} />
+        <Tabs label="Разделы" value={tab} onChange={setTab} tabs={[{ value: 'list', label: 'Список' }, { value: 'departments', label: 'Подразделения' }, ...(mayPositions ? [{ value: 'positions' as const, label: 'Должности' }] : [])]} />
       </SectionHead>
       {isOwner && usersList.some((employee: any) => employee.legacyBootstrap) && <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-100" role="status">
         Начальный профиль администратора заблокирован. Откройте его карточку и перенесите на личный логин с новым паролем. ID, файлы и история сохранятся.
@@ -244,8 +221,7 @@ export default function UsersManagement() {
       {/* Фильтр со счётчиками — он же сводка: вопросы «кто отключён» и «у кого
           истекает» задают чаще, чем ищут человека по фамилии */}
       {batch && <DepartmentUndoBar message={batch.message} token={batch.token} onClose={() => setBatch(null)} onUndone={() => { setBatch(null); setChecked(new Set()); void loadUsers(); addToast('Перевод отменён', 'success'); }} />}
-      {tab === 'updates' && mayManage ? <UpdateCampaignPanel employeeIds={shown.map(employee => employee.id)} focus={focus} />
-      : tab === 'positions' && mayPositions ? <PositionsTab positions={positions} users={usersList} addToast={addToast}
+      {tab === 'positions' && mayPositions ? <PositionsTab positions={positions} users={usersList} addToast={addToast}
           onChanged={async () => { setRoles(await loadRoles(true)); }} />
       : tab === 'departments' ? <DepartmentsTab users={usersList} canManage={mayManage}
           onAssign={(userIds, target) => setAssign({ userIds, target })} onWizard={() => setWizardOpen(true)}
@@ -305,7 +281,6 @@ export default function UsersManagement() {
                 <th className="hidden @[720px]:table-cell">Должность</th>
                 <th>Доступ</th>
                 <th className="hidden @[560px]:table-cell">Подпись</th>
-                {mayManage && <th className="hidden @[860px]:table-cell">Версия</th>}
                 <th className="hidden @[980px]:table-cell">Заведён</th>
                 <th className="w-24" />
               </tr>
@@ -351,11 +326,6 @@ export default function UsersManagement() {
                       {(emp as any).hasSignature ? 'есть' : 'нет'}
                     </Chip>
                   </td>
-                  {mayManage && <td className="hidden @[860px]:table-cell whitespace-nowrap">{(() => {
-                    const v = versionOf(emp.id);
-                    return !v ? <span className="text-slate-400">—</span> : <span className="inline-flex items-center gap-1.5 tabular-nums">{v.label}
-                      {v.stale && <Chip tone="amber" onClick={() => { setFocus({ userId: emp.id, n: Date.now() }); setTab('updates'); }} title="Версия устарела — назначить обновление">устарела</Chip>}</span>;
-                  })()}</td>}
                   <td className="hidden @[980px]:table-cell text-slate-400 whitespace-nowrap">
                     {new Date(emp.createdAt || Date.now()).toLocaleDateString('ru-RU')}
                   </td>

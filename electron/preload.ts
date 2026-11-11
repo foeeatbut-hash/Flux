@@ -200,7 +200,6 @@ contextBridge.exposeInMainWorld('electron', {
   quitAndInstall: (campaignId?: string) => ipcRenderer.invoke('updater:quitAndInstall', campaignId),
   updateDevice: () => ipcRenderer.invoke('updater:device'),
   updateHeartbeatProof: (data: { userId: string; status: string; commandId: string | null; code?: string }) => ipcRenderer.invoke('updater:heartbeat-proof', data),
-  signUpdateCommand: (data: unknown) => ipcRenderer.invoke('updater:sign-command', data),
   acceptUpdateCommands: (data: unknown) => ipcRenderer.invoke('updater:accept-commands', data),
   getAppVersion: () => ipcRenderer.invoke('updater:version'),
   isPackaged: () => ipcRenderer.invoke('updater:is-packaged'),

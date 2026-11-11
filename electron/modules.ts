@@ -10,7 +10,6 @@ import { UPDATE_PUBLIC_KEY_HEX } from './updateKey';
 import { ModuleCache } from './moduleCache';
 import { ModuleSelection } from './moduleSelection';
 import { registerModuleStoreIpc } from './moduleStoreIpc';
-import { setupModuleSigning } from './moduleSigning';
 import { ModuleControls, registerModuleControlsIpc } from './moduleControls';
 import { ModuleConnections, type VerifiedModule } from './moduleConnections';
 import { registerConnectionsIpc } from './moduleConnectionsIpc';
@@ -105,7 +104,6 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
 
   registerModuleStoreIpc({ cache, selection, bundledIds, ready, refresh, runnable: () => runnable });
   registerModuleControlsIpc(controls, () => runnable, ready, options.trusted);
-  setupModuleSigning();
 
   // Подключения к внешним программам: проверенный выпуск — единственный источник разрешения
   const controlsBlocked = (release: RunnableRelease) => controls.blocked(release);

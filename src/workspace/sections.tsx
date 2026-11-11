@@ -23,7 +23,6 @@ import {
 } from '../components/icons/AppIcons';
 
 const ModuleHost = lazy(() => import('../screens/ModuleHost'));
-const ModuleRequests = lazy(() => import('../screens/ModuleRequests'));
 const StoreScreen = lazy(() => import('../screens/StoreScreen'));
 const Dashboard = lazy(() => import('../screens/Dashboard'));
 const Explorer = lazy(() => import('../screens/Explorer'));
@@ -207,7 +206,6 @@ export const SECTIONS: SectionDef[] = [
   // Flux Store — витрина подпрограмм: поставить, обновить, вернуть версию. Вид как у Microsoft Store (исключение в 01-design.md)
   { path: '/store', title: 'Store', icon: StoreAppIcon, scope: 'global', scroll: 'fixed', pad: false, Component: StoreScreen },
   // Проверка подпрограмм владельцем до выпуска (Flux Studio, этап 2); внутри — только владелец
-  { path: '/module-requests', title: 'Запросы на публикацию', icon: BuilderAppIcon, scope: 'global', scroll: 'fixed', pad: false, adminOnly: true, Component: ModuleRequests },
   ...bundledModules.map((manifest) => ({ path: moduleHref(manifest.id), title: manifest.name, icon: BuilderAppIcon, scope: 'global' as const, scroll: 'fixed' as const, pad: false, multi: true, fileOnly: !manifest.entries.includes('start'), Component: ModuleHost })),
 ];
 

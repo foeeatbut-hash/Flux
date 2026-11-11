@@ -44,7 +44,6 @@ async function run() {
         const method = route.request().method();
         if (method !== 'GET') writes.push({ method, url: url.replace(/^.*\/api/, ''), body: route.request().postDataJSON?.() ?? null });
         if (url.includes('/api/departments')) return route.fulfill({ json: { rootId: 'root', unassigned: 4, departments: [{ id: 'root', name: 'Компания', kind: 'company', parentId: null, people: 0, total: 0, sortOrder: 0, archivedAt: null }] } });
-        if (url.endsWith('/updates/devices')) return route.fulfill({ json: { inst: 'company', devices: [], releases: [] } });
         if (url.endsWith('/users') && method === 'GET') return route.fulfill({ json: people });
         if (url.endsWith('/users') && method === 'POST') return route.fulfill({ json: { id: 'new', symbol: 'x' } });
         if (/\/users\/[^/]+$/.test(url) && method === 'PUT') return route.fulfill({ json: { success: true } });
@@ -71,7 +70,7 @@ async function run() {
     // ── Владелец ──────────────────────────────────────────────────────────
     {
       const { page, writes } = await open('owner');
-      check('Вкладки: Список, Подразделения, Должности, Обновления', (await page.getByRole('tab').allInnerTexts()).join('|') === 'Список|Подразделения|Должности|Обновления', await page.getByRole('tab').allInnerTexts());
+      check('Вкладки: Список, Подразделения, Должности (вкладки «Обновления» нет)', (await page.getByRole('tab').allInnerTexts()).join('|') === 'Список|Подразделения|Должности', await page.getByRole('tab').allInnerTexts());
       check('Колонка называется «Должность», слова «Роль» нет', await page.getByRole('columnheader', { name: 'Должность' }).count() === 1 && await page.getByRole('columnheader', { name: 'Роль', exact: true }).count() === 0);
       const rowOf = (name: string) => page.locator('.fx-table tbody tr', { hasText: name });
       check('У сотрудника с дополнительными — «+1» и основная должность', (await rowOf('Раупов').innerText()).includes('Инженер ОВиК') && (await rowOf('Раупов').innerText()).includes('+1'));

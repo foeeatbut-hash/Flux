@@ -42,7 +42,6 @@ async function run() {
         if (url.endsWith('/undo')) return route.fulfill({ json: { success: true, restored: 2, removed: 0 } });
         return route.fulfill({ json: { rootId: 'root', unassigned: 1, departments } });
       }
-      if (url.endsWith('/updates/devices')) return route.fulfill({ json: { inst: 'company', devices: [], releases: [] } });
       if (url.endsWith('/users')) return route.fulfill({ json: people });
       if (url.endsWith('/roles')) return route.fulfill({ json: [] });
       return route.fulfill({ json: [] });

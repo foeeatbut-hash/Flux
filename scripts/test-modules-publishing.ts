@@ -170,14 +170,16 @@ async function main() {
   const a3 = await submit('developer', dev, b110b, { version: '1.1.0', baseRelease: releaseKey(MODULE, '1.0.0'), parentRequest: a2.body.id });
   ok('новая правка — новый запрос, прежний в истории', a3.status === 200 && a3.body.id !== a2.body.id
     && await stateOf('ModuleRequest', 'id', a2.body.id) === 'superseded');
-  const b110o = moduleBundle('1.1.0', { 'logic/extra.ts': 'export const renamed = 2;' });
+  // Владелец правит только данные: код остаётся тем, что прислал разработчик (modules/trust/ownerEdit.ts)
+  const b110o = moduleBundle('1.1.0', { 'logic/extra.ts': 'export const renamed = 1;', 'examples/basic.json': JSON.stringify({ input: {}, expect: { parameterCount: 1 } }) });
+  ok('правка кода владельцем сервером отвергается', (await submit('owner', root, moduleBundle('1.1.0', { 'logic/extra.ts': 'export const renamed = 2;' }), { version: '1.1.0', baseRelease: releaseKey(MODULE, '1.0.0'), parentRequest: a3.body.id })).status === 400);
   ok('изменения владельца присылает только владелец', (await submit('developer', root, b110o, { version: '1.1.0', parentRequest: a3.body.id })).status === 403);
   const o3 = await submit('owner', root, b110o, { version: '1.1.0', baseRelease: releaseKey(MODULE, '1.0.0'), parentRequest: a3.body.id });
   const ownerDiff = (await call('developer', `/api/modules/requests/${a3.body.id}`)).status;
   ok('правка владельца — отдельный запрос', o3.status === 200 && ownerDiff === 200 && await stateOf('ModuleRequest', 'id', a3.body.id) === 'edited');
   const oDiff = (await call('owner', `/api/modules/requests/${o3.body.id}/diff`)).body;
   ok('изменения владельца видны отдельной разницей от запроса разработчика', oDiff.against?.request === a3.body.id
-    && oDiff.files.filter((f: any) => f.status !== 'same').map((f: any) => f.path).join() === 'logic/extra.ts');
+    && oDiff.files.filter((f: any) => f.status !== 'same').map((f: any) => f.path).join() === 'examples/basic.json');
   ok('отклонить можно только с причиной', (await call('owner', `/api/modules/requests/${o3.body.id}/reject`, 'POST', {})).status === 400);
   ok('правка владельца выпущена', (await release(o3.body.id, b110o, '1.1.0', rootHex)).response.status === 200);
   await sync();

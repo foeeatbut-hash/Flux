@@ -444,32 +444,28 @@ async function main() {
     assert.deepEqual(serviceUpdate.readUpdateSignature(signedRelease.signature, config.update), signedRelease.payload);
     assert.equal(serviceUpdate.readUpdateSignature(signedRelease.signature, config.license), null);
 
-    const adminKey = crypto.generateKeyPairSync('ed25519');
-    const adminPublicKey = adminKey.publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('hex');
-    const requestCode = `FLUXUPDAUTHREQ1.${Buffer.from(JSON.stringify({
-      v: 1, inst: 'delegation-install', userId: 'admin-user', publicKey: adminPublicKey,
-    })).toString('base64')}`;
-    const delegation = ownerSigning.signUpdateDelegation(mainVault, {
-      code: requestCode, days: 30, maxTargets: 200, maxMinutes: 30,
-    });
-    assert.equal(delegation.payload.inst, 'delegation-install');
-    assert.equal(delegation.payload.userId, 'admin-user');
-    assert.equal(delegation.payload.publicKey, adminPublicKey);
-    assert.deepEqual(updateCommand.readUpdateDelegation(delegation.code, config.update), delegation.payload);
-    assert.equal(updateCommand.readUpdateDelegation(`${delegation.code}x`, config.update), null);
-    for (const args of [
-      { days: 0, maxTargets: 1, maxMinutes: 5 },
-      { days: 366, maxTargets: 1, maxMinutes: 5 },
-      { days: 1, maxTargets: 2001, maxMinutes: 5 },
-      { days: 1, maxTargets: 1, maxMinutes: 4 },
-    ]) {
-      assert.throws(() => ownerSigning.signUpdateDelegation(mainVault, { code: requestCode, ...args }), /Проверьте срок/);
+    // Назначение обновлений собирает и подписывает сам владелец (администраторам разрешения больше не выдаются):
+    // проверка клиента Flux принимает такую команду и отвергает любую подделку
+    const campaigns = compile(path.join(root, 'src/campaigns.ts'), path.join(temp, 'owner-campaigns.cjs'));
+    const campaignRelease = { version: '1.2.3', generation: crypto.randomUUID(), sha256: release.sha256, signature: signedRelease.signature };
+    const campaign = campaigns.signCampaign(mainVault, { inst: 'campaign-install', actor: 'owner-user', action: 'schedule', minutes: 15, release: campaignRelease,
+      targets: [{ deviceId: 'device-1', userId: 'employee', previous: null }] });
+    const accepted = updateCommand.verifyUpdateCommand(campaign, { inst: 'campaign-install', deviceId: 'device-1', userId: 'employee', keyHex: config.update });
+    assert.equal(accepted.actor, 'owner-user');
+    assert.equal(accepted.version, '1.2.3');
+    assert.equal(updateCommand.verifyUpdateCommand(campaign, { inst: 'other-install', keyHex: config.update }), null);
+    assert.equal(updateCommand.verifyUpdateCommand(campaign, { inst: 'campaign-install', keyHex: config.license }), null);
+    assert.equal(updateCommand.verifyUpdateCommand({ ...campaign, command: `${campaign.command}x` }, { inst: 'campaign-install', keyHex: config.update }), null);
+    assert.equal(updateCommand.readUpdateDelegation(campaign.delegation, config.update).userId, 'owner-user');
+    for (const args of [{ minutes: 4 }, { minutes: 1441 }, { minutes: 1.5 }]) {
+      assert.throws(() => campaigns.signCampaign(mainVault, { inst: 'campaign-install', actor: 'owner-user', action: 'schedule', release: campaignRelease, targets: [{ deviceId: 'd', userId: 'u', previous: null }], ...args }), /от 5 минут/);
     }
-    assert.throws(() => ownerSigning.signUpdateDelegation(mainVault, {
-      code: 'FLUXUPDAUTHREQ1.invalid', days: 30, maxTargets: 200, maxMinutes: 30,
-    }), /повреждён/);
+    assert.throws(() => campaigns.signCampaign(mainVault, { inst: 'i', actor: 'a', action: 'schedule', minutes: 10, release: campaignRelease, targets: [] }), /от 1 до/);
+    assert.throws(() => campaigns.signCampaign(backupVault, { inst: 'i', actor: 'a', action: 'schedule', minutes: 10, release: campaignRelease, targets: [{ deviceId: 'd', userId: 'u', previous: null }] }), /основное хранилище/);
+    const cancellation = campaigns.signCampaign(mainVault, { inst: 'campaign-install', actor: 'owner-user', action: 'cancel', release: campaignRelease, targets: [{ deviceId: 'device-1', userId: 'employee', previous: accepted.id }] });
+    assert.equal(updateCommand.verifyUpdateCommand(cancellation, { inst: 'campaign-install', keyHex: config.update }).action, 'cancel');
 
-    console.log('Flux-Owner: vault, public config, FLUX2 license, FLUXREV1 revocation, update signatures, and delegated-update grants passed.');
+    console.log('Flux-Owner: vault, public config, FLUX2 license, FLUXREV1 revocation, update signatures, and owner-signed update assignments passed.');
   } finally {
     await fs.rm(temp, { recursive: true, force: true });
   }

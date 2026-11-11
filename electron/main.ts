@@ -329,15 +329,7 @@ app.whenReady().then(async () => {
   registerLocalOfficeIpc({ files: localFiles, isTrusted: trustedAuthSender, ...localAccess });
   registerUpdateCampaignIpc({ ipcMain, dataDir: app.getPath('userData'), version: () => app.getVersion(),
     authorized: async (event) => trustedAuthSender(event) && await localAccess.mayRead(event),
-    encryption: { available: secureStorageAvailable, encrypt: value => safeStorage.encryptString(value), decrypt: value => safeStorage.decryptString(value) },
-    authorizeSigning: async (_event, data) => {
-      try {
-        const response = await fetch('http://localhost:3000/api/updates/delegation', { headers: { Authorization: `Bearer ${readNativeSession('http://localhost:3000') || ''}` }, redirect: 'error', signal: AbortSignal.timeout(5000) });
-        if (!response.ok) return false;
-        const current = await response.json();
-        return !!current.code && current.code === data?.delegation && current.userId === data?.payload?.actor;
-      } catch { return false; }
-    } });
+    encryption: { available: secureStorageAvailable, encrypt: value => safeStorage.encryptString(value), decrypt: value => safeStorage.decryptString(value) } });
   setupDesktopShell({ files: localFiles, isTrusted: trustedAuthSender, ...localAccess });
   setupWindowsNotifications({ isTrusted: trustedAuthSender, ...localAccess });
   const nativeAppWindows = setupNativeAppWindows({ isTrusted: trustedAuthSender, mayRead: localAccess.mayRead,
