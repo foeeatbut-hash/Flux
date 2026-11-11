@@ -6,10 +6,10 @@ export const Badge = ({ tone = 'off', children, ...rest }: { tone?: Tone; childr
   <span className={`badge ${tone}`} {...rest}>{children}</span>;
 
 type BtnProps = React.ButtonHTMLAttributes<HTMLButtonElement> & { tone?: 'primary' | 'danger' | 'ghost' | '' };
-export const Btn = ({ tone = '', className = '', type = 'button', ...rest }: BtnProps) => <button type={type} className={`btn ${tone} ${className}`} {...rest} />;
+export const Btn = ({ tone = '', className = '', type = 'button', ...rest }: BtnProps) => <button type={type} className={`fx-btn ${tone === 'primary' ? 'fx-btn-primary' : tone === 'danger' ? 'fx-btn-danger' : tone === 'ghost' ? 'fx-btn-quiet' : ''} ${className}`} {...rest} />;
 
-export const Empty = ({ title, text }: { title: string; text?: string }) => <div className="empty"><b>{title}</b>{text}</div>;
-export const ErrorLine = ({ text }: { text: string }) => (text ? <div className="error" role="alert">{text}</div> : null);
+export const Empty = ({ title, text }: { title: string; text?: string }) => <div className="fx-empty"><div className="fx-empty-title">{title}</div>{text && <div className="fx-empty-text">{text}</div>}</div>;
+export const ErrorLine = ({ text }: { text: string }) => (text ? <div className="error fx-error" role="alert">{text}</div> : null);
 export const Field = ({ label, hint, children, id }: { label: string; hint?: string; children: React.ReactNode; id?: string }) =>
   <div className="field"><label htmlFor={id}>{label}</label>{children}{hint && <p className="hint">{hint}</p>}</div>;
 

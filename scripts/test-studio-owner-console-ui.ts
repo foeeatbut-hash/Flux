@@ -86,15 +86,16 @@ const bridge = () => `(() => {
 
 const luminance = (rgb: number[]) => { const [r, g, b] = rgb.map(v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
 const contrast = (a: number[], b: number[]) => { const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
-const parse = (css: string) => (css.match(/[\d.]+/g) || []).map(Number);
 async function measure(page: Page, label: string) {
-  const info = await page.evaluate(() => {
+  // Цвета Flux приходят в oklch(): для контраста сводим к RGB через холст
+  const info = await page.evaluate(`(() => {
+    const rgb = css => { const c = document.createElement('canvas').getContext('2d'); c.clearRect(0, 0, 1, 1); c.fillStyle = css; c.fillRect(0, 0, 1, 1); const d = c.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2], d[3] / 255]; };
     const body = getComputedStyle(document.body);
-    return { bg: body.backgroundColor, color: body.color, overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      unlabeled: [...document.querySelectorAll('input:not([type=checkbox]), select, textarea')].filter(i => !(i as HTMLInputElement).labels?.length && !i.getAttribute('aria-label')).length };
-  });
-  const bg = parse(info.bg), fg = parse(info.color);
-  ok(`${label}: фон сплошной`, bg.length === 3 || bg[3] === 1);
+    return { bg: rgb(body.backgroundColor), color: rgb(body.color), overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      unlabeled: [...document.querySelectorAll('input:not([type=checkbox]), select, textarea')].filter(i => !i.labels?.length && !i.getAttribute('aria-label')).length };
+  })()`) as { bg: number[]; color: number[]; overflowX: number; unlabeled: number };
+  const bg = info.bg, fg = info.color;
+  ok(`${label}: фон сплошной`, bg[3] === 1);
   ok(`${label}: нет горизонтальной прокрутки`, info.overflowX <= 0);
   ok(`${label}: у полей есть подписи`, info.unlabeled === 0);
   ok(`${label}: контраст текста не ниже 4.5:1`, contrast(fg.slice(0, 3), bg.slice(0, 3)) >= 4.5);
@@ -110,7 +111,8 @@ async function main() {
     const url = 'file://' + path.join(built.app, 'ui', 'console', 'index.html');
     for (const theme of ['light', 'dark'] as const) {
       console.log(`Тема: ${theme}`);
-      const page = await browser.newPage({ viewport: { width: 1280, height: 860 }, colorScheme: theme });
+      const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+      await page.addInitScript((value: string) => { try { localStorage.setItem('theme', value); } catch { /* приватный режим */ } }, theme);
       const errors: string[] = [];
       page.on('pageerror', e => errors.push(e.message));
       page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });

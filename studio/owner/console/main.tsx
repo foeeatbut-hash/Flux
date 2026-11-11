@@ -2,6 +2,7 @@
  * Разделы Studio — Владелец: запросы на публикацию, выпуски и каналы, сертификаты разработчиков,
  * обновления Flux. Окно только показывает: хранилище, подключение, подпись и решения — в главном процессе.
  */
+import '../../renderer/theme';
 import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { call } from './api';

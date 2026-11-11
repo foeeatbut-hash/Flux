@@ -362,7 +362,7 @@ async function main() {
 
     const startsBeforeInvalidAddress = runtimeRecords.length;
     for (const address of ['http://legacy.company.test', 'https://legacy.company.test', 'postgres://u:p@db.invalid/flux', 'postgresql://u:p@db.invalid/flux']) {
-      await assert.rejects(ownerActions.connect({ server: address }), /Введите адрес общей MariaDB \/ MySQL/);
+      await assert.rejects(ownerActions.connect({ server: address }), /Адрес базы не подходит/);
     }
     assert.equal(runtimeRecords.length, startsBeforeInvalidAddress);
 

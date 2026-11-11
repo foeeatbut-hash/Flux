@@ -89,6 +89,9 @@ async function buildStudio({ target, outDir, extraMain = null }) {
       metafiles[`owner-${name}`] = built.metafile;
     }
     fs.cpSync(path.join(root, 'studio/owner/ui'), path.join(app, 'ui'), { recursive: true });
+    // Окно лицензий в оформлении Flux: тот же flux.css и шрифты, что у главного окна (собраны выше)
+    fs.copyFileSync(path.join(app, 'renderer', 'flux.css'), path.join(app, 'ui', 'flux.css'));
+    fs.cpSync(path.join(app, 'renderer', 'fonts'), path.join(app, 'ui', 'fonts'), { recursive: true });
     // Разделы владельца (запросы на публикацию, выпуски, сертификаты, обновления Flux): отдельное окно рядом с окном лицензий
     const consoleDir = path.join(app, 'ui', 'console');
     fs.mkdirSync(consoleDir, { recursive: true });
@@ -108,6 +111,9 @@ async function buildStudio({ target, outDir, extraMain = null }) {
     });
     metafiles['owner-console'] = consoleBuild.metafile;
     for (const file of ['index.html', 'console.css']) fs.copyFileSync(path.join(root, 'studio/owner/console', file), path.join(consoleDir, file));
+    // Оформление Flux — тот же файл и шрифты, что у главного окна Studio (собраны выше)
+    fs.copyFileSync(path.join(app, 'renderer', 'flux.css'), path.join(consoleDir, 'flux.css'));
+    fs.cpSync(path.join(app, 'renderer', 'fonts'), path.join(consoleDir, 'fonts'), { recursive: true });
   }
 
   fs.writeFileSync(path.join(app, 'package.json'), JSON.stringify({
