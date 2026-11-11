@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { signUpdateEnvelope, readUpdateDelegation, verifyUpdateCommand, verifiedDeviceChain, type SignedUpdateCommand } from './updateCommand';
+import { signUpdateEnvelope, verifyUpdateCommand, verifiedDeviceChain, type SignedUpdateCommand } from './updateCommand';
 
 export interface UpdateKeyEncryption { available(): boolean; encrypt(value: string): Buffer; decrypt(value: Buffer): string }
 export function createUpdateCampaignRuntime(dir: string, version: () => string, encryption: UpdateKeyEncryption, keyHex?: string) {
@@ -37,15 +37,6 @@ export function createUpdateCampaignRuntime(dir: string, version: () => string, 
       proof: signUpdateEnvelope('FLUXUPDDEVICE1', { deviceId: state.id, userId, version: version(), platform: process.platform,
         arch: process.arch, status, commandId, code: String(code || '').slice(0, 80), at: now() }, privateKey),
     }),
-    sign: (envelope: { delegation: string; releaseSignature: string; payload: any }) => {
-      const delegation = readUpdateDelegation(envelope.delegation, keyHex), tick = now();
-      if (!delegation || delegation.publicKey !== publicKey || tick > delegation.expiresAt) throw new Error('Разрешение на назначение обновлений недоступно или истекло.');
-      const signed: SignedUpdateCommand = { command: signUpdateEnvelope('FLUXUPDCMD1', envelope.payload, privateKey),
-        delegation: envelope.delegation, releaseSignature: envelope.releaseSignature };
-      const command = verifyUpdateCommand(signed, { inst: delegation.inst, keyHex });
-      if (!command || Math.abs(command.issuedAt - tick) > 120000) throw new Error('Задание не соответствует разрешению владельца.');
-      return signed;
-    },
     accept: (inst: string, userId: string, envelopes: SignedUpdateCommand[]) => {
       const key = `${inst}:${userId}`, previous = state.assignments[key];
       const latest = verifiedDeviceChain(envelopes, { inst, userId, deviceId: state.id, knownId: previous?.command.id, keyHex });
@@ -93,7 +84,7 @@ export function assertCampaignRestartState(runtime: ReturnType<typeof createUpda
 export function registerUpdateCampaignIpc(deps: {
   ipcMain: { handle: (name: string, fn: (...args: any[]) => any) => void };
   dataDir: string; version: () => string; authorized: (event: any) => Promise<boolean>;
-  encryption: UpdateKeyEncryption; authorizeSigning: (event: any, data: any) => Promise<boolean>;
+  encryption: UpdateKeyEncryption;
 }) {
   const get = () => nativeRuntime ||= createUpdateCampaignRuntime(deps.dataDir, deps.version, deps.encryption);
   const handle = (name: string, action: (...args: any[]) => any) => deps.ipcMain.handle(name, async (event, ...args) => {
@@ -102,10 +93,6 @@ export function registerUpdateCampaignIpc(deps: {
   });
   handle('updater:device', () => get().identity());
   handle('updater:heartbeat-proof', (data) => get().heartbeat(String(data?.userId || ''), String(data?.status || ''), data?.commandId || null, String(data?.code || '')));
-  deps.ipcMain.handle('updater:sign-command', async (event, data) => {
-    if (!await deps.authorized(event) || !await deps.authorizeSigning(event, data)) throw new Error('Разрешение на назначение обновлений не подтверждено для текущего профиля.');
-    return get().sign(data);
-  });
   handle('updater:accept-commands', (data) => {
     if (!Array.isArray(data?.commands) || data.commands.length > 5000) throw new Error('История обновлений недоступна.');
     return get().accept(String(data?.inst || ''), String(data?.userId || ''), data.commands);
