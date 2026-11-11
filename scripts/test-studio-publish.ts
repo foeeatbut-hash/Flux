@@ -65,9 +65,9 @@ async function main() {
     const type = r.headers.get('content-type') || '';
     return { status: r.status, body: type.includes('json') ? await r.json() as any : null, bytes: type.includes('json') ? null : Buffer.from(await r.arrayBuffer()) };
   };
-  const send = (server: { origin: string }, who: string, key: any, moduleId: string, version: string) => {
+  const send = (server: { origin: string }, who: string, key: any, moduleId: string, version: string, extra: { checks?: string; parentRequest?: string } = {}) => {
     const bundle = moduleBundle(version, {}, { id: moduleId });
-    return call(server, who, '/api/modules/requests', { signature: requestEnvelope(key, bundle, { moduleId, version }), bundle: Buffer.from(bundle).toString('base64') });
+    return call(server, who, '/api/modules/requests', { signature: requestEnvelope(key, bundle, { moduleId, version, ...extra }), bundle: Buffer.from(bundle).toString('base64') });
   };
   const certify = async (key: any, userId: string, name: string) => {
     const signature = certificateEnvelope(root, hexOf(key), userId);
@@ -106,6 +106,26 @@ async function main() {
     ok('чужой пакет — «не найден»', (await call(strict, 'b', `/api/studio/requests/${first.body.id}/bundle`)).status === 404);
     ok('несуществующий запрос — «не найден»', (await call(strict, 'a', '/api/studio/requests/nope/bundle')).status === 404);
 
+    console.log('Отчёт проверки и предел очереди');
+    const refusedWith = async (checks: string | undefined) => (await send(strict, 'a', keys.a, 'gamma', '0.1.0', checks === undefined ? { checks: '' } : { checks }));
+    ok('запрос без отчёта не принимается (400)', (await refusedWith(undefined)).status === 400 && /не приложен отчёт/.test((await refusedWith(undefined)).body.error));
+    ok('отчёт не JSON не принимается', (await refusedWith('не json')).status === 400);
+    ok('отчёт с ok:false не принимается', (await refusedWith('{"ok":false}')).status === 400);
+    ok('отчёт ok:true, но со строкой «не прошло» не принимается', (await refusedWith('{"ok":true,"items":[{"id":"x","status":"fail"}]}')).status === 400 && /не прошло/.test((await refusedWith('{"ok":true,"items":[{"id":"x","status":"fail"}]}')).body.error));
+    ok('отказ не создал запрос', await db.moduleRequest.count({ where: { moduleId: 'gamma' } }) === 0);
+    ok('мутация: честный отчёт принимается', (await send(strict, 'a', keys.a, 'gamma', '0.1.0', { checks: '{"ok":true,"items":[{"id":"x","status":"ok"}]}' })).status === 200);
+    for (let i = 2; i <= 5; i++) await send(strict, 'a', keys.a, 'gamma', `0.${i}.0`);
+    const sixth = await send(strict, 'a', keys.a, 'gamma', '0.6.0');
+    ok('шестой ожидающий запрос автора — 429 с понятным ответом', sixth.status === 429 && /5 запросов ждут проверки/.test(sixth.body.error));
+    ok('другой автор не упирается в чужой предел', (await send(strict, 'b', keys.b, 'delta', '0.1.0')).status === 200);
+    const firstGamma = (await db.moduleRequest.findFirst({ where: { moduleId: 'gamma' }, orderBy: { createdAt: 'asc' } })).id;
+    ok('исправление к ожидающему запросу предел не увеличивает', (await send(strict, 'a', keys.a, 'gamma', '0.7.0', { parentRequest: firstGamma })).status === 200);
+    const foreignParent = await send(strict, 'b', keys.b, 'gamma', '0.8.0', { parentRequest: firstGamma });
+    ok('родитель — запрос другого автора: не принимается (чужая подпрограмма)', foreignParent.status === 403 || foreignParent.status === 400);
+    const sameSignature = await call(strict, 'b', '/api/modules/requests', { signature: (await db.moduleRequest.findFirst({ where: { moduleId: 'gamma' } })).signature, bundle: '' });
+    ok('повтор чужой подписи не раскрывает id чужого запроса', !sameSignature.body?.id);
+    await db.moduleRequest.deleteMany({ where: { moduleId: { in: ['gamma', 'delta'] } } });
+
     console.log('Замечания владельца');
     await db.moduleRequest.update({ where: { id: first.body.id }, data: { state: 'returned', review: JSON.stringify({ note: 'Поправьте подпись поля', comments: [{ path: 'form.json', line: 3, text: 'длинная подпись' }] }) } });
     const returned = (await call(strict, 'a', '/api/studio/requests')).body.requests[0];
@@ -116,7 +136,7 @@ async function main() {
     console.log('Сертификат');
     const status = async (who: string, key: string) => (await call(strict, who, `/api/studio/certificate?key=${key}`)).body;
     ok('выданный сертификат своего ключа', (await status('a', hexOf(keys.a))).status === 'issued' && (await status('a', hexOf(keys.a))).name === 'Разработчик');
-    ok('чужой ключ: «чужой», имя не раскрывается', (await status('b', hexOf(keys.a))).status === 'foreign' && (await status('b', hexOf(keys.a))).name === '');
+    ok('чужой ключ отвечает как неизвестный, имя не раскрывается', (await status('b', hexOf(keys.a))).status === 'none' && (await status('b', hexOf(keys.a))).name === '');
     ok('неизвестный ключ — «нет»', (await status('a', hexOf(newKey()))).status === 'none');
     ok('некорректный ключ — 400', (await call(strict, 'a', '/api/studio/certificate?key=zz')).status === 400);
     await db.moduleRevocation.create({ data: { kind: 'key', target: hexOf(keys.b), reason: 'проверка', signature: revocationEnvelope(root, 'key', hexOf(keys.b)), signatureHash: 'rev-b' } });

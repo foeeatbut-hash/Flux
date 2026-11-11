@@ -71,6 +71,8 @@ async function main() {
     const known = trusted().has(String(req.query.key));
     res.json({ status: known ? 'issued' : 'none', name: known ? 'Разработчик' : '' });
   });
+  const certRequests: any[] = [];
+  app.post('/api/modules/certificate-requests', (req, res) => { certRequests.push(req.body); res.json({ ok: true }); });
   app.get('/api/studio/releases', (_req, res) => res.json({ releases: [] }));
   app.get('/api/studio/requests', (_req, res) => res.json({ requests: accepted.map((a, i) => ({ id: a.id, moduleId: a.moduleId, version: '0.1.0', state: i ? 'returned' : 'pending', parentId: null, changelog: 'x', channel: 'test', createdAt: new Date().toISOString(), decidedAt: null, review: i ? { note: 'Поправьте', comments: [{ path: 'form.json', line: 2, text: 'подпись' }] } : null })) }));
   app.post('/api/modules/requests', express.json({ limit: '60mb' }), (req: any, res) => {
@@ -83,7 +85,7 @@ async function main() {
   const transitions: any[] = [];
   const reportId = '11111111-1111-4111-8111-111111111111';
   app.get('/api/feedback/reports', (req, res) => res.json({ data: req.query.scope === 'modules' ? [{ id: reportId, number: 7, title: 'Падает расчёт', moduleId: 'demo-ts', moduleVersion: '0.1.0', status: 'IN_PROGRESS', impact: 'HIGH', priority: 'P1', revision: 3, resolvedVersion: null, createdAt: '2026-11-10', moduleKnown: false, authorId: 'secret-author', description: 'секрет' }] : [] }));
-  app.get('/api/modules/crashes', (_req, res) => res.json({ data: [{ moduleId: 'demo-ts', version: '0.1.0', kind: 'timeout', count: 4, extra: 'x' }] }));
+  app.get('/api/modules/crashes', (_req, res) => res.json({ data: [{ moduleId: 'alpha', version: '0.1.0', kind: 'timeout', count: 4, extra: 'x' }, { moduleId: 'foreign-mod', version: '1.0.0', kind: 'crash', count: 9 }] }));
   app.post('/api/feedback/reports/:id/transition', (req, res) => { transitions.push({ id: req.params.id, ...req.body }); res.json({ data: { id: req.params.id } }); });
   const server = await new Promise<http.Server>((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   const origin = `http://127.0.0.1:${(server.address() as any).port}`;
@@ -188,12 +190,14 @@ async function main() {
     await call('login', { symbol: 'dev', password: 'dev-pass' });
     ok('ключа ещё нет', (await call('keyInfo')).value.exists === false && (await call('keyCertificate')).value.status === 'nokey');
     const key = (await call('keyCreate')).value;
-    ok('ключ создан; в ответе окну только открытая часть', key.exists && /^[0-9a-f]{64}$/.test(key.publicKey) && Object.keys(key).sort().join() === 'available,createdAt,exists,publicKey');
+    ok('ключ создан; в ответе окну только открытая часть', key.exists && /^[0-9a-f]{64}$/.test(key.publicKey) && Object.keys(key).sort().join() === 'available,createdAt,damaged,exists,publicKey');
     const keyFile = fs.readFileSync(path.join(data, 'developer-key.json'), 'utf8');
     ok('закрытый ключ не лежит открытым текстом', !/PRIVATE KEY/.test(keyFile) && !Buffer.from(JSON.parse(keyFile).secret, 'base64').toString('latin1').includes('PRIVATE KEY'));
     ok('сертификата ещё нет', (await call('keyCertificate')).value.status === 'none');
     const parsedRequest = parseCertificateRequest((await call('keyRequest')).value.text);
     ok('запрос сертификата несёт ключ и профиль', parsedRequest?.key === key.publicKey && parsedRequest.userId === 'dev');
+    ok('запрос сертификата уходит в очередь: ключ и имя, без закрытой части', (await call('keyRequestSend')).ok && certRequests.length === 1 && certRequests[0].key === key.publicKey && Object.keys(certRequests[0]).sort().join() === 'key,name');
+    ok('статус «запрос отправлен» виден, пока сертификата нет', (await call('keyCertificate')).value.status === 'requested');
     certificates.push(sealEnvelope('certificate', { v: 1, key: key.publicKey, userId: 'dev', name: 'Разработчик', iat: Date.now() }, rootKey));
     ok('после выдачи владельцем сертификат виден', (await call('keyCertificate')).value.status === 'issued');
     ok('заготовок семь', (await call('templates')).value.length === 7);
@@ -237,6 +241,7 @@ async function main() {
     const errors = (await call('errors')).value;
     ok('обращения и счётчики по своей подпрограмме', errors.reports[0].number === 7 && errors.crashes[0].count === 4 && errors.crashes[0].kind === 'timeout');
     ok('в окно не уходит лишнее из ответа сервера (автор, описание)', !JSON.stringify(errors).includes('secret'));
+    ok('счётчики только своих подпрограмм, даже если сервер отдал все', errors.crashes.length === 1 && errors.crashes[0].moduleId === 'alpha');
     ok('неверная версия исправления отклоняется', (await call('errorFixed', { reportId, version: '1.2', revision: 3 })).ok === false && transitions.length === 0);
     ok('чужой идентификатор обращения отклоняется', (await call('errorFixed', { reportId: '../x', version: '1.2.3', revision: 3 })).ok === false);
     ok('«исправлено в версии» уходит на проверку автору с ревизией', (await call('errorFixed', { reportId, version: '0.2.0', revision: 3 })).ok

@@ -72,6 +72,10 @@ async function main() {
   ];
   flux.get('/api/health', (_q, r) => r.json({ version: '1.0.0' }));
   flux.get('/api/studio/certificate', (_q, r) => r.json({ status: 'none', name: '' }));
+  // Тот же договор, что у маршрута из PR владельца (server/routes/moduleCertRequests.ts): тело {key, name}, профиль из входа
+  const certRequests: any[] = [];
+  flux.post('/api/modules/certificate-requests', (q, r) => { certRequests.push(q.body); r.json({ ok: true }); });
+  flux.get('/api/studio/modules', (_q, r) => r.json({ modules: requestRows().map(x => ({ moduleId: x.moduleId, version: x.version, state: x.state, createdAt: x.createdAt, requests: 1 })) }));
   flux.get('/api/studio/releases', (_q, r) => r.json({ releases: [] }));
   flux.get('/api/studio/requests', (_q, r) => r.json({ requests: requestRows() }));
   flux.post('/api/modules/requests', (q, r) => { submitted.push(q.body); r.status(400).json({ error: 'Заглушка сервера не принимает запросы: у ключа нет сертификата владельца.' }); });
@@ -87,7 +91,7 @@ async function main() {
   const data = path.join(temp, 'data');
   const storage = { isEncryptionAvailable: () => true, encryptString: (s: string) => Buffer.from(s).reverse(), decryptString: (b: Buffer) => Buffer.from(b).reverse().toString() };
   const service = new DeveloperService({
-    dir: data, storage, version: '1.0.0', session: () => ({ origin, token: 'token-dev-long-enough', user: { id: 'dev', name: 'Разработчик' } }),
+    dir: data, storage, version: '1.0.0', session: () => ({ origin, token: 'token-dev-long-enough', user: { id: 'dev', name: 'Разработчик' }, owner: false }),
     assets: { templatesRoot: path.join(built.app, 'templates'), runtimeDir: path.join(built.app, 'runtime') },
     engine: createControlsEngine({ workerFile: path.join(built.app, 'controls-worker.cjs'), timeoutMs: 5000 }),
     capture: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4, 5, 6, 7, 8]),
@@ -204,10 +208,13 @@ async function main() {
       await page.getByRole('button', { name: 'Создать ключ' }).click();
       await page.getByTestId('public-key').waitFor();
       ok(`${theme}: показана открытая часть ключа; закрытой на странице нет`, /^[0-9a-f]{64}$/.test(await page.getByTestId('public-key').innerText()) && !(await page.content()).includes('PRIVATE KEY'));
-      await page.getByRole('button', { name: 'Запросить сертификат у владельца' }).click();
+      ok(`${theme}: статус сертификата — «запросите его у владельца»`, (await page.locator('.facts').innerText()).includes('Сертификата нет'));
+      await page.getByRole('button', { name: 'Отправить владельцу' }).click();
+      await page.getByText('Запрос отправлен владельцу, ждём сертификат').waitFor();
+      ok(`${theme}: запрос ушёл в очередь владельца с ключом и именем, профиль — из сессии, статус виден`, certRequests.length >= 1 && /^[0-9a-f]{64}$/.test(certRequests.at(-1).key) && !('userId' in certRequests.at(-1)) && (await page.getByRole('button', { name: 'Отправить владельцу' }).isDisabled()));
+      await page.getByRole('button', { name: 'Показать текст запроса' }).click();
       await page.locator('#cert-request').waitFor();
       ok(`${theme}: запрос сертификата показан для передачи владельцу`, (await page.locator('#cert-request').inputValue()).startsWith('FLUXDEVCERTREQ1.'));
-      ok(`${theme}: статус сертификата — «запросите его у владельца»`, (await page.locator('.facts').innerText()).includes('Сертификата нет'));
       ok(`${theme}: замечания владельца и комментарий к строке видны`, (await page.locator('tbody').last().innerText()).includes('Подпись длиннее 60 знаков'));
       ok(`${theme}: «Исправить и отправить заново» только у возвращённой`, (await page.getByRole('button', { name: 'Исправить и отправить заново' }).count()) === 1);
       await page.getByRole('button', { name: 'Отправить на публикацию' }).click();

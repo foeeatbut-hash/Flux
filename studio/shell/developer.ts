@@ -14,6 +14,8 @@ import { unpackBundle, validBundlePath } from '../../modules/trust/bundle';
 import { moduleHeaders } from '../../modules/protocol';
 import { runChecks, type CheckReport } from '../shared/checks';
 import type { ControlsEngine } from '../shared/controlsEngine';
+import fs from 'node:fs';
+import path from 'node:path';
 import { Drafts } from '../shared/drafts';
 import { DeveloperKeyring, KeyringFailure, type SafeStorageLike } from '../shared/keyring';
 import { buildRequest, PublishRefused } from '../shared/publish';
@@ -31,7 +33,7 @@ export interface DeveloperDeps {
   storage: SafeStorageLike;
   version: string;
   /** Текущая сессия (подключение + вход) или null; токен не уходит дальше этого файла */
-  session: () => (Session & { user: StudioUser }) | null;
+  session: () => (Session & { user: StudioUser; owner: boolean }) | null;
   assets: { templatesRoot: string; runtimeDir: string };
   engine: ControlsEngine;
   /** Снимок области окна в PNG (Electron: capturePage); в проверках подставляется */
@@ -51,6 +53,14 @@ const moduleId = (v: unknown): string => {
 const TEXT_FILE = /\.(json|ts|js|py|c|cpp|h|rs|go|cs|csproj|toml|mod|sh|md|txt)$|^(Cargo\.lock|go\.sum)$/i;
 const EDIT_LIMIT = 512 * 1024;
 
+/** Отметка «запрос сертификата отправлен» для этого ключа: после выдачи или смены ключа перестаёт совпадать */
+class RequestedMarker {
+  private readonly file: string;
+  constructor(dir: string) { this.file = path.join(dir, 'certificate-request.json'); }
+  has(key: string): boolean { try { return JSON.parse(fs.readFileSync(this.file, 'utf8')).key === key; } catch { return false; } }
+  save(key: string): void { fs.mkdirSync(path.dirname(this.file), { recursive: true }); fs.writeFileSync(this.file, JSON.stringify({ key, at: Date.now() })); }
+}
+
 interface Run {
   id: string; language: ReturnType<typeof languageOf>; files: ProjectFiles; logicPath: string;
   runtime: string; html: string; css: string; context: LaunchContext; resources: readonly string[];
@@ -62,14 +72,16 @@ export class DeveloperService {
   readonly testBase: TestBase;
   private templates: RuntimeTemplates | null = null;
   private run: Run | null = null;
+  private readonly requested: RequestedMarker;
 
   constructor(private readonly deps: DeveloperDeps) {
     this.keyring = new DeveloperKeyring(deps.dir, deps.storage);
     this.drafts = new Drafts(deps.dir);
     this.testBase = new TestBase(deps.dir);
+    this.requested = new RequestedMarker(deps.dir);
   }
 
-  private session(): Session & { user: StudioUser } {
+  private session(): Session & { user: StudioUser; owner: boolean } {
     const s = this.deps.session();
     if (!s) throw new StudioFailure('Войдите в Flux Studio.');
     return s;
@@ -97,15 +109,25 @@ export class DeveloperService {
     switch (action) {
       // ── Ключ разработчика ────────────────────────────────────────────────────
       case 'keyInfo': return this.keyring.info();
-      case 'keyCreate': return this.guard(() => this.keyring.create());
+      case 'keyCreate': return this.guard(() => this.keyring.create(args.replace === true));
       case 'keyRequest': {
         const user = this.session().user;
         return { text: this.guard(() => this.keyring.certificateRequest({ userId: user.id, name: user.name })) };
       }
+      // Запрос уходит в очередь владельца; профиль сервер берёт из входа. Текст запроса (keyRequest) остаётся запасным путём
+      case 'keyRequestSend': {
+        const info = this.keyring.info(), s = this.session();
+        if (!info.exists) throw new StudioFailure('Сначала создайте ключ разработчика.');
+        await studioRequest(s.origin, 'certRequest', { token: s.token, body: { key: info.publicKey, name: s.user.name || s.user.id } });
+        this.requested.save(info.publicKey);
+        return { sent: true };
+      }
       case 'keyCertificate': {
         const info = this.keyring.info();
         if (!info.exists) return { status: 'nokey', name: '' };
-        return certificateStatus(this.session(), info.publicKey);
+        const status = await certificateStatus(this.session(), info.publicKey);
+        // «Запрос отправлен» помнится на этом компьютере, пока сертификата нет
+        return status.status === 'none' && this.requested.has(info.publicKey) ? { status: 'requested', name: '' } : status;
       }
 
       // ── Проекты ──────────────────────────────────────────────────────────────
@@ -159,7 +181,7 @@ export class DeveloperService {
       case 'check': return this.check(moduleId(args.id));
       case 'publish': return this.publish(moduleId(args.id));
       case 'requests': return ownRequests(this.session());
-      case 'errors': return ownErrors(this.session());
+      case 'errors': return ownErrors(this.session(), this.session().owner);
       case 'errorFixed': {
         await markFixed(this.session(), { reportId: text(args.reportId, 64), version: text(args.version, 40), revision: Number(args.revision) });
         return { marked: true };

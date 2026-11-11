@@ -24,7 +24,7 @@ export async function call<T = unknown>(action: string, args: object = {}): Prom
   return reply.value;
 }
 
-export interface KeyInfo { available: boolean; exists: boolean; publicKey: string; createdAt: number }
+export interface KeyInfo { available: boolean; exists: boolean; publicKey: string; createdAt: number; damaged: boolean }
 export interface DraftSummary { id: string; name: string; version: string; language: string; updatedAt: number; parentRequest: string | null }
 export interface DraftState { parentRequest: string | null; baseRelease: string | null; changelog: string; comment: string; channel: 'test' | 'production' }
 export interface CheckItem { id: string; title: string; status: 'ok' | 'fail' | 'manual'; detail: string }

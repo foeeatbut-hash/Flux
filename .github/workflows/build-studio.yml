@@ -11,6 +11,9 @@ on:
       - studio/**
       - server/routes/studio*.ts
       - server/routes/modulePublishing.ts
+      - server.ts
+      - server/updates.ts
+      - server/moduleStore.ts
       - modules/**
       - scripts/*studio*.ts
       - package.json
@@ -22,6 +25,9 @@ on:
       - studio/**
       - server/routes/studio*.ts
       - server/routes/modulePublishing.ts
+      - server.ts
+      - server/updates.ts
+      - server/moduleStore.ts
       - modules/**
       - package.json
       - .github/workflows/build-studio*.yml

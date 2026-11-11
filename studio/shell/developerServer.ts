@@ -7,7 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { compareVersions } from '../../shared/versionCompare';
 import { MODULE_VERSION } from '../../modules/trust/claims';
-import { studioBinary, studioRequest, StudioFailure } from './api';
+import { ownModules, studioBinary, studioRequest, StudioFailure } from './api';
 
 export interface Session { origin: string; token: string }
 const clip = (value: unknown, max: number) => String(value ?? '').slice(0, max);
@@ -64,18 +64,21 @@ export interface ErrorsView {
     revision: number; resolvedVersion: string | null; createdAt: string; known: boolean }>;
   crashes: Array<{ moduleId: string; version: string; kind: string; count: number }>;
 }
-export async function ownErrors(s: Session): Promise<ErrorsView> {
-  const [reports, crashes] = await Promise.all([
+export async function ownErrors(s: Session, owner = false): Promise<ErrorsView> {
+  const [reports, crashes, modules] = await Promise.all([
     studioRequest<{ data?: any[] }>(s.origin, 'reports', { token: s.token, query: { scope: 'modules', modules: '1', limit: 100 } }),
     studioRequest<{ data?: any[] }>(s.origin, 'crashes', { token: s.token }),
+    ownModules(s.origin, s.token),
   ]);
+  // Сервер отдаёт счётчики администратору по всем подпрограммам; в Studio каждый видит только свои, владелец — все
+  const mine = new Set(modules.map(m => m.moduleId));
   return {
     reports: (Array.isArray(reports.data) ? reports.data : []).slice(0, 100).map((r: any) => ({
       id: clip(r.id, 64), number: Number(r.number) || 0, title: clip(r.title, 200), moduleId: clip(r.moduleId, 64), moduleVersion: clip(r.moduleVersion, 40),
       status: clip(r.status, 20), impact: clip(r.impact, 12), priority: clip(r.priority, 4), revision: Number(r.revision) || 1,
       resolvedVersion: r.resolvedVersion ? clip(r.resolvedVersion, 40) : null, createdAt: clip(r.createdAt, 40), known: r.moduleKnown === true,
     })),
-    crashes: (Array.isArray(crashes.data) ? crashes.data : []).slice(0, 500).map((c: any) => ({
+    crashes: (Array.isArray(crashes.data) ? crashes.data : []).filter((c: any) => owner || mine.has(String(c.moduleId))).slice(0, 500).map((c: any) => ({
       moduleId: clip(c.moduleId, 64), version: clip(c.version, 40), kind: clip(c.kind, 20), count: Number(c.count) || 0,
     })),
   };

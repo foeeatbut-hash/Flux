@@ -54,7 +54,8 @@ try {
   ok('подпись не выдаёт закрытую часть', !signature.includes(JSON.parse(file).secret));
 
   console.log('Отказы');
-  ok('повторное создание отказывает', refused(() => ring.create(), /уже создан/));
+  ok('повторное создание отказывает и предупреждает про сертификат', refused(() => ring.create(), /сертификат прежнего ключа перестанет подходить/));
+  ok('отказ не изменил ключ', ring.info().publicKey === created.publicKey);
   const other = new DeveloperKeyring(dir, storageFor('bob'));
   ok('чужая учётная запись: ключ не расшифровывается, подпись отказывает', refused(() => other.sign('request', {}), /не расшифровался/));
   const noStore = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-studio-keyring-no-'));
@@ -72,11 +73,25 @@ try {
   ok('подменённая открытая часть: подпись отказывает', refused(() => ring.sign('request', {}), /повреждён/));
   fs.writeFileSync(path.join(dir, 'developer-key.json'), file);
 
+  console.log('Замена и повреждённый файл');
+  const before = fs.readFileSync(path.join(dir, 'developer-key.json'), 'utf8');
+  const replaced = ring.create(true);
+  ok('явная замена создаёт новый ключ', replaced.exists && replaced.publicKey !== created.publicKey);
+  ok('прежний файл ключа сохранён копией рядом', fs.readdirSync(dir).some((f) => f.endsWith('.bak') && fs.readFileSync(path.join(dir, f), 'utf8') === before));
+  const good = fs.readFileSync(path.join(dir, 'developer-key.json'), 'utf8');
+  fs.writeFileSync(path.join(dir, 'developer-key.json'), '{ не json');
+  ok('повреждённый файл: окну сказано, ключа «нет», но он помечен повреждённым', ring.info().damaged === true && ring.info().exists === false);
+  ok('повреждённый файл не перезаписывается созданием ключа', refused(() => ring.create(), /повреждён/) && refused(() => ring.create(true), /повреждён/) && fs.readFileSync(path.join(dir, 'developer-key.json'), 'utf8') === '{ не json');
+  ok('повреждённый файл: подпись и запрос сертификата отказывают', refused(() => ring.sign('request', {}), /повреждён/) && refused(() => ring.certificateRequest({ userId: 'u', name: 'n' }), /повреждён/));
+  fs.writeFileSync(path.join(dir, 'developer-key.json'), good);
+  const created2 = replaced;
+  void created2;
+
   console.log('Запрос сертификата');
   const request = ring.certificateRequest({ userId: 'dev-1', name: 'Иван Разработчик' });
   const parsed = parseCertificateRequest(request);
-  ok('запрос разбирается: ключ, профиль и имя', parsed?.key === created.publicKey && parsed.userId === 'dev-1' && parsed.name === 'Иван Разработчик');
-  ok('в запросе нет закрытой части', !Buffer.from(request.split('.')[1], 'base64url').toString().includes(JSON.parse(file).secret));
+  ok('запрос разбирается: ключ, профиль и имя', parsed?.key === replaced.publicKey && parsed.userId === 'dev-1' && parsed.name === 'Иван Разработчик');
+  ok('в запросе нет закрытой части', !Buffer.from(request.split('.')[1], 'base64url').toString().includes(JSON.parse(good).secret));
   ok('чужой формат не принимается', parseCertificateRequest('FLUXMODREQ1.abc.def') === null && parseCertificateRequest('') === null);
 
   console.log('Мутации: проверки должны падать, если ключ утекает');

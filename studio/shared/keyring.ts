@@ -24,7 +24,7 @@ export interface SafeStorageLike {
 }
 export class KeyringFailure extends Error {}
 
-export interface KeyInfo { available: boolean; exists: boolean; publicKey: string; createdAt: number }
+export interface KeyInfo { available: boolean; exists: boolean; publicKey: string; createdAt: number; /** Файл ключа есть, но не читается */ damaged: boolean }
 interface KeyFile { v: 1; createdAt: number; publicKey: string; secret: string }
 
 const REQUEST_PREFIX = 'FLUXDEVCERTREQ1';
@@ -40,24 +40,35 @@ export class DeveloperKeyring {
     } catch { return false; }
   }
 
+  /** Файла нет — null; файл есть, но не читается — исключение: молча перезаписать его значило бы потерять ключ с выданным сертификатом */
   private read(): KeyFile | null {
+    if (!fs.existsSync(this.file)) return null;
     try {
       const data = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      return data?.v === 1 && /^[0-9a-f]{64}$/.test(data.publicKey) && typeof data.secret === 'string' ? data : null;
-    } catch { return null; }
+      if (data?.v === 1 && /^[0-9a-f]{64}$/.test(data.publicKey) && typeof data.secret === 'string') return data;
+    } catch { /* ниже — одна ошибка на оба случая */ }
+    throw new KeyringFailure('Файл ключа разработчика повреждён. Ключ не заменён: скопируйте developer-key.json из каталога данных Studio и обратитесь к владельцу.');
   }
+  /** Состояние для окна не должно падать на повреждённом файле: об этом сообщает create/sign */
+  private readOrNull(): KeyFile | null { try { return this.read(); } catch { return null; } }
 
   /** Состояние для окна: открытая часть и факт наличия. Закрытой части здесь нет по построению */
   info(): KeyInfo {
-    const stored = this.read();
-    return { available: this.available(), exists: !!stored, publicKey: stored?.publicKey || '', createdAt: stored?.createdAt || 0 };
+    const stored = this.readOrNull();
+    return { available: this.available(), exists: !!stored, publicKey: stored?.publicKey || '', createdAt: stored?.createdAt || 0, damaged: fs.existsSync(this.file) && !stored };
   }
 
-  create(): KeyInfo {
+  /**
+   * Новый ключ. Существующий не затирается: заменить его можно только явным `replace` (окно спрашивает человека),
+   * и прежний файл остаётся рядом копией. Повреждённый файл не заменяется вовсе, пока человек не сохранит копию сам.
+   */
+  create(replace = false): KeyInfo {
     if (!this.available()) {
       throw new KeyringFailure('Защищённое хранилище этого компьютера недоступно, поэтому ключ разработчика не создан: хранить его открытым текстом нельзя. Войдите в Windows своей учётной записью и повторите.');
     }
-    if (this.read()) throw new KeyringFailure('Ключ разработчика уже создан. Заменить его может только владелец: прежний ключ придётся отозвать.');
+    const existing = this.read();
+    if (existing && !replace) throw new KeyringFailure('Ключ разработчика уже создан. Новый ключ нужен, только если прежний утерян: сертификат прежнего ключа перестанет подходить, и его придётся запрашивать заново.');
+    if (existing) fs.copyFileSync(this.file, `${this.file}.${Date.now()}.bak`);
     const { privateKey } = crypto.generateKeyPairSync('ed25519');
     const pem = privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
     const file: KeyFile = {

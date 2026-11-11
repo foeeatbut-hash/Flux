@@ -67,7 +67,16 @@ export class Drafts {
     if (!creating && !this.exists(id)) throw new DraftFailure('Проект не найден.');
     const bytes = typeof data === 'string' ? Buffer.from(data, 'utf8') : data;
     if (bytes.length > MODULE_BUNDLE_MAX) throw new DraftFailure('Файл слишком большой.');
-    this.write(this.target(id, name), bytes);
+    const target = this.target(id, name);
+    // Предел проекта действует и при правке, а не только при создании: иначе проект разрастается до отказа при отправке
+    if (!creating) {
+      const files = this.files(id);
+      const existed = !!files[name];
+      const total = Object.values(files).reduce((sum, b) => sum + b.length, 0) - (files[name]?.length || 0) + bytes.length;
+      if (!existed && Object.keys(files).length >= MAX_FILES) throw new DraftFailure(`В проекте не больше ${MAX_FILES} файлов.`);
+      if (total > MODULE_BUNDLE_MAX) throw new DraftFailure('Проект станет больше 32 МиБ: уберите лишние файлы.');
+    }
+    this.write(target, bytes);
     if (!creating) this.touch(id);
   }
 

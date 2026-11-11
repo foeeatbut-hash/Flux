@@ -71,7 +71,8 @@ export function registerStudioDeveloperRoutes(app: Express, deps: StudioDevelope
     if (!/^[0-9a-f]{64}$/.test(key)) return res.status(400).json({ error: 'Нужен открытый ключ разработчика (64 шестнадцатеричных знака).' });
     const trust = await loadTrust(db, rootHex());
     const issued = trust.certificates.get(key);
-    if (issued) return res.json({ status: issued.userId === userId(req) ? 'issued' : 'foreign', name: issued.userId === userId(req) ? issued.name : '' });
+    // Чужой ключ отвечает так же, как неизвестный: по ответу не узнать, кому он выдан
+    if (issued) return res.json(issued.userId === userId(req) ? { status: 'issued', name: issued.name } : { status: 'none', name: '' });
     // Строка есть, а действующего сертификата нет — значит подпись не сошлась или ключ отозван
     const row = await db.moduleCertificate.findUnique({ where: { keyHex: key }, select: { userId: true } });
     res.json({ status: row && row.userId === userId(req) ? 'revoked' : 'none', name: '' });

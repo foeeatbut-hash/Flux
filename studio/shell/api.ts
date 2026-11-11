@@ -14,6 +14,8 @@ const ROUTES = {
   /** Версия Flux в общей базе: для предупреждения «обновите Studio»; без входа */
   health: { method: 'GET', path: '/api/health' },
   certificate: { method: 'GET', path: '/api/studio/certificate' },
+  /** Запрос сертификата владельцу: профиль сервер берёт из входа, в теле только открытый ключ и имя */
+  certRequest: { method: 'POST', path: '/api/modules/certificate-requests' },
   requests: { method: 'GET', path: '/api/studio/requests' },
   requestBundle: { method: 'GET', path: '/api/studio/requests/:id/bundle' },
   releases: { method: 'GET', path: '/api/studio/releases' },
@@ -130,15 +132,15 @@ export interface StudioUser { id: string; name: string }
 export interface StudioModule { moduleId: string; version: string; state: string; createdAt: string; requests: number }
 
 /** Вход: логин и пароль из Flux, затем проверка права на самом сервере */
-export async function signIn(origin: string, symbol: string, password: string, signal?: AbortSignal): Promise<{ token: string; user: StudioUser }> {
+export async function signIn(origin: string, symbol: string, password: string, signal?: AbortSignal): Promise<{ token: string; user: StudioUser; owner: boolean }> {
   if (typeof symbol !== 'string' || !symbol.trim() || symbol.length > 200 || typeof password !== 'string' || password.length > 1024) {
     throw new StudioFailure('Введите логин и пароль Flux.');
   }
   const login = await studioRequest<{ token?: string }>(origin, 'login', { body: { symbol: symbol.trim(), password }, signal });
   if (typeof login.token !== 'string' || login.token.length < 8 || login.token.length > 10_000) throw new StudioFailure('Flux не выдал сессию. Повторите вход.');
-  const session = await studioRequest<{ ok?: boolean; user?: StudioUser }>(origin, 'session', { token: login.token, signal });
+  const session = await studioRequest<{ ok?: boolean; owner?: boolean; user?: StudioUser }>(origin, 'session', { token: login.token, signal });
   if (session.ok !== true || !session.user) throw new StudioFailure('Flux не подтвердил право входа в Studio.');
-  return { token: login.token, user: { id: String(session.user.id), name: String(session.user.name || '') } };
+  return { token: login.token, user: { id: String(session.user.id), name: String(session.user.name || '') }, owner: session.owner === true };
 }
 
 export async function ownModules(origin: string, token: string, signal?: AbortSignal): Promise<StudioModule[]> {

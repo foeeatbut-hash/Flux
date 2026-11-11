@@ -25,12 +25,12 @@ export function moduleBundle(version: string, extra: Record<string, string> = {}
 }
 
 export function requestEnvelope(key: crypto.KeyObject, bundle: Uint8Array, p: {
-  moduleId?: string; version: string; baseRelease?: string | null; parentRequest?: string | null; channel?: ModuleChannel; changelog?: string;
+  moduleId?: string; version: string; baseRelease?: string | null; parentRequest?: string | null; channel?: ModuleChannel; changelog?: string; checks?: string;
 }) {
   return sealEnvelope('request', {
     v: 1, moduleId: p.moduleId || 'equipment-inspector', version: p.version, baseRelease: p.baseRelease ?? null,
     parentRequest: p.parentRequest ?? null, author: publicHexOf(key), iat: Date.now(),
-    meta: { changelog: p.changelog || `Версия ${p.version}`, comment: '', channel: p.channel || 'test', checks: '{"ok":true}', fluxVersion: '1.0.0', contractVersion: 1 },
+    meta: { changelog: p.changelog || `Версия ${p.version}`, comment: '', channel: p.channel || 'test', checks: p.checks ?? '{"ok":true}', fluxVersion: '1.0.0', contractVersion: 1 },
     ...describeBundle(bundle),
   }, key);
 }

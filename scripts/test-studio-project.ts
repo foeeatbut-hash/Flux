@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import esbuild from 'esbuild';
+import ts from 'typescript';
 import Ajv from 'ajv';
 import { runChecks, type CheckReport } from '../studio/shared/checks';
 import { createControlsEngine } from '../studio/shared/controlsEngine';
@@ -115,6 +116,28 @@ async function main() {
   const slow = await check({ ...base, 'logic/main.ts': enc(logic.replace('export function compute(input: Input) {', 'export function compute(input: Input) { for (;;) {}')) });
   ok('зависший расчёт назван по коду TIMEOUT', /TIMEOUT/.test(slow.items.find(i => i.id === 'controls')!.detail) && failing(slow).includes('limits'));
 
+  console.log('Договор раздела «Редактор»');
+  // Типовая проверка: компонент раздела обязан принимать EditorProps. Настоящий раздел — когда он есть в репозитории; заглушка — всегда
+  const contractProblems = (component: string): string[] => {
+    const probe = path.join(root, 'studio', 'renderer', '__editorsContract.check.tsx');
+    const rel = './' + path.relative(path.dirname(probe), component).replace(/\\/g, '/').replace(/\.tsx?$/, '');
+    fs.writeFileSync(probe, `import type { ComponentType } from 'react';\nimport type { EditorProps } from '../shared/editorContract';\nimport Real from '${rel}';\nexport const accepted: ComponentType<EditorProps> = Real;\n`);
+    try {
+      const config = ts.getParsedCommandLineOfConfigFile(path.join(root, 'tsconfig.json'), {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} });
+      const program = ts.createProgram([probe], { ...config!.options, noEmit: true });
+      return ts.getPreEmitDiagnostics(program, program.getSourceFile(probe)).map(d => ts.flattenDiagnosticMessageText(d.messageText, ' '));
+    } finally { fs.rmSync(probe, { force: true }); }
+  };
+  ok('заглушка «Редактор» принимает EditorProps', contractProblems(path.join(root, 'studio/renderer/editorsStub.tsx')).length === 0);
+  ok('проверка умеет падать: компонент с чужим договором не проходит', (() => {
+    const wrong = path.join(root, 'studio', 'renderer', '__wrongEditors.tsx');
+    fs.writeFileSync(wrong, "import React from 'react';\nexport default function Wrong(props: { form: number }) { return <div>{props.form}</div>; }\n");
+    try { return contractProblems(wrong).length > 0; } finally { fs.rmSync(wrong, { force: true }); }
+  })());
+  const realEditors = path.join(root, 'studio/renderer/editors/index.tsx');
+  if (fs.existsSync(realEditors)) ok('настоящий studio/renderer/editors/index.tsx принимает EditorProps', contractProblems(realEditors).length === 0);
+  else console.log('  · настоящего раздела редакторов ещё нет: проверяется заглушка');
+
   console.log('Тестовая база');
   const testBase = new TestBase(path.join(temp, 'data'));
   ok('создаётся при первом обращении и лежит в каталоге данных', testBase.ensure() === true && fs.existsSync(path.join(temp, 'data', 'test-base.sqlite')));
@@ -153,6 +176,16 @@ async function main() {
   ok('новый файл сохранён', text(drafts.files('demo-c')['notes/todo.txt']) === 'проверить');
   drafts.setState('demo-c', { changelog: 'Исправил' });
   ok('состояние хранится рядом', drafts.state('demo-c').changelog === 'Исправил');
+  const refusedBig = (fn: () => void) => { try { fn(); } catch (e) { return e instanceof DraftFailure && /не больше|больше 32/.test(e.message); } return false; };
+  for (let i = 0; i < 20; i++) drafts.writeFile('demo-c', `notes/n${i}.txt`, 'x');
+  const count = Object.keys(drafts.files('demo-c')).length;
+  drafts.create('many-files', Object.fromEntries(Array.from({ length: 400 }, (_, i) => [`f/${i}.txt`, new Uint8Array([1])])), { template: 'x' });
+  ok('предел числа файлов действует и при правке', refusedBig(() => drafts.writeFile('many-files', 'f/extra.txt', 'x')) && count > 20);
+  ok('перезапись существующего файла при полном проекте разрешена', (() => { drafts.writeFile('many-files', 'f/0.txt', 'y'); return true; })());
+  drafts.remove('many-files');
+  drafts.create('big-size', { 'a.bin': new Uint8Array(20 * 1024 * 1024) }, { template: 'x' });
+  ok('предел суммарного размера действует и при правке', refusedBig(() => drafts.writeFile('big-size', 'b.bin', new Uint8Array(20 * 1024 * 1024))));
+  drafts.remove('big-size');
   drafts.remove('demo-c');
   ok('удаление убирает проект', drafts.list().length === 0);
 

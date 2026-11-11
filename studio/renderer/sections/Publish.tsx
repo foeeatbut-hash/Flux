@@ -6,9 +6,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { call, REQUEST_STATES, STATE_TONE, type DraftState, type KeyInfo, type RequestRow } from '../call';
 
 const CERT: Record<string, string> = {
-  nokey: 'Ключа нет', none: 'Сертификата нет: запросите его у владельца', issued: 'Сертификат выдан', revoked: 'Сертификат отозван', foreign: 'Ключ выдан другому профилю',
+  nokey: 'Ключа нет', none: 'Сертификата нет: запросите его у владельца', requested: 'Запрос отправлен владельцу, ждём сертификат', issued: 'Сертификат выдан', revoked: 'Сертификат отозван', foreign: 'Ключ выдан другому профилю',
 };
-const CERT_TONE: Record<string, string> = { nokey: 'muted', none: 'warn', issued: 'ok', revoked: 'bad', foreign: 'bad' };
+const CERT_TONE: Record<string, string> = { nokey: 'muted', requested: 'warn', none: 'warn', issued: 'ok', revoked: 'bad', foreign: 'bad' };
 
 function KeyCard() {
   const [info, setInfo] = useState<KeyInfo | null>(null);
@@ -16,6 +16,7 @@ function KeyCard() {
   const [request, setRequest] = useState('');
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [confirmNew, setConfirmNew] = useState(false);
   const refresh = useCallback(async () => {
     try { setInfo(await call<KeyInfo>('keyInfo')); setCert((await call<{ status: string }>('keyCertificate')).status); } catch (e) { setError((e as Error).message); }
   }, []);
@@ -25,18 +26,27 @@ function KeyCard() {
   return (
     <div className="panel" aria-labelledby="key-title">
       <h3 id="key-title">Ключ разработчика и сертификат</h3>
-      <p className="muted">Закрытая часть ключа хранится в защищённом хранилище Windows и никуда не передаётся. Запрос уходит владельцу, он выдаёт сертификат.</p>
+      <p className="muted">Закрытая часть ключа хранится в защищённом хранилище Windows и никуда не передаётся. Запрос уходит владельцу в очередь, он выдаёт сертификат.</p>
       {error && <p className="error" role="alert">{error}</p>}
       {info && !info.available && !info.exists && <p className="error" role="alert">Защищённое хранилище на этом компьютере недоступно, ключ создать нельзя. Войдите в Windows своей учётной записью.</p>}
-      {info && !info.exists && <div className="row"><button className="primary" disabled={!info.available} onClick={() => act(async () => { await call('keyCreate'); await refresh(); })}>Создать ключ</button></div>}
+      {info?.damaged && <p className="error" role="alert">Файл ключа повреждён, поэтому новый ключ не создаётся: он затёр бы прежний. Сохраните копию developer-key.json из каталога данных Studio и обратитесь к владельцу.</p>}
+      {info && !info.exists && !info.damaged && <div className="row"><button className="primary" disabled={!info.available} onClick={() => act(async () => { await call('keyCreate'); await refresh(); })}>Создать ключ</button></div>}
       {info?.exists && <>
         <dl className="facts">
           <dt>Открытая часть</dt><dd className="code" data-testid="public-key">{info.publicKey}</dd>
           <dt>Сертификат</dt><dd><span className={`dot ${CERT_TONE[cert] || 'muted'}`} aria-hidden="true" />{CERT[cert] || cert}</dd>
         </dl>
         <div className="row">
-          <button className="secondary" onClick={() => act(async () => { setRequest((await call<{ text: string }>('keyRequest')).text); setCopied(false); })}>Запросить сертификат у владельца</button>
+          <button className="primary" disabled={cert === 'issued' || cert === 'requested'} onClick={() => act(async () => { await call('keyRequestSend'); await refresh(); })}>Отправить владельцу</button>
+          <button className="secondary" onClick={() => act(async () => { setRequest((await call<{ text: string }>('keyRequest')).text); setCopied(false); })}>Показать текст запроса</button>
           <button className="secondary" onClick={() => void refresh()}>Обновить статус</button>
+        </div>
+        <p className="hint">«Отправить владельцу» кладёт запрос в очередь владельца. Текст запроса — запасной путь: его можно передать любым способом.</p>
+        <div className="row">
+          {!confirmNew ? <button className="secondary" onClick={() => setConfirmNew(true)}>Создать новый ключ…</button> : <>
+            <span className="error" role="alert">Сертификат прежнего ключа перестанет подходить, его придётся запрашивать заново. Прежний файл ключа сохранится копией.</span>
+            <button className="secondary" onClick={() => act(async () => { await call('keyCreate', { replace: true }); setConfirmNew(false); setRequest(''); await refresh(); })}>Да, создать новый ключ</button>
+            <button className="secondary" onClick={() => setConfirmNew(false)}>Отмена</button></>}
         </div>
         {request && <div className="field"><label htmlFor="cert-request">Передайте этот запрос владельцу</label>
           <textarea id="cert-request" rows={3} readOnly value={request} onFocus={e => e.currentTarget.select()} />

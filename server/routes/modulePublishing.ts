@@ -57,6 +57,18 @@ function requestView(r: any) {
   };
 }
 
+/** Сколько запросов одного разработчика могут ждать проверки владельца одновременно */
+export const MAX_PENDING_PER_AUTHOR = 5;
+
+/** Текст отказа, если отчёта проверки нет, он не читается или в нём есть «не прошло»; пусто — отчёт годится */
+export function checksRefusal(checks: string): string {
+  let report: any;
+  try { report = JSON.parse(checks || ''); } catch { return 'К запросу не приложен отчёт проверки Studio: отправьте из Studio после проверки.'; }
+  if (!report || typeof report !== 'object') return 'К запросу не приложен отчёт проверки Studio: отправьте из Studio после проверки.';
+  if (report.ok !== true || (Array.isArray(report.items) && report.items.some((i: any) => i?.status === 'fail'))) return 'В отчёте проверки есть «не прошло»: такой запрос не принимается.';
+  return '';
+}
+
 export function registerModulePublishingRoutes(app: Express, deps: ModulePublishingDeps): void {
   const rootHex = () => deps.modulePublicKeyHex ?? MODULE_ROOT_KEY_HEX;
   const findRequest = async (db: any, req: Request, res: Response) => {
@@ -83,7 +95,8 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
     try { bundle = new Uint8Array(Buffer.from(String(req.body?.bundle || ''), 'base64')); } catch { return fail(res, 400, 'Пакет не прочитан'); }
     try {
       const existing = await db.moduleRequest.findUnique({ where: { signatureHash: signatureHash(signature) } });
-      if (existing) return res.json({ id: existing.id, duplicate: true });
+      // Повтор той же подписи отдаёт id только автору (владельцу — любой): чужому запросу не отвечаем
+      if (existing) return isOwner(req) || existing.authorId === userId(req) ? res.json({ id: existing.id, duplicate: true }) : fail(res, 409, 'Этот запрос уже отправлен');
       const trust = await loadTrust(db, rootHex());
       const checked = verifyRequest({ signature, bundle, rootHex: rootHex(), certificates: trust.certificates });
       if (!checked.ok) return fail(res, 400, checked.why);
@@ -94,6 +107,9 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
       }
       const foreign = !byOwner && deps.studioGate ? await deps.studioGate.ownership(db, req, claim.moduleId) : null;
       if (foreign) return fail(res, 403, foreign);
+      // Отчёт проверки Studio — условие отправки: запрос без отчёта или с «не прошло» не принимается. Сервер не может
+      // перепроверить его сам (проверки Studio ему недоступны), поэтому это декларация автора, и владелец видит её как «заявлено автором»
+      if (!byOwner && checksRefusal(claim.meta.checks)) return fail(res, 400, checksRefusal(claim.meta.checks));
       // «Что нового» обязательно: без него пользователь в Store не поймёт, зачем обновляться
       if (!claim.meta.changelog.trim()) return fail(res, 400, 'Заполните «что нового»: без него выложить нельзя');
       if (!byOwner && claim.meta.channel === 'production' && !can(req, 'module.publish')) {
@@ -107,7 +123,13 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
         if (moduleId !== claim.moduleId || !(await releaseBundle(db, claim.baseRelease))) return fail(res, 400, 'Выпуск, от которого считается разница, не найден');
       }
       const parent = claim.parentRequest ? await db.moduleRequest.findUnique({ where: { id: claim.parentRequest } }) : null;
-      if (claim.parentRequest && (!parent || parent.moduleId !== claim.moduleId)) return fail(res, 400, 'Предыдущий запрос не найден');
+      if (claim.parentRequest && (!parent || parent.moduleId !== claim.moduleId || (!byOwner && parent.authorId !== userId(req)))) return fail(res, 400, 'Предыдущий запрос не найден');
+      // Ожидающих проверки запросов у одного автора немного: иначе база растёт пакетами по 32 МиБ без границы.
+      // Запрос, который заменяет прежний ожидающий, предел не увеличивает
+      if (!byOwner) {
+        const waiting = await db.moduleRequest.count({ where: { authorId: userId(req), state: 'pending', ...(parent ? { id: { not: parent.id } } : {}) } });
+        if (waiting >= MAX_PENDING_PER_AUTHOR) return fail(res, 429, `У вас уже ${MAX_PENDING_PER_AUTHOR} запросов ждут проверки владельца. Дождитесь решения или отправьте исправление к одному из них.`);
+      }
       const row = await db.moduleRequest.create({ data: {
         moduleId: claim.moduleId, version: claim.version, signature, signatureHash: signatureHash(signature), authorKey: claim.author,
         authorId: userId(req), byOwner, parentId: parent?.id || null, baseRelease: claim.baseRelease, size: claim.size, sha256: claim.sha256,

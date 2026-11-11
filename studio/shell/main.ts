@@ -35,6 +35,7 @@ export function startShell(sections: ShellSection[] = []): void {
   let runtime: { origin: string; display: string; stop: () => Promise<void> } | null = null;
   let token = '';
   let user: StudioUser | null = null;
+  let owner = false;
   let operation: AbortController | null = null;
   let warning = '';
   let developer: DeveloperService | null = null;
@@ -51,7 +52,7 @@ export function startShell(sections: ShellSection[] = []): void {
 
   const disconnect = async () => {
     operation?.abort();
-    token = ''; user = null; warning = '';
+    token = ''; user = null; owner = false; warning = '';
     const previous = runtime; runtime = null;
     if (previous) await previous.stop().catch(() => {});
   };
@@ -92,10 +93,10 @@ export function startShell(sections: ShellSection[] = []): void {
     login: async args => busy(async signal => {
       if (!runtime) throw new StudioFailure('Сначала подключитесь к общей базе.');
       const signed = await signIn(runtime.origin, text(args.symbol, 200), text(args.password, 1024), signal);
-      token = signed.token; user = signed.user;
+      token = signed.token; user = signed.user; owner = signed.owner;
       return snapshot();
     }),
-    logout: async () => { token = ''; user = null; return snapshot(); },
+    logout: async () => { token = ''; user = null; owner = false; return snapshot(); },
     disconnect: async () => { await disconnect(); return snapshot(); },
     modules: async (): Promise<StudioModule[]> => {
       if (!runtime || !token) throw new StudioFailure('Войдите в Flux Studio.');
@@ -115,7 +116,7 @@ export function startShell(sections: ShellSection[] = []): void {
     remembered = new RememberedBase(dataDir, safeStorage);
     developer = new DeveloperService({
       dir: dataDir, storage: safeStorage, version: __STUDIO_VERSION__,
-      session: () => runtime && token && user ? { origin: runtime.origin, token, user } : null,
+      session: () => runtime && token && user ? { origin: runtime.origin, token, user, owner } : null,
       assets: { templatesRoot: path.join(__dirname, 'templates'), runtimeDir: path.join(__dirname, 'runtime') },
       engine: createControlsEngine({ workerFile: unpacked(path.join(__dirname, 'controls-worker.cjs')) }),
       capture: async rect => (await win!.webContents.capturePage(rect)).toPNG(),
