@@ -122,7 +122,7 @@ async function main() {
         requested.push(action);
         if (!ALL_ACTIONS.includes(action)) return { ok: false, error: 'Недоступное действие.' };
         try {
-          if (action === 'state') return { ok: true, value: { version: '1.0.0', build: 'developer', name: 'Flux Studio', owner: false, sections: [], connected: true, display: 'MariaDB / MySQL · db:3306/Flux', warning: '', remembered: '', user: { id: 'dev', name: 'Разработчик' }, sections: [] } };
+          if (action === 'state') return { ok: true, value: { version: '1.0.0', build: 'developer', name: 'Flux Studio', owner: false, sections: [], connected: true, display: 'MariaDB / MySQL · db:3306/Flux', warning: '', remembered: '', user: { id: 'dev', name: 'Разработчик' } } };
           if (action === 'logout') return { ok: true, value: {} };
           if (action === 'modules') return { ok: true, value: requestRows().map(r => ({ moduleId: r.moduleId, version: r.version, state: r.state, createdAt: r.createdAt, requests: 1 })) };
           const value: any = await service.handle(action as any, args || {});
