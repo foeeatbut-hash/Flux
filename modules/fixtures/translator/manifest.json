@@ -1,0 +1,27 @@
+{
+  "id": "translator",
+  "name": "Переводчик терминов",
+  "version": "1.0.0",
+  "author": "Flux",
+  "contractVersion": 1,
+  "entries": [
+    "start",
+    "equipment",
+    "tag"
+  ],
+  "reads": [
+    "equipment",
+    "tag",
+    "specification"
+  ],
+  "logic": "logic/main.ts",
+  "store": {
+    "category": "docs",
+    "summary": "Переводит технические термины между русским и английским по встроенному словарю.",
+    "description": "Словарь инженерных терминов: КИПиА, трубопроводы, электрика, документация. Переводит наименования и параметры открытой позиции, теги и строки спецификации, показывает слова, которых нет в словаре, и подсказывает похожие.",
+    "screenshots": [
+      "store/light.png",
+      "store/dark.png"
+    ]
+  }
+}

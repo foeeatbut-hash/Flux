@@ -55,7 +55,7 @@ async function main() {
 
   console.log('Заготовка «страница»: каждый язык');
   const created: Record<string, ProjectFiles> = {};
-  for (const id of TEMPLATE_IDS) {
+  for (const id of TEMPLATE_IDS.filter(t => t !== 'translator')) {
     const files = created[id] = createFromTemplate(templatesRoot, id, { id: `page-${id}`, name: `Страница ${id}`, author: 'Разработчик' }, 'page');
     const manifest = JSON.parse(text(files['manifest.json']));
     ok(`${id}: договор v2, ui=page, формы нет`, manifest.contractVersion === 2 && manifest.ui === 'page' && !files['form.json']);
@@ -63,6 +63,7 @@ async function main() {
     const report = await check(withShots(files));
     ok(`${id}: проверка проходит (${report.items.map(i => `${i.id}:${i.status}`).join(' ')})`, report.ok && failing(report).length === 0);
   }
+  ok('пример-заготовка со страницей не создаётся', (() => { try { createFromTemplate(templatesRoot, 'translator', { id: 'tr-one', name: 'Т', author: 'Р' }, 'page'); } catch { return true; } return false; })());
   ok('форма по-прежнему создаётся по умолчанию', (() => { const f = createFromTemplate(templatesRoot, 'typescript', { id: 'form-one', name: 'Форма', author: 'Р' }); return !!f['form.json'] && !f['ui/index.html'] && JSON.parse(text(f['manifest.json'])).contractVersion === 1; })());
 
   console.log('Мутации: проверка страницы должна падать');
