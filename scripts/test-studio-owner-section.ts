@@ -38,6 +38,7 @@ module.exports = {
   __handlers: handlers, __windows: windows, __save: (file) => { nextSave = file; },
   app: { whenReady: () => Promise.resolve(), on() {}, quit() {}, getPath: () => process.env.STUDIO_TEST_USERDATA },
   BrowserWindow: Win, ipcMain: { handle: (channel, fn) => handlers.set(channel, fn) },
+  protocol: { registerSchemesAsPrivileged() {}, handle() {} }, safeStorage: { isEncryptionAvailable: () => false },
   clipboard: { writeText() {} }, shell: { openPath: async () => '' },
   dialog: { showSaveDialog: async () => ({ canceled: false, filePath: nextSave }), showOpenDialog: async () => ({ canceled: true, filePaths: [] }), showMessageBox: async () => ({ response: 0 }) },
 };`;

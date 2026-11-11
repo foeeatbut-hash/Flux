@@ -39,6 +39,21 @@ const SOURCES: Record<TemplateId, string[]> = {
 
 const encode = (text: string) => new TextEncoder().encode(text);
 
+/**
+ * Пример логики на TypeScript считает через `compute` (по ней идут контрольные примеры), а форму наполняет обработчик
+ * `setup`: окно подпрограммы вызывает его при каждом изменении данных и берёт `calc.out` в привязки формы. На других
+ * языках форму наполняет сам расчёт — окно Flux вызывает его само, поэтому обработчика там нет.
+ */
+const TYPESCRIPT_SETUP = `
+// Обработчик для формы: при открытии и при каждом изменении данных Flux читает позицию и кладёт результат в calc.out
+export function setup({ flux, calc }: { flux: { read(resource: string): Promise<unknown>; on(event: 'changed', listener: () => void | Promise<void>): void }; calc: { out: Record<string, unknown> } }) {
+  flux.on('changed', async () => {
+    const equipment = await flux.read('equipment');
+    calc.out = compute({ flux: { equipment } } as Input).calc.out;
+  });
+}
+`;
+
 export function validProjectId(id: string): string {
   return MODULE_ID.test(id) ? '' : 'Идентификатор — латинские строчные буквы, цифры и дефис, начинается с буквы, не длиннее 64 знаков.';
 }
@@ -61,7 +76,7 @@ export function createFromTemplate(root: string, template: TemplateId, p: { id: 
     'manifest.json': encode(`${JSON.stringify(manifest, null, 2)}\n`),
     'form.json': read('stats', 'form.json'),
     'examples/controls.json': read('stats', 'controls.json'),
-    [LOGIC_FILES[info.language]]: read(template, sample.logic),
+    [LOGIC_FILES[info.language]]: template === 'typescript' ? encode(Buffer.from(read(template, sample.logic)).toString('utf8') + TYPESCRIPT_SETUP) : read(template, sample.logic),
   };
   for (const source of SOURCES[template]) files[source] = read(template, source);
   return files;
