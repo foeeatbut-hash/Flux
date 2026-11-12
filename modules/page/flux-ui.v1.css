@@ -1,0 +1,53 @@
+/*
+ * Набор Flux для страниц программ, версия 1. Необязателен: <link rel="stylesheet" href="/_flux/flux-ui.v1.css">.
+ * Цвета берутся из токенов, которые Flux присылает странице (--flux-surface, --flux-bg, --flux-hover, --flux-sel,
+ * --flux-line, --flux-text, --flux-text-muted, --flux-accent) и клиент ставит на <html>; значения ниже — запасные,
+ * пока тема не пришла. Имена классов — из словаря компонентов Flux (docs/methodology/01-design.md, раздел 5).
+ * Только добавление: в v1 классы не меняют смысл; несовместимое выйдет как flux-ui.v2.css.
+ */
+:root {
+  --flux-bg: #f8fafc; --flux-surface: #ffffff; --flux-hover: #f1f5f9; --flux-sel: #e2e8f0; --flux-line: #e2e8f0;
+  --flux-text: #1e293b; --flux-text-muted: #64748b; --flux-accent: #059669;
+  --flux-accent-on: #ffffff; --flux-radius: 6px; --flux-control-h: 28px;
+  --flux-font: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+:root[data-flux-theme="dark"] { color-scheme: dark; }
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; background: var(--flux-surface); color: var(--flux-text); font: 13px/20px var(--flux-font); }
+.fx-stack { display: flex; flex-direction: column; gap: 8px; }
+.fx-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fx-body { padding: 12px; }
+.fx-title { margin: 0 0 8px; font-size: 15px; line-height: 22px; font-weight: 600; }
+.fx-label { display: block; margin-bottom: 4px; font-size: 12px; color: var(--flux-text-muted); }
+.fx-muted { color: var(--flux-text-muted); }
+.fx-card { border: 1px solid var(--flux-line); border-radius: var(--flux-radius); background: var(--flux-surface); padding: 12px; }
+.fx-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: var(--flux-control-h); padding: 0 10px;
+  border: 1px solid var(--flux-line); border-radius: var(--flux-radius); background: var(--flux-surface); color: var(--flux-text);
+  font: 500 13px/20px var(--flux-font); white-space: nowrap; cursor: pointer;
+}
+.fx-btn:hover { background: var(--flux-hover); }
+.fx-btn:active { background: var(--flux-sel); }
+.fx-btn:disabled { opacity: .45; cursor: not-allowed; }
+.fx-btn-primary { background: var(--flux-accent); border-color: var(--flux-accent); color: var(--flux-accent-on); }
+.fx-btn-primary:hover { background: var(--flux-accent); filter: brightness(.92); }
+.fx-btn-quiet { border-color: transparent; background: transparent; color: var(--flux-text-muted); }
+.fx-input, .fx-select, .fx-textarea {
+  height: var(--flux-control-h); padding: 0 8px; border: 1px solid var(--flux-line); border-radius: var(--flux-radius);
+  background: var(--flux-surface); color: var(--flux-text); font: 13px/20px var(--flux-font);
+}
+.fx-textarea { height: auto; min-height: 72px; padding: 6px 8px; resize: vertical; }
+.fx-input:focus, .fx-select:focus, .fx-textarea:focus, .fx-btn:focus-visible, .fx-tab:focus-visible { outline: 2px solid var(--flux-accent); outline-offset: 1px; }
+.fx-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.fx-table th { text-align: left; font-weight: 500; font-size: 12px; color: var(--flux-text-muted); }
+.fx-table th, .fx-table td { padding: 4px 8px; border-bottom: 1px solid var(--flux-line); height: 28px; }
+.fx-table tbody tr:hover { background: var(--flux-hover); }
+.fx-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.fx-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--flux-line); }
+.fx-tab { padding: 6px 10px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--flux-text-muted); font: inherit; cursor: pointer; }
+.fx-tab:hover { color: var(--flux-text); }
+.fx-tab[aria-selected="true"], .fx-tab.is-on { color: var(--flux-text); font-weight: 500; border-bottom-color: var(--flux-accent); }
+.fx-note { padding: 8px 12px; color: var(--flux-text-muted); }
+.fx-empty { display: grid; place-items: center; gap: 4px; padding: 32px 12px; text-align: center; color: var(--flux-text-muted); }
+.fx-empty-title { color: var(--flux-text); font-weight: 500; }

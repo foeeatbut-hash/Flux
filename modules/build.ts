@@ -11,6 +11,7 @@ import { messageSchemas } from './schemas';
 import { MODULE_COMPUTE_HOST, MODULE_SHELL_DIR } from './protocol';
 import type { ModuleManifest } from './contract';
 import { languageOf } from './engine/types';
+import { FLUX_ASSET_DIR } from './page/model';
 
 function staticValidators() {
   const validator = new Ajv({ strict: false, code: { source: true } });
@@ -64,8 +65,20 @@ export async function buildModuleAssets(css: string, fonts: Record<string, strin
   // Общая оболочка для выпусков из базы: index.html, стили и шрифты те же, что у
   // встроенных, а runtime.js берётся из проверенного выпуска (electron/modules.ts)
   shellAssets(assets, `modules/${MODULE_SHELL_DIR}/`, css, fonts);
-  Object.assign(assets, await buildComputeAssets());
+  Object.assign(assets, await buildComputeAssets(), await buildPageAssets());
   return assets;
+}
+
+/**
+ * Клиент `flux.*` и набор Flux для страниц программ: поставляются Flux'ом, в пакет не копируются.
+ * Лежат в dist/modules/_flux и отдаются любой программе-странице по /_flux/…
+ */
+export async function buildPageAssets(): Promise<Record<string, string | Uint8Array>> {
+  const client = await build({ entryPoints: ['modules/page/client.ts'], bundle: true, write: false, platform: 'browser', format: 'iife', minify: true });
+  return {
+    [`modules/${FLUX_ASSET_DIR}/flux.v1.js`]: client.outputFiles[0].text,
+    [`modules/${FLUX_ASSET_DIR}/flux-ui.v1.css`]: fs.readFileSync('modules/page/flux-ui.v1.css', 'utf8'),
+  };
 }
 
 /** Файлы Pyodide, которые уходят в portable: ядро и стандартная библиотека. Остальное (тесты, карты, консоль) не нужно */

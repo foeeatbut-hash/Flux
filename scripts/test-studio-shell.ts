@@ -127,7 +127,7 @@ async function main() {
     const stubs = path.join(temp, 'stubs.cjs');
     fs.writeFileSync(stubs, `
       const handlers = new Map(); const sent = []; let created = null;
-      class Win { constructor(o){ created = this; this.options=o; this.webContents={ setWindowOpenHandler(){}, on(){}, send:(c,d)=>sent.push([c,d]), mainFrame:{}, capturePage: async () => ({ toPNG: () => Buffer.from([0x89,0x50,0x4e,0x47,1,2,3,4,5,6,7,8]) }) }; }
+      class Win { constructor(o){ created = this; this.options=o; this.webContents={ setWindowOpenHandler(){}, setWebRTCIPHandlingPolicy(){}, session:{ setPermissionRequestHandler(){}, setPermissionCheckHandler(){} }, on(){}, send:(c,d)=>sent.push([c,d]), mainFrame:{}, capturePage: async () => ({ toPNG: () => Buffer.from([0x89,0x50,0x4e,0x47,1,2,3,4,5,6,7,8]) }) }; }
         setMenu(){} loadFile(){ return Promise.resolve(); } on(){} once(){} show(){} isDestroyed(){ return false; } }
       module.exports = { __handlers: handlers, __sent: sent, __win: () => created,
         app: { whenReady: () => Promise.resolve(), on: (e, f) => handlers.set('app:' + e, f), quit(){ globalThis.__quitAt = globalThis.__cleaned === true ? 'после очистки' : 'до очистки'; }, getPath: () => process.env.STUDIO_TEST_DATA },

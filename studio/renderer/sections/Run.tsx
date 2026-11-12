@@ -11,7 +11,7 @@ import { call } from '../call';
 
 interface Started {
   session: string; url: string; language: string;
-  manifest: Pick<ModuleManifest, 'id' | 'name' | 'version' | 'reads' | 'entries'> & { connections: unknown[] };
+  manifest: Pick<ModuleManifest, 'id' | 'name' | 'version' | 'reads' | 'entries' | 'ui' | 'pages'> & { connections: unknown[] };
   context: LaunchContext;
 }
 interface BaseContext { id: string; name: string; equipment: Array<{ id: string; name: string }>; tags: Array<{ id: string; name: string }> }
@@ -31,6 +31,9 @@ export default function Run({ id }: { id: string }) {
   const [error, setError] = useState('');
   const [log, setLog] = useState<LogRow[]>([]);
   const [shots, setShots] = useState('');
+  // Ширина кадра страницы: так видно, как она ведёт себя в узком и широком окне Flux
+  const [width, setWidth] = useState(0);
+  const kept = useRef<Record<string, unknown>>({});
   const frame = useRef<HTMLIFrameElement>(null);
   const bridge = useRef<ReturnType<typeof createModuleBridge> | null>(null);
   const latest = useRef(pick);
@@ -44,7 +47,8 @@ export default function Run({ id }: { id: string }) {
   // Мост живёт, пока открыт запуск; закрытие окна программы закрывает и его
   useEffect(() => {
     if (!started) return;
-    const manifest = { ...started.manifest, author: '', contractVersion: 1, logic: '' } as unknown as ModuleManifest;
+    const isPage = started.manifest.ui === 'page';
+    const manifest = { ...started.manifest, author: '', contractVersion: isPage ? 2 : 1, logic: '' } as unknown as ModuleManifest;
     const b = createModuleBridge({
       frame: () => frame.current?.contentWindow || null, session: started.session, manifest,
       context: () => ({ projectId: latest.current.projectId || null, entry: latest.current.entry as LaunchContext['entry'], entityId: latest.current.entityId || null }),
@@ -61,6 +65,14 @@ export default function Run({ id }: { id: string }) {
       },
       onComputeError: code => add('сбой', `расчёт остановлен: ${code}`, 'error'),
       onLog: (level, text) => add('flux.log', text, level),
+      // Страница программы: окна, файлы и обмен в Studio только записываются в журнал, настоящие — во Flux
+      page: isPage ? {
+        loadState: () => kept.current, keepState: state => { kept.current = state; },
+        offerFile: async file => { add('файл', `${file.name} (${file.bytes.length} Б) — во Flux Flux спросит и сохранит через диалог`); return 'saved'; },
+        onBeat: () => undefined,
+        openWindow: (page, params) => { add('окно', `${page} ${JSON.stringify(params)} — во Flux откроется обычным окном`); return true; },
+        params: () => ({}), broadcast: data => add('обмен', JSON.stringify(data).slice(0, 120)),
+      } : undefined,
       onFailure: kind => add('сбой', String(kind), 'error'),
     });
     bridge.current = b;
@@ -114,8 +126,14 @@ export default function Run({ id }: { id: string }) {
       </div>
       {shots && <p className="fx-hint" role="status">{shots}</p>}
       {started && started.language === 'python' && <p className="fx-hint">Python исполняет общая среда Flux, в Studio её нет: форма откроется, расчёт — нет. Его проверит Flux при первом запуске выпуска.</p>}
+      {started?.manifest.ui === 'page' && (
+        <div className="row" role="group" aria-label="Ширина окна">
+          {[[360, 'Узкое'], [640, 'Среднее'], [960, 'Широкое'], [0, 'Во всю ширину']].map(([w, label]) => (
+            <button key={w} className={width === w ? 'fx-btn fx-btn-primary' : 'fx-btn'} onClick={() => setWidth(Number(w))}>{label}</button>))}
+        </div>
+      )}
       {started && (
-        <iframe ref={frame} title={started.manifest.name} className="module-frame" data-testid="studio-module-frame"
+        <iframe ref={frame} title={started.manifest.name} className="module-frame" data-testid="studio-module-frame" style={width ? { width, maxWidth: '100%' } : undefined}
           sandbox={MODULE_SANDBOX} referrerPolicy="no-referrer" src={`${started.url}#${started.session}`}
           allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'" />
       )}

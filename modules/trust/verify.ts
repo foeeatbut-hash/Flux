@@ -18,12 +18,12 @@ import {
   parseCertificateClaim, parsePinClaim, parseReleaseClaim, parseRequestClaim, parseRevocationClaim, releaseKey,
   type CertificateClaim, type ModuleChannel, type PinClaim, type ReleaseClaim, type RequestClaim, type BundleDigest,
 } from './claims';
-import { joinChunks, splitChunks, unpackBundle, bundleText, RUNTIME_FILE, type BundleFiles } from './bundle';
+import { joinChunks, splitChunks, unpackBundle, bundleText, type BundleFiles } from './bundle';
 import { validManifest } from '../schemas';
 import { CONTRACT_VERSION, type ModuleManifest } from '../contract';
 import { effectiveChannel, type PromotionClaim } from './promotion';
 import { compareVersions } from '../../shared/versionCompare';
-import { executionProblem } from './execution';
+import { executionProblem, interfaceProblem } from './execution';
 import { languageOf, platformOf } from '../engine/types';
 
 export interface RevokedSet { releases: Set<string>; keys: Set<string> }
@@ -125,7 +125,8 @@ export function verifyRelease(input: {
   const manifest = bundleManifest(files, claim.moduleId, claim.version);
   if (typeof manifest === 'string') return { ok: false, why: manifest };
   if (manifest.contractVersion !== claim.contractVersion) return { ok: false, why: 'Версия договора в подписи и в manifest.json разная' };
-  if (!files[RUNTIME_FILE]?.length) return { ok: false, why: `В пакете нет ${RUNTIME_FILE}` };
+  const surface = interfaceProblem(manifest, files);
+  if (surface) return { ok: false, why: surface };
   // Язык и платформа подписаны вместе с пакетом: манифест внутри пакета обязан говорить то же,
   // иначе подпись покрывала бы одну логику, а оболочка запускала бы другую
   if (languageOf(claim) !== languageOf(manifest) || platformOf(claim) !== platformOf(manifest)) {
@@ -169,7 +170,8 @@ export function verifyRequest(input: {
   const manifest = bundleManifest(files, claim.moduleId, claim.version);
   if (typeof manifest === 'string') return { ok: false, why: manifest };
   if (manifest.contractVersion !== claim.meta.contractVersion) return { ok: false, why: 'Версия договора в запросе и в manifest.json разная' };
-  if (!files[RUNTIME_FILE]?.length) return { ok: false, why: `В пакете нет ${RUNTIME_FILE}` };
+  const surface = interfaceProblem(manifest, files);
+  if (surface) return { ok: false, why: surface };
   const execution = executionProblem(manifest, files);
   if (execution) return { ok: false, why: execution };
   return { ok: true, claim, files, manifest, byOwner };

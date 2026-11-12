@@ -55,6 +55,20 @@ export const messageSchemas = {
   'connect-result': object({ ...envelope, id, type: { const: 'connect-result' }, data: {} }),
   'connect-error': object({ ...envelope, id, type: { const: 'connect-error' }, code: { enum: [...CONNECT_ERROR_CODES] } }),
   'compute-error': object({ ...envelope, id, type: { const: 'compute-error' }, code: { enum: [...COMPUTE_ERROR_CODES] } }),
+  // Действия страницы (договор v2): состояние окна, файл пользователю, сигнал «жива»
+  page: { oneOf: [
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'state-load' } }),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'state-keep' }, state: { type: 'object' } }),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'file-offer' }, name: { type: 'string', minLength: 1, maxLength: 100 },
+      mime: { type: 'string', maxLength: 100 }, data: { type: 'string', maxLength: 700_000 }, encoding }, ['flux', 'v', 'session', 'id', 'type', 'op', 'name', 'data', 'encoding']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'beat' } }),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'window-open' }, page: { type: 'string', maxLength: 160 }, params: { type: 'object' } }, ['flux', 'v', 'session', 'id', 'type', 'op', 'page']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'params-load' } }),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'channel-send' }, data: {} }),
+  ] },
+  'page-message': object({ ...envelope, type: { const: 'page-message' }, data: {} }),
+  'page-result': object({ ...envelope, id, type: { const: 'page-result' }, data: {} }),
+  'page-error': object({ ...envelope, id, type: { const: 'page-error' }, code: { enum: ['DENIED', 'LIMIT', 'FAILED', 'CANCELLED'] } }),
   error: object({ ...envelope, id, type: { const: 'error' }, code: { enum: ['READ_ONLY', 'DENIED', 'NO_PROJECT', 'FAILED', 'LIMIT'] } }),
   event: object({
     ...envelope, type: { const: 'event' }, event: { enum: ['opened', 'project-changed', 'changed'] },
@@ -81,17 +95,22 @@ const storeBlock = object({
 }, ['category', 'summary']);
 export const manifestSchema = object({
   id: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,63}$' }, name: text, author: text,
-  version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' }, contractVersion: { const: 1 },
+  version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' }, contractVersion: { enum: [1, 2] },
   entries: { type: 'array', uniqueItems: true, items: { enum: ['start', 'equipment', 'tag'] } },
   reads: { type: 'array', uniqueItems: true, items: { enum: resources } }, logic: { enum: Object.values(LOGIC_FILES) },
   language: { enum: [...LANGUAGES] }, sourceLanguage: { enum: [...SOURCE_LANGUAGES] }, platform: { enum: [...PLATFORMS] },
   store: storeBlock,
   // Форма каждого подключения и запрет опасных объектов проверяет parseConnections (modules/connections/model.ts): схема тут только отсекает не массив
   connections: { type: 'array', maxItems: 8, items: { type: 'object' } },
+  ui: { const: 'page' },
+  pages: { type: 'array', maxItems: 20, uniqueItems: true, items: { type: 'string', pattern: '^(?:[A-Za-z0-9_][A-Za-z0-9_-]{0,63}/){0,4}[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}\\.html$' } },
 }, ['id', 'name', 'author', 'version', 'contractVersion', 'entries', 'reads', 'logic']);
 // Файл логики обязан соответствовать языку: иначе подпись покрывала бы один файл, а запускался другой
 const languageIs = (language: string) => ({ required: ['language'], properties: { language: { const: language } } });
 (manifestSchema as any).allOf = [
+  // Страница — договор v2; v1 её не знает, и старый Flux такой выпуск не запустит
+  { if: { required: ['ui'] }, then: { properties: { contractVersion: { const: 2 } } } },
+  { if: { required: ['pages'] }, then: { required: ['ui'] } },
   { if: languageIs('python'), then: { properties: { logic: { const: LOGIC_FILES.python } }, not: { required: ['sourceLanguage'] } } },
   { if: languageIs('wasm'), then: { properties: { logic: { const: LOGIC_FILES.wasm } }, required: ['sourceLanguage'] } },
   { if: { not: { required: ['language'], properties: { language: { enum: ['python', 'wasm'] } } } },

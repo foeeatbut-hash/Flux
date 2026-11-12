@@ -88,6 +88,8 @@
         "server/routes/moduleCertRequests.ts",
         "server/updateDelegationCleanup.ts",
         "server/routes/updateCampaigns.ts",
+        "studio/shared/pageTemplate.ts",
+        "modules/page/types.ts",
         "studio/build-renderer.cjs",
         "studio/renderer/flux.css",
         "studio/renderer/flux-css-entry.js",
@@ -247,6 +249,15 @@
       ],
       "prerequisites": [],
       "timeoutMs": 300000
+    },
+    {
+      "id": "studio-page",
+      "path": "scripts/test-studio-page.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
     },
     {
       "id": "studio-translator",

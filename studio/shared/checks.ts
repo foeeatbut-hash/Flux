@@ -17,6 +17,8 @@ import { CONTROLS_FILE, LIMITS, LOGIC_FILES, languageOf } from '../../modules/en
 import { wasmProblem } from '../../modules/engine/wasmInspect';
 import { parseControls } from '../../modules/engine/controls';
 import { MODULE_BUNDLE_MAX, MODULE_VERSION } from '../../modules/trust/claims';
+import { compareVersions } from '../../shared/versionCompare';
+import { pageProblem, pageFiles, PAGE_ENTRY, PAGE_MIN_FLUX } from '../../modules/page/model';
 import type { ControlsEngine } from './controlsEngine';
 import type { ProjectFiles } from './templates';
 
@@ -38,6 +40,26 @@ const FORBIDDEN_CODE: Array<[RegExp, string]> = [
 /** Вызовы записи в данные Flux: договор v1 — только чтение */
 const WRITE_CALL = /\bflux\s*\.\s*(?:write|set|update|create|delete|remove|save|patch|put)\w*\s*\(/;
 /** Рекламные слова, которыми методология запрещает подписывать интерфейс (01-design.md, раздел 6) */
+/**
+ * Страница (договор v2): что в её файлах закрыто CSP во Flux. Находим сразу, чтобы разработчик не узнал об этом
+ * только при запуске: сеть (адреса http/https/ws и fetch), хранилища, eval, встроенные скрипты и стили.
+ */
+const PAGE_FORBIDDEN: Array<[RegExp, string]> = [
+  [/(?<![.\w])fetch\s*\(|\b(?:XMLHttpRequest|WebSocket|EventSource|importScripts)\b|\bsendBeacon\b/, 'сетевой вызов: кадр страницы в сеть не ходит; интернет и внешние программы — через flux.net.fetch и подключения в manifest.json'],
+  [/\b(?:localStorage|sessionStorage|indexedDB|document\.cookie|caches)\b/, 'хранилище браузера: состояние окна хранит Flux (flux.state)'],
+  [/\b(?:window\.parent|parent\.(?:document|location|postMessage)|top\.|window\.top|ipcRenderer)/, 'выход за пределы кадра страницы'],
+  [/\beval\s*\(|new\s+Function\s*\(|setTimeout\s*\(\s*['"`]|setInterval\s*\(\s*['"`]/, 'динамическое выполнение кода (CSP без eval)'],
+  [/\bwindow\.open\s*\(|\blocation\s*\.\s*(?:href|assign|replace)\s*=/, 'переход или новое окно из страницы: свои окна открывает flux.windows.open'],
+];
+/** В html: внешние адреса ресурсов, встроенные скрипты, теги и атрибуты style (CSP страницы их не пускает) */
+function pageHtmlProblems(html: string): string[] {
+  const out: string[] = [];
+  if (/(?:src|href|action)\s*=\s*["']?\s*(?:https?:)?\/\//i.test(html)) out.push('ссылка на внешний адрес: ресурсы страницы лежат в пакете');
+  if (/<script(?![^>]*\bsrc=)[^>]*>\s*[^<\s]/i.test(html)) out.push('встроенный <script>: вынесите код в файл (CSP запрещает встроенные скрипты)');
+  if (/<style[\s>]/i.test(html) || /\sstyle\s*=/i.test(html)) out.push('встроенные стили (<style> или атрибут style): вынесите в .css файл (CSP запрещает)');
+  if (/\son[a-z]+\s*=/i.test(html)) out.push('обработчик события в атрибуте (onclick…): подпишитесь из скрипта');
+  return out;
+}
 const ADVERT = /мгновенн|сквозн|в реальном времени|интеллектуальн|революцион|уникальн/i;
 
 function readsUsedInCode(source: string): string[] {
@@ -95,23 +117,29 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
   let manifest: ModuleManifest | null = null;
   const contract: string[] = [];
   try { manifest = JSON.parse(text(files, 'manifest.json') || ''); } catch { contract.push('manifest.json не читается как JSON'); }
-  if (manifest && !validManifest(manifest)) { contract.push('manifest.json не соответствует договору v1 (id, версия, entries, reads, logic, language)'); }
+  if (manifest && !validManifest(manifest)) { contract.push('manifest.json не соответствует договору (id, версия, entries, reads, logic, language, для страницы — contractVersion 2 и ui)'); }
   if (manifest && validManifest(manifest)) {
     if (!MODULE_VERSION.test(manifest.version)) contract.push('версия — три числа через точку');
     if (manifest.contractVersion > CONTRACT_VERSION) contract.push(`программе нужен договор v${manifest.contractVersion}, а Studio знает v${CONTRACT_VERSION}: обновите Studio`);
     if (!files[manifest.logic]?.length) contract.push(`нет файла логики ${manifest.logic}`);
     if (!manifest.entries.length) contract.push('entries пуст: программе негде появиться');
   }
-  if (!files['form.json']) contract.push('нет form.json');
+  const isPage = !!manifest && (manifest as ModuleManifest).ui === 'page';
+  if (isPage) { const problem = pageProblem(files, (manifest as ModuleManifest).pages); if (problem) contract.push(problem); }
+  else if (!files['form.json']) contract.push('нет form.json');
+  if (isPage) {
+    const need = (manifest as ModuleManifest).store?.requires?.flux;
+    if (!need || compareVersions(need, PAGE_MIN_FLUX) < 0) contract.push(`для страницы укажите store.requires.flux не ниже ${PAGE_MIN_FLUX}: старый Flux её не запустит, а Store спрячет установку`);
+  }
   const total = Object.values(files).reduce((sum, bytes) => sum + bytes.length, 0);
   if (total > MODULE_BUNDLE_MAX) contract.push(`проект больше ${MODULE_BUNDLE_MAX / 1024 / 1024} МиБ`);
-  items.push(item('contract', 'Договор: manifest.json и состав пакета', contract.length ? 'fail' : 'ok', contract.join('; ') || 'manifest.json соответствует договору v1, файлы на месте'));
+  items.push(item('contract', 'Договор: manifest.json и состав пакета', contract.length ? 'fail' : 'ok', contract.join('; ') || (isPage ? `manifest.json соответствует договору v2, страница ${PAGE_ENTRY} на месте` : 'manifest.json соответствует договору v1, файлы на месте')));
   if (!manifest || !validManifest(manifest)) return finish(items, input);
 
   // 2. Привязки и чтения -----------------------------------------------------
   const binding: string[] = [];
   let form: any = null;
-  try { form = JSON.parse(text(files, 'form.json') || ''); validateModuleForm(form, manifest.id, manifest.reads); }
+  if (!isPage) try { form = JSON.parse(text(files, 'form.json') || ''); validateModuleForm(form, manifest.id, manifest.reads); }
   catch (e: any) { binding.push(String(e?.message || 'form.json не читается').replace(/^form\.json модуля «[^»]*»: /, '')); }
   const language = languageOf(manifest);
   const source = language === 'wasm' ? '' : text(files, manifest.logic) || '';
@@ -120,7 +148,7 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
     else if (!manifest.reads.includes(resource as any)) binding.push(`логика читает «${resource}», но его нет в reads манифеста`);
   }
   if (WRITE_CALL.test(source)) binding.push('вызов записи в данные Flux: договор v1 допускает только чтение');
-  items.push(item('bindings', 'Привязки формы и чтения данных', binding.length ? 'fail' : 'ok', binding.join('; ') || 'все привязки есть в схеме договора, чтения объявлены в reads, записи нет'));
+  items.push(item('bindings', isPage ? 'Чтения данных' : 'Привязки формы и чтения данных', binding.length ? 'fail' : 'ok', binding.join('; ') || (isPage ? 'чтения объявлены в reads, записи нет' : 'все привязки есть в схеме договора, чтения объявлены в reads, записи нет')));
 
   // 3. Связи с данными Flux (часть таблицы связок) ---------------------------
   const usedResources = new Set([...resourcesInForm(form), ...readsUsedInCode(source)]);
@@ -142,6 +170,32 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
   }
   items.push(item('isolation', 'Изоляция: нет сети, хранилищ, выхода из окна', isolation.length ? 'fail' : 'ok',
     isolation.join('; ') || (language === 'wasm' ? 'импорты .wasm — только разрешённые Flux' : 'в тексте логики нет запрещённых обращений; сама изоляция проверяется при запуске во Flux')));
+
+  // 4а. Страница: нарушения CSP, обращения в сеть, размер, обе темы -------------
+  if (isPage) {
+    const csp: string[] = [], themeIssues: string[] = [];
+    const sources = pageFiles(files).filter(f => /\.(?:js|mjs|html|css|svg)$/i.test(f));
+    let usesTokens = false, hardColors = false;
+    for (const file of sources) {
+      const body = text(files, file) || '';
+      const found = new Set<string>();
+      if (/\.html$/i.test(file)) for (const reason of pageHtmlProblems(body)) found.add(reason);
+      if (/\.(?:js|mjs)$/i.test(file)) for (const [pattern, reason] of PAGE_FORBIDDEN) if (pattern.test(body)) found.add(reason);
+      if (/\.css$/i.test(file)) {
+        if (/@import\s+(?:url\()?['"]?(?:https?:)?\/\//i.test(body) || /url\(\s*['"]?(?:https?:)?\/\//i.test(body)) found.add('внешний адрес в стилях');
+        if (/var\(--flux-/.test(body)) usesTokens = true;
+        if (/#[0-9a-f]{3,8}\b|rgba?\(/i.test(body)) hardColors = true;
+      }
+      if (/\.html$/i.test(file) && /flux-ui\.v1\.css/.test(body)) usesTokens = true;
+      if (/\.(?:js|mjs)$/i.test(file) && /--flux-|flux\.theme|onTheme/.test(body)) usesTokens = true;
+      for (const reason of found) csp.push(`${file}: ${reason}`);
+    }
+    items.push(item('page-csp', 'Страница: нет нарушений CSP и обращений в сеть', csp.length ? 'fail' : 'ok',
+      csp.join('; ') || 'в файлах страницы нет сети, хранилищ, eval, встроенных скриптов и стилей; настоящую проверку делает запуск (CSP-нарушения видны в журнале)'));
+    if (hardColors && !usesTokens) themeIssues.push('цвета в стилях заданы жёстко и нет токенов Flux (var(--flux-…)): в одной из тем текст может оказаться нечитаемым');
+    items.push(item('page-themes', 'Страница: работа в светлой и тёмной теме', themeIssues.length ? 'fail' : 'ok',
+      themeIssues.join('; ') || 'цвета берутся из токенов темы Flux; вид в обеих темах подтверждают снимки (раздел «Запуск» → «Снять обе темы»)'));
+  }
 
   // 5. Пределы времени и памяти ---------------------------------------------
   const limits: string[] = [];
@@ -183,9 +237,10 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
 
   // 7. Методология интерфейса (проверочный список 01-design.md, раздел 8) -----
   const method = methodologyProblems(form);
-  items.push(item('methodology', 'Методология: тексты формы', method.length ? 'fail' : 'ok', method.join('; ') || 'подписи по правилам раздела 6: без рекламы, заглавных слов, точек на конце'));
-  items.push(item('methodology-visual', 'Методология: цвета, размеры, обе темы', 'ok',
-    'Форма собирается компонентами Flux из form.json: цвета только из токенов, меры и обе темы заданы оболочкой; страниц, написанных кодом, договор v1 не знает.'));
+  if (!isPage) items.push(item('methodology', 'Методология: тексты формы', method.length ? 'fail' : 'ok', method.join('; ') || 'подписи по правилам раздела 6: без рекламы, заглавных слов, точек на конце'));
+  items.push(item('methodology-visual', 'Методология: цвета, размеры, обе темы', isPage ? 'manual' : 'ok',
+    isPage ? 'Не проверяется автоматически: страницу рисует сам разработчик. Набор Flux (/_flux/flux-ui.v1.css) даёт цвета, меры и компоненты по словарю методологии; владелец смотрит снимки и пробный запуск.'
+      : 'Форма собирается компонентами Flux из form.json: цвета только из токенов, меры и обе темы заданы оболочкой.'));
 
   // 8. «Что нового» и снимки -------------------------------------------------
   const log = input.changelog.trim();

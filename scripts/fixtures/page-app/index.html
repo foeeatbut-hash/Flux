@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Калькулятор</title>
+  <link rel="stylesheet" href="/_flux/flux-ui.v1.css">
+  <link rel="stylesheet" href="/ui/style.css">
+</head>
+<body>
+  <div class="fx-body fx-stack">
+    <h1 class="fx-title">Проверка страницы</h1>
+    <label class="fx-label" for="v">Значение</label>
+    <input id="v" class="fx-input" value="3">
+    <button id="go" class="fx-btn fx-btn-primary" type="button">Рассчитать</button>
+    <canvas id="c" width="120" height="40"></canvas>
+    <a id="next" href="second.html">Вторая страница</a>
+    <p id="inline-mark">до</p>
+    <script>document.getElementById('inline-mark').textContent = 'встроенный скрипт выполнился';</script>
+  </div>
+  <script src="/_flux/flux.v1.js"></script>
+  <script src="/ui/app.js"></script>
+</body>
+</html>

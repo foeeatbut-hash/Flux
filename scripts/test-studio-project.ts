@@ -64,7 +64,7 @@ async function main() {
   const app = path.join(temp, 'app');
   const metafiles = await buildDeveloperAssets({ app, esbuild });
   ok('окно подпрограммы, Worker, рабочий поток и заготовки собраны', ['runtime/frame.js', 'runtime/worker.js', 'runtime/index.html', 'runtime/flux.css', 'controls-worker.cjs', 'templates/stats/form.json'].every(f => fs.existsSync(path.join(app, f))));
-  ok('карты сборки есть для проверки бандла', Object.keys(metafiles).length === 3);
+  ok('карты сборки есть для проверки бандла', Object.keys(metafiles).length === 4);
   const templatesRoot = path.join(app, 'templates');
   const engine = createControlsEngine({ workerFile: path.join(app, 'controls-worker.cjs'), timeoutMs: 4000 });
   const check = (files: ProjectFiles, changelog = 'Первая версия') => runChecks({ files, changelog, studioVersion: '1.0.0', engine });

@@ -37,10 +37,10 @@ export function requestEnvelope(key: crypto.KeyObject, bundle: Uint8Array, p: {
 
 export function releaseEnvelope(key: crypto.KeyObject, bundle: Uint8Array, p: {
   moduleId?: string; version: string; author: string; request?: string; channel?: ModuleChannel; notBefore?: number;
-  language?: string; platform?: string;
+  language?: string; platform?: string; contractVersion?: number;
 }) {
   return sealEnvelope('release', {
-    v: 1, moduleId: p.moduleId || 'equipment-inspector', version: p.version, contractVersion: 1, channel: p.channel || 'production',
+    v: 1, moduleId: p.moduleId || 'equipment-inspector', version: p.version, contractVersion: p.contractVersion ?? 1, channel: p.channel || 'production',
     notBefore: p.notBefore ?? 0, request: p.request || 'request-1', author: p.author, iat: Date.now(), ...describeBundle(bundle),
     ...(p.language ? { language: p.language, platform: p.platform || 'any' } : {}),
   }, key);

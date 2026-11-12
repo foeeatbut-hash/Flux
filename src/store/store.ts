@@ -3,6 +3,7 @@ import { setNotifUser } from '../lib/notifPrefs';
 import { logoutSession, markSessionEstablished } from '../config/env';
 import { useToastStore } from './toastStore';
 import { prepareSessionClose } from '../lib/closeGuard';
+import { pageState } from '../lib/pageStateMemory';
 import { applyGlass, readGlass, type GlassState } from '../lib/glass';
 
 type User = {
@@ -111,6 +112,8 @@ export const useStore = create<AppState>((set, get) => {
         }
       } catch (e) {}
       setNotifUser(user?.id);
+      // Состояние страниц программ принадлежит пользователю: при выходе и смене профиля оно сбрасывается
+      if (!user || user.id !== get().user?.id) pageState.clear();
       if (user) {
         // Load user-specific active project
         const savedProjectStr = localStorage.getItem(`max_active_project_${user.id}`);

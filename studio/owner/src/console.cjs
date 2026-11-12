@@ -176,6 +176,10 @@ function createConsoleActions(ctx, request = consoleRequest) {
       // Берётся тот же пакет, что показан на экране: запуск не может отличаться от просмотра
       const id = idOf(a.id), loaded = await actions.request({ id });
       const files = unpackBundle(Buffer.from(loaded.bundle, 'base64'));
+      let isPage = false;
+      try { isPage = JSON.parse(Buffer.from(files['manifest.json'] || '{}').toString('utf8')).ui === 'page'; } catch (_) { /* манифест проверит сервер */ }
+      // Страница рисуется отдельным кадром Flux; в окне владельца пробного запуска для неё пока нет — говорим прямо
+      if (isPage) throw new Error('Это программа со своей страницей: пробный запуск страниц в Studio владельца пока не сделан. Файлы ui/ видны во вкладке «Файлы», а тестовый выпуск проверьте во Flux (канал «тестовый»).');
       const runtime = files[RUNTIME_FILE];
       if (!runtime) throw new Error('В пакете нет собранной программы (build/runtime.js).');
       trial = { id, runtime };

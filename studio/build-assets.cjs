@@ -64,6 +64,11 @@ async function buildDeveloperAssets({ app, esbuild }) {
   fs.writeFileSync(path.join(dir, 'frame.js'), frame.outputFiles[0].text);
   fs.writeFileSync(path.join(dir, 'worker.js'), worker.outputFiles[0].text);
   fs.copyFileSync(path.join(root, 'studio/shared/moduleShell.css'), path.join(dir, 'flux.css'));
+  // Клиент flux.* и набор Flux для страниц программ (договор v2): те же файлы, что Flux отдаёт по /_flux/
+  const pageClient = await esbuild.build({ ...browser, entryPoints: [path.join(root, 'modules/page/client.ts')], minify: true });
+  metafiles.pageClient = pageClient.metafile;
+  fs.writeFileSync(path.join(dir, 'flux.v1.js'), pageClient.outputFiles[0].text);
+  fs.copyFileSync(path.join(root, 'modules/page/flux-ui.v1.css'), path.join(dir, 'flux-ui.v1.css'));
   // Страница окна подпрограммы — та же, что у Flux (modules/build.ts, shellAssets)
   fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html><html lang="ru" style="background:var(--flux-surface)">'
     + '<head><meta charset="utf-8"><link rel="stylesheet" href="./flux.css"></head>'

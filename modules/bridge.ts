@@ -1,11 +1,12 @@
 import type {
   BridgeError, ComputeHostMessage, ConnectHostMessage, HostMessage, LaunchContext, ModuleManifest, ModuleOutput, ReadData,
-  ReadRequest, Resource, ThemeTokens, ModuleFailureKind,
+  ReadRequest, Resource, ThemeTokens, ModuleFailureKind, PageHostMessage, PageOp,
 } from './contract';
 import { validMessage } from './schemas';
 import { ComputeError, codeOf, type ComputeErrorCode } from './engine/types';
 import { encodeJson } from './engine/json';
 import type { ConnectCall, ConnectErrorCode } from './connections/model';
+import { PAGE_LIMITS, saveNameProblem, WINDOW_LIMITS } from './page/model';
 
 export interface ModuleBridgeOptions {
   frame: () => Window | null;
@@ -32,6 +33,23 @@ export interface ModuleBridgeOptions {
   onClose?: () => void;
   /** Строка из flux.log подпрограммы; окно пишет её в журнал */
   onLog?: (level: 'info' | 'warn' | 'error', text: string) => void;
+  /**
+   * Страница программы (договор v2). Действия страницы выполняет окно Flux: состояние держит оно,
+   * файл пользователю отдаёт через свой диалог (страница на диск не пишет). Без этого поля, как и
+   * без `ui: 'page'` в манифесте, любое действие страницы — отказ DENIED.
+   */
+  page?: {
+    loadState: () => Record<string, unknown>;
+    keepState: (state: Record<string, unknown>) => void;
+    offerFile: (file: { name: string; mime: string; bytes: Uint8Array }) => Promise<'saved' | 'cancelled'>;
+    onBeat: () => void;
+    /** Свои окна программы: Flux открывает обычное окно с этой страницей пакета; false — предел или страницы нет */
+    openWindow: (page: string, params: Record<string, unknown>) => boolean;
+    /** Параметры, с которыми открыто это окно */
+    params: () => Record<string, unknown>;
+    /** Сообщение остальным окнам этой же программы (чужим не доходит) */
+    broadcast: (data: unknown) => void;
+  };
 }
 
 function messageBytes(message: unknown): number {
@@ -56,7 +74,7 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
   const connecting = new Set<string>();
   let logAt = 0;
   let logs = 0;
-  function post(message: HostMessage | ComputeHostMessage | ConnectHostMessage) {
+  function post(message: HostMessage | ComputeHostMessage | ConnectHostMessage | PageHostMessage) {
     if (!disposed && validMessage(message.type, message)) {
       // Получатель — только сохранённое окно iframe. Его opaque origin
       // нельзя указать строкой targetOrigin, поэтому здесь нужен '*'.
@@ -109,6 +127,49 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     } catch (_) { if (!disposed) fail('FAILED'); }
     finally { connecting.delete(message.id); }
   }
+  let offering = false;
+  let offeredAt = 0;
+  async function runPage(message: { id: string } & PageOp) {
+    const answer = (result: { data: unknown } | { code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' }) => {
+      if (disposed) return;
+      if ('code' in result) post({ flux: 'module', v: 1, session: options.session, type: 'page-error', id: message.id, code: result.code } as PageHostMessage);
+      else post({ flux: 'module', v: 1, session: options.session, type: 'page-result', id: message.id, data: result.data } as PageHostMessage);
+    };
+    const page = options.page;
+    if (options.manifest.ui !== 'page' || !page) { answer({ code: 'DENIED' }); return; }
+    if (message.op === 'beat') { page.onBeat(); return; }
+    if (message.op === 'params-load') { answer({ data: page.params() }); return; }
+    if (message.op === 'channel-send') {
+      if (messageBytes(message.data) > WINDOW_LIMITS.messageBytes) { answer({ code: 'LIMIT' }); return; }
+      page.broadcast(message.data); answer({ data: null }); return;
+    }
+    if (message.op === 'window-open') {
+      // Страница обязана быть главной либо объявленной в подписанном манифесте; параметры невелики
+      const allowed = message.page === 'index.html' || (options.manifest.pages || []).includes(message.page);
+      if (!allowed) { answer({ code: 'DENIED' }); return; }
+      if (messageBytes(message.params ?? {}) > WINDOW_LIMITS.paramsBytes) { answer({ code: 'LIMIT' }); return; }
+      answer(page.openWindow(message.page, message.params ?? {}) ? { data: null } : { code: 'LIMIT' }); return;
+    }
+    if (message.op === 'state-load') { answer({ data: page.loadState() }); return; }
+    if (message.op === 'state-keep') {
+      if (messageBytes(message.state) > PAGE_LIMITS.stateBytes) { answer({ code: 'LIMIT' }); return; }
+      page.keepState(message.state); answer({ data: null }); return;
+    }
+    // Файл пользователю: одно окно диалога за раз и не чаще раза в секунду, имя без путей
+    if (saveNameProblem(message.name)) { answer({ code: 'DENIED' }); return; }
+    if (offering || Date.now() - offeredAt < 1000) { answer({ code: 'LIMIT' }); return; }
+    let bytes: Uint8Array;
+    try {
+      bytes = message.encoding === 'base64'
+        ? Uint8Array.from(atob(message.data), c => c.charCodeAt(0)) : new TextEncoder().encode(message.data);
+    } catch { answer({ code: 'FAILED' }); return; }
+    offering = true; offeredAt = Date.now();
+    try {
+      const result = await page.offerFile({ name: message.name, mime: message.mime || 'application/octet-stream', bytes });
+      answer(result === 'saved' ? { data: 'saved' } : { code: 'CANCELLED' });
+    } catch { answer({ code: 'FAILED' }); }
+    finally { offering = false; }
+  }
   function notify(event: 'opened' | 'project-changed' | 'changed') {
     generation++;
     options.beginReadCycle?.();
@@ -158,6 +219,14 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       }
       return;
     }
+    if (message.type === 'page') {
+      // Неверная форма действия страницы — понятный отказ, а не молчание до таймаута страницы
+      if (typeof message.id === 'string' && message.id && message.id.length <= 160) {
+        if (validMessage('page', message)) void runPage(message);
+        else post({ flux: 'module', v: 1, session: options.session, type: 'page-error', id: message.id, code: 'DENIED' } as PageHostMessage);
+      }
+      return;
+    }
     if (validMessage('log', message)) {
       // Частота и длина ограничены здесь, до журнала: подпрограмма не раздует его (5 в секунду)
       if (Date.now() - logAt >= 1000) { logAt = Date.now(); logs = 0; }
@@ -186,6 +255,8 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
   }
   return {
     handle, notify,
-    dispose: () => { disposed = true; generation++; pending.clear(); computing.clear(); connecting.clear(); options.onClose?.(); },
+    /** Сообщение от другого окна этой же программы */
+    deliver: (data: unknown) => post({ flux: 'module', v: 1, session: options.session, type: 'page-message', data } as PageHostMessage),
+    dispose: () => { disposed = true; offering = false; generation++; pending.clear(); computing.clear(); connecting.clear(); options.onClose?.(); },
   };
 }
