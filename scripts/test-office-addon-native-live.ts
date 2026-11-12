@@ -134,6 +134,15 @@ const openPanel = async (page: any, title: string) => {
     console.error('NATIVE_FRAME_OPEN_DIAGNOSTIC', JSON.stringify({ ...diagnostic, error: String(error), screenshot: path }));
     throw error;
   }
+  // До загрузки содержимого кадр — заглушка с origin 'null', и postMessage с таким origin
+  // родитель не принимает: ждём, пока в кадре откроется настоящий редактор.
+  const frameLoadedDeadline = Date.now() + 30000;
+  for (;;) {
+    const loaded = await frame.locator('body').evaluate(() => location.origin !== 'null' && /\/genoffice\//.test(location.href) && document.readyState === 'complete').catch(() => false);
+    if (loaded) break;
+    if (Date.now() > frameLoadedDeadline) throw new Error(`Кадр "${title}" не загрузил содержимое за 30 с (origin остался заглушкой)`);
+    await page.waitForTimeout(200);
+  }
   await frame.locator('body').evaluate((body: HTMLElement) => {
     window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin);
   });
