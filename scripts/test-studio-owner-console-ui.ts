@@ -25,7 +25,8 @@ const ok = (name: string, value: unknown) => { assert.ok(value, name); passed++;
 const shots = process.env.FLUX_STUDIO_SHOTS || path.join(os.tmpdir(), 'flux-studio-shots');
 
 const manifest = (version: string, withConnection: boolean) => JSON.stringify({
-  id: 'connections-http', name: 'Расчёт на сервере', version, author: 'Flux', contractVersion: 1, entries: ['start'], reads: ['project'], logic: 'logic/main.ts',
+  id: 'connections-http', name: 'Расчёт на сервере', version, author: 'Flux', contractVersion: withConnection ? 3 : 1, entries: ['start'], reads: ['project'], logic: 'logic/main.ts',
+  ...(withConnection ? { permissions: [{ kind: 'internet', does: 'Показывает курсы валют из открытого сервиса' }] } : {}),
   ...(withConnection ? { connections: [{ id: 'api', kind: 'http', url: 'http://127.0.0.1:18123', pathPrefix: '/api', app: 'Сервер расчётов', does: 'Отправляет на сервер расчётов номер проекта и получает ответ', access: 'send' }] } : {}),
 }, null, 2);
 const before = packBundle({ 'manifest.json': manifest('1.0.0', false), 'logic/main.ts': 'export function run() {\n  return 1;\n}\n', 'form.json': '{}' });
@@ -158,6 +159,7 @@ async function main() {
       await page.getByRole('tab', { name: 'Связь с Flux' }).click();
       await page.getByTestId('owner-connection-texts').waitFor();
       ok(`${theme}: подключение показано человеческим текстом`, /хочет подключиться к Сервер расчётов/.test(await page.getByTestId('owner-connection-texts').innerText()) && (await page.getByTestId('diff-connection').count()) === 1);
+      ok(`${theme}: разрешение сети выделено в разнице: «новое: любой адрес в интернете»`, (await page.getByTestId('diff-permission').count()) === 1 && /новое\s+любой адрес в интернете — Показывает курсы валют/.test((await page.getByTestId('diff-permission').innerText()).replace(/\s+/g, ' ')));
       await page.screenshot({ path: path.join(shots, `owner-console-${tag}-3-flux.png`) });
       await page.getByRole('tab', { name: /Замечания и проверки/ }).click();
       ok(`${theme}: отчёт проверок виден и помечен «заявлено автором»`, (await page.getByText('контрольные примеры').count()) > 0 && (await page.getByText('заявлено автором').count()) > 0);

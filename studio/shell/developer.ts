@@ -28,6 +28,10 @@ import { assembleRuntime, loadRuntimeTemplates, type RuntimeTemplates } from '..
 import { createFromTemplate, TEMPLATES, TEMPLATE_IDS, validProjectId, type ProjectFiles, type TemplateId } from '../shared/templates';
 import { FLUX_ASSET_FILE, PAGE_URL_FILE, pageProblem, pageTypeOf } from '../../modules/page/model';
 import { TestBase } from '../shared/testBase';
+import { validMessage } from '../../modules/schemas';
+import { hasNetPermission } from '../../modules/permissions/registry';
+import { ConnectError } from '../../modules/connections/model';
+import { fetchUrl, systemLookup } from '../../electron/moduleNet';
 import type { DeveloperAction } from './actions';
 import { studioRequest, StudioFailure, type StudioUser } from './api';
 import {
@@ -87,6 +91,8 @@ interface Run {
   page: boolean;
   /** Название программы: в заголовке диалога выбора файла */
   name: string;
+  /** Манифест запущенного проекта: из него берутся разрешения сети */
+  manifest: ModuleManifest;
 }
 
 export class DeveloperService {
@@ -284,6 +290,7 @@ export class DeveloperService {
         const reply = await pickForProgram({ program: this.run.name, accept: args.accept }, this.deps.pickDataFile);
         return reply.ok ? { ok: true, name: reply.name, data: Buffer.from(reply.bytes).toString('base64') } : reply;
       }
+      case 'runNet': return this.runNet(args);
       case 'runShot': return this.shoot(moduleId(args.id), text(args.theme, 5), args.rect);
 
       // ── Проверка и публикация ────────────────────────────────────────────────
@@ -338,9 +345,25 @@ export class DeveloperService {
     const t = this.runtimeTemplates();
     this.run = {
       id: randomUUID(), language: languageOf(manifest), files, logicPath: manifest.logic, runtime: built.runtime, html: t.html, css: t.css,
-      context: this.context(args), resources: manifest.reads || [], page, name: manifest.name,
+      context: this.context(args), resources: manifest.reads || [], page, name: manifest.name, manifest,
     };
-    return { session: this.run.id, url: page ? 'flux-module://run/ui/index.html' : 'flux-module://run/index.html', language: this.run.language, manifest: { id: manifest.id, name: manifest.name, version: manifest.version, reads: manifest.reads, entries: manifest.entries, connections: manifest.connections || [], ui: manifest.ui, pages: manifest.pages }, context: this.run.context };
+    return { session: this.run.id, url: page ? 'flux-module://run/ui/index.html' : 'flux-module://run/index.html', language: this.run.language, manifest: { id: manifest.id, name: manifest.name, version: manifest.version, reads: manifest.reads, entries: manifest.entries, connections: manifest.connections || [], permissions: manifest.permissions || [], ui: manifest.ui, pages: manifest.pages }, context: this.run.context };
+  }
+
+  /**
+   * Обращение страницы по полному адресу при пробном запуске: те же правила, что в главном процессе Flux
+   * (electron/moduleNet.ts): разрешение берётся из permissions манифеста запущенного проекта, закрытые адреса закрыты всегда.
+   * Ответ реальный, поэтому пробный запуск ходит в сеть так же, как программа у людей; журнала и политики администратора здесь нет.
+   */
+  private async runNet(args: Record<string, any>) {
+    const run = this.run;
+    if (!run?.page) throw new StudioFailure('Программа со своим экраном не запущена.');
+    const envelope = { flux: 'module', v: 1, session: run.id, id: 'studio', type: 'net', call: args.call };
+    if (!validMessage('net', envelope)) return { ok: false, code: 'DENIED' };
+    const grants = { internet: hasNetPermission(run.manifest, 'internet'), lan: hasNetPermission(run.manifest, 'lan') };
+    if (!grants.internet && !grants.lan) return { ok: false, code: 'DENIED' };
+    try { return { ok: true, data: (await fetchUrl(args.call, grants, systemLookup)).value }; }
+    catch (e: any) { return { ok: false, code: e instanceof ConnectError ? e.code : 'FAILED' }; }
   }
 
   /** Чтение для запущенной программы — только объявленное в reads и только из тестовой базы */

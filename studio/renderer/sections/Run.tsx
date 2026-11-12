@@ -11,7 +11,7 @@ import { call } from '../call';
 
 interface Started {
   session: string; url: string; language: string;
-  manifest: Pick<ModuleManifest, 'id' | 'name' | 'version' | 'reads' | 'entries' | 'ui' | 'pages'> & { connections: unknown[] };
+  manifest: Pick<ModuleManifest, 'id' | 'name' | 'version' | 'reads' | 'entries' | 'ui' | 'pages' | 'permissions'> & { connections: unknown[] };
   context: LaunchContext;
 }
 interface BaseContext { id: string; name: string; equipment: Array<{ id: string; name: string }>; tags: Array<{ id: string; name: string }> }
@@ -53,7 +53,7 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
   useEffect(() => {
     if (!started) return;
     const isPage = started.manifest.ui === 'page';
-    const manifest = { ...started.manifest, author: '', contractVersion: isPage ? 2 : 1, logic: '' } as unknown as ModuleManifest;
+    const manifest = { ...started.manifest, author: '', contractVersion: (started.manifest.permissions || []).length ? 3 : isPage ? 2 : 1, logic: '' } as unknown as ModuleManifest;
     const b = createModuleBridge({
       frame: () => frame.current?.contentWindow || null, session: started.session, manifest,
       context: () => ({ projectId: latest.current.projectId || null, entry: latest.current.entry as LaunchContext['entry'], entityId: latest.current.entityId || null }),
@@ -67,6 +67,14 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
         const reply = await call<{ output?: never; code?: string }>('runCompute', { input });
         if (!reply.output) { add('расчёт', `ошибка ${reply.code}`, 'error'); throw Object.assign(new Error(reply.code), { code: reply.code }); }
         add('расчёт', started.language); return reply.output;
+      },
+      // Обращение по полному адресу: решает главный процесс Studio по тем же правилам, что Flux (разрешение — permissions манифеста)
+      net: async request => {
+        const t = Date.now(), host = (() => { try { return new URL(request.url).hostname; } catch { return '?'; } })();
+        const reply = await call<{ ok: boolean; data?: { status: number }; code?: string }>('runNet', { call: request });
+        if (reply.ok) { add('сеть', `${request.method} ${host} — ${reply.data?.status}, ${Date.now() - t} мс`); return { ok: true, data: reply.data }; }
+        add('сеть', `${request.method} ${host}: ${reply.code}`, 'warn');
+        return { ok: false, code: (reply.code || 'FAILED') as never };
       },
       onComputeError: code => add('сбой', `расчёт остановлен: ${code}`, 'error'),
       onLog: (level, text) => add('flux.log', text, level),

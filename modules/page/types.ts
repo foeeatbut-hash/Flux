@@ -37,6 +37,7 @@ type FluxThemeToken = ${union(themeKeys)};
 interface FluxTheme { tokens: Record<FluxThemeToken, string>; mode: 'light' | 'dark' }
 interface FluxSize { width: number; height: number }
 interface FluxOutput { state: Record<string, unknown>; calc: { out: Record<string, unknown> } }
+interface FluxFetchInit { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; headers?: Record<string, string>; body?: string }
 interface FluxHttpReply { status: number; ok: boolean; headers: Record<string, string>; text(): string; json(): unknown; bytes(): Uint8Array }
 
 declare class FluxError extends Error { code: FluxErrorCode }
@@ -55,8 +56,16 @@ declare const flux: {
   state: { get(): Promise<Record<string, unknown>>; set(state: Record<string, unknown>): Promise<null> };
   /** Подключение из manifest.json; первое обращение Flux подтверждает у человека */
   connect: { call(connection: string, call: Record<string, unknown>): Promise<unknown> };
-  /** Интернет и локальные серверы только через объявленное подключение kind http; кадр сам в сеть не ходит */
-  net: { fetch(connection: string, path: string, init?: { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; headers?: Record<string, string>; body?: string }): Promise<FluxHttpReply> };
+  /**
+   * Сеть только через Flux; кадр сам в сеть не ходит. Две формы:
+   * fetch(url, init) — полный адрес http(s)://…: нужно разрешение { kind: 'internet' } (публичные адреса) или { kind: 'lan' } (частная сеть) в permissions manifest.json
+   * (формат contractVersion 3); петля, «этот компьютер» и метаданные облака закрыты всегда, редиректы не выполняются, cookie нет, ответ до 512 КиБ;
+   * fetch(connection, path, init) — подключение kind http из manifest.json (локальный сервер, адрес объявлен в манифесте).
+   */
+  net: {
+    fetch(url: string, init?: FluxFetchInit): Promise<FluxHttpReply>;
+    fetch(connection: string, path: string, init?: FluxFetchInit): Promise<FluxHttpReply>;
+  };
   /** Отдать файл пользователю: Flux спросит и сохранит через системный диалог (до ~500 КБ) */
   saveFile(name: string, data: string | Uint8Array, mime?: string): Promise<'saved'>;
   /** Попросить у пользователя файл: Flux покажет системный диалог; программа получает имя и содержимое только выбранного файла (до ${PAGE_LIMITS.openBytes / 1024} КиБ). Отказ человека — ошибка CANCELLED */

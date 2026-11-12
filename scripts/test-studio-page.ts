@@ -5,7 +5,7 @@
  * - заготовка «страница» для всех 7 языков создаёт проект, проходящий проверку; формы в нём нет, ui/ и типы flux.* есть;
  * - проверка падает на: сетевом вызове, встроенных скрипте и стиле, внешнем адресе, хранилище, eval, жёстких цветах без токенов,
  *   недопустимом типе файла, отсутствии ui/index.html;
- * - flux.net.fetch (через мост) проверкой не ругается;
+ * - flux.net.fetch (через мост) проверкой не ругается; разрешения сети (internet, lan): адрес без permissions, закрытые адреса, лишнее разрешение, формат v3;
  * - пакет страницы не несёт build/runtime.js и принимается verifyRequest (форма с runtime.js — как раньше);
  * - типы flux.* строятся из договора.
  *
@@ -92,6 +92,31 @@ async function main() {
   ok('при ошибках договора пункт показывает причины, а не «соответствует»', contractItem.status === 'fail' && /ui\/index\.html/.test(contractItem.detail) && !/соответствует договору v/.test(contractItem.detail));
   const viaBridge = await check({ ...base, 'ui/app.js': enc(`${page('ui/app.js')}\nflux.net.fetch('api', '/x');`) });
   ok('flux.net.fetch через мост проверка не считает сетевым вызовом', !failing(viaBridge).includes('page-csp'));
+
+  console.log('Разрешения сети: интернет и локальная сеть');
+  const NET = 'Показывает курсы валют из открытого сервиса';
+  const LAN = 'Находит принтеры и контроллеры в сети предприятия';
+  const withNet = (code: string, permissions: Array<{ kind: string; does: string }> | null, contractVersion = 3): ProjectFiles =>
+    patchManifest({ ...base, 'ui/app.js': enc(`${page('ui/app.js')}\n${code}`) }, m => { if (permissions) { m.permissions = permissions; m.contractVersion = contractVersion; } });
+  const netItem = async (files: ProjectFiles) => (await check(files)).items.find(i => i.id === 'page-net')!;
+  const internetCall = "flux.net.fetch('https://api.example.com/rates?base=EUR');";
+  ok('адрес в интернете с разрешением internet и v3 — проверка проходит', (await check(withNet(internetCall, [{ kind: 'internet', does: NET }]))).ok);
+  ok('адрес в интернете без permissions → page-net', (await netItem(withNet(internetCall, null))).status === 'fail');
+  ok('адрес в локальной сети при одном internet → page-net', (await netItem(withNet("flux.net.fetch('http://192.168.1.20/status');", [{ kind: 'internet', does: NET }]))).status === 'fail');
+  ok('адрес в локальной сети с lan — проходит', (await check(withNet("flux.net.fetch('http://192.168.1.20/status');", [{ kind: 'lan', does: LAN }]))).ok);
+  for (const url of ['http://127.0.0.1:8080/x', 'http://localhost/x', 'http://169.254.169.254/latest/meta-data/', 'http://0.0.0.0/']) {
+    ok(`заведомо закрытый адрес ${url} → page-net даже с обоими разрешениями`, (await netItem(withNet(`flux.net.fetch('${url}');`, [{ kind: 'internet', does: NET }, { kind: 'lan', does: LAN }]))).status === 'fail');
+  }
+  ok('разрешение объявлено, а flux.net.fetch нет → page-net (лишнее не просим)', (await netItem(withNet('', [{ kind: 'internet', does: NET }]))).status === 'fail');
+  ok('подключение http и прежняя форма fetch(connection, path) без permissions — не ошибка', (await netItem({ ...patchManifest(base, m => { m.connections = [{ id: 'api', kind: 'http', app: 'Сервер расчётов', does: 'Отправляет данные на расчёт', access: 'send', url: 'http://127.0.0.1:8123', pathPrefix: '/api' }]; }), 'ui/app.js': enc(`${page('ui/app.js')}\nflux.net.fetch('api', '/x');`) })).status === 'ok');
+  ok('адрес из переменной не угадывается: с разрешением ошибки нет', (await netItem(withNet('const u = location.hash; flux.net.fetch(u);', [{ kind: 'internet', does: NET }]))).status === 'ok');
+  await mutate('permissions в договоре v2 → contract', withNet(internetCall, [{ kind: 'internet', does: NET }], 2), 'contract');
+  ok('причина — формат v3, а не общая фраза', /contractVersion 3/.test((await check(withNet(internetCall, [{ kind: 'internet', does: NET }], 2))).items.find(i => i.id === 'contract')!.detail));
+  await mutate('permissions без текста для человека → contract', withNet(internetCall, [{ kind: 'internet', does: 'x' }]), 'contract');
+  await mutate('permissions с адресом вместо слов → contract', withNet(internetCall, [{ kind: 'internet', does: 'Ходит на https://api.example.com за курсами' }]), 'contract');
+  await mutate('permissions у программы с формой → contract', patchManifest(createFromTemplate(templatesRoot, 'typescript', { id: 'form-net', name: 'Форма', author: 'Р' }), m => { m.permissions = [{ kind: 'internet', does: NET }]; m.contractVersion = 3; }), 'contract');
+  ok('в типах flux.d.ts обе формы fetch и пояснение про permissions', /fetch\(url: string, init\?: FluxFetchInit\)/.test(fluxPageTypes()) && /fetch\(connection: string, path: string, init\?: FluxFetchInit\)/.test(fluxPageTypes()) && /permissions/.test(fluxPageTypes()));
+  ok('Studio знает действие runNet (пробный запуск ходит в сеть как Flux)', (require('../studio/shell/actions') as typeof import('../studio/shell/actions')).ALL_ACTIONS.includes('runNet'));
 
   console.log('Пакет страницы');
   const keyring = new DeveloperKeyring(path.join(temp, 'keys'), storage);

@@ -17,13 +17,15 @@ let checks = 0;
 const check = (label: string, condition: unknown) => { assert.ok(condition, label); checks++; console.log(`  ✓ ${label}`); };
 
 const svg = (color: string, label: string) => `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400"><rect width="640" height="400" fill="${color}"/><rect x="40" y="40" width="560" height="60" rx="8" fill="#fff" opacity=".85"/><rect x="40" y="130" width="360" height="200" rx="8" fill="#fff" opacity=".6"/><text x="60" y="80" font-size="28" fill="#222" font-family="sans-serif">${label}</text></svg>`;
-const manifestOf = (id: string, name: string, version: string, reads: string[], store: object) => ({ id, name, version, author: 'Flux', contractVersion: 1, entries: ['start', 'equipment'], reads, logic: 'logic/main.ts', store });
+const manifestOf = (id: string, name: string, version: string, reads: string[], store: object, permissions?: Array<{ kind: string; does: string }>) => ({ id, name, version, author: 'Flux', contractVersion: permissions ? 3 : 1, entries: ['start', 'equipment'], reads, logic: 'logic/main.ts', ...(permissions ? { permissions } : {}), store });
 const defs = [
   { id: 'calc-load', name: 'Расчёт нагрузок', color: '#2563eb', category: 'calc', summary: 'Нагрузки по оборудованию и системам', versions: ['1.0.0', '1.1.0', '1.2.0'], reads: ['equipment', 'project'], installs: 14, rating: [8, 4, 1, 0, 0], roles: ['ENGINEER_AUTO'] },
   { id: 'e3-link', name: 'Связь с E3.series', color: '#7c3aed', category: 'link', summary: 'Позиции из ведомости — в схему E3', versions: ['2.0.0'], reads: ['equipment', 'tag', 'specification'], installs: 9, rating: [3, 2, 0, 0, 0], roles: [], requires: { platform: 'windows', external: ['E3.series'] } },
   { id: 'vdr-report', name: 'Сводка по ВДР', color: '#d97706', category: 'reports', summary: 'Отчёт по ведомости документов', versions: ['0.9.0', '1.0.0'], reads: ['project'], installs: 3, rating: [1, 0, 0, 0, 0], roles: [] },
   { id: 'doc-pack', name: 'Пакет документов', color: '#0891b2', category: 'docs', summary: 'Собирает комплект к выдаче', versions: ['1.0.0'], reads: ['project', 'specification'], installs: 0, rating: [0, 0, 0, 0, 0], roles: [] },
   { id: 'air-calc', name: 'Воздухообмен', color: '#059669', category: 'calc', summary: 'Расчёт воздухообмена по помещениям', versions: ['1.0.0', '1.0.1'], reads: ['project', 'tag'], installs: 6, rating: [2, 1, 0, 0, 0], roles: ['ENGINEER_VENT'] },
+  { id: 'net-rates', name: 'Курсы валют', color: '#0e7490', category: 'other', summary: 'Курсы валют и цены из открытых сервисов', versions: ['1.0.0'], reads: ['project'], installs: 0, rating: [0, 0, 0, 0, 0], roles: [],
+    permissions: [{ kind: 'internet', does: 'Показывает курсы валют из открытых сервисов' }, { kind: 'lan', does: 'Находит принтеры и контроллеры в сети предприятия' }] },
   { id: 'other-x', name: 'Заметки инженера', color: '#be123c', category: 'other', summary: 'Свободные заметки к позиции', versions: ['1.0.0'], reads: ['tag'], installs: 1, rating: [0, 0, 0, 0, 0], roles: [] },
 ];
 
@@ -37,7 +39,7 @@ function serverModel() {
     const versions = d.versions.filter((v) => !hidden.has(`${d.id}@${v}`));
     const top = versions[versions.length - 1];
     const reads = top === versions[versions.length - 1] && extraReads[d.id] ? extraReads[d.id] : d.reads;
-    const manifest: any = manifestOf(d.id, d.name, top, reads, { category: d.category, summary: d.summary, description: `${d.summary}.\n\nПрограмма читает данные Flux только на просмотр, ничего не записывает и работает без отдельной установки на сервер.\nРезультат расчёта показывается в её окне и сохраняется файлом по кнопке.\n\nПодробное описание нужно, чтобы проверить сворачивание текста: здесь достаточно длинный абзац, который не помещается в четыре строки на странице программы и сворачивается, пока человек не нажмёт «Показать больше».`, color: d.color, screenshots: ['store/a.png', 'store/b.png'], roles: d.roles, requires: (d as any).requires || {} });
+    const manifest: any = manifestOf(d.id, d.name, top, reads, { category: d.category, summary: d.summary, description: `${d.summary}.\n\nПрограмма читает данные Flux только на просмотр, ничего не записывает и работает без отдельной установки на сервер.\nРезультат расчёта показывается в её окне и сохраняется файлом по кнопке.\n\nПодробное описание нужно, чтобы проверить сворачивание текста: здесь достаточно длинный абзац, который не помещается в четыре строки на странице программы и сворачивается, пока человек не нажмёт «Показать больше».`, color: d.color, screenshots: ['store/a.png', 'store/b.png'], roles: d.roles, requires: (d as any).requires || {} }, (d as any).permissions);
     const info = storeInfoOf(manifest);
     const stars = d.rating, count = stars.reduce((a, b) => a + b, 0);
     return {
@@ -192,6 +194,20 @@ async function run() {
     check('кнопка стала «Открыть»', true);
     check('сервер записал установку, главный процесс — выбор', model.mine['calc-load']?.version === '1.2.0' && (await page.evaluate(() => (window as any).__calls.includes('modules:install'))));
     check('программа появилась в разделах Пуска', (await page.evaluate(() => (window as any).__sections())).includes('/module/calc-load'));
+
+    console.log('Заметные разрешения: интернет и локальная сеть');
+    await page.getByTestId('stx-nav-home').click();
+    await page.getByTestId('stx-card-net-rates').click();
+    await page.locator('.stx-ph').getByTestId('stx-act-net-rates').click();
+    await page.getByTestId('stx-dialog').waitFor();
+    const notable = await page.$$eval('[data-testid="stx-dialog"] .stx-perm.is-notable', (els) => els.map((e) => { const cs = getComputedStyle(e); return { text: (e as HTMLElement).innerText, border: parseFloat(cs.borderTopWidth), weight: Number(cs.fontWeight), pad: parseFloat(cs.paddingLeft), mark: (e.firstElementChild as HTMLElement).innerText }; }));
+    const plain = await page.$eval('[data-testid="stx-dialog"] .stx-perm:not(.is-notable)', (e) => { const cs = getComputedStyle(e); return { border: parseFloat(cs.borderTopWidth), weight: Number(cs.fontWeight) }; });
+    check('в окне установки две заметные строки: интернет и локальная сеть', notable.length === 2 && /любому адресу в интернете: Показывает курсы валют/.test(notable[0].text) && /устройствам в локальной сети: Находит принтеры/.test(notable[1].text));
+    check('заметная строка отличается от обычной: рамка, жирнее, значок «!»', notable.every((n) => n.border >= 1 && n.weight >= 600 && n.mark === '!') && plain.border === 0 && plain.weight < 600);
+    check('обычные строки на месте: чтение, «ничего не записывает»', /Читает во Flux: данные текущего проекта/.test(await page.getByTestId('stx-dialog').innerText()) && /Ничего не записывает/.test(await page.getByTestId('stx-dialog').innerText()));
+    check('диалог без горизонтальной прокрутки', await page.getByTestId('stx-dialog').evaluate((e) => e.scrollWidth <= e.clientWidth + 1));
+    await snap('dialog-net');
+    await page.getByRole('button', { name: 'Отмена', exact: true }).click();
 
     console.log('Библиотека, обновление с новыми разрешениями, возврат версии');
     model.mine['calc-load'] = { version: '1.1.0', auto: '' };
