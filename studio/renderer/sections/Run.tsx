@@ -38,12 +38,16 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
   const frame = useRef<HTMLIFrameElement>(null);
   const bridge = useRef<ReturnType<typeof createModuleBridge> | null>(null);
   const latest = useRef(pick);
+  // Главный процесс держит только последний запуск: если два запуска идут подряд (верхняя «Запустить» и сразу
+  // «Перезапустить») или сменился проект, ответ прежнего может прийти позже — окно с его сеансом мост бы отверг
+  // и оно осталось бы пустым, поэтому опоздавший ответ отбрасывается
+  const attempt = useRef(0);
   latest.current = pick;
 
   const add = (kind: string, text: string, level: LogRow['level'] = 'info') =>
     setLog(rows => [...rows.slice(-199), { at: new Date().toLocaleTimeString('ru-RU'), kind, text, level }]);
 
-  useEffect(() => { setStarted(null); setLog([]); setError(''); void call<{ context: BaseContext[] }>('testBase').then(b => setContexts(b.context)).catch(() => {}); }, [id]);
+  useEffect(() => { attempt.current++; setStarted(null); setLog([]); setError(''); void call<{ context: BaseContext[] }>('testBase').then(b => setContexts(b.context)).catch(() => {}); }, [id]);
 
   // Мост живёт, пока открыт запуск; закрытие окна программы закрывает и его
   useEffect(() => {
@@ -96,9 +100,16 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
   const project = contexts.find(c => c.id === pick.projectId);
   const entities = pick.entry === 'equipment' ? project?.equipment : pick.entry === 'tag' ? project?.tags : [];
   const start = async () => {
+    const mine = ++attempt.current;
     setError(''); setLog([]); setStarted(null);
-    try { setStarted(await call<Started>('runStart', { id, ...pick, entityId: pick.entry === 'start' ? '' : pick.entityId })); onStarted?.(); }
-    catch (e) { setError((e as Error).message); onFail?.((e as Error).message); }
+    try {
+      const reply = await call<Started>('runStart', { id, ...pick, entityId: pick.entry === 'start' ? '' : pick.entityId });
+      if (mine !== attempt.current) return;
+      setStarted(reply); onStarted?.();
+    } catch (e) {
+      if (mine !== attempt.current) return;
+      setError((e as Error).message); onFail?.((e as Error).message);
+    }
   };
   const startRef = useRef(start);
   startRef.current = start;
