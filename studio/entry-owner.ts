@@ -3,9 +3,8 @@
  *
  * Та же оболочка разработчика плюс раздел владельца: окно со всем, что умел
  * отдельный Flux Owner (хранилище ключей, лицензии, выпуск обновлений Flux,
- * подключение к общей базе, диагностика), и разделы, которые перешли из Flux: запросы на публикацию,
- * выпуски и каналы, сертификаты разработчиков, назначение обновлений. Код раздела собирается отдельным
- * файлом и подключается только здесь.
+ * подключение к общей базе, диагностика), и разделы, которые перешли из Flux: программы на проверку,
+ * назначение обновлений. Код раздела собирается отдельным файлом и подключается только здесь.
  */
 import path from 'node:path';
 import { startShell } from './shell/main';
@@ -16,10 +15,10 @@ const ownerSection = require(path.join(__dirname, 'owner', 'main.cjs')) as {
   openConsole: (tab: string) => Promise<void>;
 };
 
+// Три пункта: что прислали разработчики, обновления Flux, лицензии. Окно лицензий открывается из пункта «Лицензии» окна разделов
+// (хранилище и подключение у них общие), поэтому отдельного пункта оболочки у него нет.
 startShell([
-  { id: 'publish', title: 'Запросы на публикацию', open: () => ownerSection.openConsole('requests') },
-  { id: 'releases', title: 'Выпуски и каналы', open: () => ownerSection.openConsole('releases') },
-  { id: 'certificates', title: 'Сертификаты разработчиков', open: () => ownerSection.openConsole('certificates') },
-  { id: 'updates', title: 'Обновления Flux', open: () => ownerSection.openConsole('updates') },
-  { id: 'owner', title: 'Лицензии и выпуск обновлений', open: () => ownerSection.openOwnerWindow() },
+  { id: 'programs', title: 'Программы на проверку', open: () => ownerSection.openConsole('programs') },
+  { id: 'updates', title: 'Flux: обновления', open: () => ownerSection.openConsole('updates') },
+  { id: 'licenses', title: 'Лицензии', open: () => ownerSection.openConsole('licenses') },
 ]);

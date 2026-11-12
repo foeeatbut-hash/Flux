@@ -25,7 +25,7 @@ export interface PaletteItem {
 
 export const PALETTE: PaletteItem[] = [
   { kind: 'group', title: 'Группа', summary: 'Заголовок и поля под ним', sections: ['Настройки'], row: 'Группа и строка настройки' },
-  { kind: 'field', title: 'Поле', summary: 'Подпись и значение из привязки', sections: ['Форма'], row: 'Поле, подпись' },
+  { kind: 'field', title: 'Поле', summary: 'Подпись и значение из источника', sections: ['Форма'], row: 'Поле, подпись' },
   { kind: 'code-field', title: 'Поле-код', summary: 'Значение моноширинным: код, тег', sections: ['Форма'], row: 'Поле, подпись' },
   { kind: 'table', title: 'Таблица', summary: 'Список из данных Flux по колонкам', sections: ['Таблица'], row: 'Таблица' },
   { kind: 'column', title: 'Колонка', summary: 'Одно поле элемента списка', sections: ['Таблица'], row: 'Таблица' },

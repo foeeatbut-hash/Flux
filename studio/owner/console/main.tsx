@@ -1,20 +1,23 @@
 /**
- * Разделы Studio — Владелец: запросы на публикацию, выпуски и каналы, сертификаты разработчиков,
- * обновления Flux. Окно только показывает: хранилище, подключение, подпись и решения — в главном процессе.
+ * Studio — Владелец: три пункта — «Программы на проверку», «Flux: обновления», «Лицензии». Окно только показывает: хранилище, подключение, подпись и решения — в главном процессе.
  */
 import '../../renderer/theme';
 import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { call } from './api';
 import { Badge, Btn, ErrorLine, useAction } from './ui';
-import Requests from './Requests';
-import Releases from './Releases';
-import Certificates from './Certificates';
+import Programs, { isSection } from './Programs';
 import Updates from './Updates';
-import type { Snapshot, Tab } from './types';
+import Licenses from './Licenses';
+import type { Section, Snapshot, Tab } from './types';
 
-const TABS: Array<[Tab, string]> = [['requests', 'Запросы на публикацию'], ['releases', 'Выпуски и каналы'], ['certificates', 'Сертификаты разработчиков'], ['updates', 'Обновления Flux']];
+const TABS: Array<[Tab, string]> = [['programs', 'Программы на проверку'], ['updates', 'Flux: обновления'], ['licenses', 'Лицензии']];
 const isTab = (value: unknown): value is Tab => TABS.some(([id]) => id === value);
+/** «programs:requests» — пункт и подраздел одной строкой (так их шлёт главный процесс) */
+const parseTab = (value: string | null, section?: string | null): { tab: Tab; section?: Section } => {
+  const [tab, sub] = (value || '').split(':');
+  return { tab: isTab(tab) ? tab : 'programs', section: isSection(sub || section) ? (sub || section) as Section : undefined };
+};
 
 function Gate({ state, onState }: { state: Snapshot; onState: (s: Snapshot) => void }) {
   const [password, setPassword] = useState('');
@@ -41,7 +44,7 @@ function Gate({ state, onState }: { state: Snapshot; onState: (s: Snapshot) => v
             <input id="vault-password" type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} /></div>
           <ErrorLine text={error} />
           <Btn type="submit" tone="primary" disabled={busy || password.length < 12}>{busy ? 'Открываем…' : 'Открыть хранилище'}</Btn></>
-        : <p className="muted">Хранилища ключей на этом компьютере нет. Создайте его или импортируйте резервную копию в разделе «Управление → Лицензии и обновления Flux».</p>}
+        : <p className="muted">Хранилища ключей на этом компьютере нет. Создайте его или импортируйте резервную копию в пункте «Лицензии».</p>}
     </form>;
   }
   return <form className="card" onSubmit={connect} aria-labelledby="gate-title">
@@ -57,12 +60,14 @@ function Gate({ state, onState }: { state: Snapshot; onState: (s: Snapshot) => v
 
 function App() {
   const [state, setState] = useState<Snapshot | null>(null);
-  const [tab, setTab] = useState<Tab>(() => { const q = new URLSearchParams(location.search).get('tab'); return isTab(q) ? q : 'requests'; });
+  const start = useState(() => { const q = new URLSearchParams(location.search); return parseTab(q.get('tab'), q.get('section')); })[0];
+  const [tab, setTab] = useState<Tab>(start.tab);
+  const [section, setSection] = useState<Section>(start.section || 'requests');
   const [counts, setCounts] = useState<{ requests: number; certificates: number }>({ requests: 0, certificates: 0 });
   const reload = useCallback(() => { call<Snapshot>('state').then(setState).catch(() => {}); }, []);
   useEffect(() => {
     reload();
-    const offs = [window.ownerConsole.onLocked(reload), window.ownerConsole.onDisconnected(reload), window.ownerConsole.onTab(t => { if (isTab(t)) setTab(t); })];
+    const offs = [window.ownerConsole.onLocked(reload), window.ownerConsole.onDisconnected(reload), window.ownerConsole.onTab(t => { const next = parseTab(t); setTab(next.tab); if (next.section) setSection(next.section); })];
     return () => offs.forEach(off => off());
   }, [reload]);
   const onRequests = useCallback((n: number) => setCounts(c => ({ ...c, requests: n })), []);
@@ -77,13 +82,11 @@ function App() {
     </div>
     <div className="tabs" role="tablist" aria-label="Разделы владельца">{TABS.map(([id, label]) =>
       <button key={id} role="tab" type="button" aria-selected={tab === id} onClick={() => setTab(id)}>{label}
-        {id === 'requests' && counts.requests > 0 && <span className="count">{counts.requests}</span>}
-        {id === 'certificates' && counts.certificates > 0 && <span className="count">{counts.certificates}</span>}</button>)}</div>
+        {id === 'programs' && counts.requests + counts.certificates > 0 && <span className="count">{counts.requests + counts.certificates}</span>}</button>)}</div>
     <div className="body">
       {!ready ? <Gate state={state} onState={setState} />
-        : tab === 'requests' ? <Requests onCount={onRequests} />
-          : tab === 'releases' ? <Releases />
-            : tab === 'certificates' ? <Certificates onCount={onCertificates} /> : <Updates />}
+        : tab === 'programs' ? <Programs section={section} onSection={setSection} counts={counts} onRequests={onRequests} onCertificates={onCertificates} />
+          : tab === 'updates' ? <Updates /> : <Licenses />}
     </div>
   </div>;
 }

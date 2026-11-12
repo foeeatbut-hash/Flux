@@ -255,7 +255,7 @@ export class DeveloperService {
         if (args.changelog !== undefined) patch.changelog = text(args.changelog, 4000);
         if (args.comment !== undefined) patch.comment = text(args.comment, 4000);
         if (args.channel !== undefined) {
-          if (!MODULE_CHANNELS.includes(args.channel)) throw new StudioFailure('Канал — «тестовый» или «рабочий».');
+          if (!MODULE_CHANNELS.includes(args.channel)) throw new StudioFailure('Выпуск бывает для пробной группы или для всех.');
           patch.channel = args.channel;
         }
         return this.drafts.setState(id, patch);

@@ -104,7 +104,7 @@ function RequestView({ summary, onChanged }: { summary: PublishRequest; onChange
     <div className="info">
       <div><span className="muted">Что нового: </span>{meta?.changelog || '—'}</div>
       {meta?.comment && <div><span className="muted">Комментарий разработчика: </span>{meta.comment}</div>}
-      <div className="muted">Автор {request.byOwner ? 'владелец' : request.authorId} · просит канал «{meta?.channel === 'test' ? 'тестовый' : 'рабочий'}» · Flux {meta?.fluxVersion || '—'}
+      <div className="muted">Автор {request.byOwner ? 'владелец' : request.authorId} · просит выпуск «{meta?.channel === 'test' ? 'для пробной группы' : 'для всех'}» · Flux {meta?.fluxVersion || '—'}
         {' · '}разница {diff?.against?.release ? `с выпуском ${diff.against.release}` : diff?.against?.request ? 'с запросом разработчика' : 'не с чем: новая программа'}</div>
     </div>
     <div className="tabs" role="tablist" aria-label="Запрос">
@@ -183,7 +183,7 @@ function ReleaseDialog({ request, sha256, onClose, onDone }: { request: PublishR
   };
   return <Dialog title={`Выпустить ${request.moduleId} ${request.version}`} onClose={onClose} busy={busy}
     footer={<><Btn onClick={onClose} disabled={busy}>Отмена</Btn><Btn tone="primary" disabled={busy} onClick={() => void go()}>Подписать и выпустить</Btn></>}>
-    <Field label="Канал"><Segs value={channel} onChange={setChannel} label="Канал" options={[{ value: 'test', label: 'Тестовый' }, { value: 'production', label: 'Рабочий' }]} /></Field>
+    <Field label="Для кого"><Segs value={channel} onChange={setChannel} label="Для кого" options={[{ value: 'test', label: 'Пробная группа' }, { value: 'production', label: 'Все' }]} /></Field>
     <Field label="Когда" hint="Пусто — сразу. Выпуск скачается заранее и запустится с этого времени." id="when"><input id="when" type="datetime-local" value={when} onChange={e => setWhen(e.target.value)} /></Field>
     <p className="hint">Перед подписью появится окно подтверждения. Выпуск подписывается ключом издателя из вашего хранилища.</p>
     <ErrorLine text={error} />

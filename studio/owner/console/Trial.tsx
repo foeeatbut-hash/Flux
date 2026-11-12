@@ -34,6 +34,8 @@ function themeTokens(): ThemeTokens {
   return Object.fromEntries(themeKeys.map(key => [key, style.getPropertyValue(key).trim()])) as ThemeTokens;
 }
 
+const isPage = (manifest: ModuleManifest) => (manifest as { ui?: string }).ui === 'page';
+
 export default function Trial({ requestId }: { requestId: string }) {
   const [manifest, setManifest] = useState<ModuleManifest | null>(null);
   const [error, setError] = useState('');
@@ -41,14 +43,24 @@ export default function Trial({ requestId }: { requestId: string }) {
   const [logs, setLogs] = useState<string[]>([]);
   const [session] = useState(() => crypto.randomUUID());
   const frame = useRef<HTMLIFrameElement>(null);
+  const kept = useRef<Record<string, unknown>>({});
 
   useEffect(() => { setManifest(null); setError(''); setFailure(''); setLogs([]); }, [requestId]);
 
   useEffect(() => {
-    if (!manifest || languageOf(manifest) !== 'typescript') return;
+    // Программа со своим экраном считает на странице сама: язык расчётов ей не мешает, а flux.compute в пробном запуске отвечает «недоступно»
+    if (!manifest || (!isPage(manifest) && languageOf(manifest) !== 'typescript')) return;
+    const page = isPage(manifest);
     const bridge = createModuleBridge({
-      frame: () => frame.current?.contentWindow || null, session, manifest, theme: themeTokens, read: testReader,
+      frame: () => frame.current?.contentWindow || null, session, manifest: page ? ({ ...manifest, contractVersion: 2 } as ModuleManifest) : manifest, theme: themeTokens, read: testReader,
       context: () => ({ projectId: TEST_DATA.project?.id || null, entry: manifest.entries[0] || 'start', entityId: manifest.entries[0] === 'tag' ? 'test-tag-1' : manifest.entries[0] === 'equipment' ? 'test-equipment' : null }),
+      // Страница: окна, файлы и обмен в пробном запуске ничего не делают, состояние живёт, пока открыт запуск
+      page: page ? {
+        loadState: () => kept.current, keepState: state => { kept.current = state; },
+        offerFile: async file => { setLogs(prev => [...prev.slice(-199), `файл: ${file.name} (${file.bytes.length} Б) — во Flux его предложат сохранить`]); return 'saved'; },
+        onBeat: () => undefined, openWindow: (name, params) => { setLogs(prev => [...prev.slice(-199), `окно: ${name} ${JSON.stringify(params)} — во Flux откроется обычным окном`]); return true; },
+        params: () => ({}), broadcast: data => setLogs(prev => [...prev.slice(-199), `обмен: ${JSON.stringify(data).slice(0, 120)}`]),
+      } : undefined,
       onFailure: kind => setFailure(kind),
       onLog: (level, text) => setLogs(prev => [...prev.slice(-199), `${level}: ${text}`]),
     });
@@ -67,8 +79,8 @@ export default function Trial({ requestId }: { requestId: string }) {
     return <div className="scroll"><Empty title="Проверить в работе" text="Программа запустится в изоляции на тестовой базе: без сети, без доступа к общей базе компании, на вымышленных данных." />
       <div className="pad" style={{ textAlign: 'center' }}><Btn tone="primary" onClick={() => void start()}>Запустить на тестовой базе</Btn></div><ErrorLine text={error} /></div>;
   }
-  if (languageOf(manifest) !== 'typescript') {
-    return <Empty title="Пробный запуск для этого языка — во Flux" text="Python и WebAssembly исполняет окно Flux (общая среда Pyodide и WebAssembly из portable Flux). Проверьте код и контрольные примеры во вкладке «Файлы», а запуск — в тестовом канале Flux." />;
+  if (!isPage(manifest) && languageOf(manifest) !== 'typescript') {
+    return <Empty title="Пробный запуск для этого языка — во Flux" text="Python и WebAssembly исполняет окно Flux (общая среда Pyodide и WebAssembly из portable Flux). Проверьте код и контрольные примеры во вкладке «Файлы», а запуск — в пробной группе во Flux." />;
   }
   return <div className="pane">
     <div className="bar"><span className="muted">Тестовая база: вымышленные данные, сети нет, подключения отказывают. Запуск — {manifest.name} {manifest.version}.</span>
@@ -76,7 +88,7 @@ export default function Trial({ requestId }: { requestId: string }) {
     {failure && <ErrorLine text={`Программа остановилась: ${failure}`} />}
     <div className="scroll" style={{ display: 'flex' }}>
       <iframe ref={frame} className="trial" title={manifest.name} data-testid="trial-frame" sandbox="allow-scripts" referrerPolicy="no-referrer"
-        allow="camera 'none'; microphone 'none'; geolocation 'none'" src={`flux-module://trial/index.html#${session}`} />
+        allow="camera 'none'; microphone 'none'; geolocation 'none'" src={`flux-module://trial/${isPage(manifest) ? 'ui/index.html' : 'index.html'}#${session}`} />
     </div>
     {logs.length > 0 && <pre className="code mono" style={{ flex: '0 0 auto', maxHeight: 120 }} aria-label="Журнал программы">{logs.join('\n')}</pre>}
   </div>;

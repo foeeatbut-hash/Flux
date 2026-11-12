@@ -2,7 +2,7 @@
  * Проверка form.json: разбор, схема и привязки — с номером строки и понятным текстом.
  *
  * Три слоя. Разбор и схема решают, можно ли принять текст как новую форму: при ошибке в них
- * прежняя верная форма остаётся. Привязки (какого поля нет в договоре) форму не отвергают: пока
+ * прежняя верная форма остаётся. Привязки (какого поля нет в описании данных) форму не отвергают: пока
  * инженер собирает форму, пустая привязка — обычное состояние, но выпуск с ней не уйдёт.
  */
 import { describeSchemaError, formShapeErrors, pathOfPointer, whereInForm } from '../../../modules/formSchema';
@@ -54,11 +54,11 @@ export function bindingProblems(source: string, form: FormDef, contract: Contrac
     checkVisibility(group.visibleIf, ['groups', g], contract, report);
     group.fields.forEach((field, f) => {
       const at: JsonPath = ['groups', g, 'fields', f];
-      if (!field.bind) report([...at, 'bind'], 'Привязка не выбрана: выберите вход или выход договора');
+      if (!field.bind) report([...at, 'bind'], 'Источник значения не выбран: выберите вход или выход описания данных');
       else {
         const resolved = resolveBinding(field.bind, contract);
-        if (!resolved.ok) report([...at, 'bind'], `Привязка «${field.bind}»: ${resolved.reason}`);
-        else if (resolved.type === 'array') report([...at, 'bind'], `Привязка «${field.bind}» — список: для списка нужна таблица`);
+        if (!resolved.ok) report([...at, 'bind'], `Источник значения «${field.bind}»: ${resolved.reason}`);
+        else if (resolved.type === 'array') report([...at, 'bind'], `Источник значения «${field.bind}» — список: для списка нужна таблица`);
       }
       checkVisibility(field.visibleIf, at, contract, report);
     });
@@ -66,11 +66,11 @@ export function bindingProblems(source: string, form: FormDef, contract: Contrac
   form.tables.forEach((table, t) => {
     const at: JsonPath = ['tables', t];
     checkVisibility(table.visibleIf, at, contract, report);
-    if (!table.bind) { report([...at, 'bind'], 'Привязка не выбрана: выберите список из данных Flux'); return; }
+    if (!table.bind) { report([...at, 'bind'], 'Источник значения не выбран: выберите список из данных Flux'); return; }
     // Тот же запрет, что при выпуске (modules/validateForm.ts): строки таблицы дают только данные Flux
     if (!table.bind.startsWith('flux.')) { report([...at, 'bind'], `Таблица «${table.bind}» должна ссылаться на список из данных Flux (flux.…): state и calc.out в таблицу не выводятся`); return; }
     const resolved = resolveBinding(table.bind, contract);
-    if (!resolved.ok) { report([...at, 'bind'], `Привязка «${table.bind}»: ${resolved.reason}`); return; }
+    if (!resolved.ok) { report([...at, 'bind'], `Источник значения «${table.bind}»: ${resolved.reason}`); return; }
     if (resolved.type !== 'array') { report([...at, 'bind'], `Таблица «${table.bind}» должна ссылаться на список, а там ${resolved.type}`); return; }
     const keys = columnKeys(table.bind, contract);
     table.columns.forEach((column, c) => {

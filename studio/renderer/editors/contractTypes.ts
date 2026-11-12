@@ -1,7 +1,7 @@
 /**
- * Типы и справка из договора программы.
+ * Типы и справка из описания данных программы.
  *
- * Для TypeScript и JavaScript из договора создаётся настоящий файл `.d.ts`: он описывает только
+ * Для TypeScript и JavaScript из описания данных создаётся настоящий файл `.d.ts`: он описывает только
  * разрешённые чтения и объявленные значения, поэтому опечатка в поле или чтение не разрешённых
  * данных — ошибка типов у того, кто подключит файл к компилятору (тест проверяет его настоящим
  * tsc). Ни Studio, ни выпуск (modules/build.ts) по нему типы пока не проверяют. Для остальных языков Flux обменивается JSON (`compute(input)`), и
@@ -19,7 +19,7 @@ const VALUE_TS: Record<ValueType, string> = {
   string: 'string', number: 'number', integer: 'number', boolean: 'boolean', object: 'Record<string, unknown>', array: 'unknown[]',
 };
 
-/** JSON Schema договора → тип TypeScript */
+/** JSON Schema описания данных → тип TypeScript */
 export function schemaToTs(schema: Schema, indent = ''): string {
   if (!schema || Object.keys(schema).length === 0) return 'unknown';
   if (schema.anyOf) return schema.anyOf.map((variant: Schema) => schemaToTs(variant, indent)).join(' | ');
@@ -52,7 +52,7 @@ const members = (values: ContractValue[], indent: string) => values.filter((valu
 /** Файл `.d.ts` для логики на TypeScript и JavaScript; в пакете лежит как `contract.d.ts` рядом с каталогом logic/ */
 export function generateContractDts(contract: ContractDraft): string {
   const reads = resources.filter(resource => contract.reads.includes(resource));
-  return `// Создано Studio из договора программы (версия ${contract.version}). Не правьте вручную: изменения пропадут.
+  return `// Создано Studio из описания данных программы (версия ${contract.version}). Не правьте вручную: изменения пропадут.
 export interface FluxData {
 ${reads.map(resource => `  ${resource}: ${schemaToTs(dataSchemas[resource], '  ')};`).join('\n')}
 }
@@ -66,7 +66,7 @@ ${members(contract.outputs, '  ')}
 }
 export interface ModuleApi {
   flux: {
-    /** Чтение данных Flux с правами пользователя; разрешены только перечисленные в договоре */
+    /** Чтение данных Flux с правами пользователя; разрешены только перечисленные в описании данных */
     read<R extends keyof FluxData>(resource: R, entityId?: string): Promise<FluxData[R]>;
     on(event: 'changed', listener: () => void | Promise<void>): () => void;
   };

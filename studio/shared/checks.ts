@@ -66,7 +66,7 @@ function readsUsedInCode(source: string): string[] {
   return [...new Set([...source.matchAll(/\.read\s*\(\s*['"]([a-z]+)['"]/g)].map(m => m[1]))];
 }
 
-/** Привязки формы: flux.<ресурс>… */
+/** Источники значений формы: flux.<ресурс>… */
 function resourcesInForm(form: any): string[] {
   const out = new Set<string>();
   const add = (bind: unknown) => { const m = /^flux\.([a-z]+)/.exec(String(bind)); if (m) out.add(m[1]); };
@@ -117,10 +117,10 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
   let manifest: ModuleManifest | null = null;
   const contract: string[] = [];
   try { manifest = JSON.parse(text(files, 'manifest.json') || ''); } catch { contract.push('manifest.json не читается как JSON'); }
-  if (manifest && !validManifest(manifest)) { contract.push('manifest.json не соответствует договору (id, версия, entries, reads, logic, language, для страницы — contractVersion 2 и ui)'); }
+  if (manifest && !validManifest(manifest)) { contract.push('manifest.json не соответствует формату программы (id, версия, entries, reads, logic, language, для страницы — contractVersion 2 и ui)'); }
   if (manifest && validManifest(manifest)) {
     if (!MODULE_VERSION.test(manifest.version)) contract.push('версия — три числа через точку');
-    if (manifest.contractVersion > CONTRACT_VERSION) contract.push(`программе нужен договор v${manifest.contractVersion}, а Studio знает v${CONTRACT_VERSION}: обновите Studio`);
+    if (manifest.contractVersion > CONTRACT_VERSION) contract.push(`программе нужен формат v${manifest.contractVersion}, а Studio знает v${CONTRACT_VERSION}: обновите Studio`);
     if (!files[manifest.logic]?.length) contract.push(`нет файла логики ${manifest.logic}`);
     if (!manifest.entries.length) contract.push('entries пуст: программе негде появиться');
   }
@@ -133,7 +133,7 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
   }
   const total = Object.values(files).reduce((sum, bytes) => sum + bytes.length, 0);
   if (total > MODULE_BUNDLE_MAX) contract.push(`проект больше ${MODULE_BUNDLE_MAX / 1024 / 1024} МиБ`);
-  items.push(item('contract', 'Договор: manifest.json и состав пакета', contract.length ? 'fail' : 'ok', contract.join('; ') || (isPage ? `manifest.json соответствует договору v2, страница ${PAGE_ENTRY} на месте` : 'manifest.json соответствует договору v1, файлы на месте')));
+  items.push(item('contract', 'Формат: manifest.json и состав пакета', contract.length ? 'fail' : 'ok', contract.join('; ') || (isPage ? `manifest.json соответствует формату v2, страница ${PAGE_ENTRY} на месте` : 'manifest.json соответствует формату v1, файлы на месте')));
   if (!manifest || !validManifest(manifest)) return finish(items, input);
 
   // 2. Привязки и чтения -----------------------------------------------------
@@ -145,10 +145,10 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
   const source = language === 'wasm' ? '' : text(files, manifest.logic) || '';
   for (const resource of readsUsedInCode(source)) {
     if (!(resources as readonly string[]).includes(resource)) binding.push(`логика читает неизвестный ресурс «${resource}»`);
-    else if (!manifest.reads.includes(resource as any)) binding.push(`логика читает «${resource}», но его нет в reads манифеста`);
+    else if (!manifest.reads.includes(resource as any)) binding.push(`логика читает «${resource}», но его нет в reads файла manifest.json`);
   }
-  if (WRITE_CALL.test(source)) binding.push('вызов записи в данные Flux: договор v1 допускает только чтение');
-  items.push(item('bindings', isPage ? 'Чтения данных' : 'Привязки формы и чтения данных', binding.length ? 'fail' : 'ok', binding.join('; ') || (isPage ? 'чтения объявлены в reads, записи нет' : 'все привязки есть в схеме договора, чтения объявлены в reads, записи нет')));
+  if (WRITE_CALL.test(source)) binding.push('вызов записи в данные Flux: формат v1 допускает только чтение');
+  items.push(item('bindings', isPage ? 'Чтения данных' : 'Источники значений формы и чтения данных', binding.length ? 'fail' : 'ok', binding.join('; ') || (isPage ? 'чтения объявлены в reads, записи нет' : 'все источники значений есть в схеме данных, чтения объявлены в reads, записи нет')));
 
   // 3. Связи с данными Flux (часть таблицы связок) ---------------------------
   const usedResources = new Set([...resourcesInForm(form), ...readsUsedInCode(source)]);
@@ -156,7 +156,7 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
   if (usedResources.has('equipment') && !manifest.entries.some(e => e === 'equipment')) links.push('читает оборудование, но не объявляет вход из карточки позиции (entries: equipment)');
   if (usedResources.has('tag') && !manifest.entries.some(e => e === 'tag')) links.push('читает тег, но не объявляет вход из карточки тега (entries: tag)');
   items.push(item('links', 'Проект, оборудование, теги, спецификации: чтение без записи', links.length ? 'fail' : 'ok',
-    links.join('; ') || (usedResources.size ? `читает: ${[...usedResources].join(', ')}; запись невозможна по договору` : 'данные Flux не читает')));
+    links.join('; ') || (usedResources.size ? `читает: ${[...usedResources].join(', ')}; запись невозможна в этом формате` : 'данные Flux не читает')));
   items.push(item('links-manual', 'Файлы Проводника, выпуск документов, права, офлайн', 'manual',
     'Не проверяется автоматически: зависит от настоящего Flux. Проверяют набор связок Flux в CI и владелец при запуске в тестовом Flux.'));
 

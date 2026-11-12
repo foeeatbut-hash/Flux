@@ -10,18 +10,20 @@
  * Фраза-пароль в окне не вводится: хранилище отпирается в общем состоянии с окном лицензий.
  */
 const path = require('node:path');
+const fs = require('node:fs');
 const { consoleRequest, routeAllowed } = require('./consoleApi.cjs');
 const { signModule } = require('./moduleSigning.ts');
 const { signCampaign, CAMPAIGN_MAX_TARGETS } = require('./campaigns.ts');
 const { unpackBundle, packBundle, bundleText, RUNTIME_FILE } = require('../../../modules/trust/bundle.ts');
 const { describeBundle } = require('../../../modules/trust/verify.ts');
+const { PAGE_URL_FILE, PAGE_ENTRY, FLUX_ASSET_FILE, pageTypeOf } = require('../../../modules/page/model.ts');
 const { ownerMayEdit, ownerEditViolations, OWNER_EDIT_REFUSAL } = require('../../../modules/trust/ownerEdit.ts');
 
 const b64 = bytes => Buffer.from(bytes).toString('base64');
 const text = (value, max = 20000) => { if (typeof value !== 'string' || value.length > max) throw new Error('Некорректные данные формы.'); return value; };
 const idOf = value => { if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(value)) throw new Error('Некорректный номер.'); return value; };
-const CHANNEL = { test: 'тестовый', production: 'рабочий' };
-const channelOf = value => { if (!CHANNEL[value]) throw new Error('Неизвестный канал выпуска.'); return value; };
+const CHANNEL = { test: 'пробная группа', production: 'все' };
+const channelOf = value => { if (!CHANNEL[value]) throw new Error('Неизвестный вид выпуска.'); return value; };
 const sha256Of = bytes => describeBundle(bytes).sha256;
 const when = ms => (ms ? new Date(ms).toLocaleString('ru') : 'сразу');
 
@@ -70,7 +72,7 @@ function createConsoleActions(ctx, request = consoleRequest) {
       const { request: row, signature, bundle } = await loadRequest(id);
       sameBundle(bundle, a.sha256);
       if (row.state !== 'pending') throw new Error('Запрос уже решён.');
-      await confirm(`Выпустить ${row.moduleId} ${row.version}?`, `Канал: ${CHANNEL[channel]}\nКогда: ${when(notBefore)}\nПакет: ${sha256Of(bundle).slice(0, 16)}…\n\nВыпуск подписывается вашим ключом из хранилища и сразу уходит в Flux Store.`);
+      await confirm(`Выпустить ${row.moduleId} ${row.version}?`, `Для кого: ${CHANNEL[channel]}\nКогда: ${when(notBefore)}\nПакет: ${sha256Of(bundle).slice(0, 16)}…\n\nВыпуск подписывается вашим ключом из хранилища и сразу уходит в Flux Store.`);
       const signed = signModule(vault, { kind: 'release', requestId: id, requestSignature: signature, bundle: b64(bundle), channel, notBefore });
       const out = await api('POST', `/api/modules/requests/${id}/release`, { signature: signed });
       return { release: out.release, duplicate: !!out.duplicate, sha256: sha256Of(bundle) };
@@ -105,14 +107,14 @@ function createConsoleActions(ctx, request = consoleRequest) {
     promote: async a => {
       const vault = need(), release = (await api('GET', '/api/modules/releases')).releases.find(r => r.id === idOf(a.releaseId));
       if (!release) throw new Error('Выпуск не найден.');
-      await confirm(`Перевести ${release.moduleId} ${release.version} в рабочий канал?`, 'Выпуск станет доступен всем в рабочем канале.');
+      await confirm(`Выпустить ${release.moduleId} ${release.version} для всех?`, 'Выпуск станет доступен всем.');
       await api('POST', '/api/modules/promotions', { signature: signModule(vault, { kind: 'promotion', releaseSignature: release.signature }) });
       return { done: true };
     },
     pin: async a => {
       const vault = need(), moduleId = text(a.moduleId, 100), channel = channelOf(a.channel), version = a.version ? text(a.version, 40) : null;
-      await confirm(version ? `Вернуть канал «${CHANNEL[channel]}» на ${moduleId} ${version}?` : `Снять откат: ${moduleId}, канал «${CHANNEL[channel]}»`,
-        version ? 'Выпуски этого канала выше выбранной версии у всех перестанут запускаться.' : 'Выпуски канала снова запускаются по общим правилам.');
+      await confirm(version ? `Вернуть ${moduleId} к версии ${version} (${CHANNEL[channel]})?` : `Снять возврат: ${moduleId} (${CHANNEL[channel]})`,
+        version ? 'Более новые выпуски перестанут запускаться у всех.' : 'Выпуски снова запускаются по общим правилам.');
       await api('POST', '/api/modules/pins', { signature: signModule(vault, { kind: 'pin', moduleId, channel, version, reason: text(a.reason || '', 2000) }) });
       return { done: true };
     },
@@ -171,19 +173,28 @@ function createConsoleActions(ctx, request = consoleRequest) {
       return { ids };
     },
 
+    // ---- Окно лицензий и выпуска Flux: то же хранилище и то же подключение, пароль второй раз не спрашивается
+    openLicenses: async a => { await ctx.openLicenses(a.tab === 'updates' ? 'updates' : 'licenses'); return { opened: true }; },
+
     // ---- Пробный запуск: страница подпрограммы из пакета запроса, который сейчас на экране
     trialLoad: async a => {
       // Берётся тот же пакет, что показан на экране: запуск не может отличаться от просмотра
       const id = idOf(a.id), loaded = await actions.request({ id });
       const files = unpackBundle(Buffer.from(loaded.bundle, 'base64'));
-      let isPage = false;
-      try { isPage = JSON.parse(Buffer.from(files['manifest.json'] || '{}').toString('utf8')).ui === 'page'; } catch (_) { /* манифест проверит сервер */ }
-      // Страница рисуется отдельным кадром Flux; в окне владельца пробного запуска для неё пока нет — говорим прямо
-      if (isPage) throw new Error('Это программа со своей страницей: пробный запуск страниц в Studio владельца пока не сделан. Файлы ui/ видны во вкладке «Файлы», а тестовый выпуск проверьте во Flux (канал «тестовый»).');
+      let manifest = {};
+      try { manifest = JSON.parse(Buffer.from(files['manifest.json'] || '{}').toString('utf8')); } catch (_) { /* описание программы проверит сервер */ }
+      // Программа со своим экраном (договор v2): страница рисуется из ui/ пакета, runtime.js ей не нужен. Отдаются только файлы ui/
+      if (manifest.ui === 'page') {
+        const page = {};
+        for (const [name, bytes] of Object.entries(files)) if (PAGE_URL_FILE.test(name) && pageTypeOf(name)) page[name] = bytes;
+        if (!page[PAGE_ENTRY]) throw new Error('В пакете нет страницы ui/index.html.');
+        trial = { id, page };
+        return { manifest };
+      }
       const runtime = files[RUNTIME_FILE];
       if (!runtime) throw new Error('В пакете нет собранной программы (build/runtime.js).');
       trial = { id, runtime };
-      return { manifest: JSON.parse(Buffer.from(files['manifest.json'] || '{}').toString('utf8')) };
+      return { manifest };
     },
   };
   return actions;
@@ -200,34 +211,47 @@ let consoleWindow = null, trial = null, handlerSet = false;
 const trialState = () => trial;
 
 /** Пробный запуск: страница и runtime.js берутся из пакета запроса, который сейчас на экране; больше ничего не отдаётся */
-function trialHandler({ protocol }, CSP) {
+function trialHandler({ protocol }, CSP, PAGE_CSP) {
   if (handlerSet || !protocol?.handle) return;
   handlerSet = true;
-  const headers = type => ({ 'Content-Type': type, 'Content-Security-Policy': CSP, 'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
+  const headers = (type, page) => ({ 'Content-Type': type, 'Content-Security-Policy': page ? PAGE_CSP : CSP, 'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
   protocol.handle(SCHEME, request => {
     let url; try { url = new URL(request.url); } catch { return new Response(null, { status: 404 }); }
     if (request.method !== 'GET' || url.hostname !== 'trial' || !trial) return new Response(null, { status: 404 });
-    if (url.pathname === '/' || url.pathname === '/index.html') return new Response(TRIAL_HTML, { headers: headers('text/html; charset=utf-8') });
-    if (url.pathname === '/runtime.js') return new Response(Buffer.from(trial.runtime), { headers: headers('text/javascript; charset=utf-8') });
+    const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
+    if (trial.page) {
+      // Страница программы: ui/… из пакета запроса и клиент flux.* с набором Flux из сборки Studio (те же адреса, что во Flux)
+      if (FLUX_ASSET_FILE.test(file)) {
+        try { return new Response(fs.readFileSync(path.join(__dirname, '..', 'ui', 'console', file.slice('_flux/'.length))), { headers: headers(pageTypeOf(file), true) }); }
+        catch { return new Response(null, { status: 404 }); }
+      }
+      const bytes = PAGE_URL_FILE.test(file) ? trial.page[file] : undefined;
+      return bytes ? new Response(Buffer.from(bytes), { headers: headers(pageTypeOf(file), true) }) : new Response(null, { status: 404 });
+    }
+    if (file === 'index.html') return new Response(TRIAL_HTML, { headers: headers('text/html; charset=utf-8') });
+    if (file === 'runtime.js') return new Response(Buffer.from(trial.runtime), { headers: headers('text/javascript; charset=utf-8') });
     return new Response(null, { status: 404 });
   });
 }
 
 const FORWARDED = ['state', 'unlock', 'connect', 'disconnect', 'lock', 'cancel'];
-const TABS = new Set(['requests', 'releases', 'certificates', 'updates']);
+const TABS = new Set(['programs', 'updates', 'licenses']);
+/** Прежние адреса разделов (до сведения в три пункта) ведут в «Программы на проверку»; внутри — свой подраздел */
+const LEGACY_TABS = { requests: 'programs', releases: 'programs', certificates: 'programs' };
 const ALLOWED = ['state', 'unlock', 'connect', 'disconnect', 'lock', 'cancel', 'requests', 'request', 'returnRequest', 'rejectRequest', 'release', 'ownerEdit',
-  'releases', 'testers', 'saveTesters', 'promote', 'pin', 'revoke', 'certificates', 'certify', 'declineCertificate', 'devices', 'assignUpdate', 'trialLoad'];
+  'releases', 'testers', 'saveTesters', 'promote', 'pin', 'revoke', 'certificates', 'certify', 'declineCertificate', 'devices', 'assignUpdate', 'trialLoad', 'openLicenses'];
 
-async function openConsole(ctx, tab = 'requests') {
+async function openConsole(ctx, tab = 'programs') {
   const electron = require('electron');
   const { BrowserWindow, ipcMain } = electron;
-  const startTab = TABS.has(tab) ? tab : 'requests';
+  const startTab = TABS.has(tab) ? tab : LEGACY_TABS[tab] || 'programs';
+  const section = LEGACY_TABS[tab] ? tab : '';
   if (consoleWindow && !consoleWindow.isDestroyed()) {
     if (consoleWindow.isMinimized()) consoleWindow.restore();
-    consoleWindow.focus(); consoleWindow.webContents.send('console:tab', startTab); return;
+    consoleWindow.focus(); consoleWindow.webContents.send('console:tab', section ? `${startTab}:${section}` : startTab); return;
   }
-  const { MODULE_CSP } = require('../../../modules/protocol.ts');
-  trialHandler(electron, MODULE_CSP);
+  const { MODULE_CSP, PAGE_CSP } = require('../../../modules/protocol.ts');
+  trialHandler(electron, MODULE_CSP, PAGE_CSP);
   await ctx.refreshVault();
   const actions = createConsoleActions(ctx);
   const win = new BrowserWindow({ width: 1280, height: 860, minWidth: 900, minHeight: 600, title: `Flux Studio — Владелец ${ctx.version}`, backgroundColor: '#101722',
@@ -258,8 +282,10 @@ async function openConsole(ctx, tab = 'requests') {
     clearInterval(timer); ipcMain.removeHandler('console:action');
     ctx.listeners.locked.delete(onLocked); ctx.listeners.disconnected.delete(onDisconnected);
     consoleWindow = null; trial = null;
+    // Окно лицензий уже закрыто — хранилище больше никому не нужно
+    if (!ctx.licensesOpen?.()) void ctx.lockAll?.();
   });
-  await win.loadFile(path.join(__dirname, '..', 'ui', 'console', 'index.html'), { query: { tab: startTab } });
+  await win.loadFile(path.join(__dirname, '..', 'ui', 'console', 'index.html'), { query: { tab: startTab, ...(section ? { section } : {}) } });
 }
 
 /** Что окно знает о состоянии: без ключей, лицензий и реестров */
@@ -268,4 +294,5 @@ function publicState(ctx) {
   return { version: s.version, unlocked: s.unlocked, vaultExists: s.vaultExists, backupSession: s.backupSession, kind: s.kind, connected: !!ctx.token(), display: ctx.display(), user: ctx.user() ? { id: ctx.user().id, name: ctx.user().name } : null };
 }
 
-module.exports = { createConsoleActions, openConsole, routeAllowed, publicState, trialState, ALLOWED };
+const isConsoleOpen = () => !!consoleWindow && !consoleWindow.isDestroyed();
+module.exports = { createConsoleActions, openConsole, isConsoleOpen, routeAllowed, publicState, trialState, ALLOWED };
