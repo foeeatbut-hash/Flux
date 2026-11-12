@@ -16,7 +16,7 @@ const STATUS: Record<string, string> = {
 const IMPACT: Record<string, string> = { LOW: 'Есть обход', NORMAL: 'Мешает', HIGH: 'Не могу продолжить' };
 const KIND: Record<string, string> = { crash: 'Сбой', timeout: 'Не уложилась во время', memory: 'Не хватило памяти', bridge: 'Ошибка обмена данными', controls: 'Контрольные примеры', connection: 'Подключение' };
 
-export default function Errors() {
+export default function Errors({ bare }: { bare?: boolean }) {
   const [data, setData] = useState<{ reports: Report[]; crashes: Crash[] } | null>(null);
   const [error, setError] = useState('');
   const [fix, setFix] = useState<Record<string, string>>({});
@@ -29,8 +29,8 @@ export default function Errors() {
   const open = (r: Report) => !['DONE', 'REJECTED', 'DUPLICATE', 'WITHDRAWN', 'VERIFY'].includes(r.status);
 
   return (
-    <section aria-label="Ошибки" className="fx-page">
-      <SectionHead title="Ошибки" />
+    <section aria-label="Сбои у пользователей" className="fx-page">
+      {!bare && <SectionHead title="Ошибки" />}
       <div className="fx-page-body p-4 studio-body">
       <p className="fx-hint">Обращения и счётчики сбоев по вашим программам. Данные проектов пользователей сюда не попадают.</p>
       {error && <p className="fx-error" role="alert">{error}</p>}

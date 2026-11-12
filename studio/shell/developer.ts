@@ -17,7 +17,8 @@ import type { ControlsEngine } from '../shared/controlsEngine';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Drafts, TEXT_FILE } from '../shared/drafts';
-import { FolderWatcher, type FolderChange } from '../shared/workspace';
+import { FolderWatcher } from '../shared/workspace';
+import { unzipInto, zipProject } from '../shared/archive';
 import { DeveloperKeyring, KeyringFailure, type SafeStorageLike } from '../shared/keyring';
 import { buildRequest, PublishRefused } from '../shared/publish';
 import { assembleRuntime, loadRuntimeTemplates, type RuntimeTemplates } from '../shared/runtime';
@@ -42,6 +43,8 @@ export interface DeveloperDeps {
   capture?: (rect: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
   /** Системный диалог выбора папки (главный процесс): окно пути не называет, папку выбирает человек */
   pickFolder?: (title: string) => Promise<string | null>;
+  /** Диалоги выбора файла архива (открыть) и места сохранения (сохранить) */
+  pickArchive?: (mode: 'open' | 'save', suggested: string) => Promise<string | null>;
   /** Событие окну (`studio:project`): изменения в папке проекта снаружи */
   emit?: (channel: string, data: unknown) => void;
   /** Папка новых проектов по умолчанию (по умолчанию — «projects» в данных Studio) */
@@ -196,6 +199,23 @@ export class DeveloperService {
         return { watching: true };
       }
       case 'projectUnwatch': { this.unwatch(); return { watching: false }; }
+      // Скачать проект архивом: место сохранения выбирает человек
+      case 'projectExport': {
+        const id = moduleId(args.id), target = await this.deps.pickArchive?.('save', `${id}.zip`);
+        if (!target) return { canceled: true };
+        fs.writeFileSync(target, await zipProject(this.drafts.space(id)));
+        return { saved: true };
+      }
+      // Импорт из архива: файл архива и пустую папку для проекта выбирает человек; дальше проект открывается как обычная папка
+      case 'projectImportArchive': {
+        const file = await this.deps.pickArchive?.('open', '');
+        if (!file) return { id: '', canceled: true };
+        if (fs.statSync(file).size > 32 * 1024 * 1024) throw new StudioFailure('Архив больше 32 МиБ.');
+        const folder = await this.deps.pickFolder?.('Куда распаковать проект (пустая или новая папка)');
+        if (!folder) return { id: '', canceled: true };
+        try { await unzipInto(new Uint8Array(fs.readFileSync(file)), folder); } catch (e: any) { throw new StudioFailure(String(e?.message || 'Архив не распакован.')); }
+        try { return { ...this.drafts.openFolder(folder) }; } catch (e: any) { throw new StudioFailure(String(e?.message || 'Проект не открыт.')); }
+      }
       case 'fileMkdir': { this.drafts.makeDir(moduleId(args.id), text(args.path, 240)); return { created: true }; }
       case 'fileRename': { this.drafts.rename(moduleId(args.id), text(args.from, 240), text(args.to, 240)); return { renamed: true }; }
       case 'fileSearch': return this.drafts.search(moduleId(args.id), text(args.query, 200));
@@ -220,6 +240,12 @@ export class DeveloperService {
         const id = moduleId(args.id), path = text(args.path, 240), bytes = this.drafts.readAny(id, path);
         if (!TEXT_FILE.test(path) || bytes.length > EDIT_LIMIT) return { text: null, size: bytes.length };
         return { text: Buffer.from(bytes).toString('utf8'), size: bytes.length };
+      }
+      // Картинка для просмотра: не больше 4 МиБ, байтами в base64
+      case 'draftBinary': {
+        const bytes = this.drafts.readAny(moduleId(args.id), text(args.path, 240));
+        if (bytes.length > 4 * 1024 * 1024) throw new StudioFailure('Картинка больше 4 МиБ: просмотр недоступен.');
+        return { base64: Buffer.from(bytes).toString('base64'), size: bytes.length };
       }
       case 'draftSave': { this.drafts.writeFile(moduleId(args.id), text(args.path, 240), text(args.text, EDIT_LIMIT)); return { saved: true }; }
       case 'draftRemoveFile': { this.drafts.deleteFile(moduleId(args.id), text(args.path, 240)); return { removed: true }; }

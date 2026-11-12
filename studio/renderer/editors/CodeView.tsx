@@ -19,6 +19,10 @@ import { rust } from '@codemirror/lang-rust';
 import { cpp } from '@codemirror/lang-cpp';
 import { go } from '@codemirror/legacy-modes/mode/go';
 import { csharp } from '@codemirror/legacy-modes/mode/clike';
+import { css } from '@codemirror/legacy-modes/mode/css';
+import { xml } from '@codemirror/legacy-modes/mode/xml';
+import { shell } from '@codemirror/legacy-modes/mode/shell';
+import { toml } from '@codemirror/legacy-modes/mode/toml';
 import { tags } from '@lezer/highlight';
 import { installShadowStyles } from './styles';
 import type { CodeLanguage } from './types';
@@ -35,8 +39,16 @@ const highlight = HighlightStyle.define([
   { tag: [tags.typeName, tags.className, tags.namespace], class: 'cm-tok-type' },
 ]);
 
-export function languageSupport(language: CodeLanguage | 'json'): Extension {
+/** Языки файлов проекта вне списка языков расчёта: страница, стили, настройки; plain — без подсветки */
+export type FileLanguage = CodeLanguage | 'json' | 'html' | 'css' | 'shell' | 'toml' | 'plain';
+
+export function languageSupport(language: FileLanguage): Extension {
   switch (language) {
+    case 'html': return StreamLanguage.define(xml);
+    case 'css': return StreamLanguage.define(css);
+    case 'shell': return StreamLanguage.define(shell);
+    case 'toml': return StreamLanguage.define(toml);
+    case 'plain': return [];
     case 'json': return json();
     case 'typescript': return javascript({ typescript: true });
     case 'javascript': return javascript();
@@ -53,7 +65,7 @@ export interface MarkedLine { line: number; column: number; length?: number; mes
 interface Props {
   value: string;
   onChange?: (value: string) => void;
-  language: CodeLanguage | 'json';
+  language: FileLanguage;
   /** Имя окна для читалок экрана и для проверок */
   label: string;
   readOnly?: boolean;

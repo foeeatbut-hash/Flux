@@ -153,6 +153,13 @@ export function startShell(sections: ShellSection[] = []): void {
       capture: async rect => (await win!.webContents.capturePage(rect)).toPNG(),
       home: path.join(app.getPath('documents'), 'Flux Studio'),
       emit: (channel, data) => { if (win && !win.isDestroyed()) win.webContents.send(channel, data); },
+      pickArchive: async (mode, suggested) => {
+        if (!win) return null;
+        const filters = [{ name: 'Архив ZIP', extensions: ['zip'] }];
+        if (mode === 'save') { const r = await dialog.showSaveDialog(win, { title: 'Сохранить проект архивом', defaultPath: suggested, filters }); return r.canceled || !r.filePath ? null : r.filePath; }
+        const r = await dialog.showOpenDialog(win, { title: 'Архив проекта', properties: ['openFile'], filters });
+        return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+      },
       pickFolder: async title => {
         if (!win) return null;
         const picked = await dialog.showOpenDialog(win, { title, properties: ['openDirectory', 'createDirectory'] });

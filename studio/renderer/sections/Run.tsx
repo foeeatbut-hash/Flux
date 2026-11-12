@@ -24,7 +24,8 @@ function theme(): ThemeTokens {
   return Object.fromEntries(themeKeys.map(key => [key, style.getPropertyValue(key).trim()])) as ThemeTokens;
 }
 
-export default function Run({ id }: { id: string }) {
+/** `signal` — счётчик нажатий «Запустить» сверху: каждое новое значение запускает программу; `onFail` — текст отказа запуска для списка «Проблемы» */
+export default function Run({ id, signal = 0, onFail, onStarted }: { id: string; signal?: number; onFail?: (text: string) => void; onStarted?: () => void }) {
   const [contexts, setContexts] = useState<BaseContext[]>([]);
   const [pick, setPick] = useState({ projectId: 'p1', entry: 'equipment', entityId: 'p1-e-fan' });
   const [started, setStarted] = useState<Started | null>(null);
@@ -85,9 +86,12 @@ export default function Run({ id }: { id: string }) {
   const entities = pick.entry === 'equipment' ? project?.equipment : pick.entry === 'tag' ? project?.tags : [];
   const start = async () => {
     setError(''); setLog([]); setStarted(null);
-    try { setStarted(await call<Started>('runStart', { id, ...pick, entityId: pick.entry === 'start' ? '' : pick.entityId })); }
-    catch (e) { setError((e as Error).message); }
+    try { setStarted(await call<Started>('runStart', { id, ...pick, entityId: pick.entry === 'start' ? '' : pick.entityId })); onStarted?.(); }
+    catch (e) { setError((e as Error).message); onFail?.((e as Error).message); }
   };
+  const startRef = useRef(start);
+  startRef.current = start;
+  useEffect(() => { if (signal > 0) void startRef.current(); }, [signal]);
   const shoot = async () => {
     setShots('');
     // Тема окна — класс dark на <html>, как во Flux; на время снимков переключаем его и возвращаем как было
