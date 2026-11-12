@@ -112,7 +112,7 @@ jobs:
             exit 1
           fi
 
-          for check in test-catalog-ui test-catalog-project-ui test-employee-import-ui test-password-section-ui test-chat-files-ui test-windows-explorer-ui test-explorer-contents-ui test-explorer-nav-ui test-explorer-operation-ui test-docflow-explorer-ui test-docflow-mask-ui test-docflow-classes-ui test-docflow-kits-ui test-docflow-kit-tags-ui test-docflow-create-files-ui test-icons-shell-ui test-import-file-chooser-ui test-chat-ui test-chat-screen-ui test-owner-login-ui test-modules-restart-ui test-feedback-module-ui; do
+          for check in test-catalog-ui test-catalog-project-ui test-employee-import-ui test-password-section-ui test-chat-files-ui test-windows-explorer-ui test-explorer-contents-ui test-explorer-nav-ui test-explorer-operation-ui test-docflow-explorer-ui test-docflow-mask-ui test-docflow-classes-ui test-docflow-kits-ui test-docflow-kit-tags-ui test-docflow-create-files-ui test-icons-shell-ui test-import-file-chooser-ui test-chat-ui test-chat-screen-ui test-owner-login-ui test-modules-restart-ui test-modules-windows-ui test-feedback-module-ui; do
             node --import tsx "scripts/$check.ts"
           done
           SHOT="${{ runner.temp }}/store/store.png" node --import tsx scripts/test-modules-store-ui.ts

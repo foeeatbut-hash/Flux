@@ -12,7 +12,7 @@ import { create } from 'zustand';
 import { mayClose } from '../lib/closeGuard';
 import { resolveSectionPath, resolveSectionHref } from '../lib/sectionAliases';
 import {
-  initialRect, moveRect, resizeRect, snapRect, toggleMaximize, raise, topWindow,
+  initialRect, MIN_W, MIN_H, moveRect, resizeRect, snapRect, toggleMaximize, raise, topWindow,
   refit, tile, type Area, type Edge, type SnapZone, type WinState,
 } from '../lib/windows';
 import { shareRect } from '../lib/layouts';
@@ -65,7 +65,8 @@ interface WindowState {
    */
   open: (href: string) => void;
   /** Ещё одно окно того же раздела: Ctrl+N и «Открыть в новом окне» */
-  openAnother: (href: string) => void;
+  /** `size` — желаемый размер (flux.windows.open): обрезается по рабочей области и не меньше минимума окна Flux */
+  openAnother: (href: string, size?: { w?: number; h?: number }) => void;
   /** Живое окно ушло на другой адрес — запомнить, иначе окно потеряет себя */
   setHref: (id: string, href: string) => void;
   setTitle: (id: string, title: string) => void;
@@ -230,7 +231,7 @@ export const useWindowStore = create<WindowState>((set, get) => {
       get().openAnother(href);
     },
 
-    openAnother: (requested) => {
+    openAnother: (requested, size) => {
       const href = resolveSectionHref(requested);
       const { windows, area } = get();
       if (sectionAccess(sectionForPath(pathOf(href)), appContext()) === 'hide') return;
@@ -238,6 +239,14 @@ export const useWindowStore = create<WindowState>((set, get) => {
       const display = get().displays.find(d => d.id === get().activeDisplayId) || get().displays[0];
       const bounds = display?.workArea;
       const rect = initialRect(bounds || area, windows.length);
+      if (size) {
+        const room = bounds || area;
+        if (size.w) rect.w = Math.round(Math.min(Math.max(size.w, MIN_W), Math.max(MIN_W, room.w)));
+        if (size.h) rect.h = Math.round(Math.min(Math.max(size.h, MIN_H), Math.max(MIN_H, room.h)));
+        // Увеличенное окно не должно уйти за край стола: сдвигаем назад, пока оно помещается
+        rect.x = Math.max(0, Math.min(rect.x, room.w - rect.w));
+        rect.y = Math.max(0, Math.min(rect.y, room.h - rect.h));
+      }
       if (bounds) { rect.x += bounds.x; rect.y += bounds.y; }
       const id = newId();
       // Открытие показываем только окну, которое попросил человек; окна из

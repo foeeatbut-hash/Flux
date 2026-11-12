@@ -5,7 +5,7 @@
  * Всё привязано к идентификатору программы: окна другой программы и разделы Flux сюда не попадают.
  */
 import { useWindowStore } from '../store/windowStore';
-import { PAGE_LIMITS, WINDOW_LIMITS } from '../../modules/page/model';
+import { PAGE_LIMITS, WINDOW_LIMITS, WINDOW_OPTION_LIMITS, type WindowOptions } from '../../modules/page/model';
 
 export { pageState, pageStateKey } from '../lib/pageStateMemory';
 /** Пороги «не отвечает»; поле, а не константа, чтобы проверка в настоящем Electron не ждала полминуты */
@@ -24,20 +24,22 @@ export function joinPageBus(moduleId: string, deliver: Listener) {
   };
 }
 
-export const moduleWindowHref = (moduleId: string, page: string, params: Record<string, unknown>) => {
+export const moduleWindowHref = (moduleId: string, page: string, params: Record<string, unknown>, title?: string) => {
   const query = new URLSearchParams();
   if (page !== 'index.html') query.set('page', page);
   if (Object.keys(params).length) query.set('params', JSON.stringify(params));
+  // Заголовок окна несёт адрес: он же сохраняется в раскладке, и окно после перезапуска Flux зовётся так же
+  if (title) query.set('title', title.slice(0, WINDOW_OPTION_LIMITS.title));
   const text = query.toString();
   return `/module/${moduleId}${text ? `?${text}` : ''}`;
 };
 /** Открыть ещё одно окно программы; false — предел числа окон */
-export function openModuleWindow(moduleId: string, page: string, params: Record<string, unknown>): boolean {
+export function openModuleWindow(moduleId: string, page: string, params: Record<string, unknown>, options?: WindowOptions): boolean {
   const store = useWindowStore.getState();
   const own = () => useWindowStore.getState().windows.filter(w => w.path === `/module/${moduleId}`).length;
   if (own() >= WINDOW_LIMITS.windows) return false;
   const before = own();
-  store.openAnother(moduleWindowHref(moduleId, page, params));
+  store.openAnother(moduleWindowHref(moduleId, page, params, options?.title), options?.width || options?.height ? { w: options.width, h: options.height } : undefined);
   // Раздел мог быть скрыт правами: окно не открылось — честный отказ, а не «готово»
   return own() > before;
 }

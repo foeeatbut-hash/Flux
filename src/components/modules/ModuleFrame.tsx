@@ -16,6 +16,7 @@ import { pageState, pageStateKey, joinPageBus, openModuleWindow, offerFileToUser
 import { pageHung } from '../../../modules/page/model';
 import { useStore } from '../../store/store';
 import ConnectionPrompt from './ConnectionPrompt';
+import { useProgramWindow } from './useProgramWindow';
 import {
   themeKeys, type LaunchContext, type ModuleManifest, type ModuleReader, type ThemeTokens, type ModuleFailureKind,
 } from '../../../modules/contract';
@@ -30,12 +31,14 @@ export interface ModuleFrameProps {
   page?: string;
   /** Параметры, с которыми открыто это окно (flux.windows.params) */
   windowParams?: Record<string, unknown>;
+  /** Заголовок окна из flux.windows.open: виден после названия программы */
+  windowTitle?: string;
 }
 function themeTokens(): ThemeTokens {
   const style = getComputedStyle(document.documentElement);
   return Object.fromEntries(themeKeys.map(key => [key, style.getPropertyValue(key).trim()])) as ThemeTokens;
 }
-export default function ModuleFrame({ manifest, context, theme, createReadCycle, channel = 'production', page = 'index.html', windowParams }: ModuleFrameProps) {
+export default function ModuleFrame({ manifest, context, theme, createReadCycle, channel = 'production', page = 'index.html', windowParams, windowTitle = '' }: ModuleFrameProps) {
   const { isConnected } = useRealTimeSync();
   const connected = useRef(isConnected);
   connected.current = isConnected;
@@ -52,6 +55,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
   const lastBeat = useRef(Date.now());
   const beats = useRef(0);
   const paramsRef = useRef(windowParams || {});
+  const program = useProgramWindow(manifest.name, windowTitle, hung);
   const userId = useStore(state => state.user?.id || '');
   useEffect(() => {
     if (!isPage) return;
@@ -99,7 +103,8 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
         offerFile: file => offerFileToUser(manifest.name, file),
         pickFile: request => pickFileForProgram(manifest.name, request.accept),
         onBeat: () => { beats.current++; lastBeat.current = Date.now(); setHung(false); },
-        openWindow: (target, params) => openModuleWindow(manifest.id, target, params),
+        openWindow: (target, params, options) => openModuleWindow(manifest.id, target, params, options),
+        dialog: program.host.dialog, setTitle: program.host.setTitle, setUnsaved: program.host.setUnsaved,
         params: () => paramsRef.current,
         broadcast: data => bus?.send(data),
       } : undefined,
@@ -180,6 +185,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
       <span>Программа {manifest.name} не отвечает. Остальной Flux работает.</span>
       <button type="button" className="text-[var(--flux-accent)] underline" onClick={() => { setRestarts(n => n + 1); }}>Перезапустить</button>
     </div>}
+    {program.node}
     {asking && <ConnectionPrompt ask={asking.ask} onChoose={choice => { asking.resolve(choice); setAsking(null); }} />}
     {gate === 'checking' && <div className="fx-empty"><div className="fx-empty-title">Проверка расчёта на этом компьютере…</div></div>}
     {(gate === 'failed' || gate === 'retry') && <div className="fx-empty" role="alert"><div className="fx-empty-title">Программа не запущена</div>
