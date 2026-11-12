@@ -7,7 +7,7 @@
  * не покидает этот процесс).
  */
 import { randomUUID } from 'node:crypto';
-import { languageOf } from '../../modules/engine/types';
+import { LOGIC_BUILD_FILE, languageOf } from '../../modules/engine/types';
 import { resources, type ModuleManifest, type LaunchContext, type Resource } from '../../modules/contract';
 import { MODULE_CHANNELS, MODULE_ID, MODULE_VERSION, type ModuleChannel } from '../../modules/trust/claims';
 import { unpackBundle, validBundlePath } from '../../modules/trust/bundle';
@@ -24,7 +24,7 @@ import { buildRequest, PublishRefused } from '../shared/publish';
 import { pickForWire } from './programFile';
 import { tsEntries, withBuilt, problemLine, type TsBuildResult } from '../shared/tsBuild';
 import type { TsBuilder } from '../shared/tsBuildHost';
-import { assembleRuntime, loadRuntimeTemplates, type RuntimeTemplates } from '../shared/runtime';
+import { assembleLogic, assembleRuntime, loadRuntimeTemplates, type RuntimeTemplates } from '../shared/runtime';
 import { createFromTemplate, TEMPLATES, TEMPLATE_IDS, validProjectId, type ProjectFiles, type TemplateId } from '../shared/templates';
 import { FLUX_ASSET_FILE, PAGE_URL_FILE, pageProblem, pageTypeOf } from '../../modules/page/model';
 import { TestBase } from '../shared/testBase';
@@ -317,7 +317,7 @@ export class DeveloperService {
     const row = (await ownRequests(s)).find(r => r.id === requestId);
     if (!row) throw new StudioFailure('Запрос не найден среди ваших.');
     const files = unpackBundle(await ownBundle(s, requestId));
-    delete files['build/runtime.js'];
+    delete files['build/runtime.js']; delete files[LOGIC_BUILD_FILE];
     const id = row.moduleId;
     if (this.drafts.exists(id)) throw new StudioFailure(`Проект «${id}» уже есть на этом компьютере. Откройте его или удалите перед импортом.`);
     this.drafts.create(id, files, { template: 'request', parentRequest: row.id, changelog: row.changelog, channel: row.channel === 'production' ? 'production' : 'test' });
@@ -439,11 +439,14 @@ export class DeveloperService {
     // У страницы нет runtime.js: пакет несёт ui/ как есть, и подписывается ровно он
     const built = manifest.ui === 'page' ? { runtime: '', problem: pageProblem(files, manifest.pages) } : assembleRuntime(this.runtimeTemplates(), manifest, files);
     if (built.problem) throw new StudioFailure(built.problem);
+    // Метод для других программ исполняет собранный build/logic.js: его кладёт Studio, ошибка сборки логики — ошибка отправки
+    const builtLogic = assembleLogic(manifest, files);
+    if (builtLogic.problem) throw new StudioFailure(`Логика на TypeScript не собралась: ${builtLogic.problem}`);
     const last = await lastRelease(s, id);
     let request;
     try {
       request = buildRequest(this.keyring, {
-        moduleId: id, version: manifest.version, files, runtime: built.runtime, baseRelease: last ? `${id}@${last.version}` : null,
+        moduleId: id, version: manifest.version, files, runtime: built.runtime, logic: builtLogic.logic, baseRelease: last ? `${id}@${last.version}` : null,
         parentRequest: state.parentRequest, channel: state.channel as ModuleChannel, changelog: state.changelog, comment: state.comment, report, studioVersion: this.deps.version,
       });
     } catch (error) {

@@ -151,8 +151,18 @@ async function main() {
   const exportsItem = async (files: ProjectFiles) => (await check(files)).items.find(i => i.id === 'exports');
   ok('метод в exports, имя которого есть в logic/main.py — проходит', (await exportsItem(withExports(py, [{ method: 'convert', does: EXPDO }], 'def export_convert(data): return data  # convert')))?.status === 'ok');
   ok('метод объявлен, а имени в logic/main.py нет → exports', (await exportsItem(withExports(py, [{ method: 'convertRates', does: EXPDO }])))?.status === 'fail');
-  ok('exports у программы на TypeScript → exports', (await exportsItem(withExports(created.typescript, [{ method: 'convert', does: EXPDO }])))?.status === 'fail');
-  ok('причина для TypeScript называет Python и WebAssembly', /Python или WebAssembly/.test((await exportsItem(withExports(created.typescript, [{ method: 'convert', does: EXPDO }])))!.detail));
+  const ts = created.typescript;
+  const tsWith = (files: ProjectFiles, list: Array<Record<string, unknown>>, edit: (source: string) => string = x => x): ProjectFiles =>
+    patchManifest({ ...files, 'logic/main.ts': enc(edit(text(files['logic/main.ts']))) }, m => { m.exports = list; m.contractVersion = 3; });
+  const tsExports = [{ method: 'convert', does: EXPDO }];
+  ok('метод на TypeScript: compute экспортирована и имя метода есть в logic/main.ts — проходит', (await exportsItem(tsWith(ts, tsExports, x => `${x}\n// convert`)))?.status === 'ok');
+  ok('метод на TypeScript, имени которого нет в logic/main.ts → exports', (await exportsItem(tsWith(ts, tsExports)))?.status === 'fail');
+  ok('метод на TypeScript без экспортируемой compute → exports', /нет экспортируемой функции compute/.test((await exportsItem(tsWith(ts, tsExports, x => `${x.replace('export function compute', 'function compute')}\n// convert`)))?.detail || ''));
+  ok('логика, которая не собирается в build/logic.js → exports', /не собирается/.test((await exportsItem(tsWith(ts, tsExports, x => `${x}\n// convert\nexport const = ;`)))?.detail || ''));
+  ok('логика из нескольких файлов не собирается в один build/logic.js → exports', /один файл/.test((await exportsItem(tsWith(ts, tsExports, x => `import './x';\n${x}\n// convert`)))?.detail || ''));
+  const tsNoControls = tsWith(ts, tsExports, x => `${x}\n// convert`); delete tsNoControls['examples/controls.json'];
+  ok('метод на TypeScript без контрольных примеров → controls', (await check(tsNoControls)).items.find(i => i.id === 'controls')?.status === 'fail');
+  ok('без exports логика на обработчиках без compute и без примеров — по-прежнему «не проверяется автоматически»', await (async () => { const f = { ...ts, 'logic/main.ts': enc(text(ts['logic/main.ts']).replace('export function compute', 'function compute')) }; delete f['examples/controls.json']; return (await check(f)).items.find(i => i.id === 'controls')?.status === 'manual'; })());
   ok('без exports пункта нет', (await exportsItem(py)) === undefined);
   await mutate('exports в договоре v2 → contract', withExports(py, [{ method: 'convert', does: EXPDO }], 'convert', 2), 'contract');
   ok('причина — формат v3 и exports названы', /exports.*v3/.test((await check(withExports(py, [{ method: 'convert', does: EXPDO }], 'convert', 2))).items.find(i => i.id === 'contract')!.detail));

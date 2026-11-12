@@ -22,7 +22,7 @@ export type ModulePlatform = typeof PLATFORMS[number];
 export const LOGIC_FILES: Record<ModuleLanguage, string> = {
   typescript: 'logic/main.ts', python: 'logic/main.py', wasm: 'logic/main.wasm',
 };
-/** Контрольные примеры в пакете: обязательны для Python и WebAssembly */
+/** Контрольные примеры в пакете: обязательны для Python и WebAssembly и для TypeScript с методами для других программ (`exports`) */
 export const CONTROLS_FILE = 'examples/controls.json';
 /**
  * Собранный JavaScript логики TypeScript — лежит в пакете, только когда у программы непустой `exports`: Flux сам TypeScript не

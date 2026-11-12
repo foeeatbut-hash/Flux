@@ -60,7 +60,7 @@ declare const flux: {
   /**
    * Обращение к другой программе: flux.programs.call('rates', 'convert', { … }). Нужно разрешение { kind: 'program', program: 'rates', does: '…' }
    * в permissions manifest.json (формат contractVersion 3), а у вызываемой — метод в её exports. Исполняется логика вызываемой программы
-   * (Python или WebAssembly: вход { export, data }, ответ — calc.out), окно она не открывает; данные и ответ до ${PROGRAM_LIMITS.bytes / 1024} КиБ,
+   * (Python, WebAssembly или TypeScript — функция compute: вход { export, data }, ответ — calc.out), окно она не открывает; данные и ответ до ${PROGRAM_LIMITS.bytes / 1024} КиБ,
    * не больше ${PROGRAM_LIMITS.inFlight} вызовов одновременно и ${PROGRAM_LIMITS.perSecond} в секунду. Ошибки (FluxError.code): NOT_ALLOWED, NOT_INSTALLED, NO_METHOD, LIMIT, TIMEOUT, FAILED.
    */
   programs: { call(program: string, method: string, data?: unknown): Promise<Record<string, unknown>> };

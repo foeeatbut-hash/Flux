@@ -26,7 +26,7 @@ import { createControlsEngine } from '../studio/shared/controlsEngine';
 import { DeveloperKeyring, type SafeStorageLike } from '../studio/shared/keyring';
 import { Drafts, DraftFailure } from '../studio/shared/drafts';
 import { buildPackage, buildRequest, PublishRefused } from '../studio/shared/publish';
-import { assembleRuntime, loadRuntimeTemplates } from '../studio/shared/runtime';
+import { assembleLogic, assembleRuntime, loadRuntimeTemplates } from '../studio/shared/runtime';
 import { createFromTemplate, TEMPLATE_IDS, TEMPLATES, type ProjectFiles, type TemplateId } from '../studio/shared/templates';
 import { TestBase } from '../studio/shared/testBase';
 import { dataSchemas } from '../modules/schemas';
@@ -230,6 +230,22 @@ async function main() {
   ok('без ключа запрос не собирается', (() => { try { buildRequest(new DeveloperKeyring(path.join(temp, 'nokeys'), storage), input); } catch (e) { return e instanceof PublishRefused; } return false; })());
   ok('пакет подмены: другой runtime даёт другой хеш', buildRequest(keyring, { ...input, runtime: assembled.runtime + ' ' }).claim.sha256 !== built.claim.sha256);
   ok('build/ из проекта в пакет не попадает', !text(unpackBundle(buildPackage({ ...ready, 'build/runtime.js': enc('evil') }, 'real'))['build/runtime.js']).includes('evil'));
+
+  console.log('Методы для других программ на TypeScript: build/logic.js');
+  const methodFiles = { ...patchManifest(ready, { contractVersion: 3, exports: [{ method: 'convert', does: 'Пересчитывает сумму из одной валюты в другую по курсу' }] }), 'logic/main.ts': enc(`${text(ready['logic/main.ts'])}\n// convert`) };
+  const methodManifest = JSON.parse(text(methodFiles['manifest.json']));
+  const logicBuilt = assembleLogic(methodManifest, methodFiles);
+  ok('без exports build/logic.js не собирается: пакет прежний', assembleLogic(JSON.parse(text(ready['manifest.json'])), ready).logic === '' && !('build/logic.js' in unpackBundle(built.bundle)));
+  ok('с exports логика переводится в скрипт, кладущий функции в globalThis.__fluxLogic', !logicBuilt.problem && /^globalThis\.__fluxLogic=/.test(logicBuilt.logic) && logicBuilt.logic.includes('exports.compute'));
+  ok('логика с ошибкой не даёт build/logic.js', assembleLogic(methodManifest, { ...methodFiles, 'logic/main.ts': enc('export const = ;') }).problem !== '');
+  ok('логика из нескольких файлов — понятный отказ, а не поломка при запуске', /один файл/.test(assembleLogic(methodManifest, { ...methodFiles, 'logic/main.ts': enc("import './x';\nexport function compute() { return 1; }") }).problem));
+  const methodReport = await check(methodFiles);
+  const methodBuilt = buildRequest(keyring, { ...input, files: methodFiles, logic: logicBuilt.logic, report: methodReport });
+  const methodVerified = verifyRequest({ signature: methodBuilt.signature, bundle: methodBuilt.bundle, rootHex, certificates: certs });
+  ok('запрос с методами на TypeScript и build/logic.js принимает проверка владельца', methodReport.ok && methodVerified.ok && 'build/logic.js' in unpackBundle(methodBuilt.bundle));
+  const missingLogic = verifyRequest(((b) => ({ signature: b.signature, bundle: b.bundle, rootHex, certificates: certs }))(buildRequest(keyring, { ...input, files: methodFiles, logic: '', report: methodReport })));
+  ok('без build/logic.js такой запрос не принимается, причина названа', !missingLogic.ok && /build\/logic\.js/.test(missingLogic.why));
+  ok('build/logic.js из проекта в пакет не попадает: его собирает только Studio', !('build/logic.js' in unpackBundle(buildPackage({ ...ready, 'build/logic.js': enc('evil') }, 'real'))));
 
   console.log(`\nFlux Studio: проект программы — ${passed} проверок пройдено`);
 }

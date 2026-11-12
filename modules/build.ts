@@ -1,4 +1,4 @@
-import { build } from 'esbuild';
+import { build, type Plugin } from 'esbuild';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -96,6 +96,20 @@ export async function buildPageAssets(): Promise<Record<string, string | Uint8Ar
   };
 }
 
+/**
+ * Хост логики TypeScript (метод для других программ): страница `ts.html` и скрипт `ts-host.js` со встроенным Worker'ом, как у Python.
+ * `plugins` нужны только проверкам: они подменяют исходник в памяти, чтобы убедиться, что ослабленная защита замечена.
+ */
+export async function buildTsHostAssets(options: { plugins?: Plugin[] } = {}): Promise<Record<string, string>> {
+  const common = { bundle: true, write: false, platform: 'browser', format: 'iife', minify: true, plugins: options.plugins ?? [] } as const;
+  const worker = await build({ ...common, entryPoints: ['modules/compute/tsWorker.ts'] });
+  const host = await build({ ...common, entryPoints: ['modules/compute/tsHostFrame.ts'], define: { __TS_WORKER__: JSON.stringify(worker.outputFiles[0].text) } });
+  return {
+    'ts-host.js': host.outputFiles[0].text,
+    'ts.html': '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Среда TypeScript</title></head><body><script src="./ts-host.js"></script></body></html>',
+  };
+}
+
 /** Файлы Pyodide, которые уходят в portable: ядро и стандартная библиотека. Остальное (тесты, карты, консоль) не нужно */
 export const PYODIDE_FILES = ['pyodide.js', 'pyodide.asm.js', 'pyodide.asm.wasm', 'python_stdlib.zip', 'pyodide-lock.json'] as const;
 
@@ -120,14 +134,7 @@ export async function buildComputeAssets(): Promise<Record<string, string | Uint
     entryPoints: ['modules/compute/hostFrame.ts'], bundle: true, write: false, platform: 'browser', format: 'iife', minify: true,
     define: { __PYTHON_WORKER__: JSON.stringify(worker.outputFiles[0].text) },
   });
-  // Хост логики TypeScript (метод для других программ): Worker метода собирается в строку, как Worker Python
-  const tsWorker = await build({ entryPoints: ['modules/compute/tsWorker.ts'], bundle: true, write: false, platform: 'browser', format: 'iife', minify: true });
-  const tsHost = await build({
-    entryPoints: ['modules/compute/tsHostFrame.ts'], bundle: true, write: false, platform: 'browser', format: 'iife', minify: true,
-    define: { __TS_WORKER__: JSON.stringify(tsWorker.outputFiles[0].text) },
-  });
-  assets[`${prefix}ts-host.js`] = tsHost.outputFiles[0].text;
-  assets[`${prefix}ts.html`] = '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Среда TypeScript</title></head><body><script src="./ts-host.js"></script></body></html>';
+  Object.assign(assets, Object.fromEntries(Object.entries(await buildTsHostAssets()).map(([file, data]) => [`${prefix}${file}`, data])));
   assets[`${prefix}host.js`] = host.outputFiles[0].text;
   assets[`${prefix}index.html`] = '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Среда Python</title></head><body><script src="./host.js"></script></body></html>';
   const pyodide = path.dirname(path.resolve('node_modules/pyodide/package.json'));

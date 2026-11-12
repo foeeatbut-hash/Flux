@@ -7,6 +7,8 @@
 import type { ModuleManifest } from '../../modules/contract';
 import { EXPORT_METHOD, PROGRAM_ID, exportsOf } from '../../modules/programs/model';
 import { programTargetsOf } from '../../modules/permissions/registry';
+import { LIMITS } from '../../modules/engine/types';
+import { compileLogic } from './logicSource';
 import type { CheckItem } from './checks';
 
 const item = (id: string, title: string, status: 'ok' | 'fail', detail: string): CheckItem => ({ id, title, status, detail });
@@ -35,12 +37,26 @@ export function programsItem(manifest: ModuleManifest, scripts: string[]): Check
     problems.join('; ') || `обращений flux.programs.call: ${calls}; нужные разрешения объявлены (${[...declared].join(', ')}); вызываемая программа должна быть установлена у человека и объявлять метод в exports`);
 }
 
-/** Манифест вызываемой программы: методы исполняются логикой Python или WebAssembly, и имя каждого есть в коде */
+/** Экспортирована ли из logic/main.ts функция compute: метод для других программ — это она, а не обработчики формы */
+export const TS_EXPORTS_COMPUTE = /\bexport\s+(?:async\s+)?function\s+compute\b|\bexport\s+(?:const|let)\s+compute\b|exports\.compute\b/;
+
+/**
+ * Манифест вызываемой программы: методы исполняет логика Python, WebAssembly или TypeScript (функция compute, собранная в build/logic.js),
+ * и имя каждого есть в коде
+ */
 export function exportsItem(manifest: ModuleManifest, language: string, logicText: string): CheckItem | null {
   const methods = exportsOf(manifest);
   if (!methods.length) return null;
   if (language === 'typescript') {
-    return item('exports', 'Методы для других программ (exports)', 'fail', 'методы exports исполняются логикой на Python или WebAssembly вне окна программы; у TypeScript такого пути нет — перенесите расчёт в logic/main.py или logic/main.wasm');
+    const problems: string[] = [];
+    if (!TS_EXPORTS_COMPUTE.test(logicText)) problems.push('в logic/main.ts нет экспортируемой функции compute: метод для других программ — это compute(input), обработчики формы вне окна не исполняются');
+    const compiled = compileLogic(logicText);
+    if (compiled.problem) problems.push(`логика не собирается в build/logic.js: ${compiled.problem}`);
+    else if (Buffer.byteLength(compiled.code) > LIMITS.tsFileBytes) problems.push('собранный build/logic.js больше 1 МиБ');
+    const lost = methods.filter(e => !logicText.includes(e.method)).map(e => e.method);
+    if (lost.length) problems.push(`метод «${lost.join('», «')}» объявлен в exports, но его имени нет в logic/main.ts: compute получает { "export": имя, "data": … } и обязана ответить на каждый объявленный метод`);
+    return item('exports', 'Методы для других программ (exports)', problems.length ? 'fail' : 'ok',
+      problems.join('; ') || `методов: ${methods.length} (${methods.map(e => e.method).join(', ')}); Studio положит в пакет собранный build/logic.js; вход { "export", "data" }, ответ — calc.out; состояния между вызовами, подключений, сети и данных Flux у метода нет; нужны контрольные примеры`);
   }
   const missing = language === 'python' ? methods.filter(e => !logicText.includes(e.method)).map(e => e.method) : [];
   return item('exports', 'Методы для других программ (exports)', missing.length ? 'fail' : 'ok',

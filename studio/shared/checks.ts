@@ -20,7 +20,8 @@ import { parseControls } from '../../modules/engine/controls';
 import { MODULE_BUNDLE_MAX, MODULE_VERSION } from '../../modules/trust/claims';
 import { compareVersions } from '../../shared/versionCompare';
 import { pageProblem, pageFiles, PAGE_ENTRY, PAGE_MIN_FLUX } from '../../modules/page/model';
-import { exportsItem, programsItem } from './programChecks';
+import { TS_EXPORTS_COMPUTE, exportsItem, programsItem } from './programChecks';
+import { exportsOf } from '../../modules/programs/model';
 import type { ControlsEngine } from './controlsEngine';
 import type { ProjectFiles } from './templates';
 
@@ -249,12 +250,13 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
 
   // 6. Контрольные примеры ---------------------------------------------------
   const controlsText = text(files, CONTROLS_FILE);
-  const exportsCompute = language === 'typescript' ? /\bexport\s+(?:async\s+)?function\s+compute\b|\bexport\s+(?:const|let)\s+compute\b|exports\.compute\b/.test(source) : true;
+  const exportsCompute = language === 'typescript' ? TS_EXPORTS_COMPUTE.test(source) : true;
   if (controlsText === null) {
-    if (language === 'typescript' && !exportsCompute) {
+    // Методам для других программ контрольные примеры нужны всегда: непроверенную логику Flux не исполняет
+    if (language === 'typescript' && !exportsCompute && !exportsOf(manifest).length) {
       items.push(item('controls', 'Контрольные примеры', 'manual', 'Не проверяется автоматически: логика на обработчиках (setup), без функции compute; запустите её на тестовой базе.'));
     } else {
-      items.push(item('controls', 'Контрольные примеры', 'fail', `Нужен файл ${CONTROLS_FILE}: «вход → ожидаемый выход с допуском». Для Python и WebAssembly он обязателен.`));
+      items.push(item('controls', 'Контрольные примеры', 'fail', `Нужен файл ${CONTROLS_FILE}: «вход → ожидаемый выход с допуском». Для Python, WebAssembly и методов на TypeScript (exports) он обязателен.`));
     }
   } else if (!input.engine) {
     const parsed = parseControls(controlsText);

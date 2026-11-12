@@ -12,7 +12,8 @@ import type { TsRunner } from './moduleCompute';
 
 const code = (value: unknown): ComputeErrorCode => COMPUTE_ERROR_CODES.includes(value as ComputeErrorCode) ? value as ComputeErrorCode : 'CRASH';
 
-export function createTsRunner(): TsRunner {
+/** `base` — откуда берётся страница хоста; во Flux это `flux-module://_compute/`, проверки в обычном Chromium подставляют свой адрес */
+export function createTsRunner(base = 'flux-module://_compute/'): TsRunner {
   let frame: HTMLIFrameElement | null = null;
   let ready: Promise<HTMLIFrameElement> | null = null;
   const waiting = new Map<string, { resolve: (value: { output: string }) => void; reject: (error: ComputeError) => void; timer: ReturnType<typeof setTimeout> }>();
@@ -51,7 +52,7 @@ export function createTsRunner(): TsRunner {
       };
       const giveUp = setTimeout(() => { window.removeEventListener('message', onReady); created.remove(); ready = null; reject(new ComputeError('UNAVAILABLE', 'среда TypeScript не отвечает')); }, 15_000);
       window.addEventListener('message', onReady);
-      created.src = 'flux-module://_compute/ts.html';
+      created.src = `${base}ts.html`;
       document.body.append(created);
     });
   }
