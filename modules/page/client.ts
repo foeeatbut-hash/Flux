@@ -37,6 +37,9 @@ const NOTES: Record<string, string> = {
   UNAVAILABLE: 'Недоступно: у программы нет такого механизма.',
   MEMORY: 'Расчёту не хватило памяти.',
   CRASH: 'Расчёт завершился ошибкой.',
+  NOT_ALLOWED: 'Не разрешено: нет разрешения в манифесте, отказ человека или администратора, вызов самой себя или вложенный вызов.',
+  NOT_INSTALLED: 'Эта программа не установлена у пользователя или ему не допущена.',
+  NO_METHOD: 'У программы нет такого метода для других программ.',
   CONTEXT_CHANGED: 'Проект или оформление изменились во время запроса.',
 };
 const fail = (code: string) => new FluxError(code, NOTES[code] || `Ошибка: ${code}`);
@@ -94,9 +97,9 @@ window.addEventListener('message', event => {
     }
     case 'page-message': emit(listeners.message, message.data); return;
     case 'result': settle(message.id, { value: message.data }); return;
-    case 'error': case 'page-error': case 'connect-error': case 'compute-error': settle(message.id, { code: message.code }); return;
+    case 'error': case 'page-error': case 'connect-error': case 'compute-error': case 'program-error': settle(message.id, { code: message.code }); return;
     case 'compute-result': settle(message.id, { value: message.output }); return;
-    case 'connect-result': case 'page-result': settle(message.id, { value: message.data }); return;
+    case 'connect-result': case 'page-result': case 'program-result': settle(message.id, { value: message.data }); return;
   }
 });
 window.addEventListener('resize', () => emit(listeners.resize, size()));
@@ -126,6 +129,14 @@ const api = {
   /** Подключение к внешней программе, объявленное в манифесте; при первом обращении Flux сам спросит разрешение */
   connect: {
     call: (connection: string, call: ConnectCall) => request<unknown>('connect', { connection, call }, 40_000),
+  },
+  /**
+   * Обращение к другой программе: `flux.programs.call('rates', 'convert', { … })`. Нужно разрешение `program` на её идентификатор в
+   * `permissions` манифеста, а у неё — метод в `exports`. Исполняется логика вызываемой программы (чистая функция «JSON → JSON»),
+   * окно она не открывает; данные и ответ до 256 КиБ. Ошибки (`FluxError.code`): NOT_ALLOWED, NOT_INSTALLED, NO_METHOD, LIMIT, TIMEOUT, FAILED.
+   */
+  programs: {
+    call: (program: string, method: string, data: unknown = {}) => request<unknown>('program', { call: { program, method, data } }, 45_000),
   },
   /**
    * Сеть — только через мост; кадр сам в сеть не ходит, а адрес, пределы, защиту и журнал держит главный процесс Flux.

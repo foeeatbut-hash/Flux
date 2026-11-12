@@ -1,12 +1,13 @@
 import type {
-  BridgeError, ComputeHostMessage, ConnectHostMessage, HostMessage, LaunchContext, ModuleManifest, ModuleOutput, ReadData,
+  BridgeError, ComputeHostMessage, ConnectHostMessage, HostMessage, ProgramHostMessage, LaunchContext, ModuleManifest, ModuleOutput, ReadData,
   ReadRequest, Resource, ThemeTokens, ModuleFailureKind, PageHostMessage, PageOp,
 } from './contract';
 import { validMessage } from './schemas';
 import { ComputeError, codeOf, type ComputeErrorCode } from './engine/types';
 import { encodeJson } from './engine/json';
 import type { ConnectCall, ConnectErrorCode, NetCall } from './connections/model';
-import { hasNetPermission } from './permissions/registry';
+import { hasNetPermission, hasProgramPermission } from './permissions/registry';
+import { PROGRAM_LIMITS, type ProgramCall, type ProgramCallErrorCode, type ProgramReply } from './programs/model';
 import { openAcceptProblem, PAGE_LIMITS, saveNameProblem, WINDOW_LIMITS } from './page/model';
 
 export interface ModuleBridgeOptions {
@@ -32,6 +33,11 @@ export interface ModuleBridgeOptions {
   connect?: (connection: string, call: ConnectCall) => Promise<{ ok: true; data: unknown } | { ok: false; code: ConnectErrorCode }>;
   /** Обращение по полному адресу (flux.net.fetch(url)); окончательно решает главный процесс */
   net?: (call: NetCall) => Promise<{ ok: true; data: unknown } | { ok: false; code: ConnectErrorCode }>;
+  /**
+   * Обращение к другой программе (flux.programs.call). Окно сверяет разрешение и размеры, главный процесс — всё остальное
+   * и ведёт журнал; сам расчёт идёт в окне движком вызываемой программы. Нет поля — хост этого не умеет.
+   */
+  program?: (call: ProgramCall) => Promise<ProgramReply>;
   /** Программа закрыта: подключения, которые она открыла, закрываются (главный процесс сам держит их список) */
   onClose?: () => void;
   /** Строка из flux.log программы; окно пишет её в журнал */
@@ -80,9 +86,10 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
   let budgetAt = Date.now();
   const computing = new Set<string>();
   const connecting = new Set<string>();
+  const calling = new Set<string>();
   let logAt = 0;
   let logs = 0;
-  function post(message: HostMessage | ComputeHostMessage | ConnectHostMessage | PageHostMessage) {
+  function post(message: HostMessage | ComputeHostMessage | ConnectHostMessage | PageHostMessage | ProgramHostMessage) {
     if (!disposed && validMessage(message.type, message)) {
       // Получатель — только сохранённое окно iframe. Его opaque origin
       // нельзя указать строкой targetOrigin, поэтому здесь нужен '*'.
@@ -133,6 +140,23 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       else post(result);
     } catch (_) { if (!disposed) fail('FAILED'); }
     finally { connecting.delete(message.id); }
+  }
+  /** Обращение к другой программе: разрешение и размеры проверяются здесь, остальное — в главном процессе, и окно тоже вправе ошибиться */
+  async function runProgram(message: { id: string; call: ProgramCall }) {
+    const fail = (code: ProgramCallErrorCode) => post({ flux: 'module', v: 1, session: options.session, type: 'program-error', id: message.id, code });
+    if (!options.program) { fail('FAILED'); return; }
+    if (!hasProgramPermission(options.manifest, message.call.program) || message.call.program === options.manifest.id) { fail('NOT_ALLOWED'); return; }
+    if (calling.size >= PROGRAM_LIMITS.inFlight || calling.has(message.id) || messageBytes(message.call.data ?? null) > PROGRAM_LIMITS.bytes) { fail('LIMIT'); return; }
+    calling.add(message.id);
+    try {
+      const reply = await options.program(message.call);
+      if (disposed) return;
+      if ('code' in reply) { fail(reply.code); return; }
+      const result: ProgramHostMessage = { flux: 'module', v: 1, session: options.session, type: 'program-result', id: message.id, data: (reply as { data: unknown }).data };
+      if (messageBytes((reply as { data: unknown }).data ?? null) > PROGRAM_LIMITS.bytes || !validMessage('program-result', result)) fail('LIMIT');
+      else post(result);
+    } catch (_) { if (!disposed) fail('FAILED'); }
+    finally { calling.delete(message.id); }
   }
   async function runConnect(message: { id: string; connection: string; call: ConnectCall }) {
     const fail = (code: ConnectErrorCode) => {
@@ -278,6 +302,11 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       }
       return;
     }
+    if (message.type === 'program' && typeof message.id === 'string' && message.id.length > 0 && message.id.length <= 160) {
+      if (validMessage('program', message)) void runProgram(message as { id: string; call: ProgramCall });
+      else post({ flux: 'module', v: 1, session: options.session, type: 'program-error', id: message.id, code: 'NOT_ALLOWED' });
+      return;
+    }
     if (message.type === 'page') {
       // Неверная форма действия страницы — понятный отказ, а не молчание до таймаута страницы
       if (typeof message.id === 'string' && message.id && message.id.length <= 160) {
@@ -316,6 +345,6 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     handle, notify,
     /** Сообщение от другого окна этой же программы */
     deliver: (data: unknown) => post({ flux: 'module', v: 1, session: options.session, type: 'page-message', data } as PageHostMessage),
-    dispose: () => { disposed = true; offering = false; generation++; pending.clear(); computing.clear(); connecting.clear(); options.onClose?.(); },
+    dispose: () => { disposed = true; offering = false; generation++; pending.clear(); computing.clear(); connecting.clear(); calling.clear(); options.onClose?.(); },
   };
 }

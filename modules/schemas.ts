@@ -2,7 +2,7 @@ import Ajv from 'ajv';
 import { resources, themeKeys } from './contract';
 import { HTTP_METHODS, CONNECT_ERROR_CODES } from './connections/model';
 import { permissionsValid } from './permissions/registry';
-import { parseExports } from './programs/model';
+import { parseExports, PROGRAM_ERROR_CODES } from './programs/model';
 import { COMPUTE_ERROR_CODES, LANGUAGES, PLATFORMS, SOURCE_LANGUAGES, LOGIC_FILES } from './engine/types';
 
 import { text, id, nullableId, array, object, dataSchemas } from './dataSchemas';
@@ -58,6 +58,11 @@ export const messageSchemas = {
   // Метод лежит внутри `call`, как у connect: верхний уровень с POST/PUT мост принял бы за запись в данные Flux
   net: object({ ...envelope, id, type: { const: 'net' }, call: object({ url: { type: 'string', minLength: 8, maxLength: 2048 }, method: { enum: [...HTTP_METHODS] },
     headers: { type: 'object', maxProperties: 32 }, body: { type: 'string', maxLength: 700_000 }, encoding }, ['url', 'method']) }),
+  // Обращение к другой программе (flux.programs.call): метод лежит внутри `call`, а не на верхнем уровне — как у net
+  program: object({ ...envelope, id, type: { const: 'program' }, call: object({ program: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,63}$' },
+    method: { type: 'string', pattern: '^[a-z][A-Za-z0-9]{0,39}$' }, data: {} }, ['program', 'method']) }),
+  'program-result': object({ ...envelope, id, type: { const: 'program-result' }, data: {} }),
+  'program-error': object({ ...envelope, id, type: { const: 'program-error' }, code: { enum: [...PROGRAM_ERROR_CODES] } }),
   'connect-result': object({ ...envelope, id, type: { const: 'connect-result' }, data: {} }),
   'connect-error': object({ ...envelope, id, type: { const: 'connect-error' }, code: { enum: [...CONNECT_ERROR_CODES] } }),
   'compute-error': object({ ...envelope, id, type: { const: 'compute-error' }, code: { enum: [...COMPUTE_ERROR_CODES] } }),

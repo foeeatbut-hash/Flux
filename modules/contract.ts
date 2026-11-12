@@ -1,4 +1,5 @@
 import type { ConnectCall, ConnectErrorCode, ConnectionDecl, HttpMethod } from './connections/model';
+import type { ProgramCallErrorCode } from './programs/model';
 import type { ModuleLanguage, ModulePlatform, SourceLanguage, ComputeErrorCode } from './engine/types';
 /**
  * v2 добавляет страницу (`ui: 'page'`), v3 — разделы `permissions` (интернет, локальная сеть, обращение к программам) и `exports` манифеста. Сообщения моста
@@ -113,6 +114,10 @@ export type ComputeHostMessage =
 export type ConnectHostMessage =
   | { flux: 'module'; v: 1; session: string; type: 'connect-result'; id: string; data: unknown }
   | { flux: 'module'; v: 1; session: string; type: 'connect-error'; id: string; code: ConnectErrorCode };
+/** Ответы на обращение к другой программе (flux.programs.call): данные метода как есть либо код отказа */
+export type ProgramHostMessage =
+  | { flux: 'module'; v: 1; session: string; type: 'program-result'; id: string; data: unknown }
+  | { flux: 'module'; v: 1; session: string; type: 'program-error'; id: string; code: ProgramCallErrorCode };
 export type ThemeTokens = Record<
   '--flux-surface' | '--flux-bg' | '--flux-hover' | '--flux-sel' | '--flux-line' | '--flux-text' | '--flux-text-muted' | '--flux-accent',
   string

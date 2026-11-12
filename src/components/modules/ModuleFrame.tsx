@@ -8,6 +8,7 @@ import { languageOf } from '../../../modules/engine/types';
 import { cancelModuleCompute, moduleCompute } from '../../services/moduleComputeHost';
 import { ensureControls, resetControls, type ControlsGate } from '../../services/moduleControlsGate';
 import { createConnector, type GrantChoice } from '../../services/moduleConnections';
+import { createProgramCaller } from '../../services/moduleProgramCall';
 import { journalEvent } from '../../services/moduleJournalClient';
 import { bridge as hostBridge } from '../../services/moduleReleaseService';
 import type { GrantAsk } from '../../../modules/connections/model';
@@ -119,6 +120,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
       },
       connect: (connection, call) => connector.connect(connection, call),
       net: call => connector.net(call),
+      program: createProgramCaller({ moduleId: manifest.id, version: manifest.version }),
       onLog: (level, text) => journalEvent({ ...base, category: 'log', level, event: 'message', detail: text }),
       onFailure: kind => { journalEvent({ ...base, category: 'failure', level: 'error', event: kind, outcome: kind }); recordModuleCrash(manifest.id, manifest.version, kind); setFailure(kind); },
       compute: language === 'typescript' ? undefined : async input => {
