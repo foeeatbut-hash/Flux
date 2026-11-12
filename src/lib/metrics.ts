@@ -61,6 +61,11 @@ export const BAR_ICON = ICON_SIZE.taskbar;
 export const TRAY_ICON = 18;
 /** Ширина полоски «показать стол» у самого края */
 export const BAR_EDGE = 10;
+/** Зазор между кнопкой Пуск и рядом программ (был w-1) */
+export const BAR_GAP = 4;
+/** Кнопка окна приложения: наибольшая ширина кнопки и подписи в ней (были max-w-48 и max-w-44) */
+export const WIN_BTN_MAX_W = 192;
+export const WIN_BTN_LABEL_MAX_W = 176;
 
 /** Счётчик и чип на кнопке панели: круг, в который влезает «99+» */
 export const CHIP_H = 16;

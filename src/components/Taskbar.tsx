@@ -32,7 +32,7 @@ import DraftsButton from './drafts/DraftsButton';
 import { useDesktopStore } from '../store/desktopStore';
 import { buildTaskbar, clockLabel, deadlineLabel, badgeLabel, trayFit, runState, PEEK_DELAY, PEEK_GRACE } from '../lib/taskbar';
 import { snapshotWindows, useThumbKeeper } from './useWindowThumbs';
-import { BAR_H, BAR_BTN, BAR_ICON, TRAY_ICON, BAR_EDGE, CHIP_H } from '../lib/metrics';
+import { BAR_H, BAR_BTN, BAR_ICON, TRAY_ICON, BAR_EDGE, CHIP_H, BAR_GAP, WIN_BTN_MAX_W, WIN_BTN_LABEL_MAX_W } from '../lib/metrics';
 import { Z } from '../lib/layers';
 import ContextMenu, { MenuItem } from './ContextMenu';
 import StartMenu from './StartMenu';
@@ -338,7 +338,7 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
       </button>
 
       <DraftsButton displayId={displayId} />
-      <div className="w-1 shrink-0" />
+      <div className="shrink-0" style={{ width: BAR_GAP }} />
 
       {/* Полоса кнопок не прокручивается. Прокрутка здесь давала скроллбар во
           всю высоту панели у самого её края — и это при том, что кнопки всё
@@ -441,9 +441,9 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
           onClick={() => void (window as any).electron?.nativeApps?.action(nativeWindow.id, nativeWindow.focused ? 'minimize' : 'focus')}
           onContextMenu={(event) => { event.preventDefault(); void (window as any).electron?.nativeApps?.action(nativeWindow.id, 'focus'); }}
           title={nativeWindow.title || 'Окно Flux'} aria-label={nativeWindow.title || 'Окно Flux'} aria-pressed={nativeWindow.focused}
-          style={{ height: BAR_BTN }}
-          className={`relative max-w-48 px-2.5 rounded-lg shrink-0 flex items-center text-xs transition-colors ${nativeWindow.focused ? 'bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-white font-medium' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800'}`}>
-          <span className="block max-w-44 truncate">{nativeWindow.title || 'Окно Flux'}</span>
+          style={{ height: BAR_BTN, maxWidth: WIN_BTN_MAX_W }}
+          className={`relative px-2.5 rounded-lg shrink-0 flex items-center text-xs transition-colors ${nativeWindow.focused ? 'bg-slate-200/70 dark:bg-slate-800 text-slate-900 dark:text-white font-medium' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800'}`}>
+          <span className="block truncate" style={{ maxWidth: WIN_BTN_LABEL_MAX_W }}>{nativeWindow.title || 'Окно Flux'}</span>
         </button>)}
       </div>
 
