@@ -22,8 +22,9 @@ export function RequirementsList({ listing }: { listing: StoreListing }) {
 }
 
 export function PermissionsList({ listing, added = [] }: { listing: StoreListing; added?: string[] }) {
-  return <>{listing.permissions.map((p) => <div key={p.text} className={`stx-perm${added.includes(p.text) ? ' is-new' : ''}`}>
-    <span aria-hidden="true">{p.kind === 'write' || p.kind === 'run' ? '✕' : p.kind === 'open' ? '↗' : '●'}</span>
+  // Заметные разрешения (любой адрес в интернете, локальная сеть) выделены рамкой: их нельзя принять не заметив
+  return <>{listing.permissions.map((p) => <div key={p.text} data-notable={p.notable ? '' : undefined} className={`stx-perm${added.includes(p.text) ? ' is-new' : ''}${p.notable ? ' is-notable' : ''}`}>
+    <span aria-hidden="true">{p.kind === 'write' || p.kind === 'run' ? '✕' : p.kind === 'open' ? '↗' : p.notable ? '!' : '●'}</span>
     <span>{p.text}{added.includes(p.text) ? ' — новое в этой версии' : ''}</span>
   </div>)}</>;
 }

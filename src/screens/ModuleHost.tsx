@@ -71,7 +71,7 @@ function ModuleHostSession({ current, location, project, theme }: {
         setRunning(selected); setGeneration(value => value + 1);
       }}>Вышла версия {selected.manifest.version} — Перезапустить</button></div>}
     </div>
-    <ModuleFrame key={`${manifest.id}:${manifest.version}:${generation}:${page}`} page={page} windowParams={windowParams} manifest={manifest} channel={active?.channel} context={context} theme={theme}
+    <ModuleFrame key={`${manifest.id}:${manifest.version}:${generation}:${page}`} page={page} windowParams={windowParams} windowTitle={manifest.ui === 'page' ? (params.get('title') || '').slice(0, 80) : ''} manifest={manifest} channel={active?.channel} context={context} theme={theme}
       createReadCycle={() => createModuleReadCycle(context)} />
   </div>;
 }

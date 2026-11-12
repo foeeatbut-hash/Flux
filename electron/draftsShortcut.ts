@@ -1,4 +1,5 @@
 import { app, globalShortcut, type BrowserWindow } from 'electron';
+import { bringToFront } from './windowForeground';
 
 export function setupDraftsShortcut(getWindow: () => BrowserWindow | null) {
   const accelerator = 'CommandOrControl+Alt+D';
@@ -6,8 +7,7 @@ export function setupDraftsShortcut(getWindow: () => BrowserWindow | null) {
   const registered = globalShortcut.register(accelerator, () => {
     const window = getWindow();
     if (!window || window.isDestroyed()) return;
-    if (window.isMinimized()) window.restore();
-    window.show(); window.focus();
+    bringToFront(window);
     window.webContents.send('drafts:toggle');
   });
   if (!registered) console.warn('Ctrl+Alt+D занят другой программой. Кнопка «Черновики» доступна на панели задач.');

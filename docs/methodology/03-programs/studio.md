@@ -384,3 +384,18 @@ Flux» для проверки — вне этапа.
   `test-studio-flux-address` и блок в `test-studio-ui`.
 - **`flux.openFile`** (добавлением к v2, `docs/roadmap/module-api.md`): диалог выбора файла показывает главный процесс, в запуске Studio —
   действие `runPickFile`; в пробном запуске владельца файл не выдаётся. Набор — `test-modules-openfile`.
+- **Окна программ** (добавлением к v2, `docs/roadmap/module-api.md`): `types/flux.d.ts` знает `flux.dialogs`, `flux.window` и третий аргумент
+  `flux.windows.open`. В запуске на тестовой базе диалоги показывает диалог Studio (`studio/renderer/sections/RunDialog.tsx`, название программы в
+  шапке), закрытие запуска закрывает диалог без ответа; `setTitle`, `setUnsaved` и заголовок/размер у `windows.open` пишутся в журнал запуска (окон
+  Flux в Studio нет). Пробный запуск владельца отвечает на диалоги отказом и пишет строку. Наборы — `test-studio-page`, `test-modules-windows`.
+- **Разрешения сети** (`permissions` манифеста, договор v3; `docs/roadmap/module-api.md`): типы `flux.d.ts` показывают обе формы
+  `flux.net.fetch`; пункт проверки `page-net` — адрес в коде без `permissions`, заведомо закрытый адрес (этот компьютер, метаданные
+  облака), лишнее разрешение; `permissions` без `contractVersion: 3` и у программы с формой — ошибка договора. В запуске Studio обращение
+  по адресу идёт действием `runNet` тем же кодом проверки адресов, что во Flux (разрешение — `permissions` запущенного проекта), и
+  ходит в сеть по-настоящему; журнал запуска пишет «сеть: метод, имя сервера, код». Наборы — `test-studio-page`, `test-studio-tsbuild`.
+- **Обращение к другим программам** (`flux.programs.call`, `exports`; `docs/roadmap/module-api.md`): типы `flux.d.ts` описывают вызов и коды
+  ошибок; пункт `page-programs` — обращение без разрешения `program` на этот идентификатор, к самой себе, с кривым именем метода, лишнее разрешение
+  (идентификатор из переменной проверке не виден — его проверит запуск); пункт `exports` — метод на TypeScript (нет пути вне окна), имени
+  метода нет в `logic/main.py`; `permissions` с `program` и `exports` без `contractVersion: 3` — ошибка договора. В пробном запуске на тестовой
+  базе вызов отвечает `NOT_INSTALLED` (других программ там нет) и пишет строку «программа» в журнал запуска (`studio/shared/trialPrograms.ts`).
+  Набор — `test-studio-page`.

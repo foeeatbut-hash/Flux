@@ -68,3 +68,6 @@ modules/fixtures/csharp/obj/
 # Сборки Flux Studio
 /dist-studio/
 /release-studio/
+
+# Временные файлы мутаций наборов проверок: набор удаляет их сам, но прерванный прогон оставляет
+__mutant_*

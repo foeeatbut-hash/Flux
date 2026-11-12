@@ -239,7 +239,7 @@ async function main() {
   const manifest = (m: Partial<ModuleManifest>): ModuleManifest => ({ id: 'x', name: 'X', version: '1.0.0', author: 'a', contractVersion: 1, entries: ['start'], reads: ['project'], logic: 'logic/main.ts', ...m });
   ok('требования: старый Flux и не Windows', unmetRequirements(manifest({ store: { category: 'link', summary: '', requires: { flux: '2.0.0', platform: 'windows' } } }), { fluxVersion: '1.5.0', windows: false }).length === 2);
   ok('требования выполнены — причин нет', unmetRequirements(manifest({ store: { category: 'link', summary: '', requires: { flux: '1.0.0' } } }), { fluxVersion: '1.5.0', windows: false }).length === 0);
-  ok('договор новее Flux — нельзя', unmetRequirements(manifest({ contractVersion: 3 }), { fluxVersion: '1.0.0', windows: true }).length === 1);
+  ok('договор новее Flux — нельзя', unmetRequirements(manifest({ contractVersion: 4 }), { fluxVersion: '1.0.0', windows: true }).length === 1);
   ok('новые разрешения выделяются', addedPermissions(manifest({ reads: ['project'] }), manifest({ reads: ['project', 'catalog'] })).join() === 'Читает во Flux: справочник каталога');
   ok('меньше разрешений — подтверждать нечего', addedPermissions(manifest({ reads: ['project', 'catalog'] }), manifest({ reads: ['project'] })).length === 0);
   ok('отпечаток разрешений меняется вместе с ними', permissionsDigest(manifest({ reads: ['project'] })) !== permissionsDigest(manifest({ reads: ['project', 'tag'] })));

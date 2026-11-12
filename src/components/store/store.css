@@ -114,6 +114,7 @@
 .stx-kv dd { margin: 0; }
 .stx-perm { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; font-size: 13px; }
 .stx-perm.is-new { font-weight: 600; color: var(--color-amber-600); }
+.stx-perm.is-notable { margin: 4px 0; padding: 6px 10px; border: 1px solid var(--flux-warn); border-radius: 8px; background: var(--flux-hover); font-weight: 600; }
 .stx-ver { display: grid; grid-template-columns: 70px 90px 1fr auto; gap: 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--flux-line); font-size: 13px; }
 .stx-ver:first-of-type { border-top: 0; }
 

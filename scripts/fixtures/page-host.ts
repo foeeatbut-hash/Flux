@@ -28,7 +28,11 @@ const THEMES: Record<string, string[]> = {
       // Файл пользователя (flux.openFile): ответ задаёт проверка через window.__pickNext, запросы копятся в __picks
       pickFile: async request => { (w.__picks ||= []).push(request); return w.__pickNext ?? 'cancelled'; },
       onBeat: () => { w.__beats++; },
-      openWindow: (page, params) => { w.__windows.push({ page, params }); return true; },
+      openWindow: (page, params, options) => { w.__windows.push(options ? { page, params, options } : { page, params }); return true; },
+      // Диалоги Flux, заголовок и несохранённое (flux.dialogs, flux.window): ответ задаёт проверка через window.__dialogNext
+      dialog: async request => { (w.__dialogs ||= []).push(request); return w.__dialogNext ?? null; },
+      setTitle: text => { (w.__titles ||= []).push(text); },
+      setUnsaved: (unsaved, text) => { (w.__unsaved ||= []).push({ unsaved, text }); },
       params: () => ({}), broadcast: () => undefined,
     },
   });

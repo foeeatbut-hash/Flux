@@ -4,6 +4,7 @@ import {
 import path from 'path';
 import crypto from 'crypto';
 import { TRAY_ICON_PNG } from './trayIcon';
+import { bringToFront } from './windowForeground';
 
 /**
  * Захват с экрана: свёрнутый пульт, слежение за буфером, трей, горячая клавиша.
@@ -231,7 +232,7 @@ export function setupCapture(getMain: () => BrowserWindow | null) {
     basket.length = 0;
     if (showMain) {
       const m = getMain();
-      if (m) { m.show(); m.focus(); }
+      if (m) bringToFront(m);
     }
     updateTrayMenu();
   };
@@ -257,7 +258,7 @@ export function setupCapture(getMain: () => BrowserWindow | null) {
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: active ? 'Прекратить захват' : 'Захват с экрана\tCtrl+Shift+X', click: () => (active ? stop(true) : start()) },
       { type: 'separator' },
-      { label: 'Показать Flux', click: () => { const m = getMain(); if (m) { m.show(); m.focus(); } } },
+      { label: 'Показать Flux', click: () => { const m = getMain(); if (m) bringToFront(m); } },
       { type: 'separator' },
       { label: 'Выход', click: () => { stop(false); app.quit(); } },
     ]));
@@ -267,7 +268,7 @@ export function setupCapture(getMain: () => BrowserWindow | null) {
     tray = new Tray(icon);
     tray.setToolTip('Flux');
     // Без трея скрытое главное окно потерялось бы: показать его было бы нечем
-    tray.on('click', () => { const m = getMain(); if (m) { m.show(); m.focus(); } });
+    tray.on('click', () => { const m = getMain(); if (m) bringToFront(m); });
     updateTrayMenu();
   } catch (e) { tray = null; }
 

@@ -14,11 +14,15 @@ import { PAGE_LIMITS } from './model';
 // Сессию Flux задаёт и в имени кадра: переход не по ссылке (location.href, свой #якорь) не теряет мост
 const session = window.name || location.hash.slice(1);
 let nextId = 0;
+/** Диалог ждёт человека: ограничение — только чтобы запрос не висел вечно */
+const DIALOG_WAIT_MS = 600_000;
 type Waiter = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; keep?: boolean };
 const waiting = new Map<string, Waiter>();
 const listeners = { message: new Set<(data: unknown) => void>(), change: new Set<(event: ChangeEvent) => void>(), theme: new Set<(theme: ThemeInfo) => void>(), resize: new Set<(size: SizeInfo) => void>() };
 export interface ThemeInfo { tokens: ThemeTokens; mode: 'light' | 'dark' }
 export interface SizeInfo { width: number; height: number }
+/** Параметры flux.net.fetch */
+export interface NetInit { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; headers?: Record<string, string>; body?: string }
 export type ChangeEvent = 'opened' | 'project-changed' | 'changed';
 export class FluxError extends Error {
   constructor(public code: string, message: string) { super(message); this.name = 'FluxError'; }
@@ -35,6 +39,9 @@ const NOTES: Record<string, string> = {
   UNAVAILABLE: 'Недоступно: у программы нет такого механизма.',
   MEMORY: 'Расчёту не хватило памяти.',
   CRASH: 'Расчёт завершился ошибкой.',
+  NOT_ALLOWED: 'Не разрешено: нет разрешения в манифесте, отказ человека или администратора, вызов самой себя или вложенный вызов.',
+  NOT_INSTALLED: 'Эта программа не установлена у пользователя или ему не допущена.',
+  NO_METHOD: 'У программы нет такого метода для других программ.',
   CONTEXT_CHANGED: 'Проект или оформление изменились во время запроса.',
 };
 const fail = (code: string) => new FluxError(code, NOTES[code] || `Ошибка: ${code}`);
@@ -92,9 +99,9 @@ window.addEventListener('message', event => {
     }
     case 'page-message': emit(listeners.message, message.data); return;
     case 'result': settle(message.id, { value: message.data }); return;
-    case 'error': case 'page-error': case 'connect-error': case 'compute-error': settle(message.id, { code: message.code }); return;
+    case 'error': case 'page-error': case 'connect-error': case 'compute-error': case 'program-error': settle(message.id, { code: message.code }); return;
     case 'compute-result': settle(message.id, { value: message.output }); return;
-    case 'connect-result': case 'page-result': settle(message.id, { value: message.data }); return;
+    case 'connect-result': case 'page-result': case 'program-result': settle(message.id, { value: message.data }); return;
   }
 });
 window.addEventListener('resize', () => emit(listeners.resize, size()));
@@ -126,14 +133,29 @@ const api = {
     call: (connection: string, call: ConnectCall) => request<unknown>('connect', { connection, call }, 40_000),
   },
   /**
-   * Интернет и локальные серверы — только через мост и только по объявленному в manifest.json подключению (kind http):
-   * адрес, пределы, защиту от внутренних адресов и журнал держит главный процесс Flux; кадр сам в сеть не ходит.
+   * Обращение к другой программе: `flux.programs.call('rates', 'convert', { … })`. Нужно разрешение `program` на её идентификатор в
+   * `permissions` манифеста, а у неё — метод в `exports`. Исполняется логика вызываемой программы (чистая функция «JSON → JSON»),
+   * окно она не открывает; данные и ответ до 256 КиБ. Ошибки (`FluxError.code`): NOT_ALLOWED, NOT_INSTALLED, NO_METHOD, LIMIT, TIMEOUT, FAILED.
+   */
+  programs: {
+    call: (program: string, method: string, data: unknown = {}) => request<unknown>('program', { call: { program, method, data } }, 45_000),
+  },
+  /**
+   * Сеть — только через мост; кадр сам в сеть не ходит, а адрес, пределы, защиту и журнал держит главный процесс Flux.
+   * Две формы:
+   * - `fetch(connection, path, init)` — по подключению kind http, объявленному в manifest.json (локальные серверы, адрес в манифесте);
+   * - `fetch(url, init)` — по полному адресу `http(s)://…`: нужно разрешение `internet` (публичные адреса) или `lan` (частная сеть)
+   *   в `permissions` манифеста. Петля, адрес метаданных облака и «этот компьютер» закрыты всегда.
    */
   net: {
-    async fetch(connection: string, path: string, init: { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; headers?: Record<string, string>; body?: string } = {}) {
-      const reply = await request<{ status: number; headers: Record<string, string>; body: string; encoding: 'utf8' | 'base64' }>('connect', {
-        connection, call: { op: 'http', method: init.method || 'GET', path, ...(init.headers ? { headers: init.headers } : {}), ...(init.body !== undefined ? { body: init.body, encoding: 'utf8' } : {}) },
-      }, 40_000);
+    async fetch(first: string, second?: string | NetInit, third?: NetInit) {
+      const byUrl = /^https?:\/\//i.test(first);
+      const init: NetInit = (byUrl ? second : third) as NetInit | undefined ?? {};
+      const send = { method: init.method || 'GET', ...(init.headers ? { headers: init.headers } : {}), ...(init.body !== undefined ? { body: init.body, encoding: 'utf8' } : {}) };
+      const reply = await request<{ status: number; headers: Record<string, string>; body: string; encoding: 'utf8' | 'base64' }>(
+        byUrl ? 'net' : 'connect',
+        byUrl ? { call: { url: first, ...send } } : { connection: first, call: { op: 'http', path: second as string, ...send } },
+        40_000);
       const bytes = () => reply.encoding === 'base64' ? Uint8Array.from(atob(reply.body), c => c.charCodeAt(0)) : new TextEncoder().encode(reply.body);
       const text = () => reply.encoding === 'utf8' ? reply.body : new TextDecoder().decode(bytes());
       return { status: reply.status, ok: reply.status >= 200 && reply.status < 300, headers: reply.headers, text, json: () => JSON.parse(text()) as unknown, bytes };
@@ -158,12 +180,33 @@ const api = {
   },
   /** Окна программы: каждое — обычное окно Flux с этой же страницей пакета либо другой, объявленной в manifest.json (pages) */
   windows: {
-    open: (page: string, params: Record<string, unknown> = {}) => request<null>('page', { op: 'window-open', page, params }, 5000),
+    /** `options` (добавлено к v2) — заголовок (до 80 знаков, виден после названия программы) и размер окна: не меньше 320×240, не больше рабочей области */
+    open: (page: string, params: Record<string, unknown> = {}, options?: { title?: string; width?: number; height?: number }) =>
+      request<null>('page', { op: 'window-open', page, params, ...(options ? { options } : {}) }, 5000),
     /** Параметры, с которыми открыто это окно */
     params: () => request<Record<string, unknown>>('page', { op: 'params-load' }, 5000),
     /** Сообщение всем остальным окнам этой программы (до 64 КБ) */
     send: (data: unknown) => request<null>('page', { op: 'channel-send', data }, 5000),
     onMessage: (listener: (data: unknown) => void) => subscribe(listeners.message, listener),
+  },
+  /** Своё окно (добавлено к v2) */
+  window: {
+    /** Заголовок окна: Flux показывает «Программа — заголовок»; пустая строка возвращает название программы. До 80 знаков */
+    setTitle: (text: string) => request<null>('page', { op: 'window-title', text: String(text) }, 5000),
+    /** В окне есть несохранённое: при закрытии Flux сам спросит «Закрыть без сохранения?» (с вашим текстом до 200 знаков). Закрытие программа не блокирует */
+    setUnsaved: (unsaved: boolean, text?: string) => request<null>('page', { op: 'window-unsaved', unsaved: !!unsaved, ...(text ? { text: String(text) } : {}) }, 5000),
+  },
+  /**
+   * Диалоги Flux (добавлено к v2): рисует Flux своим окном с названием программы, вы даёте простой текст (заголовок до 80 знаков, текст до 600, кнопки до 30).
+   * Один диалог на окно за раз (второй — LIMIT), не чаще раза в секунду. Закрытие окна программы закрывает диалог без ответа.
+   */
+  dialogs: {
+    confirm: (options: { title: string; text: string; ok?: string; cancel?: string; danger?: boolean }) =>
+      request<boolean>('page', { op: 'dialog-confirm', title: options.title, text: options.text, ...(options.ok ? { ok: options.ok } : {}), ...(options.cancel ? { cancel: options.cancel } : {}), ...(options.danger ? { danger: true } : {}) }, DIALOG_WAIT_MS),
+    alert: (options: { title: string; text: string }) => request<null>('page', { op: 'dialog-alert', title: options.title, text: options.text }, DIALOG_WAIT_MS),
+    /** Строка или null, если человек отказался */
+    prompt: (options: { title: string; text?: string; label: string; value?: string; maxLength?: number }) =>
+      request<string | null>('page', { op: 'dialog-prompt', title: options.title, label: options.label, ...(options.text ? { text: options.text } : {}), ...(options.value !== undefined ? { value: options.value } : {}), ...(options.maxLength ? { maxLength: options.maxLength } : {}) }, DIALOG_WAIT_MS),
   },
   onChange: (listener: (event: ChangeEvent) => void) => subscribe(listeners.change, listener),
   onTheme: (listener: (theme: ThemeInfo) => void) => subscribe(listeners.theme, listener),

@@ -147,6 +147,13 @@ contextBridge.exposeInMainWorld('electron', {
       return () => ipcRenderer.removeListener('workspace:displays-changed', listener);
     },
   },
+  /** Нажатие по пустому столу не выводит Flux поверх других программ (windows-layer.md) */
+  deskFocus: {
+    get: () => ipcRenderer.invoke('workspace:desk-get'),
+    set: (enabled: boolean) => ipcRenderer.invoke('workspace:desk-set', enabled),
+    /** Указатель над пустым столом или нет; шлётся только при смене значения */
+    pointer: (overDesk: boolean) => ipcRenderer.send('workspace:desk-pointer', overDesk),
+  },
   /** Подробная запись работы программы: состояние, папка, режим */
   diagnostics: {
     append: (batch: unknown[]) => ipcRenderer.invoke('diagnostics:append', batch),

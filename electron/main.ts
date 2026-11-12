@@ -16,6 +16,8 @@ import { setupOwnerLogin } from './ownerLogin';
 import { registerModulePickFile } from './modulePickFile';
 import { setupAuthStorage, trustedAuthSender, readNativeSession, secureStorageAvailable } from './authStorage';
 import { setupDisplayWorkspace } from './displays';
+import { setupDeskFocus } from './deskFocus';
+import { bringToFront } from './windowForeground';
 import { setupDesktopShell } from './desktopShell';
 import { setupNativeAppWindows } from './nativeApps';
 import { setupMainWindowClose } from './windowClose';
@@ -55,10 +57,7 @@ if (!APPLY && !COMPANY_SERVER) {
     app.quit();
   } else {
     app.on('second-instance', (event, commandLine, workingDirectory, additionalData) => {
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.focus();
-      }
+      bringToFront(mainWindow);
     });
   }
 }
@@ -155,7 +154,7 @@ function createWindow() {
     if (shown || !mainWindow) return;
     shown = true;
     if (startMinimized) { mainWindow.showInactive(); mainWindow.minimize(); return; }
-    mainWindow.show();
+    bringToFront(mainWindow);
   };
   mainWindow.once('ready-to-show', revealMainWindow);
   // Страховка: если ready-to-show не пришёл (страница зависла/упала) — всё равно показываем
@@ -320,6 +319,9 @@ app.whenReady().then(async () => {
   const displayWorkspace = setupDisplayWorkspace(() => mainWindow, trustedAuthSender,
     (event, fields) => diagnosticsWriter()?.record(event, fields as any));
   displayWorkspace.attach();
+  // Нажатие по пустому столу не поднимает Flux над окнами Windows (windows-layer.md)
+  setupDeskFocus({ getMainWindow: () => mainWindow, isTrusted: trustedAuthSender,
+    prefsFile: path.join(app.getPath('userData'), 'display-workspace.json') }).attach();
   const localAccess = createLocalFileAccess({ server: () => '',
     token: readNativeSession, fetch: globalThis.fetch });
   const serverJson = async (path: string) => {
@@ -484,9 +486,7 @@ app.whenReady().then(async () => {
       });
       n.on('click', () => {
         if (!mainWindow) return;
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
+        bringToFront(mainWindow);
         if (payload?.route) mainWindow.webContents.send('notify:open', payload.route);
       });
       n.show();

@@ -15,6 +15,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
 import { createRequire } from 'node:module';
 import { DeveloperService } from '../studio/shell/developer';
 import { createControlsEngine } from '../studio/shared/controlsEngine';
@@ -137,6 +138,47 @@ async function main() {
   await call('runStart', { id: 'logic-demo' });
   ok('запущена форма, а не страница — файл не выдаётся', await call('runPickFile', {}).then(() => false, (e: Error) => /со своим экраном/.test(e.message)));
   ok('действие «runPickFile» объявлено', ALL_ACTIONS.includes('runPickFile'));
+
+
+  console.log('flux.net.fetch в запуске Studio');
+  const NET_DOES = 'Показывает курсы валют из открытого сервиса';
+  const own = Object.values(os.networkInterfaces()).flat().find(a => a && a.family === 'IPv4' && !a.internal)?.address;
+  const withPermission = async (kind: string | null) => {
+    const manifest = JSON.parse((await call('draftFile', { id: 'page-demo', path: 'manifest.json' })).text);
+    delete manifest.permissions;
+    if (kind) { manifest.permissions = [{ kind, does: NET_DOES }]; manifest.contractVersion = 3; } else manifest.contractVersion = 2;
+    await call('draftSave', { id: 'page-demo', path: 'manifest.json', text: JSON.stringify(manifest, null, 2) });
+    await call('runStart', { id: 'page-demo' });
+  };
+  const net = (url: string, method = 'GET') => call('runNet', { call: { url, method } });
+  const hits: string[] = [];
+  const probe = http.createServer((req, res) => { hits.push(req.url || ''); res.end('курс'); });
+  await new Promise<void>(r => probe.listen(0, '127.0.0.1', r));
+  const loopPort = (probe.address() as any).port;
+  await withPermission(null);
+  ok('без permissions Studio отвечает так же, как Flux: DENIED, до сервера не доходит', (await net(`http://127.0.0.1:${loopPort}/x`)).code === 'DENIED' && hits.length === 0);
+  await withPermission('internet');
+  ok('адрес этого компьютера закрыт даже с internet', (await net(`http://127.0.0.1:${loopPort}/x`)).code === 'TARGET' && (await net(`http://localhost:${loopPort}/x`)).code === 'TARGET' && hits.length === 0);
+  ok('метаданные облака закрыты даже с internet', (await net('http://169.254.169.254/latest/meta-data/')).code === 'TARGET');
+  ok('частный адрес при одном internet закрыт', (await net('http://192.168.1.1/')).code === 'TARGET');
+  ok('кривой вызов — DENIED', (await call('runNet', { call: { url: 'http://x.invalid/', method: 'GET', extra: 1 } })).code === 'DENIED');
+  if (own) {
+    const other = http.createServer((req, res) => { hits.push(`own:${req.method} ${req.url}`); res.end('курс'); });
+    await new Promise<void>(r => other.listen(0, own, r));
+    const port = (other.address() as any).port;
+    const { netAddressAllowed } = await import('../modules/permissions/netAddress');
+    const kind = netAddressAllowed(own, { internet: true, lan: false }) ? 'internet' : 'lan';
+    await withPermission(kind);
+    const reply = await net(`http://${own}:${port}/rates`);
+    ok(`настоящий запрос к адресу компьютера ${own} (${kind}): ответ получен`, reply.ok === true && reply.data.status === 200 && reply.data.body === 'курс' && hits.includes('own:GET /rates'));
+    await withPermission(kind === 'internet' ? 'lan' : 'internet');
+    const refused = await net(`http://${own}:${port}/rates2`);
+    ok('другое разрешение того же адреса не открывает', refused.code === 'TARGET' && !hits.includes('own:GET /rates2'));
+    other.close();
+  } else console.log('  (пропуск: у контейнера нет сетевого адреса кроме петли — положительный запрос проверен в test-modules-net)');
+  await call('runStart', { id: 'logic-demo' });
+  ok('запущена форма, а не страница — сеть не выдаётся', await net('http://example.com/').then(() => false, (e: Error) => /со своим экраном/.test(e.message)));
+  probe.close();
 
   console.log(`\nПройдено: ${passed}`);
   fs.rmSync(temp, { recursive: true, force: true });

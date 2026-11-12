@@ -1,12 +1,15 @@
 import Ajv from 'ajv';
 import { resources, themeKeys } from './contract';
-import { parseConnections, HTTP_METHODS, CONNECT_ERROR_CODES } from './connections/model';
+import { HTTP_METHODS, CONNECT_ERROR_CODES } from './connections/model';
+import { permissionsValid } from './permissions/registry';
+import { parseExports, PROGRAM_ERROR_CODES } from './programs/model';
 import { COMPUTE_ERROR_CODES, LANGUAGES, PLATFORMS, SOURCE_LANGUAGES, LOGIC_FILES } from './engine/types';
 
 import { text, id, nullableId, array, object, dataSchemas } from './dataSchemas';
 export { dataSchemas };
 const envelope = { flux: { const: 'module' }, v: { const: 1 }, session: id };
 const encoding = { enum: ['utf8', 'base64'] };
+const dlgText = (max: number) => ({ type: 'string', minLength: 1, maxLength: max });
 const socketId = { type: 'string', minLength: 1, maxLength: 64 };
 const memberName = { type: 'string', pattern: '^[A-Za-z_][A-Za-z0-9_]{0,127}$' };
 const comArgs = { type: 'array', maxItems: 32 };
@@ -52,6 +55,15 @@ export const messageSchemas = {
   log: object({ ...envelope, type: { const: 'log' }, level: { enum: ['info', 'warn', 'error'] }, text: { type: 'string', maxLength: 200 } }),
   // Подключение к внешней программе (этап 3б): подключение названо по `id` из манифеста, сквозной вызов идёт как есть
   connect: object({ ...envelope, id, type: { const: 'connect' }, connection: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,31}$' }, call: { oneOf: connectCallSchemas } }),
+  // Обращение по полному адресу (flux.net.fetch(url)): нужен `internet` или `lan` в манифесте; какой именно — решает адрес, в который разрешилось имя
+  // Метод лежит внутри `call`, как у connect: верхний уровень с POST/PUT мост принял бы за запись в данные Flux
+  net: object({ ...envelope, id, type: { const: 'net' }, call: object({ url: { type: 'string', minLength: 8, maxLength: 2048 }, method: { enum: [...HTTP_METHODS] },
+    headers: { type: 'object', maxProperties: 32 }, body: { type: 'string', maxLength: 700_000 }, encoding }, ['url', 'method']) }),
+  // Обращение к другой программе (flux.programs.call): метод лежит внутри `call`, а не на верхнем уровне — как у net
+  program: object({ ...envelope, id, type: { const: 'program' }, call: object({ program: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,63}$' },
+    method: { type: 'string', pattern: '^[a-z][A-Za-z0-9]{0,39}$' }, data: {} }, ['program', 'method']) }),
+  'program-result': object({ ...envelope, id, type: { const: 'program-result' }, data: {} }),
+  'program-error': object({ ...envelope, id, type: { const: 'program-error' }, code: { enum: [...PROGRAM_ERROR_CODES] } }),
   'connect-result': object({ ...envelope, id, type: { const: 'connect-result' }, data: {} }),
   'connect-error': object({ ...envelope, id, type: { const: 'connect-error' }, code: { enum: [...CONNECT_ERROR_CODES] } }),
   'compute-error': object({ ...envelope, id, type: { const: 'compute-error' }, code: { enum: [...COMPUTE_ERROR_CODES] } }),
@@ -63,7 +75,17 @@ export const messageSchemas = {
       mime: { type: 'string', maxLength: 100 }, data: { type: 'string', maxLength: 700_000 }, encoding }, ['flux', 'v', 'session', 'id', 'type', 'op', 'name', 'data', 'encoding']),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'file-pick' }, accept: { type: 'array', maxItems: 10, items: { type: 'string', pattern: '^\\.[A-Za-z0-9]{1,10}$' } } }, ['flux', 'v', 'session', 'id', 'type', 'op']),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'beat' } }),
-    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'window-open' }, page: { type: 'string', maxLength: 160 }, params: { type: 'object' } }, ['flux', 'v', 'session', 'id', 'type', 'op', 'page']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'window-open' }, page: { type: 'string', maxLength: 160 }, params: { type: 'object' },
+      options: object({ title: { type: 'string', maxLength: 80 }, width: { type: 'integer', minimum: 320, maximum: 16_384 }, height: { type: 'integer', minimum: 240, maximum: 16_384 } }, []) }, ['flux', 'v', 'session', 'id', 'type', 'op', 'page']),
+    // Диалоги и заголовок окна (добавлено к v2). Пределы длины — DIALOG_LIMITS / WINDOW_OPTION_LIMITS в modules/page/model.ts
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'dialog-confirm' }, title: dlgText(80), text: { type: 'string', maxLength: 600 },
+      ok: dlgText(30), cancel: dlgText(30), danger: { type: 'boolean' } }, ['flux', 'v', 'session', 'id', 'type', 'op', 'title', 'text']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'dialog-alert' }, title: dlgText(80), text: { type: 'string', maxLength: 600 } },
+      ['flux', 'v', 'session', 'id', 'type', 'op', 'title', 'text']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'dialog-prompt' }, title: dlgText(80), text: { type: 'string', maxLength: 600 }, label: dlgText(80),
+      value: { type: 'string', maxLength: 1000 }, maxLength: { type: 'integer', minimum: 1, maximum: 1000 } }, ['flux', 'v', 'session', 'id', 'type', 'op', 'title', 'label']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'window-title' }, text: { type: 'string', maxLength: 80 } }, ['flux', 'v', 'session', 'id', 'type', 'op', 'text']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'window-unsaved' }, unsaved: { type: 'boolean' }, text: { type: 'string', maxLength: 200 } }, ['flux', 'v', 'session', 'id', 'type', 'op', 'unsaved']),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'params-load' } }),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'channel-send' }, data: {} }),
   ] },
@@ -96,13 +118,17 @@ const storeBlock = object({
 }, ['category', 'summary']);
 export const manifestSchema = object({
   id: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,63}$' }, name: text, author: text,
-  version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' }, contractVersion: { enum: [1, 2] },
+  version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' }, contractVersion: { enum: [1, 2, 3] },
   entries: { type: 'array', uniqueItems: true, items: { enum: ['start', 'equipment', 'tag'] } },
   reads: { type: 'array', uniqueItems: true, items: { enum: resources } }, logic: { enum: Object.values(LOGIC_FILES) },
   language: { enum: [...LANGUAGES] }, sourceLanguage: { enum: [...SOURCE_LANGUAGES] }, platform: { enum: [...PLATFORMS] },
   store: storeBlock,
   // Форма каждого подключения и запрет опасных объектов проверяет parseConnections (modules/connections/model.ts): схема тут только отсекает не массив
   connections: { type: 'array', maxItems: 8, items: { type: 'object' } },
+  // Форму каждого разрешения проверяет реестр (modules/permissions/registry.ts)
+  permissions: { type: 'array', maxItems: 16, items: { type: 'object' } },
+  // Методы для других программ (modules/programs/model.ts): форму каждого проверяет parseExports
+  exports: { type: 'array', maxItems: 16, items: { type: 'object' } },
   ui: { const: 'page' },
   pages: { type: 'array', maxItems: 20, uniqueItems: true, items: { type: 'string', pattern: '^(?:[A-Za-z0-9_][A-Za-z0-9_-]{0,63}/){0,4}[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}\\.html$' } },
 }, ['id', 'name', 'author', 'version', 'contractVersion', 'entries', 'reads', 'logic']);
@@ -110,7 +136,10 @@ export const manifestSchema = object({
 const languageIs = (language: string) => ({ required: ['language'], properties: { language: { const: language } } });
 (manifestSchema as any).allOf = [
   // Страница — договор v2; v1 её не знает, и старый Flux такой выпуск не запустит
-  { if: { required: ['ui'] }, then: { properties: { contractVersion: { const: 2 } } } },
+  { if: { required: ['ui'] }, then: { properties: { contractVersion: { enum: [2, 3] } } } },
+  // Раздел permissions — договор v3: схема старого Flux его не знает и отвергла бы выпуск, поэтому версия обязана сказать об этом честно
+  { if: { required: ['permissions'] }, then: { properties: { contractVersion: { const: 3 } } } },
+  { if: { required: ['exports'] }, then: { properties: { contractVersion: { const: 3 } } } },
   { if: { required: ['pages'] }, then: { required: ['ui'] } },
   { if: languageIs('python'), then: { properties: { logic: { const: LOGIC_FILES.python } }, not: { required: ['sourceLanguage'] } } },
   { if: languageIs('wasm'), then: { properties: { logic: { const: LOGIC_FILES.wasm } }, required: ['sourceLanguage'] } },
@@ -118,6 +147,5 @@ const languageIs = (language: string) => ({ required: ['language'], properties: 
     then: { properties: { logic: { const: LOGIC_FILES.typescript } }, not: { required: ['sourceLanguage'] } } },
 ];
 const validShape = ajv.compile(manifestSchema);
-/** Схема плюс разбор подключений: объявление с чужой схемой, путём в адресе или запрещённым COM-объектом манифестом не считается */
-export const validManifest = (value: unknown): boolean =>
-  !!validShape(value) && parseConnections((value as { connections?: unknown }).connections) !== null;
+/** Схема плюс разбор объявлений по реестру разрешений: подключение с чужой схемой, путём в адресе или запрещённым COM-объектом, разрешение без человеческого текста манифестом не считается */
+export const validManifest = (value: unknown): boolean => !!validShape(value) && permissionsValid(value) && parseExports((value as { exports?: unknown }).exports) !== null;

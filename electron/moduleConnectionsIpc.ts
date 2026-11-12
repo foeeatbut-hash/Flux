@@ -13,10 +13,13 @@ import { JOURNAL_CATEGORIES, JOURNAL_LEVELS, JOURNAL_LIMITS, type JournalCategor
 import { trustedAuthSender } from './authStorage';
 import type { ModuleConnections, VerifiedModule } from './moduleConnections';
 import type { ModuleGrants } from './moduleGrants';
+import type { ModuleProgramCalls } from './moduleProgramCalls';
 import type { ModuleJournal } from './moduleJournal';
 
 export interface ConnectionsHost {
   service: ModuleConnections;
+  /** Обращения программ друг к другу (flux.programs.call): проверки и журнал */
+  programs?: ModuleProgramCalls;
   grants: ModuleGrants;
   journal: ModuleJournal;
   resolve: (moduleId: string, version: string) => Promise<VerifiedModule | null>;
@@ -47,6 +50,22 @@ export function registerConnectionsIpc(host: ConnectionsHost) {
     if (!trusted(event)) return { ok: false, code: 'DENIED' };
     await host.ready;
     return host.service.call(ownerOf(event), { moduleId: str(data?.moduleId, 64), version: str(data?.version, 40), session: str(data?.session, 160), connection: str(data?.connection, 40), call: data?.call });
+  });
+  /** Обращение по полному адресу (flux.net.fetch(url)): разрешение — `permissions` проверенного манифеста, решает главный процесс */
+  ipcMain.handle('modules:net', async (event, data: any) => {
+    if (!trusted(event)) return { ok: false, code: 'DENIED' };
+    await host.ready;
+    return host.service.net(ownerOf(event), { moduleId: str(data?.moduleId, 64), version: str(data?.version, 40), session: str(data?.session, 160), call: data?.call });
+  });
+  /** Обращение к другой программе: проверки и место в пределах (begin), затем итог и журнал (end); сам расчёт идёт в окне */
+  ipcMain.handle('modules:program-begin', async (event, data: any) => {
+    if (!trusted(event) || !host.programs) return { ok: false, code: 'FAILED' };
+    await host.ready;
+    return host.programs.begin({ moduleId: str(data?.moduleId, 64), version: str(data?.version, 40), call: data?.call });
+  });
+  ipcMain.handle('modules:program-end', async (event, data: any) => {
+    if (!trusted(event) || !host.programs) return { ok: false };
+    return { ok: host.programs.end({ ticket: str(data?.ticket, 40), outcome: str(data?.outcome, 40), bytesOut: data?.bytesOut }) };
   });
   ipcMain.handle('modules:connect-close', async (event, data: any) => {
     if (!trusted(event)) return refuse;

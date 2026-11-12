@@ -44,7 +44,7 @@ async function main() {
   }));
   ok('манифест примера корректен', !!validManifest(bundledModules[0]));
   ok('лишнее поле манифеста запрещено', !validManifest({ ...bundledModules[0], extra: true }));
-  ok('неизвестная версия договора запрещена', !validManifest({ ...bundledModules[0], contractVersion: 3 }));
+  ok('неизвестная версия договора запрещена', !validManifest({ ...bundledModules[0], contractVersion: 4 }));
   ok('страница без договора v2 запрещена', !validManifest({ ...bundledModules[0], ui: 'page' }));
   ok('страница по договору v2 разрешена', validManifest({ ...bundledModules[0], contractVersion: 2, ui: 'page' }));
   ok('форма по договору v2 остаётся допустимой', validManifest({ ...bundledModules[0], contractVersion: 2 }));

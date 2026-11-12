@@ -1,7 +1,12 @@
 import type { ConnectCall, ConnectErrorCode, ConnectionDecl, HttpMethod } from './connections/model';
+import type { ProgramCallErrorCode } from './programs/model';
 import type { ModuleLanguage, ModulePlatform, SourceLanguage, ComputeErrorCode } from './engine/types';
-/** v2 добавляет страницу (`ui: 'page'`); сообщения моста остаются v1 — только новые виды, смысл прежних не меняется */
-export const CONTRACT_VERSION = 2 as const;
+/**
+ * v2 добавляет страницу (`ui: 'page'`), v3 — разделы `permissions` (интернет, локальная сеть, обращение к программам) и `exports` манифеста. Сообщения моста
+ * остаются v1: добавляются только новые виды, смысл прежних не меняется. Выпуск с `permissions` — v3, и старый Flux
+ * (его схема манифеста строгая) показывает «обновите Flux», а не запускает программу без права, о котором не знает.
+ */
+export const CONTRACT_VERSION = 3 as const;
 export const resources = ['project', 'equipment', 'tag', 'specification', 'catalog'] as const;
 export type Resource = typeof resources[number];
 export interface LaunchContext {
@@ -9,6 +14,13 @@ export interface LaunchContext {
   entry: 'start' | 'equipment' | 'tag';
   entityId: string | null;
 }
+/** Разрешение сети из раздела `permissions` манифеста (modules/permissions/registry.ts): `does` — что программа делает, текстом для человека */
+export type ModulePermission =
+  | { kind: 'internet' | 'lan'; does: string }
+  /** Обращение к другой программе (`flux.programs.call`): `program` — её идентификатор, метод должен быть в её `exports` */
+  | { kind: 'program'; program: string; does: string };
+/** Метод, который программа отдаёт другим программам (modules/programs/model.ts): `does` — текст для человека */
+export interface ModuleExport { method: string; does: string }
 /** Витрина Flux Store (modules/store/model.ts): необязательна, без неё программа попадает в «Прочее» */
 export interface ModuleStoreBlock {
   category: 'calc' | 'link' | 'docs' | 'reports' | 'other';
@@ -42,6 +54,10 @@ export interface ModuleManifest {
   store?: ModuleStoreBlock;
   /** Подключения к внешним программам (этап 3б): разрешение — само объявление в подписанном выпуске */
   connections?: ConnectionDecl[];
+  /** Разрешения сети (договор v3): «любой адрес в интернете», «локальная сеть»; больше видов — записями реестра разрешений */
+  permissions?: ModulePermission[];
+  /** Методы, которые вызываются из других программ (договор v3): чистые функции «JSON → JSON» в логике на Python или WebAssembly */
+  exports?: ModuleExport[];
   /** Вид интерфейса: без поля — форма (form.json); `page` — своя страница ui/index.html (договор v2) */
   ui?: 'page';
   /** Дополнительные страницы программы-приложения (пути внутри ui/, например `settings.html`); открываются как окна Flux через flux.windows.open. Главная — ui/index.html */
@@ -78,7 +94,15 @@ export type PageOp =
   /** Файл пользователя (добавлено к v2): диалог показывает Flux, программа получает имя и содержимое только выбранного файла */
   | { op: 'file-pick'; accept?: string[] }
   | { op: 'beat' }
-  | { op: 'window-open'; page: string; params?: Record<string, unknown> }
+  /** `options` — добавлено к v2: заголовок и размер нового окна */
+  | { op: 'window-open'; page: string; params?: Record<string, unknown>; options?: { title?: string; width?: number; height?: number } }
+  /** Диалоги через Flux (добавлено к v2): рисует Flux, программа даёт только простой текст */
+  | { op: 'dialog-confirm'; title: string; text: string; ok?: string; cancel?: string; danger?: boolean }
+  | { op: 'dialog-alert'; title: string; text: string }
+  | { op: 'dialog-prompt'; title: string; text?: string; label: string; value?: string; maxLength?: number }
+  /** Заголовок своего окна и пометка «есть несохранённое» (добавлено к v2) */
+  | { op: 'window-title'; text: string }
+  | { op: 'window-unsaved'; unsaved: boolean; text?: string }
   | { op: 'params-load' }
   | { op: 'channel-send'; data: unknown };
 export type PageHostMessage =
@@ -98,6 +122,10 @@ export type ComputeHostMessage =
 export type ConnectHostMessage =
   | { flux: 'module'; v: 1; session: string; type: 'connect-result'; id: string; data: unknown }
   | { flux: 'module'; v: 1; session: string; type: 'connect-error'; id: string; code: ConnectErrorCode };
+/** Ответы на обращение к другой программе (flux.programs.call): данные метода как есть либо код отказа */
+export type ProgramHostMessage =
+  | { flux: 'module'; v: 1; session: string; type: 'program-result'; id: string; data: unknown }
+  | { flux: 'module'; v: 1; session: string; type: 'program-error'; id: string; code: ProgramCallErrorCode };
 export type ThemeTokens = Record<
   '--flux-surface' | '--flux-bg' | '--flux-hover' | '--flux-sel' | '--flux-line' | '--flux-text' | '--flux-text-muted' | '--flux-accent',
   string

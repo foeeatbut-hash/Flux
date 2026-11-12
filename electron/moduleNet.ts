@@ -17,6 +17,7 @@ import {
   type ConnectCall, type NetConnection,
 } from '../modules/connections/model';
 import { pickAddress } from '../modules/connections/address';
+import { parseFetchUrl, pickNetAddress, type NetGrants } from '../modules/permissions/netAddress';
 import type { HttpReply, WsReply } from '../modules/contract';
 
 export type Lookup = (host: string) => Promise<string[]>;
@@ -58,12 +59,38 @@ export async function httpCall(decl: NetConnection, call: Extract<ConnectCall, {
   if (body && body.length > MAX) throw new ConnectError('LIMIT');
   const chosen = await pickAddress(decl, withDnsTimeout(lookup)).catch(() => null);
   if (!chosen) throw new ConnectError('TARGET', 'address');
+  return exchange(target, path, chosen, call.method, headers, body, call.encoding);
+}
+
+/** Запрос `flux.net.fetch(url)`: полный адрес из вызова, а не из объявления — поэтому право на адрес даёт только то, куда он РАЗРЕШИЛСЯ */
+export interface FetchCall { url: string; method: string; headers?: Record<string, string>; body?: string; encoding?: 'utf8' | 'base64' }
+export async function fetchUrl(call: FetchCall, grants: NetGrants, lookup: Lookup): Promise<NetResult<HttpReply> & { host: string }> {
+  const target = parseFetchUrl(call.url);
+  if (!target) throw new ConnectError('TARGET', 'url');
+  const headers = checkHeaders(call.headers);
+  if (!headers) throw new ConnectError('TARGET', 'headers');
+  const body = decodeBody(call.body, call.encoding);
+  if (body && (call.method === 'GET' || call.method === 'HEAD')) throw new ConnectError('FAILED', 'body');
+  if (body && body.length > MAX) throw new ConnectError('LIMIT');
+  // Разрешения проверяются по всем адресам имени; соединение открывается с проверенным, не с именем
+  const chosen = await pickNetAddress(target, grants, withDnsTimeout(lookup)).catch(() => null);
+  if (!chosen) throw new ConnectError('TARGET', 'address');
+  const result = await exchange(target, target.path, chosen, call.method, headers, body, call.encoding);
+  return { ...result, host: target.host };
+}
+
+/**
+ * Сам обмен по HTTP(S) с проверенным адресом: общий для объявленного подключения и для `flux.net.fetch(url)`.
+ * Редиректы не выполняются (3xx возвращается как есть), cookie не отправляются и не возвращаются, пределы размера и времени — прежние.
+ */
+function exchange(target: { scheme: string; host: string; port: number }, path: string, chosen: { address: string; family: 4 | 6 }, method: string,
+  headers: Record<string, string>, body: Buffer | undefined, encoding: 'utf8' | 'base64' | undefined): Promise<NetResult<HttpReply>> {
   const client = target.scheme === 'https' ? https : http;
   const sent: Record<string, string | number> = { 'accept-encoding': 'identity', 'user-agent': 'Flux-Module', ...headers };
   if (body) sent['content-length'] = body.length;
   return new Promise((resolve, reject) => {
     const request = client.request({
-      host: target.host, port: target.port, path, method: call.method, headers: sent, agent: false,
+      host: target.host, port: target.port, path, method, headers: sent, agent: false,
       lookup: pinned(chosen.address, chosen.family) as any, servername: /^[0-9.]+$|:/.test(target.host) ? undefined : target.host,
     } as http.RequestOptions, response => {
       const parts: Buffer[] = [];
@@ -82,7 +109,7 @@ export async function httpCall(decl: NetConnection, call: Extract<ConnectCall, {
         }
         let reply: HttpReply;
         try {
-          if (call.encoding === 'base64') throw new Error('binary');
+          if (encoding === 'base64') throw new Error('binary');
           reply = { status: response.statusCode || 0, headers: out, body: new TextDecoder('utf-8', { fatal: true }).decode(raw), encoding: 'utf8' };
         } catch { reply = { status: response.statusCode || 0, headers: out, body: raw.toString('base64'), encoding: 'base64' }; }
         resolve({ value: reply, out: body?.length || 0, inn: raw.length, status: response.statusCode });

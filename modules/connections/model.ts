@@ -236,6 +236,8 @@ export type ConnectCall =
   | { op: 'com-set'; handle: number; name: string; value: unknown; args?: unknown[] }
   | { op: 'com-release'; handle: number }
   | { op: 'com-batch'; calls: Array<{ kind: 'call' | 'get' | 'set'; handle: number; name: string; args?: unknown[]; value?: unknown }> };
+/** Обращение по полному адресу (`flux.net.fetch(url)`): отдельный вид сообщения моста, подключение не называется — нужен `internet` или `lan` в манифесте */
+export interface NetCall { url: string; method: HttpMethod; headers?: Record<string, string>; body?: string; encoding?: 'utf8' | 'base64' }
 /** NOT_ALLOWED — человек (или политика администратора) не разрешил подключение: программа продолжает без него */
 export type ConnectErrorCode = 'DENIED' | 'NOT_ALLOWED' | 'LIMIT' | 'TIMEOUT' | 'TARGET' | 'UNAVAILABLE' | 'FAILED';
 export const CONNECT_ERROR_CODES: readonly ConnectErrorCode[] = ['DENIED', 'NOT_ALLOWED', 'LIMIT', 'TIMEOUT', 'TARGET', 'UNAVAILABLE', 'FAILED'];

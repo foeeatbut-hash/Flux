@@ -5,7 +5,7 @@
  * - заготовка «страница» для всех 7 языков создаёт проект, проходящий проверку; формы в нём нет, ui/ и типы flux.* есть;
  * - проверка падает на: сетевом вызове, встроенных скрипте и стиле, внешнем адресе, хранилище, eval, жёстких цветах без токенов,
  *   недопустимом типе файла, отсутствии ui/index.html;
- * - flux.net.fetch (через мост) проверкой не ругается;
+ * - flux.net.fetch (через мост) проверкой не ругается; разрешения сети (internet, lan): адрес без permissions, закрытые адреса, лишнее разрешение, формат v3;
  * - пакет страницы не несёт build/runtime.js и принимается verifyRequest (форма с runtime.js — как раньше);
  * - типы flux.* строятся из договора.
  *
@@ -22,10 +22,14 @@ import { DeveloperKeyring, type SafeStorageLike } from '../studio/shared/keyring
 import { buildRequest } from '../studio/shared/publish';
 import { createFromTemplate, TEMPLATE_IDS, type ProjectFiles } from '../studio/shared/templates';
 import { fluxPageTypes } from '../modules/page/types';
+import { trialProgramCall } from '../studio/shared/trialPrograms';
 import { unpackBundle } from '../modules/trust/bundle';
 import { publicHexOf, sealEnvelope } from '../modules/trust/envelope';
 import { readCertificates, verifyRequest } from '../modules/trust/verify';
 import { resources } from '../modules/contract';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import RunDialog from '../studio/renderer/sections/RunDialog';
 
 const { buildDeveloperAssets } = require('../studio/build-assets.cjs');
 let passed = 0;
@@ -93,6 +97,71 @@ async function main() {
   const viaBridge = await check({ ...base, 'ui/app.js': enc(`${page('ui/app.js')}\nflux.net.fetch('api', '/x');`) });
   ok('flux.net.fetch через мост проверка не считает сетевым вызовом', !failing(viaBridge).includes('page-csp'));
 
+  console.log('Разрешения сети: интернет и локальная сеть');
+  const NET = 'Показывает курсы валют из открытого сервиса';
+  const LAN = 'Находит принтеры и контроллеры в сети предприятия';
+  const withNet = (code: string, permissions: Array<{ kind: string; does: string }> | null, contractVersion = 3): ProjectFiles =>
+    patchManifest({ ...base, 'ui/app.js': enc(`${page('ui/app.js')}\n${code}`) }, m => { if (permissions) { m.permissions = permissions; m.contractVersion = contractVersion; } });
+  const netItem = async (files: ProjectFiles) => (await check(files)).items.find(i => i.id === 'page-net')!;
+  const internetCall = "flux.net.fetch('https://api.example.com/rates?base=EUR');";
+  ok('адрес в интернете с разрешением internet и v3 — проверка проходит', (await check(withNet(internetCall, [{ kind: 'internet', does: NET }]))).ok);
+  ok('адрес в интернете без permissions → page-net', (await netItem(withNet(internetCall, null))).status === 'fail');
+  ok('адрес в локальной сети при одном internet → page-net', (await netItem(withNet("flux.net.fetch('http://192.168.1.20/status');", [{ kind: 'internet', does: NET }]))).status === 'fail');
+  ok('адрес в локальной сети с lan — проходит', (await check(withNet("flux.net.fetch('http://192.168.1.20/status');", [{ kind: 'lan', does: LAN }]))).ok);
+  for (const url of ['http://127.0.0.1:8080/x', 'http://localhost/x', 'http://169.254.169.254/latest/meta-data/', 'http://0.0.0.0/']) {
+    ok(`заведомо закрытый адрес ${url} → page-net даже с обоими разрешениями`, (await netItem(withNet(`flux.net.fetch('${url}');`, [{ kind: 'internet', does: NET }, { kind: 'lan', does: LAN }]))).status === 'fail');
+  }
+  ok('разрешение объявлено, а flux.net.fetch нет → page-net (лишнее не просим)', (await netItem(withNet('', [{ kind: 'internet', does: NET }]))).status === 'fail');
+  ok('подключение http и прежняя форма fetch(connection, path) без permissions — не ошибка', (await netItem({ ...patchManifest(base, m => { m.connections = [{ id: 'api', kind: 'http', app: 'Сервер расчётов', does: 'Отправляет данные на расчёт', access: 'send', url: 'http://127.0.0.1:8123', pathPrefix: '/api' }]; }), 'ui/app.js': enc(`${page('ui/app.js')}\nflux.net.fetch('api', '/x');`) })).status === 'ok');
+  ok('адрес из переменной не угадывается: с разрешением ошибки нет', (await netItem(withNet('const u = location.hash; flux.net.fetch(u);', [{ kind: 'internet', does: NET }]))).status === 'ok');
+  await mutate('permissions в договоре v2 → contract', withNet(internetCall, [{ kind: 'internet', does: NET }], 2), 'contract');
+  ok('причина — формат v3, а не общая фраза', /contractVersion 3/.test((await check(withNet(internetCall, [{ kind: 'internet', does: NET }], 2))).items.find(i => i.id === 'contract')!.detail));
+  await mutate('permissions без текста для человека → contract', withNet(internetCall, [{ kind: 'internet', does: 'x' }]), 'contract');
+  await mutate('permissions с адресом вместо слов → contract', withNet(internetCall, [{ kind: 'internet', does: 'Ходит на https://api.example.com за курсами' }]), 'contract');
+  await mutate('permissions у программы с формой → contract', patchManifest(createFromTemplate(templatesRoot, 'typescript', { id: 'form-net', name: 'Форма', author: 'Р' }), m => { m.permissions = [{ kind: 'internet', does: NET }]; m.contractVersion = 3; }), 'contract');
+  ok('в типах flux.d.ts обе формы fetch и пояснение про permissions', /fetch\(url: string, init\?: FluxFetchInit\)/.test(fluxPageTypes()) && /fetch\(connection: string, path: string, init\?: FluxFetchInit\)/.test(fluxPageTypes()) && /permissions/.test(fluxPageTypes()));
+  ok('Studio знает действие runNet (пробный запуск ходит в сеть как Flux)', (require('../studio/shell/actions') as typeof import('../studio/shell/actions')).ALL_ACTIONS.includes('runNet'));
+
+  console.log('Обращения к другим программам и методы exports');
+  const CALL = 'Берёт у калькулятора курсов пересчёт сумм для отчёта';
+  const EXPDO = 'Пересчитывает сумму из одной валюты в другую по курсу';
+  const withCall = (code: string, permissions: Array<Record<string, unknown>> | null, contractVersion = 3): ProjectFiles =>
+    patchManifest({ ...base, 'ui/app.js': enc(`${page('ui/app.js')}\n${code}`) }, m => { if (permissions) { m.permissions = permissions; m.contractVersion = contractVersion; } });
+  const programsItem = async (files: ProjectFiles) => (await check(files)).items.find(i => i.id === 'page-programs');
+  const allowRates = [{ kind: 'program', program: 'rates', does: CALL }];
+  const rateCall = "flux.programs.call('rates', 'convert', { amount: 100 });";
+  ok('обращение с разрешением на эту программу и v3 — проверка проходит', (await check(withCall(rateCall, allowRates))).ok);
+  ok('обращение без permissions → page-programs', (await programsItem(withCall(rateCall, null)))?.status === 'fail');
+  ok('обращение к другой программе, чем в permissions → page-programs', (await programsItem(withCall("flux.programs.call('prices', 'convert', {});", allowRates)))?.status === 'fail');
+  ok('причина называет программу и нужную запись манифеста', /prices/.test((await programsItem(withCall("flux.programs.call('prices', 'convert', {});", allowRates)))!.detail) && /"kind": "program"/.test((await programsItem(withCall(rateCall, null)))!.detail));
+  ok('вызов самой себя → page-programs', (await programsItem(withCall(`flux.programs.call('${JSON.parse(text(base['manifest.json'])).id}', 'convert', {});`, allowRates)))?.status === 'fail');
+  ok('кривое имя метода → page-programs', (await programsItem(withCall("flux.programs.call('rates', 'Convert-it', {});", allowRates)))?.status === 'fail');
+  ok('разрешение объявлено, а обращения в коде нет → page-programs', (await programsItem(withCall('', allowRates)))?.status === 'fail');
+  ok('все обращения словами, а одно разрешение лишнее → page-programs', (await programsItem(withCall(rateCall, [...allowRates, { kind: 'program', program: 'prices', does: CALL }])))?.status === 'fail');
+  ok('идентификатор из переменной не угадывается: с разрешением ошибки нет', (await programsItem(withCall('const id = location.hash.slice(1); flux.programs.call(id, "convert", {});', allowRates)))?.status === 'ok');
+  ok('страница без обращений и без разрешений — пункта нет', (await programsItem(base)) === undefined);
+  await mutate('permissions program в договоре v2 → contract', withCall(rateCall, allowRates, 2), 'contract');
+  ok('причина — формат v3', /contractVersion 3/.test((await check(withCall(rateCall, allowRates, 2))).items.find(i => i.id === 'contract')!.detail));
+  await mutate('разрешение program на самого себя → contract', withCall(rateCall, [{ kind: 'program', program: JSON.parse(text(base['manifest.json'])).id, does: CALL }]), 'contract');
+  await mutate('разрешение program без текста для человека → contract', withCall(rateCall, [{ kind: 'program', program: 'rates', does: 'x' }]), 'contract');
+  await mutate('разрешение program без идентификатора → contract', withCall(rateCall, [{ kind: 'program', does: CALL }]), 'contract');
+  const py = created.python;
+  const withExports = (files: ProjectFiles, list: Array<Record<string, unknown>> | null, extraSource = '', contractVersion = 3): ProjectFiles =>
+    patchManifest(extraSource ? { ...files, 'logic/main.py': enc(`${text(files['logic/main.py'])}\n${extraSource}`) } : files, m => { if (list) { m.exports = list; m.contractVersion = contractVersion; } });
+  const exportsItem = async (files: ProjectFiles) => (await check(files)).items.find(i => i.id === 'exports');
+  ok('метод в exports, имя которого есть в logic/main.py — проходит', (await exportsItem(withExports(py, [{ method: 'convert', does: EXPDO }], 'def export_convert(data): return data  # convert')))?.status === 'ok');
+  ok('метод объявлен, а имени в logic/main.py нет → exports', (await exportsItem(withExports(py, [{ method: 'convertRates', does: EXPDO }])))?.status === 'fail');
+  ok('exports у программы на TypeScript → exports', (await exportsItem(withExports(created.typescript, [{ method: 'convert', does: EXPDO }])))?.status === 'fail');
+  ok('причина для TypeScript называет Python и WebAssembly', /Python или WebAssembly/.test((await exportsItem(withExports(created.typescript, [{ method: 'convert', does: EXPDO }])))!.detail));
+  ok('без exports пункта нет', (await exportsItem(py)) === undefined);
+  await mutate('exports в договоре v2 → contract', withExports(py, [{ method: 'convert', does: EXPDO }], 'convert', 2), 'contract');
+  ok('причина — формат v3 и exports названы', /exports.*v3/.test((await check(withExports(py, [{ method: 'convert', does: EXPDO }], 'convert', 2))).items.find(i => i.id === 'contract')!.detail));
+  await mutate('имя метода с заглавной буквы → contract', withExports(py, [{ method: 'Convert', does: EXPDO }], 'Convert'), 'contract');
+  await mutate('метод без текста для человека → contract', withExports(py, [{ method: 'convert', does: 'x' }], 'convert'), 'contract');
+  ok('в типах flux.d.ts есть flux.programs.call с кодами ошибок', /programs: \{ call\(program: string, method: string, data\?: unknown\)/.test(fluxPageTypes()) && /NOT_INSTALLED/.test(fluxPageTypes()) && /NO_METHOD/.test(fluxPageTypes()));
+  const trial = trialProgramCall({ program: 'rates', method: 'convert', data: { amount: 5 } });
+  ok('пробный запуск отвечает NOT_INSTALLED и пишет строку в журнал, без данных вызова', !trial.reply.ok && (trial.reply as { code: string }).code === 'NOT_INSTALLED' && /rates.*convert.*NOT_INSTALLED/.test(trial.line) && !/amount/.test(trial.line));
+
   console.log('Пакет страницы');
   const keyring = new DeveloperKeyring(path.join(temp, 'keys'), storage);
   const dev = keyring.create();
@@ -117,6 +186,11 @@ async function main() {
   ok('в типах все ресурсы договора', resources.every(r => types.includes(`'${r}'`)));
   ok('в типах мост: read, compute, state, net, saveFile, windows, onTheme', ['read<', 'compute(', 'state:', 'net:', 'saveFile(', 'windows:', 'onTheme('].every(x => types.includes(x)));
   ok('в типах нет методов записи в данные Flux', !/\b(?:write|update|delete|create)\w*\s*\(/.test(types.replace('windows', '')));
+  ok('в типах окна программы: flux.dialogs, flux.window.setTitle/setUnsaved, options у windows.open', ['dialogs: {', 'confirm(options', 'alert(options', 'prompt(options', 'setTitle(text: string)', 'setUnsaved(unsaved: boolean', 'options?: { title?: string; width?: number; height?: number }'].every(x => types.includes(x)));
+  const dialogHtml = (request: any) => renderToStaticMarkup(React.createElement(RunDialog, { program: 'Ведомость', request, onAnswer: () => undefined }));
+  const confirmHtml = dialogHtml({ kind: 'confirm', title: 'Удалить?', text: 'Строка <b>5</b>', ok: 'Удалить', danger: true });
+  ok('диалог Studio: название программы и заголовок в шапке, кнопки программы, текст экранирован', /Ведомость — Удалить\?/.test(confirmHtml) && />Удалить</.test(confirmHtml) && />Отмена</.test(confirmHtml) && !/<b>5<\/b>/.test(confirmHtml) && /&lt;b&gt;5/.test(confirmHtml));
+  ok('диалог Studio: у сообщения одна кнопка, у строки ввода — поле с пределом', !/>Отмена</.test(dialogHtml({ kind: 'alert', title: 'a', text: 'b' })) && /maxLength="30"|maxlength="30"/i.test(dialogHtml({ kind: 'prompt', title: 'a', label: 'Имя', maxLength: 30 })));
   console.log(`\nПроверок: ${passed}`);
 }
 main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });

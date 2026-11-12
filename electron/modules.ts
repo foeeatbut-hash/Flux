@@ -15,6 +15,7 @@ import { registerModuleStoreIpc } from './moduleStoreIpc';
 import { ModuleControls, registerModuleControlsIpc } from './moduleControls';
 import { ModuleConnections, type VerifiedModule } from './moduleConnections';
 import { registerConnectionsIpc } from './moduleConnectionsIpc';
+import { ModuleProgramCalls, currentRelease } from './moduleProgramCalls';
 import { ModuleGrants } from './moduleGrants';
 import { ModuleJournal } from './moduleJournal';
 import { defaultComBackend, type ComBackend } from './moduleCom';
@@ -138,8 +139,14 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
     return release && !controls.blocked(release) ? value : null;
   };
   const service = new ModuleConnections({ resolve, userId: () => selection.active, grants, journal, comFor: options.com ? () => options.com! : () => defaultComBackend(), lookup: options.lookup });
+  // Вызываемая программа — та версия, что запускается у человека сейчас: выбранная, в открытом ему канале, не отозванная и не заблокированная контрольными примерами
+  const current = async (moduleId: string): Promise<VerifiedModule | null> => {
+    await ready;
+    return currentRelease(runnable, selection.installed, controlsBlocked, moduleId);
+  };
+  const programs = new ModuleProgramCalls({ resolve, current, userId: () => selection.active, journal });
   registerConnectionsIpc({
-    service, grants, journal, resolve, ready, userId: () => selection.active, trusted: options.trusted,
+    service, programs, grants, journal, resolve, ready, userId: () => selection.active, trusted: options.trusted,
     installed: async () => { await ready; return [...runnable.values()].filter(r => selection.installed[r.manifest.id]).map(r => ({ manifest: r.manifest, version: r.claim.version, author: r.claim.author, verifiedAt: r.claim.iat })); },
   });
   app.on('before-quit', () => { void service.shutdown(); void journal.flush(); });

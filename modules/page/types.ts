@@ -5,7 +5,8 @@
  */
 import { resources, themeKeys } from '../contract';
 import { COMPUTE_ERROR_CODES } from '../engine/types';
-import { PAGE_ERROR_CODES, PAGE_LIMITS, WINDOW_LIMITS } from './model';
+import { PROGRAM_ERROR_CODES, PROGRAM_LIMITS } from '../programs/model';
+import { DIALOG_LIMITS, PAGE_ERROR_CODES, PAGE_LIMITS, WINDOW_LIMITS, WINDOW_OPTION_LIMITS } from './model';
 
 const union = (items: readonly string[]) => items.map(item => `'${item}'`).join(' | ');
 
@@ -16,7 +17,7 @@ export function fluxPageTypes(): string {
 // Подключите клиент в странице: <script src="/_flux/flux.v1.js"></script>
 
 type FluxResource = ${union(resources)};
-type FluxErrorCode = ${union(['READ_ONLY', 'DENIED', 'NO_PROJECT', 'FAILED', 'LIMIT', 'TIMEOUT', 'CONTEXT_CHANGED', ...PAGE_ERROR_CODES, ...COMPUTE_ERROR_CODES])};
+type FluxErrorCode = ${union(['READ_ONLY', 'DENIED', 'NO_PROJECT', 'FAILED', 'LIMIT', 'TIMEOUT', 'CONTEXT_CHANGED', ...PROGRAM_ERROR_CODES, ...PAGE_ERROR_CODES, ...COMPUTE_ERROR_CODES])};
 
 interface FluxParameter { group: string; key: string; value: string; unit: string }
 interface FluxTag { id: string; identifier: string; name: string; parentId: string | null }
@@ -37,6 +38,7 @@ type FluxThemeToken = ${union(themeKeys)};
 interface FluxTheme { tokens: Record<FluxThemeToken, string>; mode: 'light' | 'dark' }
 interface FluxSize { width: number; height: number }
 interface FluxOutput { state: Record<string, unknown>; calc: { out: Record<string, unknown> } }
+interface FluxFetchInit { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; headers?: Record<string, string>; body?: string }
 interface FluxHttpReply { status: number; ok: boolean; headers: Record<string, string>; text(): string; json(): unknown; bytes(): Uint8Array }
 
 declare class FluxError extends Error { code: FluxErrorCode }
@@ -55,18 +57,51 @@ declare const flux: {
   state: { get(): Promise<Record<string, unknown>>; set(state: Record<string, unknown>): Promise<null> };
   /** Подключение из manifest.json; первое обращение Flux подтверждает у человека */
   connect: { call(connection: string, call: Record<string, unknown>): Promise<unknown> };
-  /** Интернет и локальные серверы только через объявленное подключение kind http; кадр сам в сеть не ходит */
-  net: { fetch(connection: string, path: string, init?: { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; headers?: Record<string, string>; body?: string }): Promise<FluxHttpReply> };
+  /**
+   * Обращение к другой программе: flux.programs.call('rates', 'convert', { … }). Нужно разрешение { kind: 'program', program: 'rates', does: '…' }
+   * в permissions manifest.json (формат contractVersion 3), а у вызываемой — метод в её exports. Исполняется логика вызываемой программы
+   * (Python или WebAssembly: вход { export, data }, ответ — calc.out), окно она не открывает; данные и ответ до ${PROGRAM_LIMITS.bytes / 1024} КиБ,
+   * не больше ${PROGRAM_LIMITS.inFlight} вызовов одновременно и ${PROGRAM_LIMITS.perSecond} в секунду. Ошибки (FluxError.code): NOT_ALLOWED, NOT_INSTALLED, NO_METHOD, LIMIT, TIMEOUT, FAILED.
+   */
+  programs: { call(program: string, method: string, data?: unknown): Promise<Record<string, unknown>> };
+  /**
+   * Сеть только через Flux; кадр сам в сеть не ходит. Две формы:
+   * fetch(url, init) — полный адрес http(s)://…: нужно разрешение { kind: 'internet' } (публичные адреса) или { kind: 'lan' } (частная сеть) в permissions manifest.json
+   * (формат contractVersion 3); петля, «этот компьютер» и метаданные облака закрыты всегда, редиректы не выполняются, cookie нет, ответ до 512 КиБ;
+   * fetch(connection, path, init) — подключение kind http из manifest.json (локальный сервер, адрес объявлен в манифесте).
+   */
+  net: {
+    fetch(url: string, init?: FluxFetchInit): Promise<FluxHttpReply>;
+    fetch(connection: string, path: string, init?: FluxFetchInit): Promise<FluxHttpReply>;
+  };
   /** Отдать файл пользователю: Flux спросит и сохранит через системный диалог (до ~500 КБ) */
   saveFile(name: string, data: string | Uint8Array, mime?: string): Promise<'saved'>;
   /** Попросить у пользователя файл: Flux покажет системный диалог; программа получает имя и содержимое только выбранного файла (до ${PAGE_LIMITS.openBytes / 1024} КиБ). Отказ человека — ошибка CANCELLED */
   openFile(options?: { accept?: string[] }): Promise<{ name: string; size: number; mime: string; bytes(): Uint8Array; text(): string }>;
   /** Свои окна программы (до ${WINDOW_LIMITS.windows}): страница index.html или объявленная в manifest.json pages */
   windows: {
-    open(page: string, params?: Record<string, unknown>): Promise<null>;
+    /** options: заголовок (до ${WINDOW_OPTION_LIMITS.title} знаков, виден после названия программы: «Программа — заголовок») и размер окна, не меньше ${WINDOW_OPTION_LIMITS.minWidth}×${WINDOW_OPTION_LIMITS.minHeight} и не больше рабочей области. Старый Flux отвечает DENIED */
+    open(page: string, params?: Record<string, unknown>, options?: { title?: string; width?: number; height?: number }): Promise<null>;
     params(): Promise<Record<string, unknown>>;
     send(data: unknown): Promise<null>;
     onMessage(listener: (data: unknown) => void): () => void;
+  };
+  /** Своё окно */
+  window: {
+    /** Заголовок окна: «Программа — заголовок», до ${WINDOW_OPTION_LIMITS.title} знаков; пустая строка возвращает название программы */
+    setTitle(text: string): Promise<null>;
+    /** В окне есть несохранённое: при закрытии (крестик, закрытие всех окон, выход из Flux) Flux сам спрашивает «Закрыть без сохранения?» с вашим текстом до ${WINDOW_OPTION_LIMITS.unsavedText} знаков. Закрытие программа не блокирует и заранее о нём не узнаёт; зависшая программа закрывается без вопроса */
+    setUnsaved(unsaved: boolean, text?: string): Promise<null>;
+  };
+  /**
+   * Диалоги Flux: простой текст, разметку рисует Flux своим окном с названием программы. Заголовок до ${DIALOG_LIMITS.title} знаков, текст до ${DIALOG_LIMITS.text}, кнопки до ${DIALOG_LIMITS.button}.
+   * Один диалог на окно за раз (второй — LIMIT), не чаще раза в секунду; закрытие окна программы закрывает диалог без ответа. Старый Flux отвечает DENIED.
+   */
+  dialogs: {
+    confirm(options: { title: string; text: string; ok?: string; cancel?: string; danger?: boolean }): Promise<boolean>;
+    alert(options: { title: string; text: string }): Promise<null>;
+    /** Строка либо null, если человек отказался; maxLength — до ${DIALOG_LIMITS.maxLength}, по умолчанию ${DIALOG_LIMITS.defaultMaxLength} */
+    prompt(options: { title: string; text?: string; label: string; value?: string; maxLength?: number }): Promise<string | null>;
   };
   onChange(listener: (event: 'opened' | 'project-changed' | 'changed') => void): () => void;
   onTheme(listener: (theme: FluxTheme) => void): () => void;

@@ -13,12 +13,15 @@ import { CONTROLS_FILE, LIMITS, LOGIC_FILES, languageOf } from '../engine/types'
 import { parseControls } from '../engine/controls';
 import { wasmProblem } from '../engine/wasmInspect';
 import { pageProblem } from '../page/model';
+import { exportsOf } from '../programs/model';
 import { RUNTIME_FILE } from './bundle';
 
 /** Возвращает причину словами или '' */
 export function executionProblem(manifest: ModuleManifest, files: BundleFiles): string {
   const language = languageOf(manifest);
   const logic = files[LOGIC_FILES[language]];
+  // Метод для других программ — чистая функция «JSON → JSON» вне окна программы; у движка TypeScript такого пути нет (логика — обработчики окна с состоянием)
+  if (exportsOf(manifest).length && language === 'typescript') return 'exports: методы для других программ исполняются на Python или WebAssembly, не на TypeScript';
   if (language !== 'typescript') {
     if (!logic?.length) return `В пакете нет ${LOGIC_FILES[language]}`;
     if (language === 'python') {

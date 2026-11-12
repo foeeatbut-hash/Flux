@@ -98,6 +98,8 @@ async function main() {
       args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), path.join(temp, 'main.cjs')],
       env: { ...process.env, FLUX_MODULE_FLUX_URL: `http://127.0.0.1:${uiPort}`, FLUX_MODULE_FLUX_DATA: temp, FLUX_TEST_ROOT: sample.rootHex }, timeout: 60000,
     });
+    // Причину незагрузившегося окна сообщает только главный процесс (scripts/fixtures/modules-flux-main.ts)
+    electron.process().stderr?.on('data', part => { const text = String(part); if (text.includes('FLUX_LOAD_')) process.stderr.write(text.slice(0, 1000)); });
     page = await electron.firstWindow();
     await page.addInitScript('globalThis.__name = (fn) => fn');
     await page.evaluate('globalThis.__name = (fn) => fn');
