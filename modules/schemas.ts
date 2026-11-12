@@ -2,6 +2,7 @@ import Ajv from 'ajv';
 import { resources, themeKeys } from './contract';
 import { HTTP_METHODS, CONNECT_ERROR_CODES } from './connections/model';
 import { permissionsValid } from './permissions/registry';
+import { parseExports } from './programs/model';
 import { COMPUTE_ERROR_CODES, LANGUAGES, PLATFORMS, SOURCE_LANGUAGES, LOGIC_FILES } from './engine/types';
 
 import { text, id, nullableId, array, object, dataSchemas } from './dataSchemas';
@@ -110,6 +111,8 @@ export const manifestSchema = object({
   connections: { type: 'array', maxItems: 8, items: { type: 'object' } },
   // Форму каждого разрешения проверяет реестр (modules/permissions/registry.ts)
   permissions: { type: 'array', maxItems: 16, items: { type: 'object' } },
+  // Методы для других программ (modules/programs/model.ts): форму каждого проверяет parseExports
+  exports: { type: 'array', maxItems: 16, items: { type: 'object' } },
   ui: { const: 'page' },
   pages: { type: 'array', maxItems: 20, uniqueItems: true, items: { type: 'string', pattern: '^(?:[A-Za-z0-9_][A-Za-z0-9_-]{0,63}/){0,4}[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}\\.html$' } },
 }, ['id', 'name', 'author', 'version', 'contractVersion', 'entries', 'reads', 'logic']);
@@ -120,6 +123,7 @@ const languageIs = (language: string) => ({ required: ['language'], properties: 
   { if: { required: ['ui'] }, then: { properties: { contractVersion: { enum: [2, 3] } } } },
   // Раздел permissions — договор v3: схема старого Flux его не знает и отвергла бы выпуск, поэтому версия обязана сказать об этом честно
   { if: { required: ['permissions'] }, then: { properties: { contractVersion: { const: 3 } } } },
+  { if: { required: ['exports'] }, then: { properties: { contractVersion: { const: 3 } } } },
   { if: { required: ['pages'] }, then: { required: ['ui'] } },
   { if: languageIs('python'), then: { properties: { logic: { const: LOGIC_FILES.python } }, not: { required: ['sourceLanguage'] } } },
   { if: languageIs('wasm'), then: { properties: { logic: { const: LOGIC_FILES.wasm } }, required: ['sourceLanguage'] } },
@@ -128,4 +132,4 @@ const languageIs = (language: string) => ({ required: ['language'], properties: 
 ];
 const validShape = ajv.compile(manifestSchema);
 /** Схема плюс разбор объявлений по реестру разрешений: подключение с чужой схемой, путём в адресе или запрещённым COM-объектом, разрешение без человеческого текста манифестом не считается */
-export const validManifest = (value: unknown): boolean => !!validShape(value) && permissionsValid(value);
+export const validManifest = (value: unknown): boolean => !!validShape(value) && permissionsValid(value) && parseExports((value as { exports?: unknown }).exports) !== null;

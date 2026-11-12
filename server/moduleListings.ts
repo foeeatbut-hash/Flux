@@ -117,5 +117,8 @@ export async function buildListings(db: any, user: any, rootHex = MODULE_ROOT_KE
       crashes: admin ? { version: top.r.version, count: signals.counts.filter((c) => c.moduleId === moduleId && c.version === top.r.version).reduce((n, c) => n + c.count, 0) } : null,
     });
   }
+  // Строки «Обращается к программе «…»» называют программу по имени из этого же каталога; пока цикл шёл, имена остальных ещё не были известны
+  const names = new Map(listings.map((l) => [l.moduleId, l.name]));
+  for (const l of listings) if (l.manifest.permissions?.some((p) => p.kind === 'program')) l.permissions = permissionLines(l.manifest, (id) => names.get(id));
   return { listings, autoUpdate: autoRow?.value === '1' };
 }

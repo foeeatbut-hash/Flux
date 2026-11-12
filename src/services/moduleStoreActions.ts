@@ -118,7 +118,9 @@ export async function updateAll(): Promise<{ done: number; failed: string[] }> {
 /** Новые разрешения версии против установленной: пусто — подтверждать нечего */
 export function newPermissions(listing: StoreListing): string[] {
   const current = state().local?.available.find((a) => a.moduleId === listing.moduleId && a.version === listing.mine?.version);
-  return addedPermissions(current?.manifest || null, listing.manifest);
+  // Названия программ в строках — те же, что в каталоге на сервере, иначе «новое» не совпало бы с показанным текстом
+  const names = new Map(state().listings.map((l) => [l.moduleId, l.name]));
+  return addedPermissions(current?.manifest || null, listing.manifest, (id) => names.get(id));
 }
 
 export async function removeModule(listing: StoreListing, keepData: boolean): Promise<void> {

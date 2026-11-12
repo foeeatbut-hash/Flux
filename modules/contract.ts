@@ -1,7 +1,7 @@
 import type { ConnectCall, ConnectErrorCode, ConnectionDecl, HttpMethod } from './connections/model';
 import type { ModuleLanguage, ModulePlatform, SourceLanguage, ComputeErrorCode } from './engine/types';
 /**
- * v2 добавляет страницу (`ui: 'page'`), v3 — раздел `permissions` манифеста (интернет и локальная сеть). Сообщения моста
+ * v2 добавляет страницу (`ui: 'page'`), v3 — разделы `permissions` (интернет, локальная сеть, обращение к программам) и `exports` манифеста. Сообщения моста
  * остаются v1: добавляются только новые виды, смысл прежних не меняется. Выпуск с `permissions` — v3, и старый Flux
  * (его схема манифеста строгая) показывает «обновите Flux», а не запускает программу без права, о котором не знает.
  */
@@ -14,7 +14,12 @@ export interface LaunchContext {
   entityId: string | null;
 }
 /** Разрешение сети из раздела `permissions` манифеста (modules/permissions/registry.ts): `does` — что программа делает, текстом для человека */
-export interface ModulePermission { kind: 'internet' | 'lan'; does: string }
+export type ModulePermission =
+  | { kind: 'internet' | 'lan'; does: string }
+  /** Обращение к другой программе (`flux.programs.call`): `program` — её идентификатор, метод должен быть в её `exports` */
+  | { kind: 'program'; program: string; does: string };
+/** Метод, который программа отдаёт другим программам (modules/programs/model.ts): `does` — текст для человека */
+export interface ModuleExport { method: string; does: string }
 /** Витрина Flux Store (modules/store/model.ts): необязательна, без неё программа попадает в «Прочее» */
 export interface ModuleStoreBlock {
   category: 'calc' | 'link' | 'docs' | 'reports' | 'other';
@@ -50,6 +55,8 @@ export interface ModuleManifest {
   connections?: ConnectionDecl[];
   /** Разрешения сети (договор v3): «любой адрес в интернете», «локальная сеть»; больше видов — записями реестра разрешений */
   permissions?: ModulePermission[];
+  /** Методы, которые вызываются из других программ (договор v3): чистые функции «JSON → JSON» в логике на Python или WebAssembly */
+  exports?: ModuleExport[];
   /** Вид интерфейса: без поля — форма (form.json); `page` — своя страница ui/index.html (договор v2) */
   ui?: 'page';
   /** Дополнительные страницы программы-приложения (пути внутри ui/, например `settings.html`); открываются как окна Flux через flux.windows.open. Главная — ui/index.html */
