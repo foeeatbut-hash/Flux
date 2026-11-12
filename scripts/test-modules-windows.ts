@@ -13,6 +13,7 @@
  *
  * Запуск: npx tsx scripts/test-modules-windows.ts   (живая часть — FLUX_CHROME)
  */
+import { verifySkip } from './verifySkip';
 import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -173,7 +174,7 @@ async function live() {
   const chrome = process.env.FLUX_CHROME || '/usr/bin/chromium';
   if (!fs.existsSync(chrome)) {
     if (process.env.CI) { failed++; console.error(`  ✗ в CI нет Chromium (${chrome}): живая проверка не выполнена`); return; }
-    console.log('FLUX_VERIFY_SKIP: нет Chromium (FLUX_CHROME)'); return;
+    verifySkip('нет Chromium (FLUX_CHROME)'); return;
   }
   console.log('\n3. Настоящий кадр: клиент flux.dialogs / flux.window / flux.windows.open');
   const { chromium } = await import('playwright-core');

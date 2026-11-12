@@ -1,3 +1,4 @@
+import { verifySkip } from './verifySkip';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -41,7 +42,7 @@ async function main() {
   const supported = process.platform === 'win32'
     || (process.platform === 'linux' && process.env.FLUX_CHROME && process.env.DISPLAY);
   if (!supported || missing.length) {
-    console.log(`FLUX_VERIFY_SKIP: ${!supported ? 'нужны Windows либо Linux с FLUX_CHROME и DISPLAY'
+    verifySkip(`${!supported ? 'нужны Windows либо Linux с FLUX_CHROME и DISPLAY'
       : `отсутствуют файлы сборки: ${missing.join(', ')}`}`);
     complete = true;
     return;

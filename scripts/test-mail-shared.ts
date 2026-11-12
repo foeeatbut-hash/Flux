@@ -1,3 +1,4 @@
+import { verifySkip } from './verifySkip';
 import { testCredentials } from './testCredentials';
 /**
  * Общий ящик компании: проверки правил на живом сервере.
@@ -332,7 +333,7 @@ const run = async () => {
   }
 
   if (!withFile) {
-    console.log(`FLUX_VERIFY_SKIP: ${MAIL_FIXTURE_SKIP_REASON}`);
+    verifySkip(`${MAIL_FIXTURE_SKIP_REASON}`);
   } else {
     const one = await call('GET', `/api/mail/thread?accountId=${withFile.accountId}&threadKey=${encodeURIComponent(withFile.threadKey)}`, admin);
     const att = (one.json?.attachments || [])[0];
@@ -374,7 +375,7 @@ const run = async () => {
     if (!mineOnly && foreign.status === 200 && foreign.json?.note?.id) createdNotes.push({ id: String(foreign.json.note.id), actorToken: mateToken });
   }
   } catch (error) {
-    if (error instanceof SkippedMailRun) console.log(`FLUX_VERIFY_SKIP: ${error.message}`);
+    if (error instanceof SkippedMailRun) verifySkip(`${error.message}`);
     else {
       runError = true;
       console.error('\nСбой прогона:', error instanceof Error ? error.message : 'неизвестная ошибка');

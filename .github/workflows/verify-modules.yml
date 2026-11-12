@@ -52,6 +52,8 @@ jobs:
       # Живая проверка изоляции страницы (test-modules-page) идёт в настоящем Chrome; без него в CI она падает, а не пропускается
       FLUX_CHROME: C:\Program Files\Google\Chrome\Application\chrome.exe
       DISABLE_HMR: 'true'
+      # Все наборы job обязательны: пропуск (нет сборки, Chromium) = провал, а не зелёный код (scripts/verifySkip.ts)
+      FLUX_REQUIRE_NO_SKIP: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

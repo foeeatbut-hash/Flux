@@ -53,6 +53,9 @@ jobs:
   checks:
     name: Проверки Studio (вход, бандлы, окна, раздел владельца)
     runs-on: ubuntu-latest
+    env:
+      # Наборы этого job обязательны: пропуск (нет Chromium и т. п.) = провал, а не зелёный код (scripts/verifySkip.ts)
+      FLUX_REQUIRE_NO_SKIP: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

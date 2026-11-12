@@ -1,3 +1,4 @@
+import { verifySkip } from './verifySkip';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -8,7 +9,7 @@ import type { Frame } from 'playwright-core';
 
 async function main() {
   if (process.platform !== 'win32' && !(process.platform === 'linux' && process.env.FLUX_CHROME && process.env.DISPLAY)) {
-    console.log('FLUX_VERIFY_SKIP: нужны Windows либо Linux с FLUX_CHROME и DISPLAY');
+    verifySkip('нужны Windows либо Linux с FLUX_CHROME и DISPLAY');
     return;
   }
   const required = [
@@ -19,7 +20,7 @@ async function main() {
   ];
   const missing = required.filter(file => !fs.existsSync(file));
   if (missing.length) {
-    console.log(`FLUX_VERIFY_SKIP: отсутствуют файлы сборки: ${missing.join(', ')}`);
+    verifySkip(`отсутствуют файлы сборки: ${missing.join(', ')}`);
     return;
   }
 

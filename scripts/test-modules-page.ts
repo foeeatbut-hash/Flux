@@ -5,6 +5,7 @@
  * electron/modules.ts, и считает обращения, которые дошли до «внешнего» сервера. Каждая защита проверена мутацией:
  * с ослабленным заголовком проверка обязана увидеть утечку.
  */
+import { verifySkip } from './verifySkip';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
@@ -219,7 +220,7 @@ async function liveTests() {
   if (!fs.existsSync(chrome)) {
     // В CI тихий пропуск недопустим: без живого кадра вся проверка изоляции была бы пустой
     if (process.env.CI) { failed++; console.error(`  ✗ в CI нет Chromium (${chrome}): живая проверка изоляции не выполнена`); return; }
-    console.log('FLUX_VERIFY_SKIP: нет Chromium (FLUX_CHROME)'); return;
+    verifySkip('нет Chromium (FLUX_CHROME)'); return;
   }
   const shots = process.env.FLUX_MODULE_SHOTS || '/tmp/modules-page-shots';
   console.log('\n6. Настоящий кадр: всё, что вне моста, закрыто');

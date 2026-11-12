@@ -57,6 +57,9 @@ const WORKERS = Math.max(2, Math.min(6, cpus().length));
 
 type Result = { file: string; ok: boolean; ms: number };
 const results: Result[] = [];
+// Наборы, которые вышли с кодом 0, но сами сказали «пропущено»: зелёный код тут не значит «проверено»
+const skipped: { file: string; why: string }[] = [];
+const SKIP_LINE = /^\s*(?:FLUX_VERIFY_SKIP:|SKIP\b)\s*(.*)$/m;
 
 function run(file: string): Promise<void> {
   return new Promise((resolve) => {
@@ -70,6 +73,8 @@ function run(file: string): Promise<void> {
     child.on('close', (code) => {
       clearTimeout(timer);
       results.push({ file, ok: code === 0, ms: Date.now() - t });
+      const skipLine = code === 0 ? SKIP_LINE.exec(out) : null;
+      if (skipLine) skipped.push({ file, why: skipLine[1].slice(0, 160) });
       if (code !== 0) {
         const lines = out.split('\n').filter((l) => /✗|ПРОВАЛ|^\s*\w*Error\b|Error:|прерван по времени/.test(l)).slice(0, 12);
         const why = lines.length ? lines.join('\n') : out.trim().split('\n').slice(-6).join('\n');
@@ -102,8 +107,11 @@ async function main() {
     }
   }
   const min = ((Date.now() - started) / 60_000).toFixed(1);
-  console.log(`Наборов: ${files.length}, провалено: ${failed.length}, ${min} мин.`);
-  process.exit(failed.length ? 1 : 0);
+  console.log(`Наборов: ${files.length}, провалено: ${failed.length}, пропущено: ${skipped.length}, ${min} мин.`);
+  for (const s of skipped) console.log(`  пропущен (не проверен): ${s.file} — ${s.why}`);
+  // В job CI, где набор обязателен, пропуск равен провалу (см. scripts/verifySkip.ts)
+  const skipFails = process.env.FLUX_REQUIRE_NO_SKIP === '1' && skipped.length > 0;
+  process.exit(failed.length || skipFails ? 1 : 0);
 }
 
 main();
