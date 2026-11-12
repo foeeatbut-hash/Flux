@@ -133,7 +133,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
           throw error;
         }
       },
-      // Счётчик сбоев пишет сам расчёт; здесь только плашка «подпрограмма остановилась»
+      // Счётчик сбоев пишет сам расчёт; здесь только плашка «программа остановилась»
       onComputeError: code => setFailure(code === 'TIMEOUT' ? 'timeout' : code === 'MEMORY' ? 'memory' : code === 'CRASH' || code === 'ABI' || code === 'BAD_OUTPUT' || code === 'NUMBER' ? 'crash' : null),
     });
     bridgeRef.current = bridge;
@@ -158,7 +158,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
   useEffect(() => { bridgeRef.current?.notify('changed'); }, [theme]);
   return <div className="flex h-full min-h-0 flex-1 flex-col">
     {failure && <div role="alert" className="flex items-center gap-3 border-b border-[var(--flux-line)] bg-[var(--flux-surface)] p-3 text-sm text-[var(--flux-text)]">
-      <span>Подпрограмма {manifest.name} остановилась — отправить отчёт разработчику?</span>
+      <span>Программа {manifest.name} остановилась — отправить отчёт разработчику?</span>
       <button type="button" className="text-[var(--flux-accent)] underline" onClick={() => {
         window.dispatchEvent(new CustomEvent('flux:report-module', { detail: { source: 'running', moduleId: manifest.id, name: manifest.name, version: manifest.version, channel, moduleDiagnostics: { code: failure } } }));
         setFailure(null);
@@ -166,7 +166,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
       <button type="button" onClick={() => setFailure(null)}>Закрыть</button>
     </div>}
     {denied && <div role="alert" className="flex items-center gap-3 border-b border-[var(--flux-line)] bg-[var(--flux-surface)] p-3 text-sm text-[var(--flux-text)]" data-testid="module-denied">
-      <span>Нет доступа к «{denied.app}»: подключение не разрешено. Подпрограмма работает без него.</span>
+      <span>Нет доступа к «{denied.app}»: подключение не разрешено. Программа работает без него.</span>
       <button type="button" className="text-[var(--flux-accent)] underline" onClick={() => {
         // Сброс решения делает главный процесс; следующий обмен данными снова спросит человека
         void hostBridge()?.invoke('modules:grants-reset', { moduleId: manifest.id }).then(() => { setDenied(null); bridgeRef.current?.notify('changed'); });
@@ -179,7 +179,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
     </div>}
     {asking && <ConnectionPrompt ask={asking.ask} onChoose={choice => { asking.resolve(choice); setAsking(null); }} />}
     {gate === 'checking' && <div className="fx-empty"><div className="fx-empty-title">Проверка расчёта на этом компьютере…</div></div>}
-    {(gate === 'failed' || gate === 'retry') && <div className="fx-empty" role="alert"><div className="fx-empty-title">Подпрограмма не запущена</div>
+    {(gate === 'failed' || gate === 'retry') && <div className="fx-empty" role="alert"><div className="fx-empty-title">Программа не запущена</div>
       <div className="fx-empty-text">{gate === 'failed' ? 'Контрольные примеры на этом компьютере не сошлись. Сообщение о сбое отправлено разработчику.'
         : 'Контрольные примеры не удалось выполнить (не хватило времени или памяти). Это могло быть разовым.'}</div>
       <button type="button" className="fx-btn" onClick={() => { void resetControls(manifest).then(() => setRecheck(n => n + 1)); }}>Проверить снова</button></div>}

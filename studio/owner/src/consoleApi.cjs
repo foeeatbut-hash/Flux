@@ -27,7 +27,7 @@ const ROUTES = [
 const routeAllowed = (method, route) => typeof route === 'string' && route.length < 300 && ROUTES.some(([m, re]) => m === method && re.test(route));
 const MAX_RESPONSE = 24 * 1024 * 1024;
 
-/** Ответ JSON либо байты (`binary`): пакет подпрограммы приходит как есть */
+/** Ответ JSON либо байты (`binary`): пакет программы приходит как есть */
 function consoleRequest(origin, method, route, { body = null, token = '', binary = false, signal = null } = {}) {
   if (!routeAllowed(method, route)) return Promise.reject(new Error('Маршрут недоступен разделу владельца.'));
   if (!token) return Promise.reject(new Error('Подключитесь к общей БД компании.'));

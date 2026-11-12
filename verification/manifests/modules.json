@@ -666,7 +666,7 @@
     {
       "id": "modules.restart",
       "program": "modules",
-      "label": "Перезапустить обновлённую подпрограмму",
+      "label": "Перезапустить обновлённую программу",
       "risk": "normal",
       "sources": [
         "src/screens/ModuleHost.tsx"
@@ -691,7 +691,7 @@
     {
       "id": "modules.feedback",
       "program": "modules",
-      "label": "Сообщить о проблеме подпрограммы",
+      "label": "Сообщить о проблеме программы",
       "risk": "critical",
       "sources": [
         "src/components/modules/ModuleFrame.tsx",

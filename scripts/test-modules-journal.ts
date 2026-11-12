@@ -1,5 +1,5 @@
 /**
- * Журнал подпрограмм и политика подключений на сервере (этап 3б): приём пачек,
+ * Журнал программ и политика подключений на сервере (этап 3б): приём пачек,
  * идемпотентность, пределы, права на просмотр, обезличивание для разработчика,
  * срок и предел строк; запрос на публикацию с новым подключением и окно
  * установки. Настоящие маршруты и одноразовая SQLite.
@@ -84,8 +84,8 @@ async function main() {
   const now = Date.now();
   const entry = (id: string, over: Record<string, unknown> = {}) => ({ id, at: now - 1000, moduleId: 'conn-a', version: '1.0.0', userId: 'подделка', category: 'connection', level: 'info', event: 'call',
     detail: 'HTTP http://127.0.0.1:8123/api · GET /api', outcome: 'ok', ms: 12, bytesIn: 100, bytesOut: 20, ...over });
-  const sent1 = await call('ann', '/api/modules/journal', 'POST', { entries: [entry('e-1'), entry('e-2', { category: 'log', level: 'warn', event: 'message', detail: 'сообщение подпрограммы' }), entry('e-3', { moduleId: 'нет-такой' }), entry('e-bad', { level: 'fatal' })] });
-  ok('принимаются верные записи; неизвестная подпрограмма и неверная форма — нет', sent1.body.accepted === 2 && sent1.body.rejected === 2);
+  const sent1 = await call('ann', '/api/modules/journal', 'POST', { entries: [entry('e-1'), entry('e-2', { category: 'log', level: 'warn', event: 'message', detail: 'сообщение программы' }), entry('e-3', { moduleId: 'нет-такой' }), entry('e-bad', { level: 'fatal' })] });
+  ok('принимаются верные записи; неизвестная программа и неверная форма — нет', sent1.body.accepted === 2 && sent1.body.rejected === 2);
   const again = await call('ann', '/api/modules/journal', 'POST', { entries: [entry('e-1'), entry('e-2', { category: 'log' })] });
   ok('повтор той же пачки не даёт дублей и считается принятым', again.body.accepted === 2 && (await db.moduleJournal.count()) === 2);
   const stored = await db.moduleJournal.findUnique({ where: { id: 'ann:e-1' } });
@@ -110,21 +110,21 @@ async function main() {
   ok('обычный человек журнал не смотрит', (await call('ann', '/api/modules/journal')).status === 403);
   const all = (await call('admin', '/api/modules/journal?limit=500')).body;
   ok('администратор видит всё и с именами людей', all.entries.length > 200 && all.entries.some((e: any) => e.userName === 'Анна') && all.entries.some((e: any) => e.moduleId === 'conn-b'));
-  ok('фильтры: подпрограмма, уровень, человек, период', (await call('admin', '/api/modules/journal?moduleId=conn-b')).body.entries.every((e: any) => e.moduleId === 'conn-b')
+  ok('фильтры: программа, уровень, человек, период', (await call('admin', '/api/modules/journal?moduleId=conn-b')).body.entries.every((e: any) => e.moduleId === 'conn-b')
     && (await call('admin', '/api/modules/journal?level=warn')).body.entries.length === 1 && (await call('admin', '/api/modules/journal?userId=bob')).body.entries.every((e: any) => e.userId === 'bob')
     && (await call('admin', `/api/modules/journal?from=${now + 1}`)).body.entries.length === 0);
   const own = (await call('dev', '/api/modules/journal?limit=500')).body;
-  ok('разработчик видит только свои подпрограммы', own.entries.length > 0 && own.entries.every((e: any) => e.moduleId === 'conn-a'));
-  ok('текст сообщений подпрограммы (flux.log) разработчику в общем журнале не показывается: только уровень и время', own.entries.some((e: any) => e.category === 'log' && e.detail === '') && !JSON.stringify(own).includes('сообщение подпрограммы')
-    && (await call('admin', '/api/modules/journal?category=log&moduleId=conn-a')).body.entries.some((e: any) => e.detail === 'сообщение подпрограммы')
-    && !(await call('dev', '/api/modules/journal?format=csv')).body.includes('сообщение подпрограммы'));
+  ok('разработчик видит только свои программы', own.entries.length > 0 && own.entries.every((e: any) => e.moduleId === 'conn-a'));
+  ok('текст сообщений программы (flux.log) разработчику в общем журнале не показывается: только уровень и время', own.entries.some((e: any) => e.category === 'log' && e.detail === '') && !JSON.stringify(own).includes('сообщение программы')
+    && (await call('admin', '/api/modules/journal?category=log&moduleId=conn-a')).body.entries.some((e: any) => e.detail === 'сообщение программы')
+    && !(await call('dev', '/api/modules/journal?format=csv')).body.includes('сообщение программы'));
   let released = 0; const realFind = db.moduleRelease.findMany.bind(db.moduleRelease);
   db.moduleRelease.findMany = (...a: any[]) => { released++; return realFind(...a); };
   await call('dev', '/api/modules/journal'); await call('dev', '/api/modules/journal?level=warn');
   db.moduleRelease.findMany = realFind;
-  ok('список своих подпрограмм разработчика кэшируется: повторные просмотры не перечитывают выпуски', released === 0);
+  ok('список своих программ разработчика кэшируется: повторные просмотры не перечитывают выпуски', released === 0);
   ok('разработчику не показываются ни люди, ни их идентификаторы', own.entries.every((e: any) => !('userName' in e) && !('userId' in e)) && !JSON.stringify(own).includes('Анна') && !JSON.stringify(own).includes('"ann"'));
-  ok('чужую подпрограмму и отбор по человеку разработчик получить не может', (await call('dev', '/api/modules/journal?moduleId=conn-b')).body.entries.length === 0
+  ok('чужую программу и отбор по человеку разработчик получить не может', (await call('dev', '/api/modules/journal?moduleId=conn-b')).body.entries.length === 0
     && (await call('dev', '/api/modules/journal?userId=ann&limit=500')).body.entries.every((e: any) => !('userId' in e)));
   const csvAdmin = (await call('admin', '/api/modules/journal?format=csv')).body as string;
   const csvDev = (await call('dev', '/api/modules/journal?format=csv')).body as string;

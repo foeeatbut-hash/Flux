@@ -2,7 +2,7 @@
  * Flux Store: витрина, установки человека, отзывы, решения администратора, журнал.
  *
  * Здесь политика, а не доверие: сервер решает, что показывать и что
- * записывать в «установлено у человека», но запускает подпрограмму только
+ * записывать в «установлено у человека», но запускает программу только
  * Flux на компьютере — после проверки подписи владельца. Поэтому ни одна
  * запись этих таблиц не позволяет запустить непроверенный код.
  */
@@ -35,10 +35,10 @@ export async function logStore(db: any, user: any, moduleId: string, action: str
 export function registerModuleStoreRoutes(app: Express, deps: ModuleStoreDeps): void {
   const find = async (db: any, req: Request, res: Response): Promise<{ listing: StoreListing; all: StoreListing[] } | null> => {
     const moduleId = String(req.params.id || '');
-    if (!MODULE_ID.test(moduleId)) { fail(res, 404, 'Подпрограмма не найдена'); return null; }
+    if (!MODULE_ID.test(moduleId)) { fail(res, 404, 'Программа не найдена'); return null; }
     const { listings } = await buildListings(db, userOf(req), deps.rootHex());
     const listing = listings.find((l) => l.moduleId === moduleId);
-    if (!listing) { fail(res, 404, 'Подпрограмма не найдена'); return null; }
+    if (!listing) { fail(res, 404, 'Программа не найдена'); return null; }
     return { listing, all: listings };
   };
 
@@ -94,14 +94,14 @@ export function registerModuleStoreRoutes(app: Express, deps: ModuleStoreDeps): 
     if (!target) return fail(res, 409, `Версия ${version || '?'} недоступна: выпуска нет, он отозван или не виден вам`);
     const current = await db.moduleInstall.findUnique({ where: { userId_moduleId: { userId: String(user.id), moduleId } } });
     if (!current) {
-      if (listing.status !== 'admitted') return fail(res, 409, 'Подпрограмма не допущена в Store администратором');
-      if (listing.deprecated) return fail(res, 409, 'Подпрограмма устарела: новым пользователям она не ставится');
+      if (listing.status !== 'admitted') return fail(res, 409, 'Программа не допущена в Store администратором');
+      if (listing.deprecated) return fail(res, 409, 'Программа устарела: новым пользователям она не ставится');
     }
-    if (listing.status === 'banned') return fail(res, 409, 'Подпрограмма запрещена администратором');
+    if (listing.status === 'banned') return fail(res, 409, 'Программа запрещена администратором');
     if ((!current || compareVersions(version, current.version) > 0) && listing.pinned && compareVersions(version, listing.pinned) > 0) {
       return fail(res, 409, `Администратор закрепил версию ${listing.pinned}: выше ставить нельзя`);
     }
-    // Зависимости: общие данные модуля — без поставщика эта подпрограмма не заработает
+    // Зависимости: общие данные модуля — без поставщика эта программа не заработает
     const missing = listing.dependsOn.filter((id) => !all.find((l) => l.moduleId === id)?.mine);
     if (missing.length) return fail(res, 409, `Сначала установите: ${missing.join(', ')}`);
     const source = ['user', 'required', 'dependency'].includes(req.body?.source) ? req.body.source : current?.source || 'user';
@@ -117,10 +117,10 @@ export function registerModuleStoreRoutes(app: Express, deps: ModuleStoreDeps): 
 
   app.delete('/api/modules/installs/:id', async (req: Request, res: Response) => {
     const db = deps.getPrisma(), user = userOf(req), moduleId = String(req.params.id);
-    if (!MODULE_ID.test(moduleId)) return fail(res, 404, 'Подпрограмма не найдена');
+    if (!MODULE_ID.test(moduleId)) return fail(res, 404, 'Программа не найдена');
     const { listings } = await buildListings(db, user, deps.rootHex());
     const listing = listings.find((l) => l.moduleId === moduleId);
-    if (listing?.required && listing.status !== 'banned') return fail(res, 409, 'Подпрограмма обязательна для вашей должности: удалить её может только администратор');
+    if (listing?.required && listing.status !== 'banned') return fail(res, 409, 'Программа обязательна для вашей должности: удалить её может только администратор');
     const dependants = listings.filter((l) => l.mine && l.dependsOn.includes(moduleId)).map((l) => l.name);
     if (dependants.length) return fail(res, 409, `Без неё не заработают: ${dependants.join(', ')}. Сначала удалите их`);
     const current = await db.moduleInstall.findUnique({ where: { userId_moduleId: { userId: String(user.id), moduleId } } });
@@ -145,9 +145,9 @@ export function registerModuleStoreRoutes(app: Express, deps: ModuleStoreDeps): 
     const db = deps.getPrisma(), user = userOf(req), moduleId = String(req.params.id);
     const rating = Number(req.body?.rating);
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) return fail(res, 400, 'Оценка — от 1 до 5');
-    // Оценивает тот, у кого подпрограмма стоит: отзыв «со стороны» ничего не говорит о её работе
+    // Оценивает тот, у кого программа стоит: отзыв «со стороны» ничего не говорит о её работе
     const install = await db.moduleInstall.findUnique({ where: { userId_moduleId: { userId: String(user.id), moduleId } } });
-    if (!install) return fail(res, 409, 'Оценить можно подпрограмму, которая у вас установлена');
+    if (!install) return fail(res, 409, 'Оценить можно программу, которая у вас установлена');
     const data = { rating, text: clip(req.body?.text, 4000), version: install.version, userName: clip(user.name, 120), hidden: false };
     await db.moduleReview.upsert({ where: { moduleId_userId: { moduleId, userId: String(user.id) } }, create: { moduleId, userId: String(user.id), ...data }, update: data });
     res.json({ ok: true });
@@ -178,10 +178,10 @@ export function registerModuleStoreRoutes(app: Express, deps: ModuleStoreDeps): 
 
   app.post('/api/modules/store/:id/admission', admin, async (req: Request, res: Response) => {
     const db = deps.getPrisma(), moduleId = String(req.params.id), user = userOf(req);
-    if (!MODULE_ID.test(moduleId)) return fail(res, 404, 'Подпрограмма не найдена');
+    if (!MODULE_ID.test(moduleId)) return fail(res, 404, 'Программа не найдена');
     const status = String(req.body?.status || '');
     if (!(STORE_STATUSES as readonly string[]).includes(status)) return fail(res, 400, 'Неизвестное состояние допуска');
-    if (!(await db.moduleRelease.findFirst({ where: { moduleId } }))) return fail(res, 404, 'У подпрограммы нет выпусков');
+    if (!(await db.moduleRelease.findFirst({ where: { moduleId } }))) return fail(res, 404, 'У программы нет выпусков');
     const prev = await entryOf(db, moduleId);
     const data = { status, deprecated: typeof req.body?.deprecated === 'boolean' ? req.body.deprecated : !!prev.deprecated, note: clip(req.body?.note ?? prev.note, 2000), updatedBy: String(user.id) };
     await db.moduleStoreEntry.upsert({ where: { moduleId }, create: { moduleId, ...data }, update: data });

@@ -1,5 +1,5 @@
 /**
- * Подключения подпрограмм (этап 3б), главный процесс без Electron: объявление в
+ * Подключения программ (этап 3б), главный процесс без Electron: объявление в
  * манифесте, проверка адресов после разрешения имени, сквозные HTTP / WebSocket /
  * COM (поддельный), решения человека, пределы и журнал. Серверы — настоящие,
  * локальные: проверяется, что неразрешённое до них не доходит вообще.
@@ -101,7 +101,7 @@ async function main() {
     { id: 'mixed', kind: 'http', url: 'http://mixed.test:80', pathPrefix: '/', ...base },
     { id: 'pin', kind: 'http', url: `http://pin.test:${apiPort}`, pathPrefix: '/api', internal: true, ...base },
   ])!;
-  // Вторая подпрограмма: свои объявления (в манифесте не больше восьми) и свой помощник COM
+  // Вторая программа: свои объявления (в манифесте не больше восьми) и свой помощник COM
   const otherDecls = [decls.find(d => d.id === 'e3')!, ...parseConnections([
     { id: 'meta', kind: 'http', url: 'http://meta.test:80', pathPrefix: '/', internal: true, ...base },
     { id: 'hang', kind: 'http', url: 'http://hang.test:80', pathPrefix: '/', ...base },
@@ -264,14 +264,14 @@ async function main() {
   check('COM: одновременные вызовы стоят в очереди помощника (не больше 8), остальные — LIMIT', wave.filter(r => r.ok).length >= 8 && wave.some(r => code(r) === 'LIMIT'));
   clock += 5000;
 
-  // Помощник перезапустился: старые номера — чужие или выдуманные, учёт обнулён, другая подпрограмма не задета
+  // Помощник перезапустился: старые номера — чужие или выдуманные, учёт обнулён, другая программа не задета
   const otherGrant = grantKey(decls.find(d => d.id === 'e3')!);
   await grants.decide('u1', 'conn-other', 'e3', otherGrant, 'w1:o1', 'always');
   const otherOpen: any = await service.call('w1', { moduleId: 'conn-other', version: '1.0.0', session: 'o1', connection: 'e3', call: { op: 'com-open' } });
   const stale = e3b.data.handle;
   com.crash();
   check('после перезапуска помощника старый номер объекта не действует', code(await call('e3', { op: 'com-get', handle: stale, name: 'Version' })) === 'DENIED');
-  check('перезапуск помощника одной подпрограммы не трогает объекты другой', (await service.call('w1', { moduleId: 'conn-other', version: '1.0.0', session: 'o1', connection: 'e3', call: { op: 'com-get', handle: otherOpen.data.handle, name: 'Version' } }) as any).data?.value === '2023');
+  check('перезапуск помощника одной программы не трогает объекты другой', (await service.call('w1', { moduleId: 'conn-other', version: '1.0.0', session: 'o1', connection: 'e3', call: { op: 'com-get', handle: otherOpen.data.handle, name: 'Version' } }) as any).data?.value === '2023');
   const reopened: any = await call('e3', { op: 'com-open' });
   check('после перезапуска учёт открытых подключений обнулён, новые номера не повторяют старые', reopened.ok && reopened.data.handle !== stale);
 
@@ -339,7 +339,7 @@ async function main() {
   const windowed = new ModuleJournal(path.join(dir, 'win.json'), () => clock);
   let accepted = 0;
   for (let i = 0; i < 80; i++) if (windowed.add({ moduleId: 'conn-demo', version: '1.0.0', userId: 'u1', category: 'log', level: 'info', event: 'message', detail: 'a', outcome: '', ms: 0, bytesIn: 0, bytesOut: 0 }, 'window')) accepted++;
-  check('журнал: частота записей от окна на подпрограмму ограничена', accepted === 50);
+  check('журнал: частота записей от окна на программу ограничена', accepted === 50);
   const longLine = new ModuleJournal(path.join(dir, 'long.json'), () => clock);
   longLine.add({ moduleId: 'conn-demo', version: '1.0.0', userId: 'u1', category: 'log', level: 'warn', event: 'message', detail: 'я'.repeat(5000), outcome: '', ms: 0, bytesIn: 0, bytesOut: 0 });
   check('журнал: длинная строка обрезается', longLine.recent(1)[0].detail.length === 200);

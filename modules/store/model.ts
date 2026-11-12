@@ -1,5 +1,5 @@
 /**
- * Flux Store: что известно о подпрограмме в витрине и как это считается.
+ * Flux Store: что известно о программе в витрине и как это считается.
  *
  * Чистый модуль без React, сети и Node: одни и те же правила читают сервер
  * (собирает витрину), окно (кнопки, окно разрешений), главный процесс и
@@ -22,7 +22,7 @@ export const STORE_CATEGORIES = [
 export type StoreCategory = typeof STORE_CATEGORIES[number]['id'];
 export const categoryName = (id: string) => STORE_CATEGORIES.find((c) => c.id === id)?.name || 'Прочее';
 
-/** Состояние допуска администратором: новая подпрограмма ждёт допуска и обычным людям не видна */
+/** Состояние допуска администратором: новая программа ждёт допуска и обычным людям не видна */
 export const STORE_STATUSES = ['pending', 'admitted', 'delisted', 'banned'] as const;
 export type StoreStatus = typeof STORE_STATUSES[number];
 export const STATUS_NAMES: Record<StoreStatus, string> = {
@@ -46,7 +46,7 @@ export interface StoreInfo {
 const COLOR = /^#[0-9a-fA-F]{6}$/;
 export const DEFAULT_COLOR = '#059669';
 
-/** Витринные поля манифеста с умолчаниями: подпрограмма без блока `store` остаётся в «Прочем» */
+/** Витринные поля манифеста с умолчаниями: программа без блока `store` остаётся в «Прочем» */
 export function storeInfoOf(manifest: ModuleManifest): StoreInfo {
   const s = (manifest as any).store || {};
   return {
@@ -74,7 +74,7 @@ export const ENTRY_NAMES: Record<string, string> = {
 export interface PermissionLine { kind: 'read' | 'open' | 'connect' | 'write' | 'run'; text: string }
 
 /**
- * Что подпрограмма получает, словами для окна установки. Запись и запуск
+ * Что программа получает, словами для окна установки. Запись и запуск
  * программ договор v1 не даёт — строки об этом остаются, чтобы человек
  * видел отсутствие права так же ясно, как наличие.
  */
@@ -113,7 +113,7 @@ export interface StoreEnv { fluxVersion: string; windows: boolean }
 export function unmetRequirements(manifest: ModuleManifest, env: StoreEnv): string[] {
   const out: string[] = [];
   const need = storeInfoOf(manifest).requires;
-  if (manifest.contractVersion > CONTRACT_VERSION) out.push(`Нужен более новый договор подпрограмм (v${manifest.contractVersion}): обновите Flux`);
+  if (manifest.contractVersion > CONTRACT_VERSION) out.push(`Нужен более новый договор программ (v${manifest.contractVersion}): обновите Flux`);
   if (need.flux && env.fluxVersion && compareVersions(env.fluxVersion, need.flux) < 0) out.push(`Нужен Flux ${need.flux} или новее, у вас ${env.fluxVersion}`);
   if (need.platform === 'windows' && !env.windows) out.push('Работает только в Windows');
   return out;

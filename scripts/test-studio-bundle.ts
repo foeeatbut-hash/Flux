@@ -64,8 +64,8 @@ async function main() {
     const mutationProblems = checkBundle(mutated);
     ok('модуль владельца подключён в сборку разработчика — проверка падает по карте сборки', mutationProblems.some((p) => /studio\/owner\/src\/signing\.cjs/.test(p)));
     ok('и по тексту пакета — называет метку подписи', mutationProblems.some((p) => /метка кода владельца «(signUpdate|issueLicense)»/.test(p)));
-    // Разделы владельца этапа 4в: подпись подпрограмм и назначение обновлений не должны попасть в сборку разработчика ни под каким видом
-    for (const [label, file, marker] of [['назначение обновлений', 'studio/owner/src/campaigns.ts', 'signCampaign'], ['подпись подпрограмм', 'studio/owner/src/moduleSigning.ts', 'signModule']] as const) {
+    // Разделы владельца этапа 4в: подпись программ и назначение обновлений не должны попасть в сборку разработчика ни под каким видом
+    for (const [label, file, marker] of [['назначение обновлений', 'studio/owner/src/campaigns.ts', 'signCampaign'], ['подпись программ', 'studio/owner/src/moduleSigning.ts', 'signModule']] as const) {
       const dir = path.join(temp, `section-${marker}`);
       await buildStudio({ target: 'developer', outDir: dir, extraMain: path.join(root, file) });
       const problems = checkBundle(dir);

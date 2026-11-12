@@ -24,7 +24,7 @@ const require = createRequire(import.meta.url);
 let passed = 0;
 const ok = (name: string, value: unknown) => { assert.ok(value, name); passed++; };
 
-/** Тот же Worker, что в окне подпрограммы (modules/runtime/worker.ts), в потоке Node с минимальной оболочкой */
+/** Тот же Worker, что в окне программы (modules/runtime/worker.ts), в потоке Node с минимальной оболочкой */
 async function typescriptEngine(logic: string) {
   const bundle = await build({ entryPoints: ['modules/runtime/worker.ts'], bundle: true, write: false, platform: 'browser', format: 'iife',
     alias: { 'module-logic': path.resolve(logic) } });

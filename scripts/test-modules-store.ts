@@ -88,7 +88,7 @@ async function main() {
 
   console.log('Витрина и допуск администратором');
   await publish('calc-a', 'Расчёт А', '1.0.0', store('Считает А'));
-  ok('новая подпрограмма ждёт допуска и обычному человеку не видна', !(await listing('ann', 'calc-a')));
+  ok('новая программа ждёт допуска и обычному человеку не видна', !(await listing('ann', 'calc-a')));
   const adminView = await listing('admin', 'calc-a');
   ok('администратор видит её со статусом «ждёт допуска»', adminView?.status === 'pending');
   ok('допуск даёт только администратор', (await call('ann', '/api/modules/store/calc-a/admission', 'POST', { status: 'admitted' })).status === 403);
@@ -131,7 +131,7 @@ async function main() {
   ok('Борис — до новейшей', (await put('bob', 'calc-a', '1.2.0')).body.action === 'update');
   ok('возврат записывается как возврат', (await put('ann', 'calc-a', '1.0.0', { auto: 'off' })).body.action === 'rollback');
   const back = (await listing('ann', 'calc-a')).mine;
-  ok('после возврата автообновление этой подпрограммы выключено', back.version === '1.0.0' && back.auto === 'off');
+  ok('после возврата автообновление этой программы выключено', back.version === '1.0.0' && back.auto === 'off');
   ok('автообновление по умолчанию выключено у всех', (await call('ann', '/api/modules/store')).body.autoUpdate === false);
   await call('ann', '/api/modules/installs/auto', 'PUT', { enabled: true });
   ok('общий переключатель — у каждого свой', (await call('ann', '/api/modules/store')).body.autoUpdate === true && (await call('bob', '/api/modules/store')).body.autoUpdate === false);
@@ -218,7 +218,7 @@ async function main() {
   await fs.promises.writeFile(selFile, '{не json');
   const broken = new ModuleSelection(selFile); await broken.load();
   ok('повреждённый файл выбора — пустой выбор, а не падение', broken.active === '' && Object.keys(broken.installed).length === 0);
-  ok('пустой выбор подпрограмм не запускает', (await cache.resolve(broken.versions(), broken.channels)).size === 0);
+  ok('пустой выбор программ не запускает', (await cache.resolve(broken.versions(), broken.channels)).size === 0);
 
   console.log('Чистка кэша хранит последние версии и выбранную');
   for (const v of ['2.0.0', '2.1.0', '2.2.0', '2.3.0']) await publish('calc-c', 'Расчёт В', v, store('В'));

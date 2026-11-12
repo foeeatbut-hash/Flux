@@ -95,7 +95,7 @@ async function main() {
     const broken = setup({ controls: '{"version":1,"cases":[]}' });
     ok('повреждённый набор — отказ CONTROLS', await code(broken.c.controls(target)) === 'CONTROLS');
   }
-  console.log('Устаревшие выпуски и закрытая подпрограмма');
+  console.log('Устаревшие выпуски и закрытая программа');
   {
     const kept: string[][] = [];
     let fetches = 0, release!: () => void;
@@ -113,14 +113,14 @@ async function main() {
     ok('в кэше компиляции остаётся только живой выпуск', kept.length === 1 && kept[0].length === 1);
     await t.c.compute(other, { v: 1 }, 'active');
     ok('источник ушедшего выпуска забыт: файл читается заново', fetches === 3);
-    // Закрытая подпрограмма не оставляет расчёты в очереди
+    // Закрытая программа не оставляет расчёты в очереди
     const busy = setup({ wasm: () => new Promise<string>(() => {}) });
     (busy.c as any).deps.scheduler = new ComputeScheduler({ slots: 1 });
     const running = busy.c.compute(target, { v: 1 }, 'active').catch(() => '');
     const queued = code(busy.c.compute({ ...target, moduleId: 'closing' }, { v: 1 }, 'active'));
     await new Promise(r => setTimeout(r, 5));
     busy.c.cancel('closing');
-    ok('ожидающий расчёт закрытой подпрограммы снят с очереди (DENIED)', await Promise.race([queued, new Promise(r => setTimeout(() => r('висит'), 100))]) === 'DENIED');
+    ok('ожидающий расчёт закрытой программы снят с очереди (DENIED)', await Promise.race([queued, new Promise(r => setTimeout(() => r('висит'), 100))]) === 'DENIED');
     void running;
   }
 

@@ -16,7 +16,7 @@ export default function ModuleHost() {
   const user = useStore(state => state.user);
   const theme = useStore(state => state.theme);
   const installed = useInstalledModules();
-  // Встроенный пример — из сборки; подпрограмма из Store — проверенный манифест главного процесса
+  // Встроенный пример — из сборки; программа из Store — проверенный манифест главного процесса
   const bundled = bundledModules.find(item => location.pathname === `/module/${item.id}`);
   const selected = installed.find(item => location.pathname === `/module/${item.manifest.id}`);
   const current = bundled ? { manifest: bundled, channel: undefined } : selected;

@@ -2,8 +2,8 @@
  * Что установлено у человека на этом компьютере и какие каналы ему открыты.
  *
  * Хранится в файле рядом с кэшем выпусков и не зависит от связи: установленные
- * подпрограммы запускаются без базы, возврат к прошлой версии тоже. Сервер
- * (таблица ModuleInstall) нужен для списка «ваши подпрограммы» на других
+ * программы запускаются без базы, возврат к прошлой версии тоже. Сервер
+ * (таблица ModuleInstall) нужен для списка «ваши программы» на других
  * компьютерах и журнала — изменения, сделанные без связи, помечаются
  * `dirty` и уходят на сервер при следующей синхронизации.
  *
@@ -23,7 +23,7 @@ export interface SelectionEntry {
   at: number;
   /** Не дошло до сервера (изменено без связи) */
   dirty?: boolean;
-  /** Выключить автообновление этой подпрограммы после возврата версии */
+  /** Выключить автообновление этой программы после возврата версии */
   noAuto?: boolean;
 }
 interface UserSelection { channels: ModuleChannel[]; installed: Record<string, SelectionEntry> }
@@ -88,7 +88,7 @@ export class ModuleSelection {
   setChannels(channels: unknown) { return this.mutate((u) => { u.channels = readChannels(channels); }); }
 
   install(moduleId: string, version: string, opts: { dirty?: boolean; noAuto?: boolean } = {}) {
-    if (!MODULE_ID.test(moduleId) || !MODULE_VERSION.test(version)) return Promise.reject(new Error('Недопустимое имя подпрограммы или версии'));
+    if (!MODULE_ID.test(moduleId) || !MODULE_VERSION.test(version)) return Promise.reject(new Error('Недопустимое имя программы или версии'));
     return this.mutate((u) => {
       u.installed[moduleId] = { version, at: this.now(), ...(opts.dirty ? { dirty: true } : {}), ...(opts.noAuto ? { noAuto: true } : {}) };
     });

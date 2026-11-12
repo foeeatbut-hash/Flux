@@ -1,5 +1,5 @@
 /**
- * Мелкие части витрины: значок подпрограммы, снимок экрана, звёзды, кнопка-состояние.
+ * Мелкие части витрины: значок программы, снимок экрана, звёзды, кнопка-состояние.
  */
 import React, { useEffect, useState } from 'react';
 import { updateAvailable, type StoreListing } from '../../../modules/store/model';

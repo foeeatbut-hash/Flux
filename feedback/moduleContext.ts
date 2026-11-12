@@ -2,7 +2,7 @@ import { MODULE_ID, MODULE_VERSION } from '../modules/trust/claims';
 
 export const MODULE_FAILURES = ['crash', 'timeout', 'memory', 'bridge', 'controls', 'connection'] as const;
 export type ModuleFailure = typeof MODULE_FAILURES[number];
-/** `journal` — строки журнала подпрограммы, которые человек сам приложил к обращению (до 30 строк, без людей и проектов) */
+/** `journal` — строки журнала программы, которые человек сам приложил к обращению (до 30 строк, без людей и проектов) */
 export const JOURNAL_ATTACH_LINES = 30;
 export const JOURNAL_ATTACH_LINE = 240;
 export interface ModuleDiagnostics { code?: ModuleFailure; frames?: string[]; journal?: string[] }
@@ -36,9 +36,9 @@ export function validateModuleContext(r: Record<string, unknown>): { ok: boolean
   if (typeof r.moduleId !== 'string' || !MODULE_ID.test(r.moduleId)
     || typeof r.moduleVersion !== 'string' || !MODULE_VERSION.test(r.moduleVersion)
     || !['test', 'production'].includes(String(r.moduleChannel))) {
-    return { ok: false, error: 'Нужны подпрограмма, её версия и канал' };
+    return { ok: false, error: 'Нужны программа, её версия и канал' };
   }
-  if (r.moduleApiVersion !== undefined && (typeof r.moduleApiVersion !== 'string' || r.moduleApiVersion.length > 40)) return { ok: false, error: 'Неверная версия API подпрограммы' };
+  if (r.moduleApiVersion !== undefined && (typeof r.moduleApiVersion !== 'string' || r.moduleApiVersion.length > 40)) return { ok: false, error: 'Неверная версия API программы' };
   if (r.moduleDeveloper !== undefined && (typeof r.moduleDeveloper !== 'string' || r.moduleDeveloper.length > 200)) return { ok: false, error: 'Неверное имя разработчика' };
   if (r.moduleDiagnostics !== undefined) {
     const d = r.moduleDiagnostics as any;
@@ -46,7 +46,7 @@ export function validateModuleContext(r: Record<string, unknown>): { ok: boolean
       || (d.code !== undefined && !MODULE_FAILURES.includes(d.code))
       || (d.frames !== undefined && (!Array.isArray(d.frames) || d.frames.length > 12 || d.frames.some((f: unknown) => typeof f !== 'string' || f.length > 1000)))
       || (d.journal !== undefined && (!Array.isArray(d.journal) || d.journal.length > JOURNAL_ATTACH_LINES || d.journal.some((f: unknown) => typeof f !== 'string' || f.length > JOURNAL_ATTACH_LINE)))) {
-      return { ok: false, error: 'Диагностика подпрограммы содержит неизвестные данные' };
+      return { ok: false, error: 'Диагностика программы содержит неизвестные данные' };
     }
   }
   return { ok: true, value: {

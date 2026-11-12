@@ -95,11 +95,11 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
     });
     if (!verdict.ok) return fail(res, ERRORS.INVALID_TRANSITION, verdict.error || 'Так менять нельзя');
 
-    if (ctx.report.moduleId && ((to === 'VERIFY' && !MODULE_VERSION.test(String(body.resolvedVersion || ''))) || (to === 'DONE' && !MODULE_VERSION.test(String(ctx.report.resolvedVersion || ''))))) return fail(res, ERRORS.VALIDATION, 'Для подпрограммы нужна версия исправления');
+    if (ctx.report.moduleId && ((to === 'VERIFY' && !MODULE_VERSION.test(String(body.resolvedVersion || ''))) || (to === 'DONE' && !MODULE_VERSION.test(String(ctx.report.resolvedVersion || ''))))) return fail(res, ERRORS.VALIDATION, 'Для программы нужна версия исправления');
     const patch: Record<string, unknown> = { status: to };
     if (to === 'IN_PROGRESS') {
       const assignee = String(body.assigneeId || ctx.report.assigneeId || '');
-      if (ctx.developer && !(await moduleRecipients(ctx.prisma, ctx.report.moduleId, feedbackRoot(deps))).includes(assignee)) return fail(res, ERRORS.FORBIDDEN, 'Исполнитель должен разрабатывать эту подпрограмму');
+      if (ctx.developer && !(await moduleRecipients(ctx.prisma, ctx.report.moduleId, feedbackRoot(deps))).includes(assignee)) return fail(res, ERRORS.FORBIDDEN, 'Исполнитель должен разрабатывать эту программу');
       patch.assigneeId = assignee;
     }
     // Куда вернуться после ответа автора: работа возвращается туда, откуда её
@@ -168,7 +168,7 @@ export function registerActionRoutes(app: Express, deps: ActionDeps): void {
     const keys = keyed(req, res);
     if (!keys) return;
     const assigneeId = String((req.body || {}).assigneeId || '') || null;
-    if (ctx.developer && assigneeId && !(await moduleRecipients(ctx.prisma, ctx.report.moduleId, feedbackRoot(deps))).includes(assigneeId)) return fail(res, ERRORS.FORBIDDEN, 'Исполнитель должен разрабатывать эту подпрограмму');
+    if (ctx.developer && assigneeId && !(await moduleRecipients(ctx.prisma, ctx.report.moduleId, feedbackRoot(deps))).includes(assigneeId)) return fail(res, ERRORS.FORBIDDEN, 'Исполнитель должен разрабатывать эту программу');
     try {
       const done = await applyMutation({
         actor: ctx.actor, reportId: ctx.report.id, ...keys,

@@ -1,5 +1,5 @@
 /**
- * Запрос разрешения на подключение подпрограммы к внешней программе — по образцу
+ * Запрос разрешения на подключение программы к внешней программе — по образцу
  * запросов Windows и телефона, для человека, а не для программиста: имя программы,
  * одна строка о том, что будет делаться, и три ответа. Подробности раскрываются
  * ссылкой; технические сведения (адрес, порт, COM-объект) — ещё ниже, свёрнуто.
@@ -34,7 +34,7 @@ export default function ConnectionPrompt({ ask, onChoose }: { ask: GrantAsk; onC
       </button>
       {more && <div className="flex flex-col gap-2 text-sm" data-testid="grant-details">
         <div><b>Разрешается:</b> {KIND_WORDS[ask.access]} — в программе «{ask.app}».</div>
-        <div><b>Подпрограмма не получит:</b>
+        <div><b>Программа не получит:</b>
           <ul className="ml-5 list-disc">
             <li>права менять данные Flux — она их только читает;</li>
             <li>доступа к файлам вашего компьютера;</li>
@@ -44,7 +44,7 @@ export default function ConnectionPrompt({ ask, onChoose }: { ask: GrantAsk; onC
         <button type="button" className="self-start text-xs text-[var(--flux-text-muted)] underline" aria-expanded={tech} onClick={() => setTech(v => !v)} data-testid="grant-tech">Для специалиста</button>
         {tech && <div className="text-xs text-[var(--flux-text-muted)]" data-testid="grant-tech-text">{ask.technical} · доступ: {ACCESS_NAMES[ask.access]}</div>}
       </div>}
-      <div className="text-xs text-[var(--flux-text-muted)]">Выбор «Разрешить всегда» или «Не разрешать» запомнится для этой подпрограммы на этом компьютере. Изменить его можно в Store, на странице подпрограммы.</div>
+      <div className="text-xs text-[var(--flux-text-muted)]">Выбор «Разрешить всегда» или «Не разрешать» запомнится для этой программы на этом компьютере. Изменить его можно в Store, на странице программы.</div>
     </div>
   </Dialog>;
 }

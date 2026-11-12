@@ -94,7 +94,7 @@ export const PYODIDE_PACKAGES = ['numpy'] as const;
 /**
  * Хост общей среды Python (`flux-module://_compute/`): страница, скрипт хоста со
  * встроенным Worker'ом и файлы Pyodide из пакета npm. Pyodide кладётся в
- * сборку, а не берётся из интернета: сеть подпрограммам закрыта, а Flux
+ * сборку, а не берётся из интернета: сеть программам закрыта, а Flux
  * должен работать офлайн.
  */
 export async function buildComputeAssets(): Promise<Record<string, string | Uint8Array>> {

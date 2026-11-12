@@ -173,7 +173,7 @@ const ENGINEER_GRANTS = grant(
   'tags.manage', 'dictionaries.manage', 'equipment.import', 'equipment.manage',
   'files.upload', 'procurement.manage', 'docflow.view', 'docflow.edit', 'docflow.issue',
 );
-// Разработчик подпрограмм Flux Studio: обычная инженерная работа плюс право
+// Разработчик программ Flux Studio: обычная инженерная работа плюс право
 // присылать код владельцу. Рабочий канал (module.publish) не выдаётся —
 // владелец включает его осознанно.
 const DEVELOPER_GRANTS = grant(
@@ -192,7 +192,7 @@ export const BUILTIN_ROLES = [
   { code: 'MANAGER',        name: 'Менеджер проектов', color: 'amber',   icon: 'briefcase',    level: 20, sortOrder: 20, description: 'Проекты, закупки, документооборот', permissions: MANAGER_GRANTS },
   { code: 'ENGINEER_VENT',  name: 'Инженер ОВиК',      color: 'sky',     icon: 'airplay',      level: 50, sortOrder: 30, description: 'Вентиляция и кондиционирование', permissions: ENGINEER_GRANTS },
   { code: 'ENGINEER_AUTO',  name: 'Инженер КИПиА',     color: 'emerald', icon: 'cpu',          level: 50, sortOrder: 40, description: 'Автоматика и приборы', permissions: ENGINEER_GRANTS },
-  { code: 'MODULE_DEVELOPER', name: 'Разработчик',      color: 'violet',  icon: 'code',         level: 50, sortOrder: 50, description: 'Пишет подпрограммы для Flux Studio; код выпускает владелец', permissions: DEVELOPER_GRANTS },
+  { code: 'MODULE_DEVELOPER', name: 'Разработчик',      color: 'violet',  icon: 'code',         level: 50, sortOrder: 50, description: 'Пишет программы для Flux Studio; код выпускает владелец', permissions: DEVELOPER_GRANTS },
 ];
 
 export async function seedRoles() {

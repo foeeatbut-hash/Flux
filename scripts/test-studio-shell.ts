@@ -5,7 +5,7 @@
  * Flux подставлены заглушки; сервер — настоящие маршруты studio.ts за проверкой токена.
  *
  * Что доказывается:
- * - подключение → вход → список подпрограмм работают у разработчика с module.develop;
+ * - подключение → вход → список программ работают у разработчика с module.develop;
  * - без права вход отказан СЕРВЕРОМ (403), а окно не получает ни сессии, ни списка;
  * - неверный пароль не раскрывает, что именно не так;
  * - окно может вызвать только перечисленные действия и только из главного окна;
@@ -109,10 +109,10 @@ async function main() {
     ok('адрес с паролем и путём не принимается', await refused(Promise.resolve().then(() => loopbackOrigin('http://u:p@127.0.0.1:3000/x')), /локальным обработчиком/));
     const good = await signIn(origin, 'dev', 'dev-pass');
     ok('разработчик с правом входит', good.user.id === 'dev' && good.token.startsWith('token-dev'));
-    ok('список своих подпрограмм приходит', (await ownModules(origin, good.token)).map((m) => m.moduleId).join() === 'alpha');
-    ok('сотрудник без права: отказ сервера с подсказкой', await refused(signIn(origin, 'plain', 'plain-pass'), /Разработка подпрограмм/));
+    ok('список своих программ приходит', (await ownModules(origin, good.token)).map((m) => m.moduleId).join() === 'alpha');
+    ok('сотрудник без права: отказ сервера с подсказкой', await refused(signIn(origin, 'plain', 'plain-pass'), /Разработка программ/));
     ok('неверный пароль — общий отказ', await refused(signIn(origin, 'dev', 'нет'), /Неверный логин или пароль/));
-    ok('список без права закрыт и с настоящим токеном сотрудника', await refused(ownModules(origin, 'token-plain-long-enough'), /Разработка подпрограмм/));
+    ok('список без права закрыт и с настоящим токеном сотрудника', await refused(ownModules(origin, 'token-plain-long-enough'), /Разработка программ/));
     const odd = express();
     odd.get('/api/studio/modules', (_req, res) => res.type('json').send(JSON.stringify({ pad: 'x'.repeat(2 * 1024 * 1024) })));
     odd.get('/api/studio/session', (_req, res) => res.redirect('http://127.0.0.1:1/elsewhere'));
@@ -140,7 +140,7 @@ async function main() {
     fs.writeFileSync(runtimeStub, `let stops = 0; module.exports = { __stops: () => stops, startDatabaseRuntime: async (o) => { if (process.env.STUDIO_TEST_SLOW) return new Promise((_, reject) => o.signal.addEventListener('abort', () => setTimeout(() => { globalThis.__cleaned = true; reject(new Error('Подключение к общей базе отменено.')); }, 250))); if (o.signal && o.signal.aborted) throw new Error('Подключение к общей базе отменено.'); return ({ origin: ${JSON.stringify(origin)}, display: 'MariaDB / MySQL · stub', stop: async () => { stops++; } }); }, __last: null };`);
     const out = path.join(temp, 'main.cjs');
     process.env.STUDIO_TEST_DATA = path.join(temp, 'data');
-    // Окно подпрограммы, рабочий поток и заготовки лежат рядом с main.cjs, как в упакованной Studio
+    // Окно программы, рабочий поток и заготовки лежат рядом с main.cjs, как в упакованной Studio
     await require('../studio/build-assets.cjs').buildDeveloperAssets({ app: temp, esbuild });
     await esbuild.build({
       entryPoints: [path.join(root, 'studio/shell/main.ts')], outfile: out, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent',
@@ -167,12 +167,12 @@ async function main() {
     const connected = await call('connect', { uri: 'mysql://U:P@H:3306/Flux' });
     ok('подключение: база показана без пароля', connected.ok && connected.value.connected && !/U:P/.test(JSON.stringify(connected.value)));
     const denied = await call('login', { symbol: 'plain', password: 'plain-pass' });
-    ok('вход без права: отказ сервера, сессии у окна нет', denied.ok === false && /Разработка подпрограмм/.test(denied.error) && (await call('state')).value.user === null);
-    ok('и список подпрограмм после отказа закрыт', (await call('modules')).ok === false);
+    ok('вход без права: отказ сервера, сессии у окна нет', denied.ok === false && /Разработка программ/.test(denied.error) && (await call('state')).value.user === null);
+    ok('и список программ после отказа закрыт', (await call('modules')).ok === false);
     const entered = await call('login', { symbol: 'dev', password: 'dev-pass' });
     ok('разработчик входит', entered.ok && entered.value.user.id === 'dev');
     ok('токен не передаётся окну', !JSON.stringify([entered, electron.__sent, (await call('state'))]).includes('token-dev'));
-    ok('свои подпрограммы приходят', (await call('modules')).value[0].moduleId === 'alpha');
+    ok('свои программы приходят', (await call('modules')).value[0].moduleId === 'alpha');
     ok('раздел из точки входа открывается', (await call('openSection', { id: 'extra' })).ok && opened === 1);
     ok('несуществующий раздел недоступен', (await call('openSection', { id: 'owner' })).ok === false);
     ok('выход снимает сессию', (await call('logout')).value.user === null && (await call('modules')).ok === false);
@@ -279,7 +279,7 @@ async function main() {
     const fetchAsset = async (u: string, method = 'GET') => protocolHandler({ url: u, method });
     const html = await fetchAsset('flux-module://run/index.html');
     ok('index.html отдан с изоляцией sandbox в CSP', html.status === 200 && /sandbox allow-scripts/.test(html.headers.get('content-security-policy')));
-    ok('runtime.js содержит форму подпрограммы', (await (await fetchAsset('flux-module://run/runtime.js')).text()).includes('Статистика числовых параметров'));
+    ok('runtime.js содержит форму программы', (await (await fetchAsset('flux-module://run/runtime.js')).text()).includes('Статистика числовых параметров'));
     ok('чужой хост, путь вне набора и не-GET — 404', (await fetchAsset('flux-module://other/index.html')).status === 404 && (await fetchAsset('flux-module://run/secret.txt')).status === 404 && (await fetchAsset('flux-module://run/runtime.js', 'POST')).status === 404);
     const read = (resource: string, entityId?: string) => call('runRead', { resource, entityId });
     ok('чтение из тестовой базы по объявленному reads', (await read('equipment')).value.params.length === 5);
@@ -304,9 +304,9 @@ async function main() {
 
     console.log('Ошибки');
     const errors = (await call('errors')).value;
-    ok('обращения и счётчики по своей подпрограмме', errors.reports[0].number === 7 && errors.crashes[0].count === 4 && errors.crashes[0].kind === 'timeout');
+    ok('обращения и счётчики по своей программе', errors.reports[0].number === 7 && errors.crashes[0].count === 4 && errors.crashes[0].kind === 'timeout');
     ok('в окно не уходит лишнее из ответа сервера (автор, описание)', !JSON.stringify(errors).includes('secret'));
-    ok('счётчики только своих подпрограмм, даже если сервер отдал все', errors.crashes.length === 1 && errors.crashes[0].moduleId === 'alpha');
+    ok('счётчики только своих программ, даже если сервер отдал все', errors.crashes.length === 1 && errors.crashes[0].moduleId === 'alpha');
     ok('неверная версия исправления отклоняется', (await call('errorFixed', { reportId, version: '1.2', revision: 3 })).ok === false && transitions.length === 0);
     ok('чужой идентификатор обращения отклоняется', (await call('errorFixed', { reportId: '../x', version: '1.2.3', revision: 3 })).ok === false);
     ok('«исправлено в версии» уходит на проверку автору с ревизией', (await call('errorFixed', { reportId, version: '0.2.0', revision: 3 })).ok

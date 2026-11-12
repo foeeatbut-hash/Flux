@@ -176,7 +176,7 @@ function createConsoleActions(ctx, request = consoleRequest) {
     // ---- Окно лицензий и выпуска Flux: то же хранилище и то же подключение, пароль второй раз не спрашивается
     openLicenses: async a => { await ctx.openLicenses(a.tab === 'updates' ? 'updates' : 'licenses'); return { opened: true }; },
 
-    // ---- Пробный запуск: страница подпрограммы из пакета запроса, который сейчас на экране
+    // ---- Пробный запуск: страница программы из пакета запроса, который сейчас на экране
     trialLoad: async a => {
       // Берётся тот же пакет, что показан на экране: запуск не может отличаться от просмотра
       const id = idOf(a.id), loaded = await actions.request({ id });

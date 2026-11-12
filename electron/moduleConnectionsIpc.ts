@@ -1,7 +1,7 @@
 /**
- * Каналы IPC подключений и журнала подпрограмм.
+ * Каналы IPC подключений и журнала программ.
  *
- * Вызывать их может только окно Flux (`trusted`); окно подпрограммы к IPC не
+ * Вызывать их может только окно Flux (`trusted`); окно программы к IPC не
  * имеет доступа вовсе, а его сообщения доходят сюда через мост окна Flux, где
  * проверяются по схеме. Решение «разрешить» записывается только здесь и только
  * для подключения, объявленного в проверенном выпуске.
@@ -20,7 +20,7 @@ export interface ConnectionsHost {
   grants: ModuleGrants;
   journal: ModuleJournal;
   resolve: (moduleId: string, version: string) => Promise<VerifiedModule | null>;
-  /** Установленные подпрограммы, чьи выпуски проходят проверку: для списка «Разрешения» */
+  /** Установленные программы, чьи выпуски проходят проверку: для списка «Разрешения» */
   installed: () => Promise<VerifiedModule[]>;
   userId: () => string;
   ready: Promise<unknown>;
@@ -37,7 +37,7 @@ export function registerConnectionsIpc(host: ConnectionsHost) {
     const id = event.sender.id;
     if (!owners.has(id)) {
       owners.add(id);
-      // Окно закрыто или перезагружено: всё, что подпрограммы в нём открыли, закрывается
+      // Окно закрыто или перезагружено: всё, что программы в нём открыли, закрывается
       event.sender.once('destroyed', () => { owners.delete(id); void host.service.closeOwner(String(id)); });
     }
     return String(id);
@@ -62,14 +62,14 @@ export function registerConnectionsIpc(host: ConnectionsHost) {
     if (!['always', 'once', 'never', 'ask'].includes(decision)) return { ok: false, error: 'Неизвестное решение.' };
     const verified = await host.resolve(str(data?.moduleId, 64), str(data?.version, 40));
     const decl = verified && connectionsOf(verified.manifest).find(c => c.id === str(data?.connection, 40));
-    if (!verified || !decl || !host.userId()) return { ok: false, error: 'Такого подключения у проверенной подпрограммы нет.' };
+    if (!verified || !decl || !host.userId()) return { ok: false, error: 'Такого подключения у проверенной программы нет.' };
     await host.grants.decide(host.userId(), verified.manifest.id, decl.id, grantKey(decl), `${ownerOf(event)}:${str(data?.session)}`, decision as 'always');
     host.journal.add({ moduleId: verified.manifest.id, version: verified.version, userId: host.userId(), category: 'permission', level: 'info', event: 'grant',
       detail: `${describeConnection(decl)} · ${decl.access}`, outcome: decision, ms: 0, bytesIn: 0, bytesOut: 0 });
     return { ok: true };
   });
 
-  /** Список для страницы подпрограммы и настроек: что объявлено, что решено, что запрещено политикой */
+  /** Список для страницы программы и настроек: что объявлено, что решено, что запрещено политикой */
   ipcMain.handle('modules:grants', async event => {
     if (!trusted(event)) return refuse;
     await host.ready;

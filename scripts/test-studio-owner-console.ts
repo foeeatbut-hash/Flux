@@ -169,7 +169,7 @@ async function main() {
   const view = await owner.request({ id: sent.body.id });
   ok('карточка: подпись разработчика, разница и пакет байт в байт', view.signature === sig100 && view.diff.files.length > 0 && Buffer.from(view.bundle, 'base64').equals(Buffer.from(b100)));
   ok('хеш показанного пакета', /^[0-9a-f]{64}$/.test(view.sha256));
-  ok('пробный запуск берёт собранную подпрограмму из того же пакета', (await owner.trialLoad({ id: sent.body.id })).manifest.id === 'equipment-inspector' && consoleApi.trialState()?.id === sent.body.id);
+  ok('пробный запуск берёт собранную программу из того же пакета', (await owner.trialLoad({ id: sent.body.id })).manifest.id === 'equipment-inspector' && consoleApi.trialState()?.id === sent.body.id);
 
   // Программа со своим экраном: пробный запуск отдаёт только ui/ из пакета запроса, runtime.js ей не нужен
   const withRuntime = unpackBundle(moduleBundle('1.0.1', { 'ui/index.html': '<!doctype html><title>x</title>', 'ui/app.js': 'void 0;' }, { ui: 'page', contractVersion: 2 }));

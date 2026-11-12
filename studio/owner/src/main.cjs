@@ -106,7 +106,7 @@ async function openOwnerWindow(tab){
 }
 app.on('child-process-gone',(_event,details)=>diagnosticEvent('app.childProcessGone',{type:details.type,reason:details.reason,exitCode:details.exitCode,serviceName:details.serviceName}));
 // Закрытие окна владельца только запирает хранилище: программа живёт, пока открыта оболочка Studio.
-// Схема для пробного запуска подпрограммы в разделе «Запросы на публикацию»: регистрировать её можно только до готовности
+// Схема для пробного запуска программы в разделе «Запросы на публикацию»: регистрировать её можно только до готовности
 // приложения. Привилегии те же, что у Flux (electron/modules.ts): без обхода CSP, служебных воркеров и файловой системы.
 try{protocol?.registerSchemesAsPrivileged?.([{scheme:'flux-module',privileges:{standard:true,secure:true,corsEnabled:true,supportFetchAPI:true}}]);}catch{}
 // Разделы владельца в общем окне Studio — Владелец (запросы на публикацию, выпуски, сертификаты, обновления Flux).

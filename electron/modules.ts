@@ -21,7 +21,7 @@ import { defaultComBackend, type ComBackend } from './moduleCom';
 import type { Lookup } from './moduleNet';
 
 export function registerModuleScheme() {
-  // fetch нужен окну Flux (файлы логики из проверенного выпуска) и хосту Python (файлы Pyodide); подпрограммам его закрывает
+  // fetch нужен окну Flux (файлы логики из проверенного выпуска) и хосту Python (файлы Pyodide); программам его закрывает
   // их CSP (`connect-src 'none'`). Не выдаём bypassCSP, service workers и доступ к файловой системе.
   protocol.registerSchemesAsPrivileged([{ scheme: MODULE_SCHEME, privileges: { standard: true, secure: true, corsEnabled: true, supportFetchAPI: true } }]);
   app.on('web-contents-created', (_event, contents) => { guardModuleNavigation(contents); hardenModuleContents(contents); });
@@ -49,9 +49,9 @@ export interface ModuleProtocolOptions {
 }
 
 /**
- * Протокол flux-module:// и подпрограммы, установленные из Flux Store.
+ * Протокол flux-module:// и программы, установленные из Flux Store.
  *
- * Встроенные примеры отдаются из dist как раньше. Подпрограмма из базы
+ * Встроенные примеры отдаются из dist как раньше. Программа из базы
  * отдаётся ТОЛЬКО если человек её установил и она есть в кэше проверенных
  * выпусков (electron/moduleCache.ts): runtime.js — из пакета выпуска с
  * подписью владельца, оболочка (index.html, стили, шрифты) — общая из

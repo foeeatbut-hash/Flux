@@ -75,7 +75,7 @@ export default function StoreHome({ listings, onOpen, onAct }: { listings: Store
   const visible = listings.filter((l) => l.status === 'admitted' && !l.deprecated);
   const featured = [...visible].sort((a, b) => b.installs - a.installs || Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 5);
   const rows = storeRows(listings);
-  if (!visible.length) return <div className="fx-empty"><div className="fx-empty-title">В Store пока нет подпрограмм</div>
+  if (!visible.length) return <div className="fx-empty"><div className="fx-empty-title">В Store пока нет программ</div>
     <div className="fx-empty-text">Они появятся, когда владелец выпустит первую, а администратор допустит её в Store.</div></div>;
   return <>
     <StoreCarousel items={featured} onOpen={onOpen} onAct={onAct} />

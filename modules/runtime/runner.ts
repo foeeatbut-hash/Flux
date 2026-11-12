@@ -10,7 +10,7 @@ interface WorkerOptions {
   read: (resource: string, entityId?: string) => Promise<unknown>;
   /** Сквозной вызов подключения (modules/connections); нет — подключений у этого запуска нет */
   connect?: (connection: string, call: any) => Promise<unknown>;
-  /** Сообщение подпрограммы в журнал */
+  /** Сообщение программы в журнал */
   log?: (level: string, text: string) => void;
   initial?: ModuleOutput;
   onRestart?: (reason: string) => void;

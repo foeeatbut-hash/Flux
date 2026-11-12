@@ -1,5 +1,5 @@
 /**
- * Подпрограммы из Flux Store в реестре разделов.
+ * Программы из Flux Store в реестре разделов.
  *
  * Встроенные разделы объявлены в `sections.tsx` один раз, а установленные из
  * Store меняются в живой сессии: поставил — появилась в «Пуске», удалил —
@@ -21,7 +21,7 @@ export const useSectionsVersion = create<SectionsVersion>((set) => ({
   bump: (items) => set((s) => ({ version: s.version + 1, items })),
 }));
 
-/** Установленные подпрограммы — для карточек оборудования и тегов (ModuleLaunchActions) и ModuleHost */
+/** Установленные программы — для карточек оборудования и тегов (ModuleLaunchActions) и ModuleHost */
 export const installedModules = (): InstalledModule[] => useSectionsVersion.getState().items;
 export const useInstalledModules = (): InstalledModule[] => useSectionsVersion((s) => s.items);
 

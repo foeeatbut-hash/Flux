@@ -32,7 +32,7 @@ export function registerCertRequestRoutes(app: Express, deps: CertRequestDeps): 
   app.post('/api/modules/certificate-requests', async (req: Request, res: Response) => {
     const user = (req as any).authUser;
     if (!user?.id || !(user.role === 'OWNER' || (deps.can && deps.can(user, 'module.develop')))) {
-      return res.status(403).json({ error: 'Просить сертификат могут только разработчики: нужно право «Разработка подпрограмм».' });
+      return res.status(403).json({ error: 'Просить сертификат могут только разработчики: нужно право «Разработка программ».' });
     }
     const key = String(req.body?.key || '').trim().toLowerCase();
     if (!KEY.test(key)) return res.status(400).json({ error: 'Укажите открытый ключ разработчика (64 знака hex).' });

@@ -14,7 +14,7 @@ export const MODULE_CSP = [
   "frame-src 'none'", "object-src 'none'", "base-uri 'none'", "form-action 'none'",
 ].join('; ');
 /**
- * CSP хоста Python. Отличается от CSP подпрограммы двумя пунктами и только
+ * CSP хоста Python. Отличается от CSP программы двумя пунктами и только
  * ими: `wasm-unsafe-eval` (иначе нельзя скомпилировать Pyodide) и `connect-src 'self'`
  * (Pyodide сам читает свои файлы с этого же адреса). Сети наружу, хранилищ и
  * IPC всё так же нет; в хост не попадает ничего, кроме Python-кода из проверенных

@@ -48,7 +48,7 @@ export const messageSchemas = {
     ...envelope, id, type: { const: 'compute-result' },
     output: object({ state: { type: 'object' }, calc: object({ out: { type: 'object' } }) }),
   }),
-  // Сообщение самой подпрограммы в журнал (flux.log): уровень и короткая строка, ответа нет
+  // Сообщение самой программы в журнал (flux.log): уровень и короткая строка, ответа нет
   log: object({ ...envelope, type: { const: 'log' }, level: { enum: ['info', 'warn', 'error'] }, text: { type: 'string', maxLength: 200 } }),
   // Подключение к внешней программе (этап 3б): подключение названо по `id` из манифеста, сквозной вызов идёт как есть
   connect: object({ ...envelope, id, type: { const: 'connect' }, connection: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,31}$' }, call: { oneOf: connectCallSchemas } }),

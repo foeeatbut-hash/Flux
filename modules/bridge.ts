@@ -19,19 +19,19 @@ export interface ModuleBridgeOptions {
   onFailure?: (kind: ModuleFailureKind) => void;
   /**
    * Расчёт логики на Python или WebAssembly (src/services/moduleCompute.ts). Язык и файл выбирает
-   * не подпрограмма, а подписанный манифест: подпрограмма присылает только вход.
+   * не программа, а подписанный манифест: программа присылает только вход.
    */
   compute?: (input: Record<string, unknown>) => Promise<ModuleOutput>;
-  /** Расчёт закончился ошибкой: окно показывает «подпрограмма остановилась»; счётчик сбоев пишет сам расчёт */
+  /** Расчёт закончился ошибкой: окно показывает «программа остановилась»; счётчик сбоев пишет сам расчёт */
   onComputeError?: (code: ComputeErrorCode) => void;
   /**
    * Сквозной вызов подключения (src/services/moduleConnections.ts → главный процесс). Окно не решает, можно ли:
    * разрешение, адрес и пределы проверяет главный процесс по подписанному манифесту выпуска.
    */
   connect?: (connection: string, call: ConnectCall) => Promise<{ ok: true; data: unknown } | { ok: false; code: ConnectErrorCode }>;
-  /** Подпрограмма закрыта: подключения, которые она открыла, закрываются (главный процесс сам держит их список) */
+  /** Программа закрыта: подключения, которые она открыла, закрываются (главный процесс сам держит их список) */
   onClose?: () => void;
-  /** Строка из flux.log подпрограммы; окно пишет её в журнал */
+  /** Строка из flux.log программы; окно пишет её в журнал */
   onLog?: (level: 'info' | 'warn' | 'error', text: string) => void;
   /**
    * Страница программы (договор v2). Действия страницы выполняет окно Flux: состояние держит оно,
@@ -97,7 +97,7 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     const epoch = generation;
     computing.add(message.id);
     try {
-      // Числа проверяются здесь, а не в подпрограмме: NaN и целое больше 2^53 в обход frame.ts не пройдут
+      // Числа проверяются здесь, а не в программе: NaN и целое больше 2^53 в обход frame.ts не пройдут
       encodeJson(message.input);
       const output = await options.compute(message.input);
       if (disposed || epoch !== generation) return;
@@ -113,7 +113,7 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
   }
   async function runConnect(message: { id: string; connection: string; call: ConnectCall }) {
     const fail = (code: ConnectErrorCode) => {
-      // Превышение пределов и обращение к необъявленному — признак неисправной подпрограммы: идёт в счётчики сбоев
+      // Превышение пределов и обращение к необъявленному — признак неисправной программы: идёт в счётчики сбоев
       if (code === 'LIMIT' || code === 'TIMEOUT' || code === 'DENIED') options.onFailure?.('connection');
       post({ flux: 'module', v: 1, session: options.session, type: 'connect-error', id: message.id, code });
     };
@@ -255,7 +255,7 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       return;
     }
     if (validMessage('log', message)) {
-      // Частота и длина ограничены здесь, до журнала: подпрограмма не раздует его (5 в секунду)
+      // Частота и длина ограничены здесь, до журнала: программа не раздует его (5 в секунду)
       if (Date.now() - logAt >= 1000) { logAt = Date.now(); logs = 0; }
       if (++logs <= 5) options.onLog?.(message.level, String(message.text).slice(0, 200));
       return;

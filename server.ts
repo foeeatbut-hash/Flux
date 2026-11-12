@@ -898,7 +898,7 @@ registerUpdateRoutes(app, {
   notifyAll: (category, title, body, route, by) => notifyAll(category, title, body, route, by),
   broadcast: (event, payload) => { try { io.emit(event, payload); } catch (_) {} },
   can: userCan,
-  // Запросы от Studio: явное право разработки и запрет присылать версию чужой подпрограммы
+  // Запросы от Studio: явное право разработки и запрет присылать версию чужой программы
   studioGate: studioPublishGate({ permissionsOf: effectivePermsOf }),
 });
 // Вход в Flux Studio: право разработки или вход владельца проверяет сервер

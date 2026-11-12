@@ -1,8 +1,8 @@
 'use strict';
 /**
- * Заготовки, без которых Studio не запускает и не проверяет подпрограммы, — собираются вместе с самой Studio.
+ * Заготовки, без которых Studio не запускает и не проверяет программы, — собираются вместе с самой Studio.
  *
- * В упакованной программе компилятора esbuild нет, поэтому окно подпрограммы, её Worker, рабочий поток
+ * В упакованной программе компилятора esbuild нет, поэтому окно программы, её Worker, рабочий поток
  * контрольных примеров и файлы заготовок проектов готовятся здесь, при сборке (см. studio/shared/runtime.ts).
  * Файл подключается из studio/build.cjs и из проверок, которые собирают заготовки во временный каталог.
  */
@@ -25,7 +25,7 @@ function copyTemplate(from, to) {
   }
 }
 
-/** Проверщики сообщений моста: код генерирует Ajv при сборке, потому что CSP окон Studio и подпрограммы запрещает eval */
+/** Проверщики сообщений моста: код генерирует Ajv при сборке, потому что CSP окон Studio и программы запрещает eval */
 async function loadStaticValidation(esbuild) {
   const validators = await esbuild.build({
     entryPoints: [path.join(root, 'studio/shared/validatorSource.ts')], bundle: true, write: false, platform: 'node', format: 'cjs', logLevel: 'silent',
@@ -81,7 +81,7 @@ async function buildDeveloperAssets({ app, esbuild }) {
   metafiles.pageClient = pageClient.metafile;
   fs.writeFileSync(path.join(dir, 'flux.v1.js'), pageClient.outputFiles[0].text);
   fs.copyFileSync(path.join(root, 'modules/page/flux-ui.v1.css'), path.join(dir, 'flux-ui.v1.css'));
-  // Страница окна подпрограммы — та же, что у Flux (modules/build.ts, shellAssets)
+  // Страница окна программы — та же, что у Flux (modules/build.ts, shellAssets)
   fs.writeFileSync(path.join(dir, 'index.html'), '<!doctype html><html lang="ru" style="background:var(--flux-surface)">'
     + '<head><meta charset="utf-8"><link rel="stylesheet" href="./flux.css"></head>'
     + '<body style="margin:0;min-height:100vh;background:var(--flux-surface);color:var(--flux-text)">'

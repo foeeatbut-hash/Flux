@@ -1,5 +1,5 @@
 /**
- * Проект подпрограммы в Studio: заготовки, черновики, тестовая база, проверка перед отправкой, запрос.
+ * Проект программы в Studio: заготовки, черновики, тестовая база, проверка перед отправкой, запрос.
  *
  * Что доказывается:
  * - заготовка каждого из 7 языков создаёт проект, который проходит проверку перед отправкой
@@ -63,7 +63,7 @@ async function main() {
   console.log('Сборка заготовок Studio');
   const app = path.join(temp, 'app');
   const metafiles = await buildDeveloperAssets({ app, esbuild });
-  ok('окно подпрограммы, Worker, рабочий поток и заготовки собраны', ['runtime/frame.js', 'runtime/worker.js', 'runtime/index.html', 'runtime/flux.css', 'controls-worker.cjs', 'ts-build-worker.cjs', 'esbuild.wasm', 'templates/stats/form.json'].every(f => fs.existsSync(path.join(app, f))));
+  ok('окно программы, Worker, рабочий поток и заготовки собраны', ['runtime/frame.js', 'runtime/worker.js', 'runtime/index.html', 'runtime/flux.css', 'controls-worker.cjs', 'ts-build-worker.cjs', 'esbuild.wasm', 'templates/stats/form.json'].every(f => fs.existsSync(path.join(app, f))));
   ok('карты сборки есть для проверки бандла', Object.keys(metafiles).length === 5); // + рабочий поток сборки TypeScript
   const templatesRoot = path.join(app, 'templates');
   const engine = createControlsEngine({ workerFile: path.join(app, 'controls-worker.cjs'), timeoutMs: 4000 });
@@ -231,6 +231,6 @@ async function main() {
   ok('пакет подмены: другой runtime даёт другой хеш', buildRequest(keyring, { ...input, runtime: assembled.runtime + ' ' }).claim.sha256 !== built.claim.sha256);
   ok('build/ из проекта в пакет не попадает', !text(unpackBundle(buildPackage({ ...ready, 'build/runtime.js': enc('evil') }, 'real'))['build/runtime.js']).includes('evil'));
 
-  console.log(`\nFlux Studio: проект подпрограммы — ${passed} проверок пройдено`);
+  console.log(`\nFlux Studio: проект программы — ${passed} проверок пройдено`);
 }
 main().then(() => fs.rmSync(temp, { recursive: true, force: true })).catch((error) => { console.error(error); process.exit(1); });

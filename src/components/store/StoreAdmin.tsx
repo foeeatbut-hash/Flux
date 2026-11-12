@@ -33,14 +33,14 @@ export default function StoreAdmin() {
   const name = (id: string) => data.listings.find((l) => l.moduleId === id)?.name || id;
   return <div data-testid="stx-admin">
     <div className="stx-h">Администрирование Store</div>
-    <Tabs label="Администрирование" value={tab} onChange={setTab} tabs={[{ value: 'admission', label: 'Допуск', count: waiting }, { value: 'versions', label: 'Версии и обязательные' }, { value: 'log', label: 'Журнал' }, { value: 'journal', label: 'Журнал подпрограмм' }, { value: 'policy', label: 'Подключения' }]} />
+    <Tabs label="Администрирование" value={tab} onChange={setTab} tabs={[{ value: 'admission', label: 'Допуск', count: waiting }, { value: 'versions', label: 'Версии и обязательные' }, { value: 'log', label: 'Журнал' }, { value: 'journal', label: 'Журнал программ' }, { value: 'policy', label: 'Подключения' }]} />
     {error && <div className="fx-error my-2">{error}</div>}
-    {tab === 'admission' && <table className="fx-table mt-3"><thead><tr><th>Подпрограмма</th><th>Версия</th><th>Состояние</th><th>Установлена у</th><th>Сбои версии</th><th /></tr></thead>
+    {tab === 'admission' && <table className="fx-table mt-3"><thead><tr><th>Программа</th><th>Версия</th><th>Состояние</th><th>Установлена у</th><th>Сбои версии</th><th /></tr></thead>
       <tbody>{data.listings.map((l) => <AdmissionRow key={l.moduleId} l={l} spread={data.spread[l.moduleId]} act={act} />)}</tbody></table>}
     {tab === 'versions' && <div className="mt-3 grid gap-3">{data.listings.map((l) => <VersionsRow key={l.moduleId} l={l} spread={data.spread[l.moduleId] || {}} entry={data.entries.find((e) => e.moduleId === l.moduleId)} roles={roles} act={act} />)}</div>}
     {tab === 'journal' && <ModuleJournalView moduleNames={Object.fromEntries(data.listings.map((l) => [l.moduleId, l.name]))} />}
     {tab === 'policy' && <ConnectionPolicy listings={data.listings} roles={roles} />}
-    {tab === 'log' && <table className="fx-table mt-3" data-testid="stx-log"><thead><tr><th>Когда</th><th>Кто</th><th>Что</th><th>Подпрограмма</th><th>Версия</th></tr></thead>
+    {tab === 'log' && <table className="fx-table mt-3" data-testid="stx-log"><thead><tr><th>Когда</th><th>Кто</th><th>Что</th><th>Программа</th><th>Версия</th></tr></thead>
       <tbody>{data.logs.map((r) => <tr key={r.id}><td>{new Date(r.createdAt).toLocaleString('ru-RU')}</td><td>{r.userName || r.userId}</td><td>{ACTIONS[r.action] || r.action}</td>
         <td>{r.moduleId === '*' ? '—' : name(r.moduleId)}</td><td className="tabular-nums">{r.fromVersion ? `${r.fromVersion} → ` : ''}{r.toVersion}</td></tr>)}</tbody></table>}
   </div>;

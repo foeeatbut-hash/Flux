@@ -1,5 +1,5 @@
 /**
- * Вход в Flux Studio: пускает вход владельца или ЯВНОЕ право «Разработка подпрограмм».
+ * Вход в Flux Studio: пускает вход владельца или ЯВНОЕ право «Разработка программ».
  *
  * Права проверяет сервер, а не окно: окно может быть любым, в том числе чужим
  * клиентом с украденным токеном обычного сотрудника. Общая проверка прав (userCan)
@@ -15,7 +15,7 @@ export interface StudioDeps {
   permissionsOf: (user: any) => Promise<Record<string, any>>;
 }
 
-/** Предел списка своих подпрограмм: у одного разработчика их не сотни, а ответ не должен расти без границы */
+/** Предел списка своих программ: у одного разработчика их не сотни, а ответ не должен расти без границы */
 export const STUDIO_MODULE_LIMIT = 200;
 
 /** Явное и действующее право: включено, не просрочено, профиль активен и не истёк */
@@ -39,7 +39,7 @@ export function developerGate(deps: Pick<StudioDeps, 'permissionsOf'>) {
   };
 }
 export const refuseDeveloper = (res: Response) => res.status(403).json({
-  error: 'Flux Studio открывается с правом «Разработка подпрограмм». Попросите администратора выдать его.',
+  error: 'Flux Studio открывается с правом «Разработка программ». Попросите администратора выдать его.',
 });
 
 export function registerStudioRoutes(app: Express, deps: StudioDeps): void {
@@ -53,7 +53,7 @@ export function registerStudioRoutes(app: Express, deps: StudioDeps): void {
     res.json({ ok: true, owner: user.role === 'OWNER', user: { id: String(user.id), name: String(user.name || '') } });
   });
 
-  /** Свои подпрограммы: последняя отправленная версия, состояние и честное число отправок (считает база, а не выборка) */
+  /** Свои программы: последняя отправленная версия, состояние и честное число отправок (считает база, а не выборка) */
   app.get('/api/studio/modules', async (req: Request, res: Response) => {
     if (!await mayDevelop(req)) return refuse(res);
     const user = (req as any).authUser;

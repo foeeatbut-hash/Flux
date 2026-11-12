@@ -75,7 +75,7 @@ async function main() {
     ok('фоновый расчёт ждёт свободного окна, открытый — нет', idleCalls === 1);
   }
 
-  console.log('Полоса Python: одна среда на все подпрограммы');
+  console.log('Полоса Python: одна среда на все программы');
   {
     const s = new ComputeScheduler({ slots: 3, laneLimits: { python: 1 } });
     const g = gate(); let py = 0, pyPeak = 0, other = 0;
@@ -122,8 +122,8 @@ async function main() {
     const g = gate();
     const held = Array.from({ length: MAX_PER_KEY }, () => s.run('active', 'hog', () => g.wait));
     const over = await s.run('active', 'hog', async () => 1).then(() => '', e => (e as ComputeError).code);
-    ok(`одна подпрограмма не держит больше ${MAX_PER_KEY} расчётов`, over === 'BUSY');
-    ok('другая подпрограмма при этом принимается', typeof (await Promise.race([s.run('active', 'other', async () => 'ok').then(() => 'done'), sleep(20).then(() => 'wait')])) === 'string');
+    ok(`одна программа не держит больше ${MAX_PER_KEY} расчётов`, over === 'BUSY');
+    ok('другая программа при этом принимается', typeof (await Promise.race([s.run('active', 'other', async () => 'ok').then(() => 'done'), sleep(20).then(() => 'wait')])) === 'string');
     g.open(); await Promise.all(held);
     const s2 = new ComputeScheduler({ slots: 1 });
     const g2 = gate();
@@ -144,9 +144,9 @@ async function main() {
     const queued = s.run('active', 'gone', async () => 1).then(() => '', e => (e as ComputeError).code);
     await sleep(2);
     s.cancelQueued('gone');
-    ok('закрытая подпрограмма снимает свои ожидающие расчёты, идущий не трогается', (await queued) === 'DENIED' && s.stats.running === 1);
+    ok('закрытая программа снимает свои ожидающие расчёты, идущий не трогается', (await queued) === 'DENIED' && s.stats.running === 1);
     g.open(); await running;
-    ok('учёт по подпрограмме обнуляется', s.stats.running === 0);
+    ok('учёт по программе обнуляется', s.stats.running === 0);
   }
 
   console.log('Простой');

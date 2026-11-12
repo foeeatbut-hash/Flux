@@ -1,5 +1,5 @@
 /**
- * COM для подпрограмм: сквозной вызов метода и свойства по имени.
+ * COM для программ: сквозной вызов метода и свойства по имени.
  *
  * Во Flux нет моста к E3 в главном процессе (docs/e3-integration.md, этап C ещё
  * не сделан), поэтому здесь общий способ подключения «COM-объект по имени» — на
@@ -10,8 +10,8 @@
  * ref-параметры передаются через ParameterModifier. Новых нативных
  * зависимостей нет. Другие ОС и проверки: `ComBackend` подменяется поддельным.
  *
- * Помощник у каждой подпрограммы свой (electron/moduleConnections.ts держит их по
- * идентификатору подпрограммы): зависший вызов одной убивает только её помощника, а
+ * Помощник у каждой программы свой (electron/moduleConnections.ts держит их по
+ * идентификатору программы): зависший вызов одной убивает только её помощника, а
  * номера объектов — сквозные в пределах помощника и не повторяются после его
  * перезапуска, поэтому старый номер не может оказаться чужим объектом.
  */
@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import { ConnectError } from '../modules/connections/model';
 
 export type ComValue = unknown;
-/** Объект COM в ответе: подпрограмма получает номер, а не сам объект */
+/** Объект COM в ответе: программа получает номер, а не сам объект */
 export interface ComObjectRef { $com: number }
 export interface ComItem { handle: number; kind: 'call' | 'get' | 'set'; name: string; args: ComValue[]; value?: ComValue }
 export type ComBatchResult = Array<{ ok: true; value: ComValue } | { ok: false; error: string }>;
@@ -36,7 +36,7 @@ export interface ComBackend {
   release(handle: number): Promise<void>;
   /** Помощник завершился (таймаут, сбой, закрытие): все номера объектов недействительны */
   onExit(listener: () => void): void;
-  /** Закрыть всё, что держит помощник (подпрограмма закрыта или приложение завершается) */
+  /** Закрыть всё, что держит помощник (программа закрыта или приложение завершается) */
   shutdown(): Promise<void>;
 }
 
@@ -179,7 +179,7 @@ while ($true) {
 
 interface Pending { resolve: (value: ComValue) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
 
-/** Долгоживущий помощник PowerShell одной подпрограммы: стартует при первом обращении, завершается при `shutdown`, таймауте или сбое */
+/** Долгоживущий помощник PowerShell одной программы: стартует при первом обращении, завершается при `shutdown`, таймауте или сбое */
 export class PowerShellComBackend implements ComBackend {
   private child: ChildProcessWithoutNullStreams | null = null;
   private dir = '';
@@ -187,7 +187,7 @@ export class PowerShellComBackend implements ComBackend {
   private pending = new Map<number, Pending>();
   private buffer = '';
   private seq = 0;
-  /** Номера, которые видит подпрограмма, → номера помощника; счётчик не сбрасывается при перезапуске */
+  /** Номера, которые видит программа, → номера помощника; счётчик не сбрасывается при перезапуске */
   private ids = new Map<number, number>();
   private nextId = 0;
   private listeners: Array<() => void> = [];
@@ -237,7 +237,7 @@ export class PowerShellComBackend implements ComBackend {
     if (this.child !== child) return;
     this.child = null;
     this.buffer = '';
-    // Объекты умерли вместе с помощником: старые номера больше ни к чему не ведут, а подпрограмма узнаёт об этом из onExit
+    // Объекты умерли вместе с помощником: старые номера больше ни к чему не ведут, а программа узнаёт об этом из onExit
     this.ids.clear();
     for (const item of this.pending.values()) { clearTimeout(item.timer); item.reject(new ConnectError('FAILED', 'helper exited')); }
     this.pending.clear();
@@ -252,14 +252,14 @@ export class PowerShellComBackend implements ComBackend {
     if (!child) throw new ConnectError('UNAVAILABLE', 'no helper');
     const id = ++this.seq;
     return new Promise((resolve, reject) => {
-      // Зависший вызов COM (E3 занята диалогом) не держит подпрограмму вечно: помощник этой подпрограммы перезапускается, других это не касается
+      // Зависший вызов COM (E3 занята диалогом) не держит программу вечно: помощник этой программы перезапускается, других это не касается
       const timer = setTimeout(() => { this.pending.delete(id); reject(new ConnectError('TIMEOUT')); child.kill(); }, this.timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       child.stdin.write(`${JSON.stringify({ id, ...message })}\n`);
     });
   }
 
-  /** Номер помощника → номер подпрограммы (новый, не повторяющийся) */
+  /** Номер помощника → номер программы (новый, не повторяющийся) */
   private publish(helperId: number): number {
     const id = ++this.nextId;
     this.ids.set(id, helperId);
@@ -270,7 +270,7 @@ export class PowerShellComBackend implements ComBackend {
     if (helper === undefined) throw new ConnectError('DENIED', 'stale handle');
     return helper;
   }
-  /** Ссылки `{$com: n}` в аргументах — на номера помощника; в ответе — на номера подпрограммы */
+  /** Ссылки `{$com: n}` в аргументах — на номера помощника; в ответе — на номера программы */
   private mapRefs(value: ComValue, convert: (n: number) => number, depth = 0): ComValue {
     if (depth > 8 || !value || typeof value !== 'object') return value;
     if (Array.isArray(value)) return value.map(v => this.mapRefs(v, convert, depth + 1));
@@ -316,5 +316,5 @@ export class NoComBackend implements ComBackend {
   async release() { /* нечего */ }
   async shutdown() { /* нечего */ }
 }
-/** Новый помощник для каждой подпрограммы */
+/** Новый помощник для каждой программы */
 export const defaultComBackend = (): ComBackend => process.platform === 'win32' ? new PowerShellComBackend() : new NoComBackend();

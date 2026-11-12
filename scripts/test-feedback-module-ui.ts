@@ -37,8 +37,8 @@ try {
     await panel.getByText('Отмечено').waitFor();
     assert.equal(await panel.getByPlaceholder('Что случилось?').inputValue(), 'Текст сохраняется');
     assert.match(await panel.getByLabel('Адресат').locator('option:checked').textContent() || '', /1\.0\.0/);
-    const notice = panel.getByText('Заголовок и описание увидит разработчик подпрограммы. Данные проектов не передаются.', { exact: true });
-    assert.equal(await notice.isVisible(), true, 'подсказка видна при выборе подпрограммы');
+    const notice = panel.getByText('Заголовок и описание увидит разработчик программы. Данные проектов не передаются.', { exact: true });
+    assert.equal(await notice.isVisible(), true, 'подсказка видна при выборе программы');
     const noticeStyle = await notice.evaluate((el) => { const r = el.getBoundingClientRect(); const style = getComputedStyle(el); return { width: r.width, height: r.height, fontSize: style.fontSize, color: style.color }; });
     assert.ok(noticeStyle.width > 0 && noticeStyle.height > 0 && parseFloat(noticeStyle.fontSize) >= 12);
     console.log(`${theme}: подсказка ${JSON.stringify(noticeStyle)}`);
@@ -46,7 +46,7 @@ try {
     await panel.getByLabel('Адресат').selectOption('');
     assert.equal(await notice.count(), 0, 'подсказка отсутствует для Flux');
     await panel.getByLabel('Адресат').selectOption('calc-one');
-    assert.equal(await notice.isVisible(), true, 'подсказка возвращается при выборе подпрограммы');
+    assert.equal(await notice.isVisible(), true, 'подсказка возвращается при выборе программы');
     await panel.getByRole('button', { name: 'Отправить' }).click();
     await panel.getByText('Отправлено', { exact: false }).first().waitFor();
     const sent = mutations.find((m) => m.path.endsWith('/reports'))?.body;

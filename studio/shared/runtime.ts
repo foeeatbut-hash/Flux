@@ -1,9 +1,9 @@
 /**
- * Сборка runtime.js подпрограммы без esbuild.
+ * Сборка runtime.js программы без esbuild.
  *
  * Во Flux runtime.js собирает esbuild (modules/build.ts). Упакованная Studio компилятора не
  * везёт, поэтому всё тяжёлое сделано при сборке самой Studio (studio/build-assets.cjs):
- * окно подпрограммы (`frame`) и Worker (`worker`) собраны один раз с метками вместо формы и
+ * окно программы (`frame`) и Worker (`worker`) собраны один раз с метками вместо формы и
  * Worker'а (и переменной вместо языка), а здесь метки заменяются настоящими значениями. Получается тот же
  * runtime.js, что собрал бы modules/build.ts: тот же код frame.ts и worker.ts.
  *

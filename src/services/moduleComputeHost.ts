@@ -135,7 +135,7 @@ export function createPythonRunner(): PythonRunner {
 }
 
 let shared: ModuleCompute | null = null;
-/** Одна на окно Flux: очередь и пределы общие для всех подпрограмм */
+/** Одна на окно Flux: очередь и пределы общие для всех программ */
 export function moduleCompute(): ModuleCompute {
   return shared ||= new ModuleCompute({
     scheduler: new ComputeScheduler({
@@ -160,7 +160,7 @@ export function moduleCompute(): ModuleCompute {
   });
 }
 
-/** Закрыта подпрограмма: очередь не хранит её расчёты. Среду не создаёт, если она ещё не нужна */
+/** Закрыта программа: очередь не хранит её расчёты. Среду не создаёт, если она ещё не нужна */
 export function cancelModuleCompute(moduleId: string) { shared?.cancel(moduleId); }
 /** Список выпусков в кэше проверенных изменился: убрать источники и скомпилированные модули ушедших */
 export function retainModuleCompute(cached: ReadonlyArray<{ moduleId: string; version: string }>) {

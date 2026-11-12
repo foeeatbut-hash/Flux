@@ -44,7 +44,7 @@ const bridge = (build: string, sections: { id: string; title: string }[], module
       if (action === 'fluxBase') return { ok: true, value: ${JSON.stringify(flux)} };
       if (action === 'connectFlux') { state = { ...state, connected: true, display: 'MariaDB / MySQL · db.example:3306/Flux' }; return { ok: true, value: state }; }
       if (action === 'login') {
-        if (args.password !== 'good') return { ok: false, error: 'Flux Studio открывается с правом «Разработка подпрограмм». Попросите администратора выдать его.' };
+        if (args.password !== 'good') return { ok: false, error: 'Flux Studio открывается с правом «Разработка программ». Попросите администратора выдать его.' };
         state = { ...state, user: { id: 'dev', name: 'Разработчик' } }; return { ok: true, value: state };
       }
       if (action === 'ownerSelectKey') return { ok: true, value: { canceled: false, name: 'vault.flux-owner' } };
@@ -135,7 +135,7 @@ async function main() {
         await page.fill('#login-input', 'dev'); await page.fill('#password-input', 'bad');
         await page.getByRole('button', { name: 'Войти', exact: true }).click();
         await page.getByRole('alert').waitFor();
-        ok(`${tag}: отказ сервера показан текстом`, /Разработка подпрограмм/.test(await page.getByRole('alert').innerText()));
+        ok(`${tag}: отказ сервера показан текстом`, /Разработка программ/.test(await page.getByRole('alert').innerText()));
         await measure(page, `${tag}/вход`);
         await page.screenshot({ path: path.join(shots, `studio-${target}-${theme}-2-login-refused.png`) });
 

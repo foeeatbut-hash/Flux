@@ -244,7 +244,7 @@ export default function FeedbackScreen() {
 
   const tabs = useMemo(() => ([
     { id: 'mine' as const, name: 'Мои обращения', icon: Inbox },
-    ...(meta?.rights?.modules ? [{ id: 'modules' as const, name: 'Подпрограммы', icon: ListChecks }] : []),
+    ...(meta?.rights?.modules ? [{ id: 'modules' as const, name: 'Программы', icon: ListChecks }] : []),
     ...(triage ? [
       { id: 'queue' as const, name: 'Очередь разбора', icon: ListChecks },
       { id: 'summary' as const, name: 'Сводка', icon: BarChart3 },
@@ -261,7 +261,7 @@ export default function FeedbackScreen() {
             <Plus className="w-3.5 h-3.5" /> Новое обращение
           </button>
           {scope === 'queue' && <label className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300">
-            <input type="checkbox" checked={moduleFilter} onChange={(e) => setModuleFilter(e.target.checked)} /> По подпрограммам
+            <input type="checkbox" checked={moduleFilter} onChange={(e) => setModuleFilter(e.target.checked)} /> По программам
           </label>}
           <div className="flex gap-1 flex-wrap">
             {tabs.map((tab) => (
@@ -340,8 +340,8 @@ export default function FeedbackScreen() {
               <div className="space-y-2">
                 <button type="button" className="fx-btn" onClick={() => {
                   getModulePackage(card.id).then((data) => setExported(JSON.stringify(data, null, 2)))
-                    .catch((error: any) => setFailure(error?.message || 'Данные подпрограммы не загрузились'));
-                }}>Данные подпрограммы</button>
+                    .catch((error: any) => setFailure(error?.message || 'Данные программы не загрузились'));
+                }}>Данные программы</button>
                 {exported && <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-700 dark:text-slate-300">{exported}</pre>}
               </div>
             )}

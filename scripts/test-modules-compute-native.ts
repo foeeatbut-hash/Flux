@@ -1,6 +1,6 @@
 /**
  * Python и WebAssembly в настоящем Electron (этап 3а, шаги 3–5): подписанные
- * выпуски через настоящий протокол и кэш, расчёт в окне подпрограммы, изоляция
+ * выпуски через настоящий протокол и кэш, расчёт в окне программы, изоляция
  * хоста Python, пределы времени и памяти, кэш компиляции на диске, первый
  * запуск с контрольными примерами, нагрузка на процессор и память.
  *
@@ -92,7 +92,7 @@ async function main() {
   ].join('\n'));
   await hostile('sqrt-patch-py', 'python', 'import math\ndef compute(i):\n    math.sqrt = lambda x: -1.0\n    n = 0\n    for k in range(6000000):\n        n += k\n    return {"state": {}, "calc": {"out": {"patched": math.sqrt(4.0), "n": n}}}\n');
   await hostile('sqrt-victim-py', 'python', 'import math\ndef compute(i):\n    return {"state": {}, "calc": {"out": {"v": math.sqrt(4.0)}}}\n');
-  // Общий счётчик в среде Pyodide: numpy один на все подпрограммы, поэтому тик, который ставит одна, видит другая.
+  // Общий счётчик в среде Pyodide: numpy один на все программы, поэтому тик, который ставит одна, видит другая.
   // Расчёт, которого не перебивали, видит свой вход и выход подряд (выход = вход + 1)
   const tick = (spin: number) => ['import numpy as np', 'def compute(i):', '    t = getattr(np, "flux_tick", 0) + 1', '    np.flux_tick = t', '    enter = t', `    n = 0`, `    for k in range(${spin}):`, '        n += k',
     '    t = np.flux_tick + 1', '    np.flux_tick = t', '    return {"state": {}, "calc": {"out": {"enter": enter, "exit": t}}}'].join('\n');
@@ -174,9 +174,9 @@ async function main() {
     const a = await metrics(); await page.waitForTimeout(3000); const b = await metrics();
     const idleCpu = sum(b, 'cpu');
     const hostCount = await page.locator('iframe[data-testid="flux-python-host"]').count();
-    console.log(`  память (МиБ): до подпрограмм ${(sum(idle0, 'mem') / 1048576).toFixed(0)}, с загруженным Python в простое ${(sum(b, 'mem') / 1048576).toFixed(0)}; процессор в простое с Python: ${idleCpu.toFixed(2)} %`);
+    console.log(`  память (МиБ): до программ ${(sum(idle0, 'mem') / 1048576).toFixed(0)}, с загруженным Python в простое ${(sum(b, 'mem') / 1048576).toFixed(0)}; процессор в простое с Python: ${idleCpu.toFixed(2)} %`);
     void pyIdleStart; void a;
-    check('хост Python — скрытый iframe, один на все подпрограммы', hostCount === 1);
+    check('хост Python — скрытый iframe, один на все программы', hostCount === 1);
     check('простой: процессор окна с загруженным Python ≈ 0 %', idleCpu < 2);
 
     // Компиляция один раз на выпуск: после остановки Worker'ов модуль берётся готовым
@@ -222,7 +222,7 @@ async function main() {
     console.log(`  numpy: первый расчёт (загрузка колеса) ${np.ms.toFixed(0)} мс`);
     check('numpy работает в Electron без сети: решение системы, среднее, версия 2.2.5', Math.abs(np.out.x[0] - 2) < 1e-12 && Math.abs(np.out.x[1] - 3) < 1e-12 && np.out.mean === 401.25 && np.out.ver === '2.2.5');
 
-    // Два Python-расчёта разом: одна подпрограмма подменяет math.sqrt и держит среду, вторая считает — строго по очереди
+    // Два Python-расчёта разом: одна программа подменяет math.sqrt и держит среду, вторая считает — строго по очереди
     const pair = await page.evaluate(async i => {
       const run = (id: string) => { const t = performance.now(); return (window as any).__compute.compute({ moduleId: id, version: '1.0.0', language: 'python' }, i, 'active').then((o: any) => ({ o, end: performance.now() - t })); };
       const t0 = performance.now();
@@ -231,7 +231,7 @@ async function main() {
       return { a: a.o.calc.out, b: b.o.calc.out, aEnd: a.end, bEnd: b.end, total: performance.now() - t0 };
     }, input);
     console.log(`  два Python-расчёта разом: первый держал среду ${pair.aEnd.toFixed(0)} мс, второй дождался и закончил на ${pair.bEnd.toFixed(0)} мс`);
-    check('вторая подпрограмма получает верный результат (sqrt(4)=2), хотя первая подменила math.sqrt', pair.a.patched === -1 && pair.b.v === 2);
+    check('вторая программа получает верный результат (sqrt(4)=2), хотя первая подменила math.sqrt', pair.a.patched === -1 && pair.b.v === 2);
     // Порядок прихода не гарантия, гарантия — «не одновременно»: часов не берём, сравниваем тики общего счётчика
     const ticks = await page.evaluate(async i => {
       const run = (id: string) => (window as any).__compute.compute({ moduleId: id, version: '1.0.0', language: 'python' }, i, 'active').then((o: any) => o.calc.out);
@@ -267,7 +267,7 @@ async function main() {
     check('и запустить свои Worker/SharedWorker из Python нельзя (js.Worker убран прологом)', spy.Worker === 'None' && spy.SharedWorker === 'None');
     check('и cookie/localStorage/IPC Flux ему недоступны', !JSON.stringify(spy).includes('flux_parent') && spy.electron !== 'object' && spy.cookie !== 'flux_parent_cookie=private');
 
-    // Окно подпрограммы: первый запуск с контрольными примерами, затем расчёт в iframe
+    // Окно программы: первый запуск с контрольными примерами, затем расчёт в iframe
     const open = async (id: string) => {
       await page.goto(`${url}/?manifest=${encodeURIComponent(JSON.stringify(manifests[id]))}`);
       await page.waitForLoadState('load');
@@ -281,20 +281,20 @@ async function main() {
       await page.waitForFunction(async () => true);
       for (let n = 0; n < 120 && !(await text()).includes('1203.75'); n++) await page.waitForTimeout(500);
       const body = await text();
-      check(`${id}: окно подпрограммы показывает результат расчёта (сумма 1203.75, значений 3)`, body.includes('1203.75') && body.includes('692.8232849483818'));
+      check(`${id}: окно программы показывает результат расчёта (сумма 1203.75, значений 3)`, body.includes('1203.75') && body.includes('692.8232849483818'));
     }
     const saved = JSON.parse(fs.readFileSync(path.join(data, 'controls.json'), 'utf8'));
     check('итог контрольных примеров записан главным процессом для каждого выпуска', Object.values(saved).filter((v: any) => v.ok === true).length >= 3);
 
     // Выпуск с неверными контрольными: не запускается, событие в счётчики, код выпуска закрыт
     await open('stats-wrong');
-    await page.getByText('Подпрограмма не запущена').waitFor({ timeout: 60000 });
+    await page.getByText('Программа не запущена').waitFor({ timeout: 60000 });
     const queue = await page.evaluate(() => localStorage.getItem('flux.module-crashes.v1') || '');
-    check('неверные контрольные примеры: подпрограмма не запускается, iframe не создан', await page.locator('iframe[data-testid="flux-module-frame"]').count() === 0);
+    check('неверные контрольные примеры: программа не запускается, iframe не создан', await page.locator('iframe[data-testid="flux-module-frame"]').count() === 0);
     check('и записано событие «controls» в счётчики сбоев', queue.includes('stats-wrong') && queue.includes('controls'));
     check('главный процесс больше не отдаёт код выпуска', (await probe('flux-module://stats-wrong/runtime.js')).status === 404 && (await probe('flux-module://stats-wrong/logic.wasm')).status === 404);
     await open('stats-wrong');
-    await page.getByText('Подпрограмма не запущена').waitFor({ timeout: 20000 });
+    await page.getByText('Программа не запущена').waitFor({ timeout: 20000 });
     check('повторное открытие берёт итог из памяти компьютера', true);
 
     check(`без ошибок исполнения страницы: ${JSON.stringify(errors)}`, errors.length === 0);

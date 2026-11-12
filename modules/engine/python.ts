@@ -1,10 +1,10 @@
 /**
- * Общая среда Python для всех Python-подпрограмм Flux.
+ * Общая среда Python для всех Python-программ Flux.
  *
- * Одна среда Pyodide (один Worker) обслуживает все подпрограммы: у каждой
+ * Одна среда Pyodide (один Worker) обслуживает все программы: у каждой
  * своё пространство имён (modules/engine/pythonHarness.ts), интерпретатор и
  * стандартная библиотека общие. Так память Pyodide (~30 МиБ) платится один
- * раз, а не за каждую открытую подпрограмму.
+ * раз, а не за каждую открытую программу.
  *
  * Этот файл не знает, где работает: Pyodide ему передают (в Worker — из
  * вкладки файлов Flux, в проверках — из node_modules). Без DOM и Node.
@@ -50,14 +50,14 @@ export class PythonEnvironment {
     py.runPython(PYTHON_HARNESS);
   }
 
-  /** Сколько подпрограмм сейчас держат пространство имён в среде */
+  /** Сколько программ сейчас держат пространство имён в среде */
   get namespaces() { return this.loaded.size; }
   get queued() { return this.lane.pending; }
 
   private async prepare(key: string, source: string) {
-    // Подпрограмма загружается один раз; изменившийся исходник (новая версия) перезагружается
+    // Программа загружается один раз; изменившийся исходник (новая версия) перезагружается
     if (this.loaded.get(key) === source) return;
-    // numpy грузится лениво, только когда подпрограмма его импортирует; колесо лежит рядом с Pyodide, сеть не нужна
+    // numpy грузится лениво, только когда программа его импортирует; колесо лежит рядом с Pyodide, сеть не нужна
     if (NUMPY.test(source) && !this.numpy) {
       // loadPackage не бросает, если колеса нет, — поэтому после него numpy импортируется по-настоящему
       try { await this.py.loadPackage('numpy'); this.py.runPython("__import__('numpy')"); } catch { throw new ComputeError('UNAVAILABLE', 'numpy не загружен'); }
@@ -69,7 +69,7 @@ export class PythonEnvironment {
     this.loaded.set(key, source);
   }
 
-  /** Один расчёт: `key` — подпрограмма (ид и версия), `source` — её logic/main.py */
+  /** Один расчёт: `key` — программа (ид и версия), `source` — её logic/main.py */
   run(key: string, source: string, input: string, seed = 0): Promise<string> {
     return this.lane.run(() => this.runNow(key, source, input, seed));
   }

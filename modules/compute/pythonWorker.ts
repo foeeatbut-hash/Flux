@@ -10,7 +10,7 @@ import { PythonEnvironment, clampWasmMemory, type PyodideApi } from '../engine/p
 import { ComputeError, LIMITS } from '../engine/types';
 import { lockNestedWorkers } from '../runtime/prologue';
 
-// До загрузки Pyodide и кода подпрограммы: `js.Worker` из Python не должен создавать Worker'ы вне очереди
+// До загрузки Pyodide и кода программы: `js.Worker` из Python не должен создавать Worker'ы вне очереди
 lockNestedWorkers();
 
 declare function importScripts(...urls: string[]): void;

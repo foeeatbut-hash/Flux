@@ -45,18 +45,18 @@ async function main() {
     const report = await runControls(controls, async i => parseComputeOutput(await env.run('stats@1', statsSource, JSON.stringify(i))));
     ok(`все ${controls.cases.length} контрольных примеров сошлись без допуска`, report.ok && report.passed === controls.cases.length);
     console.log(`  набор из ${controls.cases.length} расчётов: ${ms(t)}`);
-    ok('подпрограмма загружена в свою область', env.namespaces === 1);
+    ok('программа загружена в свою область', env.namespaces === 1);
   }
 
-  console.log('Пространства имён подпрограмм');
+  console.log('Пространства имён программ');
   {
     const a = 'counter = 41\ndef compute(i):\n    global counter\n    counter += 1\n    return {"state": {}, "calc": {"out": {"n": counter}}}\n';
     const b = 'def compute(i):\n    return {"state": {}, "calc": {"out": {"seen": "counter" in globals()}}}\n';
-    ok('первая подпрограмма меняет свои переменные', parseComputeOutput(await env.run('a@1', a, input())).calc.out.n === 42);
+    ok('первая программа меняет свои переменные', parseComputeOutput(await env.run('a@1', a, input())).calc.out.n === 42);
     ok('между вызовами ничего не накапливается: расчёт не зависит от прошлых', parseComputeOutput(await env.run('a@1', a, input())).calc.out.n === 42);
     ok('вторая чужих переменных не видит', parseComputeOutput(await env.run('b@1', b, input())).calc.out.seen === false);
     env.drop('a@1');
-    ok('выгруженная подпрограмма загружается заново чистой', parseComputeOutput(await env.run('a@1', a, input())).calc.out.n === 42);
+    ok('выгруженная программа загружается заново чистой', parseComputeOutput(await env.run('a@1', a, input())).calc.out.n === 42);
     const same = 'def compute(i):\n    return {"state": {}, "calc": {"out": {"v": 2}}}\n';
     ok('новая версия исходника заменяет старую', parseComputeOutput(await env.run('b@1', same, input())).calc.out.v === 2);
   }
@@ -79,16 +79,16 @@ async function main() {
     ok('open() убран', open_.startsWith('CRASH|') && open_.includes('NameError'));
     ok('относительный импорт запрещён', (await deny('from . import x')).startsWith('CRASH|'));
     const noCompute = await codeOf(() => env.run('nocompute@1', 'x = 1\n', input()));
-    ok('без compute подпрограмма не загружается', noCompute.includes('compute'));
+    ok('без compute программа не загружается', noCompute.includes('compute'));
   }
 
-  console.log('Подпрограммы не влияют друг на друга через стандартную библиотеку');
+  console.log('Программы не влияют друг на друга через стандартную библиотеку');
   {
     const patch = 'import math\nmath.sqrt = lambda x: -1.0\nimport json\njson.dumps = None\ndef compute(i):\n    return {"state": {}, "calc": {"out": {"v": math.sqrt(4.0)}}}\n';
     const victim = 'import math\nimport json\ndef compute(i):\n    return {"state": {}, "calc": {"out": {"v": math.sqrt(4.0), "d": json.dumps is not None}}}\n';
-    ok('первая подпрограмма видит свою подмену', parseComputeOutput(await env.run('patch@1', patch, input())).calc.out.v === -1);
+    ok('первая программа видит свою подмену', parseComputeOutput(await env.run('patch@1', patch, input())).calc.out.v === -1);
     const v = parseComputeOutput(await env.run('victim@1', victim, input())).calc.out;
-    ok('подмена math.sqrt и json.dumps другой подпрограмме не видна', v.v === 2 && v.d === true);
+    ok('подмена math.sqrt и json.dumps другой программе не видна', v.v === 2 && v.d === true);
     ok('и самой первой в следующем расчёте тоже', parseComputeOutput(await env.run('patch@1', patch, input())).calc.out.v === -1 && parseComputeOutput(await env.run('victim@1', victim, input())).calc.out.v === 2);
     const probe = async (expr: string) => {
       const source = `import random, statistics, json, re, collections, typing, dataclasses, contextlib\ndef compute(i):\n    try:\n        r = repr(${expr})\n    except Exception as e:\n        r = type(e).__name__\n    return {"state": {}, "calc": {"out": {"r": r}}}\n`;

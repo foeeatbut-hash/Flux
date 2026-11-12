@@ -1,12 +1,12 @@
 /**
- * HTTP и WebSocket подпрограммы в главном процессе.
+ * HTTP и WebSocket программы в главном процессе.
  *
  * Адрес берётся из объявления в подписанном манифесте, а не из вызова: вызов
  * даёт только путь внутри объявленного префикса. Имя разрешается здесь же,
  * результат проверяется (modules/connections/address.ts) и соединение
  * открывается именно на проверенный адрес — между проверкой и подключением
  * имя не успеет получить другой. Редиректы не выполняются: ответ 3xx
- * возвращается подпрограмме как есть, а следующий её вызов проверяется заново.
+ * возвращается программе как есть, а следующий её вызов проверяется заново.
  */
 import http from 'node:http';
 import https from 'node:https';
@@ -21,7 +21,7 @@ import type { HttpReply, WsReply } from '../modules/contract';
 
 export type Lookup = (host: string) => Promise<string[]>;
 export const systemLookup: Lookup = async host => (await dns.promises.lookup(host, { all: true, verbatim: true })).map(a => a.address);
-/** Разрешение имени не ждёт дольше 5 с: зависший DNS не держит вызов и слот подпрограммы */
+/** Разрешение имени не ждёт дольше 5 с: зависший DNS не держит вызов и слот программы */
 export const DNS_TIMEOUT_MS = 5000;
 const withDnsTimeout = (lookup: Lookup): Lookup => host => Promise.race([lookup(host), new Promise<string[]>((_, reject) => {
   const timer = setTimeout(() => reject(new Error('dns timeout')), DNS_TIMEOUT_MS);
@@ -76,7 +76,7 @@ export async function httpCall(decl: NetConnection, call: Extract<ConnectCall, {
       response.on('end', () => {
         const raw = Buffer.concat(parts);
         const out: Record<string, string> = {};
-        // Cookie, которые поставил сервер, подпрограмме не отдаются: хранилища cookie у неё нет, а чужой сеанс ей ни к чему
+        // Cookie, которые поставил сервер, программе не отдаются: хранилища cookie у неё нет, а чужой сеанс ей ни к чему
         for (const [name, value] of Object.entries(response.headers).slice(0, 64)) {
           if (name !== 'set-cookie' && value !== undefined) out[name] = Array.isArray(value) ? value.join(', ') : String(value);
         }
@@ -99,7 +99,7 @@ export async function httpCall(decl: NetConnection, call: Extract<ConnectCall, {
   });
 }
 
-/** Один открытый сокет подпрограммы: очередь входящих ограничена, переполнение закрывает сокет */
+/** Один открытый сокет программы: очередь входящих ограничена, переполнение закрывает сокет */
 export class WsSession {
   private queue: Array<{ data: string; encoding: 'utf8' | 'base64' }> = [];
   private queued = 0;

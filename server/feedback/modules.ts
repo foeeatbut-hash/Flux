@@ -8,7 +8,7 @@ import { compareVersions } from '../../shared/versionCompare.js';
 export interface ModuleFeedbackDeps { modulePublicKeyHex?: string }
 export const feedbackRoot = (deps: ModuleFeedbackDeps) => deps.modulePublicKeyHex ?? MODULE_ROOT_KEY_HEX;
 
-/** Сертификат удостоверяет ключ; право на конкретную подпрограмму — её выпуск владельца. */
+/** Сертификат удостоверяет ключ; право на конкретную программу — её выпуск владельца. */
 export async function developerModules(db: any, userId: string, rootHex = MODULE_ROOT_KEY_HEX): Promise<string[]> {
   const trust = await loadTrust(db, rootHex);
   const keys = new Set([...trust.certificates.values()].filter((c) => c.userId === userId).map((c) => c.key));

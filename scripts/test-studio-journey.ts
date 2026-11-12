@@ -96,7 +96,7 @@ async function main() {
     fs.writeFileSync(runtimeStub, `let stops = 0; module.exports = { __stops: () => stops, startDatabaseRuntime: async (o) => { if (process.env.STUDIO_TEST_SLOW) return new Promise((_, reject) => o.signal.addEventListener('abort', () => setTimeout(() => { globalThis.__cleaned = true; reject(new Error('Подключение к общей базе отменено.')); }, 250))); if (o.signal && o.signal.aborted) throw new Error('Подключение к общей базе отменено.'); return ({ origin: ${JSON.stringify(origin)}, display: 'MariaDB / MySQL · stub', stop: async () => { stops++; } }); }, __last: null };`);
     const out = path.join(temp, 'main.cjs');
     process.env.STUDIO_TEST_DATA = path.join(temp, 'data');
-    // Окно подпрограммы, рабочий поток и заготовки лежат рядом с main.cjs, как в упакованной Studio
+    // Окно программы, рабочий поток и заготовки лежат рядом с main.cjs, как в упакованной Studio
     await require('../studio/build-assets.cjs').buildDeveloperAssets({ app: temp, esbuild });
     await esbuild.build({
       entryPoints: [path.join(root, 'studio/shell/main.ts')], outfile: out, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent',

@@ -96,7 +96,7 @@ jobs:
           node --import tsx scripts/test-studio-ui.ts
           node --import tsx scripts/test-studio-ui-developer.ts
           node --import tsx scripts/test-modules-openfile.ts
-      - name: Редакторы подпрограммы (модель) и в браузере, обе темы
+      - name: Редакторы программы (модель) и в браузере, обе темы
         env:
           FLUX_CHROME: /usr/bin/google-chrome
           FLUX_STUDIO_SHOTS: ${{ runner.temp }}/studio-shots

@@ -1,9 +1,9 @@
 /**
- * Исполнение логики подпрограмм на Python и WebAssembly — одна очередь, одни
- * пределы и один путь ошибок на все подпрограммы окна Flux.
+ * Исполнение логики программ на Python и WebAssembly — одна очередь, одни
+ * пределы и один путь ошибок на все программы окна Flux.
  *
  * Кто что делает:
- * - подпрограмма (iframe) присылает ВХОД по мосту, язык и исходник она не
+ * - программа (iframe) присылает ВХОД по мосту, язык и исходник она не
  *   выбирает; окно берёт файл логики из проверенного выпуска через протокол
  *   (главный процесс отдаёт только то, что прошло проверку подписи);
  * - очередь (`ComputeScheduler`) держит «ядра − 1, не больше 4» расчётов;
@@ -85,14 +85,14 @@ export class ModuleCompute {
       })();
       // Неудачная загрузка не запоминается: следующая попытка попробует снова
       found.catch(() => this.sources.delete(key));
-      // Источников держим немного: версия подпрограммы меняется редко
+      // Источников держим немного: версия программы меняется редко
       if (this.sources.size >= 16) this.sources.delete(this.sources.keys().next().value as string);
       this.sources.set(key, found);
     }
     return found;
   }
 
-  /** Расчёт для подпрограммы: вход → выход по схеме договора, или ComputeError */
+  /** Расчёт для программы: вход → выход по схеме договора, или ComputeError */
   async compute(target: ComputeTarget, input: unknown, priority: Priority, options: RunOptions = {}, report = true): Promise<ModuleOutput> {
     if (this.disposed) throw new ComputeError('DENIED', 'окно закрыто');
     try {
@@ -105,7 +105,7 @@ export class ModuleCompute {
   }
 
   private async execute(target: ComputeTarget, input: unknown, priority: Priority, options: RunOptions): Promise<ModuleOutput> {
-    if (target.language !== 'python' && target.language !== 'wasm') throw new ComputeError('UNAVAILABLE', 'язык исполняется в окне подпрограммы');
+    if (target.language !== 'python' && target.language !== 'wasm') throw new ComputeError('UNAVAILABLE', 'язык исполняется в окне программы');
     // Числа и размер проверяются до очереди: заведомо неверный вход не занимает слот
     const text = encodeJson(input);
     const seed = Number.isSafeInteger(options.seed) ? options.seed! : seedOf(input);
@@ -172,7 +172,7 @@ export class ModuleCompute {
     this.deps.wasm.keepOnly(resolved.flatMap(r => r.status === 'fulfilled' ? [r.value.fingerprint] : []));
   }
 
-  /** Подпрограмму закрыли: её ожидающие расчёты снимаются с очереди, идущие доходят до предела времени */
+  /** Программу закрыли: её ожидающие расчёты снимаются с очереди, идущие доходят до предела времени */
   cancel(moduleId: string) { this.deps.scheduler.cancelQueued(moduleId); }
 
   /** Закрытие окна или выход: останавливает среды и отменяет ожидающих */

@@ -40,7 +40,7 @@ const TITLES: Record<string, string> = {
   statusChanged: 'Обращение изменилось',
   assigned: 'Вам назначено обращение',
   commented: 'Ответ по обращению',
-  moduleFix: 'Доступно исправление подпрограммы',
+  moduleFix: 'Доступно исправление программы',
 };
 
 let timer: ReturnType<typeof setInterval> | null = null;

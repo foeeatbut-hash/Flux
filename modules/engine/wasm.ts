@@ -46,7 +46,7 @@ export class MemoryCompileCache implements CompileCache {
   }
   async put(key: string, module: WebAssembly.Module) {
     this.items.delete(key); this.items.set(key, module);
-    // Старейший выходит первым: предел защищает память, пока открыто много подпрограмм
+    // Старейший выходит первым: предел защищает память, пока открыто много программ
     while (this.items.size > this.max) this.items.delete(this.items.keys().next().value as string);
   }
   async keepOnly(keys: ReadonlySet<string>) { for (const k of [...this.items.keys()]) if (!keys.has(k)) this.items.delete(k); }
