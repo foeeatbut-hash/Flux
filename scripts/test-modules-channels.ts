@@ -105,7 +105,7 @@ async function main() {
   ok('с правом разработки — в тестовый принимается', (await submit('dev', dev, b100, { version: '1.0.0', channel: 'test' })).status === 200);
   const prod = moduleBundle('1.0.1');
   const refused = await submit('dev', dev, prod, { version: '1.0.1', channel: 'production' });
-  ok('рабочий канал без module.publish — отказ с подсказкой про тестовый', refused.status === 403 && /тестовый/.test(refused.body.error));
+  ok('рабочий канал без module.publish — отказ с подсказкой про пробную группу', refused.status === 403 && /пробной группы/.test(refused.body.error));
   ok('с module.publish рабочий канал просить можно', (await submit('pub', pub, prod, { version: '1.0.1', channel: 'production' })).status === 200);
   const empty = moduleBundle('1.0.2');
   ok('«что нового» обязательно', (await call('dev', '/api/modules/requests', 'POST', {
