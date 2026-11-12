@@ -37,8 +37,7 @@ async function stop(child?: ChildProcess) {
   if (child.exitCode === null) child.kill('SIGKILL');
 }
 async function main() {
-  const missing = ['dist/index.html', 'dist/modules/equipment-inspector/index.html',
-    'dist/modules/equipment-inspector/runtime.js', 'dist/modules/equipment-inspector/flux.css'].filter(file => !existsSync(file));
+  const missing = ['dist/index.html', 'dist/modules/_shell/index.html', 'dist/modules/_shell/flux.css'].filter(file => !existsSync(file));
   const supported = process.platform === 'win32'
     || (process.platform === 'linux' && process.env.FLUX_CHROME && process.env.DISPLAY);
   if (!supported || missing.length) {
@@ -75,6 +74,9 @@ async function main() {
     }
     assert.ok(fixturePath, 'Фикстура должна объявить приватный файл учётных данных');
     const creds = JSON.parse(await fs.readFile(fixturePath, 'utf8'));
+    // Образец — установленная программа (подписанный выпуск в кэше главного процесса), а не встроенная
+    const { installSampleProgram } = await import('./fixtures/installedSample');
+    const sample = await installSampleProgram(path.join(temp, 'programs'), String(creds.admin.id));
     const uiPort = await freePort();
     // Проксируются настоящие HTTP/WebSocket, а не ответы приложения:
     // события и права проходят через server.ts и одноразовую SQLite.
@@ -94,7 +96,7 @@ async function main() {
     });
     electron = await _electron.launch({
       args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), path.join(temp, 'main.cjs')],
-      env: { ...process.env, FLUX_MODULE_FLUX_URL: `http://127.0.0.1:${uiPort}`, FLUX_MODULE_FLUX_DATA: temp }, timeout: 60000,
+      env: { ...process.env, FLUX_MODULE_FLUX_URL: `http://127.0.0.1:${uiPort}`, FLUX_MODULE_FLUX_DATA: temp, FLUX_TEST_ROOT: sample.rootHex }, timeout: 60000,
     });
     page = await electron.firstWindow();
     await page.addInitScript('globalThis.__name = (fn) => fn');
@@ -118,6 +120,19 @@ async function main() {
     assert.ok(project);
     await page.reload();
     await page.locator('[data-taskbar]').waitFor();
+    // Окну без нативного моста `modules:state` не у кого спросить, что установлено: подаём то самое состояние,
+    // которое главный процесс отдаёт после установки; дальше «Пуск», карточки и кадр работают как у установленной программы.
+    // Фоновая сверка Store без моста сбрасывает это состояние, поэтому подача повторяется перед каждым открытием
+    const installedState = { ok: true, userId: String(creds.admin.id), channels: ['production'], installed: {}, available: [], fallbacks: {},
+      runnable: [{ version: sample.manifest.version, channel: 'production', manifest: sample.manifest }] };
+    const showInstalled = () => page!.evaluate(async (local) => {
+      const url = '/src/store/moduleStoreState.ts';
+      const { useModuleStore } = await import(/* @vite-ignore */ url);
+      const store = useModuleStore.getState();
+      for (let i = 0; i < 100 && !useModuleStore.getState().loaded; i++) await new Promise(resolve => setTimeout(resolve, 100));
+      store.setLocal(local as never);
+    }, installedState);
+    await showInstalled();
     const seed = await page.evaluate(async ({ projectId, systemId }) => {
       const systems = await (await fetch(`/api/projects/${projectId}/systems`)).json();
       const equipment = systems.systems.find((system: any) => system.id === systemId)
@@ -139,6 +154,7 @@ async function main() {
       return page!.getByRole('dialog', { name: 'Пуск', exact: true });
     };
     const openProgram = async (name: string) => {
+      await showInstalled();
       const menu = await openStart();
       await menu.locator('input').fill(name);
       await menu.getByRole('button', { name, exact: true }).first().click();

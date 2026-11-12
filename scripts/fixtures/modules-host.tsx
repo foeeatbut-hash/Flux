@@ -5,10 +5,15 @@ import { io } from 'socket.io-client';
 import ModuleHost from '../../src/screens/ModuleHost';
 import ModuleLaunchActions from '../../src/components/modules/ModuleLaunchActions';
 import { useStore } from '../../src/store/store';
+import { useModuleStore } from '../../src/store/moduleStoreState';
+import { sampleModules } from '../../modules/sampleModules';
 import { moduleHref } from '../../modules/launch';
 import { runModuleWorker } from '../../modules/runtime/runner';
 
 useStore.setState({ activeProject: { id: 'p', name: 'Тестовый проект' } as any, user: { id: 'u', role: 'OWNER', name: 'Проверка' } as any });
+// То, что окну отдаёт главный процесс (`modules:state`) об установленной программе: от этого наполняются карточки и ModuleHost
+useModuleStore.getState().setLocal({ ok: true, userId: 'u', channels: ['production'], installed: {}, available: [], fallbacks: {},
+  runnable: [{ version: sampleModules[0].version, channel: 'production', manifest: sampleModules[0] }] } as never);
 const socket = io();
 socket.on('entity:changed', detail => window.dispatchEvent(new CustomEvent('socket:entity:changed', { detail })));
 socket.on('connect', () => { document.documentElement.dataset.socket = 'ready'; });

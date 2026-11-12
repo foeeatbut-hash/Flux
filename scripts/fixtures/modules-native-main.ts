@@ -4,7 +4,8 @@ import { registerModuleScheme, setupModuleProtocol } from '../../electron/module
 
 registerModuleScheme();
 app.whenReady().then(async () => {
-  setupModuleProtocol(path.resolve('dist'));
+  // Образец стоит установленным подписанным выпуском: свой корень доверия и каталог, как у остальных native-наборов
+  setupModuleProtocol(path.resolve('dist'), { rootHex: process.env.FLUX_TEST_ROOT!, dir: process.env.FLUX_TEST_DIR! });
   const win = new BrowserWindow({ show: true, width: 1440, height: 900, webPreferences: {
     nodeIntegration: false, nodeIntegrationInSubFrames: false, nodeIntegrationInWorker: false,
     contextIsolation: true, sandbox: true, preload: path.join(process.env.FLUX_MODULE_FIXTURE_DIR!, 'preload.js'),

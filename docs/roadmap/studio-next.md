@@ -63,8 +63,7 @@ Studio — аналог Visual Studio для программ Flux: проект
     «Окна Flux вместе с окнами Windows» — простой вариант
     (`windows-layer.md`); «Офлайн», этап 0 с уникальностью кода тега
     (`offline-work.md`, пункт 4 порядка в `README.md`).
-9. Windows-наборы `test-modules-native` и `test-modules-flux-ui-live` открывали учебную «Параметры позиции» как встроенную; встроенных больше нет (`modules/bundled.ts` пуст, образец — `modules/sampleModules.ts`). Перевести их на установку образца из Store и проверить на Windows.
-10. «Выпуск» и приёмка владельцем на Windows.
+9. «Выпуск» и приёмка владельцем на Windows.
 
 ## После выпуска
 

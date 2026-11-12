@@ -5,7 +5,8 @@ import { registerModuleScheme, setupModuleProtocol } from '../../electron/module
 registerModuleScheme();
 app.setPath('userData', process.env.FLUX_MODULE_FLUX_DATA!);
 app.whenReady().then(async () => {
-  setupModuleProtocol(path.resolve('dist'));
+  // Образец стоит установленным подписанным выпуском (scripts/fixtures/installedSample.ts): свой корень доверия и каталог
+  setupModuleProtocol(path.resolve('dist'), { rootHex: process.env.FLUX_TEST_ROOT!, dir: path.join(process.env.FLUX_MODULE_FLUX_DATA!, 'programs') });
   // Полный веб-клиент идёт в настоящий API фикстуры. Нативные IPC отдельно
   // проверяются modules-native с промышленным preload, здесь нет их подмены.
   const win = new BrowserWindow({

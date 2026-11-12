@@ -13,9 +13,9 @@ async function main() {
   }
   const required = [
     'dist/index.html',
-    'dist/modules/equipment-inspector/index.html',
-    'dist/modules/equipment-inspector/runtime.js',
-    'dist/modules/equipment-inspector/flux.css',
+    // Образец ставится подписанным выпуском: runtime — из пакета, оболочка — общая
+    'dist/modules/_shell/index.html',
+    'dist/modules/_shell/flux.css',
   ];
   const missing = required.filter(file => !fs.existsSync(file));
   if (missing.length) {
@@ -34,6 +34,8 @@ async function main() {
   const { registerEquipmentCoreRoutes } = await import('../server/routes/equipmentCore');
   const require = createRequire(import.meta.url);
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-modules-'));
+  const { installSampleProgram } = await import('./fixtures/installedSample');
+  const installedSample = await installSampleProgram(path.join(temp, 'programs'), 'u');
   const shots = process.env.FLUX_MODULE_SHOTS || path.join(temp, 'shots');
   fs.mkdirSync(shots, { recursive: true });
   const { PrismaClient } = require('../prisma-clients/client-sqlite');
@@ -77,7 +79,7 @@ async function main() {
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const url = `http://127.0.0.1:${(server.address() as any).port}`;
   electron = await _electron.launch({ args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), path.join(temp, 'main.cjs')],
-    env: { ...process.env, FLUX_MODULE_FIXTURE_DIR: temp, FLUX_MODULE_FIXTURE_URL: url }, timeout: 45000 });
+    env: { ...process.env, FLUX_MODULE_FIXTURE_DIR: temp, FLUX_MODULE_FIXTURE_URL: url, FLUX_TEST_ROOT: installedSample.rootHex, FLUX_TEST_DIR: installedSample.dataDir }, timeout: 45000 });
   const page = await electron.firstWindow();
   await page.bringToFront();
   const errors: string[] = [];
