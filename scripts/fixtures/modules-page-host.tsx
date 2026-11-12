@@ -18,7 +18,8 @@ window.confirm = (text?: string) => { (window as any).__dialogs.push(String(text
   windows: Array.from({ length: count }, (_, i) => ({ id: `w${i}`, path: `/module/${id}`, href: `/module/${id}`, desk: 0, x: 0, y: 0, w: 300, h: 200, z: i, minimized: false, maximized: false })) as never,
 });
 document.body.style.background = 'var(--flux-surface)';
-createRoot(document.getElementById('root')!).render(
+// Первая загрузка без программы (адрес без manifest) ничего не рисует: проверка открывает программу своим адресом
+createRoot(document.getElementById('root')!).render(!params.get('manifest') ? <div /> :
   <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
     <button className="fx-btn" id="theme" onClick={() => document.documentElement.classList.toggle('dark')}>Тема</button>
     <ModuleFrame key={params.get('manifest')! + params.get('page')} manifest={JSON.parse(params.get('manifest')!)} page={params.get('page') || undefined}
