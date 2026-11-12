@@ -4,14 +4,14 @@
  * Проект — папка на диске: главный процесс следит за ней, и всё, что добавили снаружи, появляется здесь сразу.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Download, FolderOpen, Play, Search, Send, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Download, FolderOpen, Hammer, Play, Search, Send, ShieldCheck } from 'lucide-react';
 import { Status } from '../../../src/components/ui/controls';
 import { call, type CheckReport } from '../call';
 import FileTree, { type Entry } from './FileTree';
 import EditorArea, { type EditorAreaHandle } from './EditorArea';
 import BottomPanel, { type PanelTab } from './BottomPanel';
 import PublishDialog from './PublishDialog';
-import { problemsOf, type Problem } from './helpers';
+import { buildProblems, isTsSource, problemsOf, type BuildReport, type Problem } from './helpers';
 import { RIGHT_TEXT, RIGHT_TONE, type useKey } from './useKey';
 
 type Key = ReturnType<typeof useKey>;
@@ -59,6 +59,19 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
     if (!(await area.current?.saveAll())) return;
     setPanel('run'); setPanelOpen(true); setRunSignal(n => n + 1);
   };
+  // «Собрать»: TypeScript собирается внутри Studio; ошибки идут в «Проблемы» с файлом и строкой
+  const hasTs = (tree?.entries || []).some(e => !e.dir && isTsSource(e.path));
+  const build = async () => {
+    if (!(await area.current?.saveAll())) return;
+    setBusy('build'); setNote('');
+    try {
+      const r = await call<BuildReport>('build', { id });
+      setProblems(buildProblems(r.problems));
+      setPanelOpen(true);
+      if (r.problems.length) setPanel('problems'); else setNote(`Сборка прошла: файлов TypeScript — ${r.files.length}, ошибок нет.`);
+    } catch (e) { setProblems([{ source: 'Сборка', title: (e as Error).message, detail: '' }]); setPanel('problems'); setPanelOpen(true); }
+    finally { setBusy(''); }
+  };
   const check = async (forPublish = false): Promise<CheckReport | null> => {
     if (!(await area.current?.saveAll())) return null;
     setBusy('check'); setNote('');
@@ -93,6 +106,7 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
         <button type="button" className="fx-btn fx-btn-quiet" onClick={onBack}><ArrowLeft />Мои программы</button>
         <div className="studio-project-title"><strong>{name}</strong><span className="code fx-hint" title={tree?.folder}>{tree?.folder}</span></div>
         <div className="studio-actions" role="toolbar" aria-label="Запуск, проверка, публикация">
+          {hasTs && <button type="button" className="fx-btn" disabled={busy === 'build'} onClick={() => void build()}><Hammer />{busy === 'build' ? 'Собираем…' : 'Собрать'}</button>}
           <button type="button" className="fx-btn" onClick={() => void run()}><Play />Запустить</button>
           <button type="button" className="fx-btn" disabled={busy === 'check'} onClick={() => void check()}><ShieldCheck />{busy === 'check' ? 'Проверяем…' : 'Проверить'}</button>
           <button type="button" className="fx-btn fx-btn-primary" disabled={busy === 'check'} onClick={() => void publish()}><Send />Опубликовать</button>

@@ -61,3 +61,14 @@ export function reviewProblems(review: { note: string; comments: Array<{ path: s
   if (!review) return [];
   return review.comments.map(c => ({ source: 'Владелец', title: c.text, detail: '', path: c.path, line: c.line ?? undefined }));
 }
+
+/** Файл TypeScript проекта (не объявление типов): ради него появляется кнопка «Собрать» */
+export const isTsSource = (path: string) => /\.(ts|tsx)$/.test(path) && !/\.d\.ts$/.test(path);
+
+/** Ответ действия «build» главного процесса */
+export interface BuildReport { ok: boolean; files: string[]; problems: Array<{ path: string; line: number; column: number; text: string }>; built: string[] }
+
+/** Ошибки сборки → строки «Проблем»: файл и строка открывают редактор на месте ошибки */
+export function buildProblems(list: BuildReport['problems']): Problem[] {
+  return list.map(p => ({ source: 'Сборка', title: p.text, detail: '', path: p.path || undefined, line: p.line || undefined }));
+}

@@ -21,6 +21,8 @@ import { FolderWatcher } from '../shared/workspace';
 import { unzipInto, zipProject } from '../shared/archive';
 import { DeveloperKeyring, KeyringFailure, type SafeStorageLike } from '../shared/keyring';
 import { buildRequest, PublishRefused } from '../shared/publish';
+import { tsEntries, withBuilt, problemLine, type TsBuildResult } from '../shared/tsBuild';
+import type { TsBuilder } from '../shared/tsBuildHost';
 import { assembleRuntime, loadRuntimeTemplates, type RuntimeTemplates } from '../shared/runtime';
 import { createFromTemplate, TEMPLATES, TEMPLATE_IDS, validProjectId, type ProjectFiles, type TemplateId } from '../shared/templates';
 import { FLUX_ASSET_FILE, PAGE_URL_FILE, pageProblem, pageTypeOf } from '../../modules/page/model';
@@ -39,6 +41,8 @@ export interface DeveloperDeps {
   session: () => (Session & { user: StudioUser; owner: boolean }) | null;
   assets: { templatesRoot: string; runtimeDir: string };
   engine: ControlsEngine;
+  /** Сборка TypeScript (рабочий поток с esbuild-wasm); без неё проекты на TypeScript запускаются и проверяются как раньше */
+  tsBuilder?: TsBuilder;
   /** Снимок области окна в PNG (Electron: capturePage); в проверках подставляется */
   capture?: (rect: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
   /** Системный диалог выбора папки (главный процесс): окно пути не называет, папку выбирает человек */
@@ -264,6 +268,7 @@ export class DeveloperService {
       // ── Тестовая база и запуск ───────────────────────────────────────────────
       case 'testBase': { this.testBase.ensure(); return { file: 'test-base.sqlite', counts: this.testBase.counts(), context: this.testBase.context() }; }
       case 'testBaseReset': { this.testBase.reset(); return { counts: this.testBase.counts() }; }
+      case 'build': return this.build(moduleId(args.id));
       case 'runStart': return this.startRun(moduleId(args.id), args);
       case 'runRead': return this.runRead(args);
       case 'runCompute': return this.runCompute(args);
@@ -309,7 +314,11 @@ export class DeveloperService {
   }
 
   private async startRun(id: string, args: Record<string, any>) {
-    const files = this.drafts.files(id), manifest = this.manifestOf(files);
+    const draft = this.drafts.files(id), manifest = this.manifestOf(draft);
+    // Проект с TypeScript сначала собирается сам; ошибка сборки — это ошибка запуска, с файлом и строкой
+    const compiled = await this.compiled(draft);
+    if (compiled && !compiled.ok) throw new StudioFailure(problemLine(compiled.problems[0]));
+    const files = compiled ? withBuilt(draft, compiled) : draft;
     const page = manifest.ui === 'page';
     const built = page ? { runtime: '', problem: pageProblem(files, manifest.pages) } : assembleRuntime(this.runtimeTemplates(), manifest, files);
     if (built.problem) throw new StudioFailure(built.problem);
@@ -359,14 +368,37 @@ export class DeveloperService {
     return { saved: name };
   }
 
+  /** Сборка TypeScript проекта; null — в проекте нет файлов .ts или сборка в этой сборке Studio недоступна */
+  private async compiled(files: Record<string, Uint8Array>): Promise<TsBuildResult | null> {
+    if (!this.deps.tsBuilder || !tsEntries(files).length) return null;
+    return this.deps.tsBuilder.build(files);
+  }
+
+  /** Кнопка «Собрать»: ошибки по файлам и строкам, без запуска и без записи в проект */
+  private async build(id: string) {
+    const files = this.drafts.files(id);
+    if (!this.deps.tsBuilder) throw new StudioFailure('Сборка TypeScript в этой сборке Studio недоступна.');
+    const result = await this.deps.tsBuilder.build(files);
+    return { ok: result.ok, files: result.entries, problems: result.problems, built: Object.keys(result.outputs) };
+  }
+
   private async check(id: string): Promise<CheckReport> {
     const state = this.drafts.state(id);
-    return runChecks({ files: this.drafts.files(id), changelog: state.changelog, studioVersion: this.deps.version, engine: this.deps.engine });
+    const draft = this.drafts.files(id);
+    const compiled = await this.compiled(draft);
+    const report = await runChecks({ files: compiled?.ok ? withBuilt(draft, compiled) : draft, changelog: state.changelog, studioVersion: this.deps.version, engine: this.deps.engine });
+    if (!compiled || compiled.ok) return report;
+    // Каждая ошибка сборки — своя строка отчёта: «Проблемы» открывают файл на нужной строке
+    const items = [...compiled.problems.slice(0, 50).map(p => ({ id: 'build', title: 'Сборка TypeScript', status: 'fail' as const, detail: problemLine(p) })), ...report.items];
+    return { ...report, ok: false, items };
   }
 
   private async publish(id: string) {
     const s = this.session();
-    const state = this.drafts.state(id), files = this.drafts.files(id), manifest = this.manifestOf(files);
+    const state = this.drafts.state(id), draft = this.drafts.files(id), manifest = this.manifestOf(draft);
+    const compiled = await this.compiled(draft);
+    if (compiled && !compiled.ok) throw new StudioFailure(`Сборка TypeScript не прошла: ${problemLine(compiled.problems[0])}`);
+    const files = compiled ? withBuilt(draft, compiled) : draft;
     if (manifest.id !== id || !MODULE_VERSION.test(String(manifest.version))) throw new StudioFailure('Идентификатор и версия в manifest.json не сходятся с проектом.');
     // Отчёт строится заново в момент отправки: «прошло вчера» не считается, а отчёт из окна не принимается вовсе
     const report = await runChecks({ files, changelog: state.changelog, studioVersion: this.deps.version, engine: this.deps.engine });

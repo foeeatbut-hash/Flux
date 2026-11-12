@@ -35,6 +35,18 @@ async function loadStaticValidation(esbuild) {
   return holder.exports.staticValidators();
 }
 
+/**
+ * Рабочий поток сборки TypeScript. В потоке подставляется браузерная сборка пакета esbuild-wasm:
+ * основная запускала бы отдельную программу esbuild, а не wasm. Возвращает карту сборки.
+ */
+async function buildTsWorker({ esbuild, outfile }) {
+  const built = await esbuild.build({
+    entryPoints: [path.join(root, 'studio/shared/tsBuildWorker.ts')], outfile, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent', metafile: true,
+    alias: { 'esbuild-wasm': path.join(root, 'node_modules/esbuild-wasm/lib/browser.js') },
+  });
+  return built.metafile;
+}
+
 /** Возвращает карты сборки (для проверки бандла) */
 async function buildDeveloperAssets({ app, esbuild }) {
   const metafiles = {};
@@ -82,8 +94,12 @@ async function buildDeveloperAssets({ app, esbuild }) {
   });
   metafiles.controlsWorker = controls.metafile;
 
+  // Сборка TypeScript: рабочий поток с esbuild-wasm и сам wasm-файл (из пакета esbuild-wasm, интернет не нужен)
+  metafiles.tsBuildWorker = await buildTsWorker({ esbuild, outfile: path.join(app, 'ts-build-worker.cjs') });
+  fs.copyFileSync(path.join(root, 'node_modules/esbuild-wasm/esbuild.wasm'), path.join(app, 'esbuild.wasm'));
+
   for (const name of TEMPLATE_DIRS) copyTemplate(path.join(root, 'modules/fixtures', name), path.join(app, 'templates', name));
   return metafiles;
 }
 
-module.exports = { buildDeveloperAssets, loadStaticValidation, SENTINEL };
+module.exports = { buildDeveloperAssets, buildTsWorker, loadStaticValidation, SENTINEL };

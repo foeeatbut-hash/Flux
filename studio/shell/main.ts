@@ -10,6 +10,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeImage, protocol, safeStorage
 import path from 'node:path';
 import { startDatabaseRuntime } from '../shared/database-runtime.cjs';
 import { createControlsEngine } from '../shared/controlsEngine';
+import { createTsBuilder } from '../shared/tsBuildHost';
 import { hardenModuleContents, hardenModuleSession } from '../../modules/page/harden';
 import { MODULE_SCHEME, pageNavigationAllowed } from '../../modules/protocol';
 import { ownModules, signIn, StudioFailure, type StudioModule, type StudioUser } from './api';
@@ -150,6 +151,7 @@ export function startShell(sections: ShellSection[] = []): void {
       session: () => runtime && token && user ? { origin: runtime.origin, token, user, owner } : null,
       assets: { templatesRoot: path.join(__dirname, 'templates'), runtimeDir: path.join(__dirname, 'runtime') },
       engine: createControlsEngine({ workerFile: unpacked(path.join(__dirname, 'controls-worker.cjs')) }),
+      tsBuilder: createTsBuilder({ workerFile: unpacked(path.join(__dirname, 'ts-build-worker.cjs')), wasmFile: unpacked(path.join(__dirname, 'esbuild.wasm')) }),
       capture: async rect => (await win!.webContents.capturePage(rect)).toPNG(),
       home: path.join(app.getPath('documents'), 'Flux Studio'),
       emit: (channel, data) => { if (win && !win.isDestroyed()) win.webContents.send(channel, data); },

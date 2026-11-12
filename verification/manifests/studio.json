@@ -427,6 +427,17 @@
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 300000
+    },
+    {
+      "id": "studio-tsbuild",
+      "path": "scripts/test-studio-tsbuild.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
     }
   ],
   "actions": [
@@ -1110,6 +1121,36 @@
           "layer": "unit",
           "claims": [
             "Все строки и текст разметки Studio просмотрены разбором TypeScript; запрещённого слова нет, проверка находит каждое слово на синтетическом примере"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "studio.build",
+      "program": "studio",
+      "label": "Собрать: TypeScript проекта внутри Studio",
+      "sources": [
+        "studio/shared/tsBuild.ts",
+        "studio/shared/tsBuildWorker.ts",
+        "studio/shared/tsBuildHost.ts",
+        "studio/shell/developer.ts",
+        "studio/renderer/work/ProjectWindow.tsx"
+      ],
+      "triggers": [
+        "кнопка «Собрать»",
+        "«Запустить» и «Проверить» в проекте с файлами .ts"
+      ],
+      "risk": "normal",
+      "expected": [
+        "TypeScript собирается внутри Studio в рабочем потоке без интернета; ошибки приходят по файлам и строкам во вкладку «Проблемы»; «Запустить», «Проверить» и «Опубликовать» сами собирают проект и не идут дальше при ошибке"
+      ],
+      "checks": [
+        {
+          "suite": "studio-tsbuild",
+          "layer": "api-db",
+          "claims": [
+            "Несколько файлов собираются в один и исполняются; ошибки синтаксиса, несуществующий файл и пакет называют файл, строку и столбец; зависшая сборка останавливается по времени; запуск, проверка и отправка останавливаются на ошибке сборки"
           ]
         }
       ],
