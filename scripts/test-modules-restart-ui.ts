@@ -13,7 +13,8 @@ try {
       const errors: string[] = [];
       page.on('pageerror', error => errors.push(error.message));
       page.on('console', message => { if (message.type() === 'error' && !/WebSocket connection to .* failed|\[vite\] failed to connect to websocket/.test(message.text())) errors.push(message.text()); });
-      await page.route('**/restart-fixture', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html class="${theme === 'dark' ? 'dark' : ''}" data-glass="${solid ? 'off' : 'on'}"><head><link rel="stylesheet" href="/src/index.css"></head><body><div id="root" style="height:650px"></div><script type="module" src="/scripts/module-restart-fixture.tsx"></script></body></html>` }));
+      // Страницу отдаём мимо Vite, поэтому preamble плагина React (иначе «can't detect preamble») ставим сами.
+      await page.route('**/restart-fixture', route => route.fulfill({ contentType: 'text/html', body: `<!doctype html><html class="${theme === 'dark' ? 'dark' : ''}" data-glass="${solid ? 'off' : 'on'}"><head><script type="module">import RefreshRuntime from '/@react-refresh'; RefreshRuntime.injectIntoGlobalHook(window); window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type; window.__vite_plugin_react_preamble_installed__ = true;</script><link rel="stylesheet" href="/src/index.css"></head><body><div id="root" style="height:650px"></div><script type="module" src="/scripts/module-restart-fixture.tsx"></script></body></html>` }));
       await page.goto(`${url}/restart-fixture`, { waitUntil: 'domcontentloaded' });
       await page.locator('iframe').waitFor({ timeout: 10000 });
       await page.evaluate(() => { (window as any).frameBefore = document.querySelector('iframe'); (window as any).frameBefore.dataset.calculation = 'kept'; (window as any).install('2.0.0'); });
