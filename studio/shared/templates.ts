@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { LOGIC_FILES, type ModuleLanguage, type SourceLanguage } from '../../modules/engine/types';
 import { MODULE_ID } from '../../modules/trust/claims';
+import { PAGE_MIN_FLUX } from '../../modules/page/model';
 import { fluxPageTypes, FLUX_TYPES_FILE } from '../../modules/page/types';
 import { PAGE_INDEX, PAGE_SCRIPT, PAGE_STYLE } from './pageTemplate';
 
@@ -100,7 +101,7 @@ export function createFromTemplate(root: string, template: TemplateId, p: { id: 
   if (kind === 'page') {
     // Страница вместо формы: договор v2, логика и контрольные примеры те же, а экран рисует ui/
     delete files['form.json'];
-    files['manifest.json'] = encode(`${JSON.stringify({ ...manifest, contractVersion: 2, ui: 'page', store: { category: 'calc', summary: 'Считает статистику чисел и рисует график.' } }, null, 2)}\n`);
+    files['manifest.json'] = encode(`${JSON.stringify({ ...manifest, contractVersion: 2, ui: 'page', store: { category: 'calc', summary: 'Считает статистику чисел и рисует график.', requires: { flux: PAGE_MIN_FLUX } } }, null, 2)}\n`);
     files['ui/index.html'] = encode(PAGE_INDEX);
     files['ui/app.js'] = encode(PAGE_SCRIPT);
     files['ui/style.css'] = encode(PAGE_STYLE);

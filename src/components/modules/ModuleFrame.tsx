@@ -11,8 +11,9 @@ import { createConnector, type GrantChoice } from '../../services/moduleConnecti
 import { journalEvent } from '../../services/moduleJournalClient';
 import { bridge as hostBridge } from '../../services/moduleReleaseService';
 import type { GrantAsk } from '../../../modules/connections/model';
-import { pageState, joinPageBus, openModuleWindow, offerFileToUser } from '../../services/modulePage';
-import { PAGE_LIMITS } from '../../../modules/page/model';
+import { pageState, pageStateKey, joinPageBus, openModuleWindow, offerFileToUser, pageTimings } from '../../services/modulePage';
+import { pageHung } from '../../../modules/page/model';
+import { useStore } from '../../store/store';
 import ConnectionPrompt from './ConnectionPrompt';
 import {
   themeKeys, type LaunchContext, type ModuleManifest, type ModuleReader, type ThemeTokens, type ModuleFailureKind,
@@ -48,12 +49,19 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
   const [hung, setHung] = useState(false);
   const [restarts, setRestarts] = useState(0);
   const lastBeat = useRef(Date.now());
+  const beats = useRef(0);
   const paramsRef = useRef(windowParams || {});
+  const userId = useStore(state => state.user?.id || '');
   useEffect(() => {
     if (!isPage) return;
-    lastBeat.current = Date.now(); setHung(false);
-    const timer = setInterval(() => { if (Date.now() - lastBeat.current > PAGE_LIMITS.hangMs) setHung(true); }, 1000);
-    return () => clearInterval(timer);
+    beats.current = 0; lastBeat.current = Date.now(); setHung(false);
+    // Отсчёт идёт только у страницы, уже подавшей сигнал, и только пока окно видно; при возврате в окно — заново
+    const visible = () => { if (document.visibilityState === 'visible') lastBeat.current = Date.now(); };
+    document.addEventListener('visibilitychange', visible);
+    const timer = setInterval(() => {
+      if (pageHung({ beats: beats.current, lastBeat: lastBeat.current, now: Date.now(), hidden: document.visibilityState !== 'visible', hangMs: pageTimings.hangMs })) setHung(true);
+    }, 1000);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', visible); };
   }, [isPage, restarts, page]);
   // Вопрос о подключении и отказ: вопрос показывает человеку окно Flux, ответ записывает главный процесс
   const [asking, setAsking] = useState<{ ask: GrantAsk; resolve: (choice: GrantChoice) => void } | null>(null);
@@ -82,12 +90,13 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
       ask: ask => { const run = chain.then(() => new Promise<GrantChoice>(resolve => setAsking({ ask, resolve }))); chain = run.then(() => undefined, () => undefined); return run; },
       onDenied: info => setDenied(info),
     });
+    const stateKey = pageStateKey(userId, manifest.id, channel);
     const bus = isPage ? joinPageBus(manifest.id, data => bridgeRef.current?.deliver(data)) : null;
     const bridge = createModuleBridge({
       page: isPage ? {
-        loadState: () => pageState.load(manifest.id), keepState: state => pageState.keep(manifest.id, state),
+        loadState: () => pageState.load(stateKey), keepState: state => pageState.keep(stateKey, state),
         offerFile: file => offerFileToUser(manifest.name, file),
-        onBeat: () => { lastBeat.current = Date.now(); setHung(false); },
+        onBeat: () => { beats.current++; lastBeat.current = Date.now(); setHung(false); },
         openWindow: (target, params) => openModuleWindow(manifest.id, target, params),
         params: () => paramsRef.current,
         broadcast: data => bus?.send(data),
@@ -142,7 +151,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
       refreshRef.current = null;
       window.removeEventListener('message', listener);
     };
-  }, [session, manifest, language]);
+  }, [session, manifest, language, userId, channel]);
   useEffect(() => { refreshRef.current?.connectionChanged(); }, [isConnected]);
   useEffect(() => { bridgeRef.current?.notify('project-changed'); }, [context.projectId, context.entry, context.entityId]);
   useEffect(() => { bridgeRef.current?.notify('changed'); }, [theme]);
@@ -173,7 +182,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
       <div className="fx-empty-text">{gate === 'failed' ? 'Контрольные примеры на этом компьютере не сошлись. Сообщение о сбое отправлено разработчику.'
         : 'Контрольные примеры не удалось выполнить (не хватило времени или памяти). Это могло быть разовым.'}</div>
       <button type="button" className="fx-btn" onClick={() => { void resetControls(manifest).then(() => setRecheck(n => n + 1)); }}>Проверить снова</button></div>}
-    {gate === 'ok' && <iframe key={restarts} ref={frame} title={manifest.name} data-testid="flux-module-frame" sandbox={MODULE_SANDBOX}
+    {gate === 'ok' && <iframe key={restarts} ref={frame} name={session} title={manifest.name} data-testid="flux-module-frame" sandbox={MODULE_SANDBOX}
     referrerPolicy="no-referrer" allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'"
     src={`flux-module://${manifest.id}/${isPage ? `ui/${page}` : 'index.html'}#${session}`}
     className="h-full w-full min-h-0 flex-1 border-0" />}

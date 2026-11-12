@@ -11,7 +11,8 @@ import { themeKeys } from '../contract';
 import type { ConnectCall } from '../connections/model';
 import { PAGE_LIMITS } from './model';
 
-const session = location.hash.slice(1);
+// Сессию Flux задаёт и в имени кадра: переход не по ссылке (location.href, свой #якорь) не теряет мост
+const session = window.name || location.hash.slice(1);
 let nextId = 0;
 type Waiter = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; keep?: boolean };
 const waiting = new Map<string, Waiter>();
@@ -83,7 +84,8 @@ window.addEventListener('message', event => {
       const previous = current?.theme.tokens;
       const theme = applyTheme(message.theme);
       current = { context: message.context, theme };
-      if (message.event === 'opened') resolveReady(current);
+      // Первый сигнал сразу: страница, зависшая раньше первого интервала, всё равно будет замечена
+      if (message.event === 'opened') { resolveReady(current); request('page', { op: 'beat' }, 1000).catch(() => undefined); }
       emit(listeners.change, message.event as ChangeEvent);
       if (previous && themeKeys.some(key => previous[key] !== message.theme[key])) emit(listeners.theme, theme);
       return;
@@ -114,7 +116,7 @@ const api = {
   compute(input: Record<string, unknown>): Promise<ModuleOutput> {
     return request('compute', { input }, 120_000);
   },
-  /** Состояние окна: хранит Flux, переживает перезапуск страницы; до 256 КиБ */
+  /** Состояние: хранит Flux в памяти (общее для окон программы), переживает перезапуск страницы, но не закрытие Flux и не выход из профиля; до 256 КиБ */
   state: {
     get: () => request<Record<string, unknown>>('page', { op: 'state-load' }, 5000),
     set: (state: Record<string, unknown>) => request<null>('page', { op: 'state-keep', state }, 5000),

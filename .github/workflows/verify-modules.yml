@@ -21,6 +21,7 @@ on:
       - src/components/modules/**
       - src/screens/ModuleHost.tsx
       - src/services/moduleDataService.ts
+      - src/lib/pageStateMemory.ts
       - scripts/test-modules-*.ts
       - scripts/fixtures/modules-*.ts*
       - scripts/fixtures/moduleLanguages.ts
@@ -48,6 +49,8 @@ jobs:
     env:
       NODE_OPTIONS: --max-old-space-size=8192
       FLUX_MODULE_SHOTS: artifacts/modules-shots
+      # Живая проверка изоляции страницы (test-modules-page) идёт в настоящем Chrome; без него в CI она падает, а не пропускается
+      FLUX_CHROME: C:\Program Files\Google\Chrome\Application\chrome.exe
       DISABLE_HMR: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -82,6 +85,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force artifacts | Out-Null
           node --import tsx scripts/test-modules-native.ts 2>&1 | Tee-Object artifacts/modules-native.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Страница программы в Electron на Windows (протокол, навигация, окна, сохранение, «не отвечает»)
+        shell: pwsh
+        run: |
+          node --import tsx scripts/test-modules-page-native.ts 2>&1 | Tee-Object artifacts/modules-page-native.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Python и WebAssembly в Electron на Windows
         shell: pwsh

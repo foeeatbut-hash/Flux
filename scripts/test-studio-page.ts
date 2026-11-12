@@ -84,6 +84,12 @@ async function main() {
   await mutate('недопустимый тип файла в странице', { ...base, 'ui/tool.exe': enc('MZ') }, 'contract');
   await mutate('нет ui/index.html', Object.fromEntries(Object.entries(base).filter(([k]) => k !== 'ui/index.html')), 'contract');
   await mutate('объявлена страница, которой нет', (() => { const m = JSON.parse(text(base['manifest.json'])); m.pages = ['absent.html']; return { ...base, 'manifest.json': enc(JSON.stringify(m)) }; })(), 'contract');
+  const patchManifest = (files: ProjectFiles, fn: (m: any) => void): ProjectFiles => { const m = JSON.parse(text(files['manifest.json'])); fn(m); return { ...files, 'manifest.json': enc(JSON.stringify(m)) }; };
+  await mutate('нет store.requires.flux у страницы', patchManifest(base, m => { delete m.store.requires; }), 'contract');
+  await mutate('store.requires.flux старше первой версии со страницами', patchManifest(base, m => { m.store.requires = { flux: '1.0.0' }; }), 'contract');
+  const broken = await check({ ...Object.fromEntries(Object.entries(base).filter(([k]) => k !== 'ui/index.html')), 'ui/tool.exe': enc('MZ') });
+  const contractItem = broken.items.find(i => i.id === 'contract')!;
+  ok('при ошибках договора пункт показывает причины, а не «соответствует»', contractItem.status === 'fail' && /ui\/index\.html/.test(contractItem.detail) && !/соответствует договору v/.test(contractItem.detail));
   const viaBridge = await check({ ...base, 'ui/app.js': enc(`${page('ui/app.js')}\nflux.net.fetch('api', '/x');`) });
   ok('flux.net.fetch через мост проверка не считает сетевым вызовом', !failing(viaBridge).includes('page-csp'));
 

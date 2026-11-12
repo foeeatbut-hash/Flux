@@ -51,7 +51,7 @@ declare const flux: {
   read<R extends FluxResource>(resource: R, entityId?: string): Promise<FluxReadData[R]>;
   /** Расчёт логики (Python, WebAssembly): вход JSON, выход state и calc.out */
   compute(input: Record<string, unknown>): Promise<FluxOutput>;
-  /** Состояние окна хранит Flux; до ${PAGE_LIMITS.stateBytes / 1024} КиБ */
+  /** Состояние хранит Flux в памяти (не на диске), общее для окон программы; до ${PAGE_LIMITS.stateBytes / 1024} КиБ */
   state: { get(): Promise<Record<string, unknown>>; set(state: Record<string, unknown>): Promise<null> };
   /** Подключение из manifest.json; первое обращение Flux подтверждает у человека */
   connect: { call(connection: string, call: Record<string, unknown>): Promise<unknown> };

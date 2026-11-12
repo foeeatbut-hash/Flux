@@ -1,4 +1,5 @@
-import { app, protocol, type WebContents } from 'electron';
+import { app, protocol, session, type WebContents } from 'electron';
+import { hardenModuleContents, hardenModuleSession } from '../modules/page/harden';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { bundledModules } from '../modules/bundled';
@@ -23,7 +24,7 @@ export function registerModuleScheme() {
   // fetch нужен окну Flux (файлы логики из проверенного выпуска) и хосту Python (файлы Pyodide); подпрограммам его закрывает
   // их CSP (`connect-src 'none'`). Не выдаём bypassCSP, service workers и доступ к файловой системе.
   protocol.registerSchemesAsPrivileged([{ scheme: MODULE_SCHEME, privileges: { standard: true, secure: true, corsEnabled: true, supportFetchAPI: true } }]);
-  app.on('web-contents-created', (_event, contents) => guardModuleNavigation(contents));
+  app.on('web-contents-created', (_event, contents) => { guardModuleNavigation(contents); hardenModuleContents(contents); });
 }
 export function guardModuleNavigation(contents: WebContents) {
   // CSP ограничивает ресурсы, но не самостоятельный переход iframe по внешней ссылке.
@@ -58,6 +59,7 @@ export interface ModuleProtocolOptions {
  * главный процесс: непроверенное сюда не попадает.
  */
 export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOptions = {}) {
+  hardenModuleSession(session.defaultSession);
   const bundledIds = bundledModules.map(item => item.id);
   const dir = options.dir ?? path.join(app.getPath('userData'), 'modules');
   const cache = new ModuleCache(dir, options.rootHex ?? UPDATE_PUBLIC_KEY_HEX);

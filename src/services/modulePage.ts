@@ -7,12 +7,9 @@
 import { useWindowStore } from '../store/windowStore';
 import { PAGE_LIMITS, WINDOW_LIMITS } from '../../modules/page/model';
 
-const states = new Map<string, Record<string, unknown>>();
-export const pageState = {
-  load: (moduleId: string): Record<string, unknown> => states.get(moduleId) ?? {},
-  keep: (moduleId: string, state: Record<string, unknown>) => { states.set(moduleId, state); },
-  clear: (moduleId?: string) => { if (moduleId) states.delete(moduleId); else states.clear(); },
-};
+export { pageState, pageStateKey } from '../lib/pageStateMemory';
+/** Пороги «не отвечает»; поле, а не константа, чтобы проверка в настоящем Electron не ждала полминуты */
+export const pageTimings: { hangMs: number } = { hangMs: PAGE_LIMITS.hangMs };
 
 type Listener = (data: unknown) => void;
 const buses = new Map<string, Set<{ deliver: Listener }>>();
@@ -37,10 +34,12 @@ export const moduleWindowHref = (moduleId: string, page: string, params: Record<
 /** Открыть ещё одно окно программы; false — предел числа окон */
 export function openModuleWindow(moduleId: string, page: string, params: Record<string, unknown>): boolean {
   const store = useWindowStore.getState();
-  const own = store.windows.filter(w => w.path === `/module/${moduleId}`);
-  if (own.length >= WINDOW_LIMITS.windows) return false;
+  const own = () => useWindowStore.getState().windows.filter(w => w.path === `/module/${moduleId}`).length;
+  if (own() >= WINDOW_LIMITS.windows) return false;
+  const before = own();
   store.openAnother(moduleWindowHref(moduleId, page, params));
-  return true;
+  // Раздел мог быть скрыт правами: окно не открылось — честный отказ, а не «готово»
+  return own() > before;
 }
 
 /**

@@ -10,6 +10,7 @@ import { app, BrowserWindow, dialog, ipcMain, protocol, safeStorage } from 'elec
 import path from 'node:path';
 import { startDatabaseRuntime } from '../shared/database-runtime.cjs';
 import { createControlsEngine } from '../shared/controlsEngine';
+import { hardenModuleContents, hardenModuleSession } from '../../modules/page/harden';
 import { MODULE_SCHEME, pageNavigationAllowed } from '../../modules/protocol';
 import { ownModules, signIn, StudioFailure, type StudioModule, type StudioUser } from './api';
 import { ALL_ACTIONS, SHELL_ACTIONS, type DeveloperAction } from './actions';
@@ -127,6 +128,8 @@ export function startShell(sections: ShellSection[] = []): void {
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true },
     });
     win.setMenu(null);
+    hardenModuleContents(win.webContents);
+    hardenModuleSession(win.webContents.session);
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
     // CSP ограничивает ресурсы, но не самостоятельный переход iframe подпрограммы по ссылке

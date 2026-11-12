@@ -6,7 +6,7 @@ import { validMessage } from './schemas';
 import { ComputeError, codeOf, type ComputeErrorCode } from './engine/types';
 import { encodeJson } from './engine/json';
 import type { ConnectCall, ConnectErrorCode } from './connections/model';
-import { PAGE_LIMITS, SAVE_NAME, WINDOW_LIMITS } from './page/model';
+import { PAGE_LIMITS, saveNameProblem, WINDOW_LIMITS } from './page/model';
 
 export interface ModuleBridgeOptions {
   frame: () => Window | null;
@@ -156,7 +156,7 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       page.keepState(message.state); answer({ data: null }); return;
     }
     // Файл пользователю: одно окно диалога за раз и не чаще раза в секунду, имя без путей
-    if (!SAVE_NAME.test(message.name) || /^\.+$/.test(message.name)) { answer({ code: 'DENIED' }); return; }
+    if (saveNameProblem(message.name)) { answer({ code: 'DENIED' }); return; }
     if (offering || Date.now() - offeredAt < 1000) { answer({ code: 'LIMIT' }); return; }
     let bytes: Uint8Array;
     try {

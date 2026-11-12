@@ -7,6 +7,11 @@
  */
 import type { BundleFiles } from '../trust/bundle';
 
+/**
+ * Первая версия Flux со страницами (договор v2). Старый Flux не знает ни `ui`, ни v2 и скажет лишь «манифест не соответствует»;
+ * поэтому программа-страница обязана объявить `store.requires.flux` не ниже этой версии, и Store прячет установку на старых клиентах.
+ */
+export const PAGE_MIN_FLUX = '1.21.0';
 export const PAGE_DIR = 'ui/';
 export const PAGE_ENTRY = 'ui/index.html';
 /** Клиент `flux.*` и набор Flux поставляет сам Flux (не копируется в пакет); версия в имени — старые страницы не ломаются */
@@ -22,9 +27,9 @@ export const PAGE_LIMITS = {
   stateBytes: 256 * 1024,
   /** Файл «отдать пользователю»: в пределах одного сообщения моста (1 МиБ) с запасом на base64 */
   saveChars: 700_000,
-  /** Страница шлёт сигнал раз в beatMs; нет сигнала дольше hangMs — «программа не отвечает» */
+  /** Страница шлёт сигнал раз в beatMs; нет сигнала дольше hangMs (30 с: фоновые таймеры и тяжёлый расчёт не должны давать ложную тревогу) — «программа не отвечает» */
   beatMs: 2000,
-  hangMs: 10_000,
+  hangMs: 30_000,
 } as const;
 
 /** Что разрешено лежать в ui/ и каким типом отдаётся. Остальное (в том числе .wasm) в страницу не входит */
@@ -72,5 +77,25 @@ export const PAGE_ERROR_NOTES: Record<PageErrorCode, string> = {
 /** Предел окон одной программы и размера сообщения между ними */
 export const WINDOW_LIMITS = { windows: 5, messageBytes: 64 * 1024, paramsBytes: 8 * 1024 } as const;
 
+/**
+ * «Не отвечает»: считаем только страницу, которая уже подала сигнал (без клиента flux.v1.js сигнала нет и не будет),
+ * и только пока окно видно — у скрытого и свёрнутого окна таймеры замедляются, тишина там ничего не значит.
+ */
+export function pageHung(s: { beats: number; lastBeat: number; now: number; hidden: boolean; hangMs: number }): boolean {
+  return s.beats > 0 && !s.hidden && s.now - s.lastBeat > s.hangMs;
+}
+
 /** Имя файла для «отдать пользователю»: без путей и управляющих знаков */
 export const SAVE_NAME = /^[^\\/:*?"<>|\u0000-\u001f]{1,100}$/;
+/** Расширения, которыми файл на Windows можно запустить: страница не должна подсовывать такое даже с вопросом человеку */
+export const SAVE_DENIED_EXT = ['exe', 'com', 'bat', 'cmd', 'lnk', 'ps1', 'psm1', 'vbs', 'vbe', 'js', 'jse', 'wsf', 'wsh', 'msi', 'msp', 'scr', 'pif', 'hta', 'cpl', 'reg', 'dll', 'jar', 'sh', 'url', 'inf', 'gadget', 'application', 'appref-ms', 'ps1xml', 'msc', 'sys', 'drv'];
+const RESERVED = /^(?:con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)$/i;
+/** Причина словами, почему имя не годится, либо '' */
+export function saveNameProblem(name: string): string {
+  if (!SAVE_NAME.test(name) || /^\.+$/.test(name)) return 'недопустимое имя файла';
+  if (/[. ]$/.test(name) || /^\s/.test(name)) return 'имя не может начинаться с пробела и заканчиваться пробелом или точкой';
+  if (RESERVED.test(name.split('.')[0].trim())) return 'зарезервированное имя Windows';
+  const parts = name.toLowerCase().split('.');
+  if (parts.length > 1 && parts.slice(1).some(ext => SAVE_DENIED_EXT.includes(ext.trim()))) return 'исполняемый или сценарный тип файла';
+  return '';
+}

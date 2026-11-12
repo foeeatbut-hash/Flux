@@ -27,7 +27,7 @@ const STUB = `
 const handlers = new Map(); const windows = []; let nextSave = '';
 class Win {
   constructor(options) { this.options = options; this.closedHandlers = []; this.destroyed = false;
-    this.webContents = { setWindowOpenHandler() {}, on() {}, send() {}, mainFrame: {}, id: windows.length };
+    this.webContents = { setWindowOpenHandler() {}, setWebRTCIPHandlingPolicy() {}, session: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }, on() {}, send() {}, mainFrame: {}, id: windows.length };
     windows.push(this); }
   setMenu() {} loadFile(file) { this.file = file; return Promise.resolve(); } isDestroyed() { return this.destroyed; }
   isMinimized() { return false; } restore() {} focus() { this.focused = (this.focused || 0) + 1; }

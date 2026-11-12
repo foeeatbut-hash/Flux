@@ -13,7 +13,10 @@ import { build } from 'esbuild';
 import { validManifest, validMessage } from '../modules/schemas';
 import { createModuleBridge } from '../modules/bridge';
 import { moduleAssetPath, moduleHeaders, pageNavigationAllowed, PAGE_CSP } from '../modules/protocol';
-import { PAGE_ENTRY, pageProblem, pageTypeOf, PAGE_LIMITS } from '../modules/page/model';
+import { PAGE_ENTRY, pageProblem, pageTypeOf, PAGE_LIMITS, pageHung, saveNameProblem, PAGE_MIN_FLUX } from '../modules/page/model';
+import { permissionAllowed, hardenModuleSession } from '../modules/page/harden';
+import { pageState, pageStateKey } from '../src/lib/pageStateMemory';
+import { unmetRequirements } from '../modules/store/model';
 import { packBundle, splitChunks, type BundleFiles } from '../modules/trust/bundle';
 import { sealEnvelope } from '../modules/trust/envelope';
 import { describeBundle, verifyRelease } from '../modules/trust/verify';
@@ -104,6 +107,50 @@ async function units() {
   }
 }
 
+
+async function moreUnits() {
+  console.log('\n5а. «Не отвечает»: только после первого сигнала, только у видимого окна');
+  const at = (over: Partial<Parameters<typeof pageHung>[0]> = {}) => pageHung({ beats: 3, lastBeat: 0, now: PAGE_LIMITS.hangMs + 1, hidden: false, hangMs: PAGE_LIMITS.hangMs, ...over });
+  ok('страница молчит дольше порога после сигналов — зависла', at() === true);
+  ok('в пределах порога — жива', at({ now: PAGE_LIMITS.hangMs - 1 }) === false);
+  ok('страница без клиента (сигналов не было) не считается зависшей', at({ beats: 0 }) === false);
+  ok('скрытое или свёрнутое окно не считается', at({ hidden: true }) === false);
+  ok('порог не меньше 30 с', PAGE_LIMITS.hangMs >= 30_000);
+  // Мутация: отсчёт «с монтирования» (без требования сигналов и видимости) ошибся бы на тех же входах
+  const mutant = (s: { lastBeat: number; now: number; hangMs: number }) => s.now - s.lastBeat > s.hangMs;
+  ok('мутация «считать с монтирования» ловится: ложная тревога на странице без клиента', mutant({ lastBeat: 0, now: PAGE_LIMITS.hangMs + 1, hangMs: PAGE_LIMITS.hangMs }) !== at({ beats: 0 }));
+
+  console.log('\n5б. Состояние страницы: по пользователю, программе и каналу');
+  pageState.clear();
+  const a = pageStateKey('u1', 'calc', 'test'), b = pageStateKey('u1', 'calc', 'production'), c = pageStateKey('u2', 'calc', 'test'), d = pageStateKey('u1', 'other', 'test');
+  pageState.keep(a, { n: 1 });
+  ok('другой канал, пользователь и программа состояния не видят', !Object.keys(pageState.load(b)).length && !Object.keys(pageState.load(c)).length && !Object.keys(pageState.load(d)).length);
+  ok('окна той же программы того же пользователя и канала видят одно', pageState.load(a).n === 1);
+  pageState.clear();
+  ok('сброс при выходе из профиля очищает состояние', !Object.keys(pageState.load(a)).length);
+
+  console.log('\n5в. saveFile: имена и расширения');
+  for (const bad of ['setup.exe', 'run.BAT', 'a.cmd', 'link.lnk', 'x.ps1', 'm.vbs', 'app.js', 'i.msi', 'screen.scr', 'CON', 'nul.txt', 'aux.csv', 'COM1.txt', 'LPT3', 'name.', 'name ', ' name', '..', '../x', 'a:b', 'report.exe.txt', 'x.tar.js']) {
+    ok(`отклонено: «${bad}»`, saveNameProblem(bad) !== '');
+  }
+  for (const good of ['result.csv', 'Таблица 1.xlsx', 'график.png', 'data.json', 'report.v2.pdf']) ok(`разрешено: «${good}»`, saveNameProblem(good) === '');
+
+  console.log('\n5г. Разрешения Electron и Store');
+  ok('кадру программы разрешения не даются', !permissionAllowed('flux-module://calc/ui/index.html') && !permissionAllowed('flux-module://calc/index.html'));
+  ok('остальным окнам поведение прежнее', permissionAllowed('http://127.0.0.1:3000/') && permissionAllowed(undefined));
+  const granted: boolean[] = [];
+  let check: ((wc: unknown, p: string, o: string, d: any) => boolean) | null = null;
+  hardenModuleSession({
+    setPermissionRequestHandler: h => { h(null, 'media', g => granted.push(g), { requestingUrl: 'flux-module://calc/ui/index.html' }); h(null, 'media', g => granted.push(g), { requestingUrl: 'http://x/' }); },
+    setPermissionCheckHandler: h => { check = h; },
+  });
+  ok('обработчик запросов отказывает кадру и пропускает остальных', granted[0] === false && granted[1] === true);
+  ok('обработчик проверки отказывает кадру', check!(null, 'geolocation', 'flux-module://calc', { requestingUrl: 'flux-module://calc/ui/index.html' }) === false);
+  const old = { ...base, contractVersion: 2, store: { category: 'calc', summary: 'x', requires: { flux: PAGE_MIN_FLUX } } } as any;
+  ok('Store прячет страницу на Flux ниже первой версии со страницами', unmetRequirements(old, { fluxVersion: '1.20.20', windows: true }).length === 1);
+  ok('на подходящем Flux страница ставится', unmetRequirements(old, { fluxVersion: PAGE_MIN_FLUX, windows: true }).length === 0);
+}
+
 interface LiveResult { report: any; leaks: string[]; saved: any[]; windows: any[]; beats: number; log: string[]; second: any; shot: Record<string, string> }
 async function live(csp: string, shots: string): Promise<LiveResult> {
   const { chromium } = await import('playwright-core');
@@ -137,6 +184,7 @@ async function live(csp: string, shots: string): Promise<LiveResult> {
       await tab.evaluate(([src, t, manifest]) => (window as any).startHost({ src, theme: t, manifest }),
         [`http://127.0.0.1:${port(pageServer)}/ui/index.html?leak=${encodeURIComponent(`http://127.0.0.1:${port(outside)}`)}`, theme, base] as const);
       await tab.waitForFunction(() => (window as any).__state && (window as any).__state.report, null, { timeout: 30000 });
+      await tab.waitForFunction(() => (window as any).__beats >= 1, null, { timeout: 10000 }).catch(() => undefined);
       const got = await tab.evaluate(() => { const w = window as any; return { report: w.__state.report, saved: w.__saved, windows: w.__windows, beats: w.__beats, log: w.__log }; });
       if (theme === 'light') Object.assign(result, got);
       const frame = tab.frames().find(f => f.url().includes('/ui/index.html'))!;
@@ -161,7 +209,12 @@ async function live(csp: string, shots: string): Promise<LiveResult> {
 }
 
 async function liveTests() {
-  if (!process.env.FLUX_CHROME && !fs.existsSync('/usr/bin/chromium')) { console.log('FLUX_VERIFY_SKIP: нет Chromium (FLUX_CHROME)'); return; }
+  const chrome = process.env.FLUX_CHROME || '/usr/bin/chromium';
+  if (!fs.existsSync(chrome)) {
+    // В CI тихий пропуск недопустим: без живого кадра вся проверка изоляции была бы пустой
+    if (process.env.CI) { failed++; console.error(`  ✗ в CI нет Chromium (${chrome}): живая проверка изоляции не выполнена`); return; }
+    console.log('FLUX_VERIFY_SKIP: нет Chromium (FLUX_CHROME)'); return;
+  }
   const shots = process.env.FLUX_MODULE_SHOTS || '/tmp/modules-page-shots';
   console.log('\n6. Настоящий кадр: всё, что вне моста, закрыто');
   const r = await live(PAGE_CSP, shots);
@@ -187,7 +240,7 @@ async function liveTests() {
   ok('мост: файл отдаётся через Flux', rep?.saveFile.ok && r.saved.length === 1 && r.saved[0].name === 'result.csv' && r.saved[0].size > 0);
   ok('мост: состояние больше предела — LIMIT', rep?.bigState.error === 'LIMIT');
   ok('мост: запись в данные Flux — READ_ONLY', rep?.rawWrite.error === 'READ_ONLY');
-  ok('сигнал «жива» доходит до Flux', r.beats >= 0 && r.log.length >= 0);
+  ok('сигнал «жива» доходит до Flux', r.beats >= 1);
   ok('тема: светлая и тёмная приходят странице', JSON.parse(r.shot.light).mode === 'light' && JSON.parse(r.shot.dark).mode === 'dark');
   ok('тема: цвета разные в обеих темах', JSON.parse(r.shot.light).bg !== JSON.parse(r.shot.dark).bg);
   ok('смена темы доходит без перезагрузки', r.shot.switched === 'dark');
@@ -202,6 +255,7 @@ async function liveTests() {
 
 (async () => {
   await units();
+  await moreUnits();
   await liveTests();
   console.log(`\nИтог: ${passed} пройдено, ${failed} провалено`);
   if (failed) process.exit(1);

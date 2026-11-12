@@ -102,7 +102,10 @@
         "modules/page/flux-ui.v1.css",
         "src/services/modulePage.ts",
         "scripts/fixtures/page-app/index.html",
-        "scripts/fixtures/page-host.ts"
+        "scripts/fixtures/page-host.ts",
+        "modules/page/harden.ts",
+        "src/lib/pageStateMemory.ts",
+        "scripts/fixtures/modules-page-host.tsx"
       ]
     }
   ],
@@ -373,6 +376,15 @@
       "path": "scripts/test-modules-journal.ts",
       "layer": "api-db",
       "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-page-native",
+      "path": "scripts/test-modules-page-native.ts",
+      "layer": "windows-native",
+      "platform": "win32",
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 900000

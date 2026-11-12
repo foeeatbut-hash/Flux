@@ -17,7 +17,8 @@ import { CONTROLS_FILE, LIMITS, LOGIC_FILES, languageOf } from '../../modules/en
 import { wasmProblem } from '../../modules/engine/wasmInspect';
 import { parseControls } from '../../modules/engine/controls';
 import { MODULE_BUNDLE_MAX, MODULE_VERSION } from '../../modules/trust/claims';
-import { pageProblem, pageFiles, PAGE_ENTRY } from '../../modules/page/model';
+import { compareVersions } from '../../shared/versionCompare';
+import { pageProblem, pageFiles, PAGE_ENTRY, PAGE_MIN_FLUX } from '../../modules/page/model';
 import type { ControlsEngine } from './controlsEngine';
 import type { ProjectFiles } from './templates';
 
@@ -126,9 +127,13 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
   const isPage = !!manifest && (manifest as ModuleManifest).ui === 'page';
   if (isPage) { const problem = pageProblem(files, (manifest as ModuleManifest).pages); if (problem) contract.push(problem); }
   else if (!files['form.json']) contract.push('нет form.json');
+  if (isPage) {
+    const need = (manifest as ModuleManifest).store?.requires?.flux;
+    if (!need || compareVersions(need, PAGE_MIN_FLUX) < 0) contract.push(`для страницы укажите store.requires.flux не ниже ${PAGE_MIN_FLUX}: старый Flux её не запустит, а Store спрячет установку`);
+  }
   const total = Object.values(files).reduce((sum, bytes) => sum + bytes.length, 0);
   if (total > MODULE_BUNDLE_MAX) contract.push(`проект больше ${MODULE_BUNDLE_MAX / 1024 / 1024} МиБ`);
-  items.push(item('contract', 'Договор: manifest.json и состав пакета', contract.length ? 'fail' : 'ok', contract.join('; ') || isPage ? `manifest.json соответствует договору v2, страница ${PAGE_ENTRY} на месте` : 'manifest.json соответствует договору v1, файлы на месте'));
+  items.push(item('contract', 'Договор: manifest.json и состав пакета', contract.length ? 'fail' : 'ok', contract.join('; ') || (isPage ? `manifest.json соответствует договору v2, страница ${PAGE_ENTRY} на месте` : 'manifest.json соответствует договору v1, файлы на месте')));
   if (!manifest || !validManifest(manifest)) return finish(items, input);
 
   // 2. Привязки и чтения -----------------------------------------------------
