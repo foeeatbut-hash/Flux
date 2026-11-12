@@ -3,7 +3,7 @@
  *
  * Оболочка Studio отдаёт текстовые файлы проекта (путь → содержимое). Форма — form.json; читает
  * программа — `reads` в manifest.json; значения state и calc.out, которые программа объявляет
- * в договоре, лежат в contract.json (свой файл пакета: манифест схемой не расширяется). Если
+ * в описании данных, лежат в contract.json (свой файл пакета: манифест схемой не расширяется). Если
  * contract.json ещё нет, значения выводятся из привязок формы и из кода — как стартовое описание.
  */
 import { resources } from '../../../modules/contract';
@@ -59,7 +59,7 @@ function values(raw: unknown): ContractValue[] {
 
 const parse = (text: string | undefined): any => { try { return text === undefined ? undefined : JSON.parse(text); } catch { return undefined; } };
 
-/** Имена state.* и calc.out.* из привязок формы и из кода: стартовое описание договора */
+/** Имена state.* и calc.out.* из привязок формы и из кода: стартовое описание описания данных */
 export function inferValues(files: Record<string, string>): { state: ContractValue[]; outputs: ContractValue[] } {
   const state = new Set<string>(), outputs = new Set<string>();
   const bind = (path: unknown) => {

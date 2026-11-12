@@ -1,5 +1,5 @@
 /**
- * «Разрешения» подключений: каждое подключение подпрограммы с переключателем
+ * «Разрешения» подключений: каждое подключение программы с переключателем
  * «Разрешено / Спрашивать / Запрещено» и «Сбросить все». Список и запись идут через
  * главный процесс: решение хранится у него, а запрещённое политикой администратора
  * показывается заблокированным — выбор человека эту политику не отменяет.
@@ -34,10 +34,10 @@ export default function ConnectionGrants({ moduleId }: { moduleId?: string }) {
   };
   const reset = async () => { await bridge()?.invoke('modules:grants-reset', moduleId ? { moduleId } : {}); await load(); };
   if (!rows) return <div className="stx-note">Загрузка…</div>;
-  if (!rows.length) return <div className="stx-note" data-testid="grants-empty">{bridge() ? 'У установленных подпрограмм нет подключений к внешним программам.' : 'Разрешения подключений действуют в программе Flux на компьютере.'}</div>;
+  if (!rows.length) return <div className="stx-note" data-testid="grants-empty">{bridge() ? 'У установленных программ нет подключений к внешним программам.' : 'Разрешения подключений действуют в программе Flux на компьютере.'}</div>;
   return <div className="flex flex-col gap-3" data-testid="grants">
     {error && <div className="fx-error">{error}</div>}
-    <table className="fx-table"><thead><tr>{!moduleId && <th>Подпрограмма</th>}<th>Подключение</th><th>Что делает</th><th>Выбор</th></tr></thead>
+    <table className="fx-table"><thead><tr>{!moduleId && <th>Программа</th>}<th>Подключение</th><th>Что делает</th><th>Выбор</th></tr></thead>
       <tbody>{rows.map(r => <tr key={`${r.moduleId}:${r.connection}`} data-testid="grants-row">
         {!moduleId && <td><b>{r.moduleName}</b></td>}
         <td><b>{r.app}</b><div className="fx-hint">{ACCESS_NAMES[r.access]} · {r.technical}</div></td>

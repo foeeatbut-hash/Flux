@@ -58,3 +58,65 @@ tr[aria-selected="true"] td { background: var(--flux-sel); }
 .studio-body td { min-height: var(--flux-row-h, 32px); padding: 4px var(--flux-cell-px, 8px); border-bottom: 1px solid var(--flux-line); }
 .studio-body tbody tr:hover td { background: var(--flux-hover); }
 .studio-body button:focus-visible, .fx-li:focus-visible { outline: 2px solid var(--flux-focus); outline-offset: 1px; }
+
+/* Рабочее окно проекта: панель кнопок, дерево, вкладки, нижняя панель. Цвета и меры — только токены Flux. */
+.studio-project { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.studio-project-bar { display: flex; align-items: center; gap: 12px; padding: 6px 12px; border-bottom: 1px solid var(--flux-line); flex-wrap: wrap; }
+.studio-project-title { display: flex; flex-direction: column; min-width: 160px; flex: 1; }
+.studio-project-title .code { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-actions, .studio-project-tools { display: flex; gap: 6px; align-items: center; }
+.studio-project-main { display: flex; flex: 1; min-height: 0; }
+.studio-side { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--flux-line); background: var(--flux-bg); }
+.studio-center { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.studio-find { padding: 8px; border-bottom: 1px solid var(--flux-line); }
+.studio-find input { width: 100%; }
+.studio-hits { list-style: none; margin: 6px 0 0; padding: 0; max-height: 200px; overflow: auto; }
+.studio-hits button, .studio-link { all: unset; cursor: pointer; display: block; width: 100%; padding: 2px 4px; border-radius: var(--flux-radius-sm, 4px); font-size: 12px; box-sizing: border-box; }
+.studio-link { display: inline; width: auto; color: var(--flux-accent-text); font-weight: 500; font-size: 13px; }
+.studio-hits button:hover, .studio-link:hover { background: var(--flux-hover); }
+.studio-tree { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.studio-tree-tools { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--flux-line); }
+.studio-tree-list { flex: 1; overflow: auto; padding: 4px 0; }
+.studio-node { display: flex; align-items: center; gap: 4px; min-height: 24px; padding-right: 8px; cursor: pointer; user-select: none; flex-wrap: wrap; }
+.studio-node svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--flux-text-muted); }
+.studio-node:hover, .studio-node[aria-selected="true"] { background: var(--flux-hover); }
+.studio-node.is-active { background: var(--flux-sel); }
+.studio-node.is-ignored .studio-node-name { color: var(--flux-text-faint); }
+.studio-node.has-problem .studio-node-name { color: var(--flux-bad-text); }
+.studio-node.is-drop { outline: 1px dashed var(--flux-accent); }
+.studio-node-gap { width: 14px; flex-shrink: 0; }
+.studio-node-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-node-acts { display: flex; gap: 2px; width: 100%; padding-left: 18px; }
+.studio-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.studio-tabs { display: flex; overflow-x: auto; border-bottom: 1px solid var(--flux-line); background: var(--flux-bg); }
+.studio-tab { display: flex; align-items: center; border-right: 1px solid var(--flux-line); white-space: nowrap; }
+.studio-tab > button { all: unset; cursor: pointer; padding: 4px 10px; font-size: 12px; }
+.studio-tab.is-on { background: var(--flux-surface); box-shadow: inset 0 -2px 0 var(--flux-accent); }
+.studio-tab-x { padding: 4px 6px !important; display: flex; } .studio-tab-x svg { width: 12px; height: 12px; }
+.studio-tab > button:focus-visible { outline: 2px solid var(--flux-focus); }
+.studio-dirty { margin-left: 4px; color: var(--flux-warn); }
+.studio-editor-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.studio-banner { padding: 6px 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid var(--flux-line); }
+.studio-banner.warn { background: var(--flux-bad-soft); color: var(--flux-bad-text); }
+.studio-image { padding: 16px; overflow: auto; } .studio-image img { max-width: 100%; }
+.fx-empty-note { padding: 16px; color: var(--flux-text-muted); }
+.studio-bottom { flex-shrink: 0; height: 320px; display: flex; flex-direction: column; border-top: 1px solid var(--flux-line-strong); background: var(--flux-surface); }
+.studio-bottom.is-closed { height: auto; }
+.studio-bottom-head { display: flex; align-items: center; justify-content: space-between; padding: 0 8px; border-bottom: 1px solid var(--flux-line); }
+.studio-bottom-body { flex: 1; min-height: 0; overflow: auto; }
+.studio-run { padding: 0 12px 12px; }
+.studio-problems { list-style: none; margin: 0; padding: 0; }
+.studio-problem { all: unset; box-sizing: border-box; display: flex; gap: 12px; width: 100%; padding: 6px 12px; cursor: pointer; border-bottom: 1px solid var(--flux-line); }
+.studio-problem:disabled { cursor: default; }
+.studio-problem:not(:disabled):hover { background: var(--flux-hover); }
+.studio-problem:focus-visible { outline: 2px solid var(--flux-focus); outline-offset: -2px; }
+.studio-problem-src { width: 80px; flex-shrink: 0; color: var(--flux-text-muted); font-size: 12px; }
+.studio-problem-text { flex: 1; min-width: 0; } .studio-problem-where { color: var(--flux-text-muted); }
+.studio-steps { margin-bottom: 16px; padding: 12px 16px; border: 1px solid var(--flux-line-strong); border-radius: var(--flux-radius-sm, 4px); background: var(--flux-accent-soft); color: var(--flux-text); }
+.studio-steps-head { display: flex; justify-content: space-between; align-items: center; } .studio-steps ol { margin: 8px 0 0; padding-left: 20px; }
+.studio-modal-back { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgb(0 0 0 / 0.45); }
+.studio-modal { width: 100%; max-width: 520px; max-height: 100%; overflow: auto; padding: 16px 20px; border: 1px solid var(--flux-line-strong); border-radius: var(--flux-radius-sm, 4px); background: var(--flux-surface); color: var(--flux-text); }
+.studio-modal.wide { max-width: 760px; }
+.studio-modal-title { margin: 0 0 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
+.studio-modal-actions { margin-top: 12px; }
+@media (max-width: 760px) { .studio-side { width: 180px; } }

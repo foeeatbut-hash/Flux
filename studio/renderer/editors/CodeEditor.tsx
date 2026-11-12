@@ -1,9 +1,9 @@
 /**
  * Редактор кода программы.
  *
- * TypeScript и JavaScript: подсветка, автодополнение и лёгкая проверка по договору; файл типов
- * (contract.d.ts) создаётся из договора и показывается рядом для чтения и для внешних средств
- * разработки: ни Studio, ни Flux при выпуске по нему типы пока не проверяют. Остальные языки: подсветка и справка по договору (какой JSON приходит и уходит).
+ * TypeScript и JavaScript: подсветка, автодополнение и лёгкая проверка по описанию данных; файл типов
+ * (contract.d.ts) создаётся из описания данных и показывается рядом для чтения и для внешних средств
+ * разработки: ни Studio, ни Flux при выпуске по нему типы пока не проверяют. Остальные языки: подсветка и справка по описанию данных (какой JSON приходит и уходит).
  */
 import React, { useMemo, useState } from 'react';
 import type { CompletionSource } from '@codemirror/autocomplete';
@@ -52,27 +52,27 @@ export function CodeEditor({ files, contract, onFiles }: { files: CodeFile[]; co
           </div>
         ))}
         <div className="ed-code-file" hidden={active !== TYPES_TAB}>
-          <CodeView value={dts} language="typescript" label="Типы из договора, только чтение" readOnly testId="types-view" />
+          <CodeView value={dts} language="typescript" label="Типы из описания данных, только чтение" readOnly testId="types-view" />
         </div>
         {file && (
           <div className="ed-text-foot">
             {marks.length === 0
-              ? <p className="ed-ok" role="status" data-testid="code-status">Обращения к данным совпадают с договором.</p>
+              ? <p className="ed-ok" role="status" data-testid="code-status">Обращения к данным совпадают с описанием данных.</p>
               : <ul data-testid="code-problems">{marks.map((mark, i) => <li key={i}><span className="ed-line">Строка {mark.line}</span><span className="ed-error">{mark.message}</span></li>)}</ul>}
             <p className="ed-hint">Проверка лёгкая, по тексту: она срабатывает и в комментариях и строках и не видит чтение через деструктуризацию. Типы по contract.d.ts в Studio и при выпуске не проверяются. Клавиша Tab уходит из редактора, а не вставляет отступ.</p>
           </div>
         )}
       </div>
-      <aside className="ed-code-side" aria-label="Справка по договору">
+      <aside className="ed-code-side" aria-label="Справка по данным">
         {file && (
           <SelectField label="Язык файла" value={file.language} onChange={language => onFiles(files.map(candidate => candidate.path === file.path ? { ...candidate, language: language as CodeLanguage } : candidate))}>
             {LANGUAGES.map(([key, text]) => <option key={key} value={key}>{text}</option>)}
           </SelectField>
         )}
-        <h3 className="ed-title">Справка по договору</h3>
+        <h3 className="ed-title">Справка по данным</h3>
         {file && isScript(file.language)
-          ? <p className="ed-hint">Подсказки и проверки идут по типам из договора: см. вкладку contract.d.ts. Пример: <code>flux.read('equipment')</code>.</p>
-          : <p className="ed-hint">Для этого языка Flux обменивается JSON: на вход приходит то, что разрешено договором, на выходе ждут state и calc.out.</p>}
+          ? <p className="ed-hint">Подсказки и проверки идут по типам из описания данных: см. вкладку contract.d.ts. Пример: <code>flux.read('equipment')</code>.</p>
+          : <p className="ed-hint">Для этого языка Flux обменивается JSON: на вход приходит то, что разрешено описанием данных, на выходе ждут state и calc.out.</p>}
         <pre data-testid="contract-reference">{contractReference(contract)}</pre>
       </aside>
     </div>

@@ -1,10 +1,11 @@
 /** Список действий окна: единственное место, откуда его берут главный процесс и предзагрузка */
-export const SHELL_ACTIONS = ['state', 'connect', 'connectRemembered', 'forgetBase', 'login', 'ownerSelectKey', 'ownerLogin', 'logout', 'disconnect', 'modules', 'openSection', 'cancel'] as const;
+export const SHELL_ACTIONS = ['state', 'connect', 'connectRemembered', 'forgetBase', 'fluxBase', 'connectFlux', 'login', 'ownerSelectKey', 'ownerLogin', 'logout', 'disconnect', 'modules', 'openSection', 'cancel'] as const;
 export const DEVELOPER_ACTIONS = [
   'keyInfo', 'keyCreate', 'keyRequest', 'keyRequestSend', 'keyCertificate',
-  'templates', 'drafts', 'draftCreate', 'draftImport', 'draftTree', 'draftFile', 'draftSave', 'draftRemoveFile', 'draftRemove', 'draftState',
+  'templates', 'drafts', 'draftCreate', 'draftImport', 'draftTree', 'draftFile', 'draftBinary', 'draftSave', 'draftRemoveFile', 'draftRemove', 'draftState',
+  'projectOpenFolder', 'projectWatch', 'projectUnwatch', 'projectExport', 'projectImportArchive', 'fileMkdir', 'fileRename', 'fileSearch', 'fileImport', 'keyEnsure',
   'testBase', 'testBaseReset',
-  'runStart', 'runRead', 'runCompute', 'runShot',
+  'build', 'runStart', 'runRead', 'runCompute', 'runShot', 'runPickFile',
   'check', 'publish', 'requests', 'errors', 'errorFixed',
 ] as const;
 export type DeveloperAction = typeof DEVELOPER_ACTIONS[number];

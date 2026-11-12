@@ -29,7 +29,7 @@ export function registerModuleFeedbackRoutes(app: Express, deps: Deps) {
       const claim = parseReleaseClaim(openEnvelope('release', r.signature, feedbackRoot(deps)));
       return claim && claim.moduleId === r.moduleId && claim.version === r.version ? [`${r.moduleId}@${r.version}`] : [];
     }));
-    if (pairs.some((p) => !existing.has(`${p.moduleId}@${p.version}`))) return fail(res, ERRORS.VALIDATION, 'Подпрограмма или подписанный выпуск не найдены');
+    if (pairs.some((p) => !existing.has(`${p.moduleId}@${p.version}`))) return fail(res, ERRORS.VALIDATION, 'Программа или подписанный выпуск не найдены');
     if (!await reserveRate(db, actor.id, 'moduleCrash', MODULE_CRASH_BATCHES_PER_MINUTE)) return fail(res, ERRORS.RATE_LIMITED, 'Слишком много пакетов счётчиков');
     try {
       // Единственная запись — и расписка, и сами счётчики: повтор после обрыва
@@ -74,7 +74,7 @@ export function registerModuleFeedbackRoutes(app: Express, deps: Deps) {
         } else return fail(res, ERRORS.FORBIDDEN, 'Разработчик может передать обращение команде Flux');
         patch.assigneeId = null;
       } else {
-        if (!report.moduleId || typeof b.known !== 'boolean') return fail(res, ERRORS.VALIDATION, 'Нужно обращение по подпрограмме');
+        if (!report.moduleId || typeof b.known !== 'boolean') return fail(res, ERRORS.VALIDATION, 'Нужно обращение по программе');
         patch.moduleKnown = b.known;
         patch.moduleWorkaround = String(b.workaround || '').slice(0, LIMITS.reason);
       }

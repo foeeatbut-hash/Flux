@@ -24,6 +24,7 @@ export const PAGE_INDEX = `<!doctype html>
     </div>
     <div class="fx-row">
       <button id="run" class="fx-btn fx-btn-primary" type="button">Рассчитать</button>
+      <button id="open" class="fx-btn" type="button">Загрузить числа из файла</button>
       <button id="save" class="fx-btn" type="button" disabled>Сохранить таблицу</button>
       <span id="status" class="fx-muted" role="status"></span>
     </div>
@@ -99,6 +100,15 @@ $('run').addEventListener('click', run);
 $('save').addEventListener('click', async () => {
   const csv = NAMES.map(([key, title]) => title + ';' + stats[key]).join('\\n');
   try { await flux.saveFile('statistika.csv', csv, 'text/csv'); } catch (e) { $('status').textContent = e.message; }
+});
+// Файл пользователя: Flux сам покажет диалог выбора, программа получит имя и содержимое только выбранного файла
+$('open').addEventListener('click', async () => {
+  try {
+    const file = await flux.openFile({ accept: ['.csv', '.txt'] });
+    $('numbers').value = file.text();
+    await run();
+    $('status').textContent = 'Загружен файл ' + file.name;
+  } catch (e) { if (e.code !== 'CANCELLED') $('status').textContent = e.message; }
 });
 // Тема меняется без перезагрузки: график берёт цвета из токенов заново
 flux.onTheme(draw);

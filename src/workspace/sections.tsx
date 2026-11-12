@@ -133,7 +133,7 @@ export interface SectionDef {
    */
   fileOnly?: boolean;
   badge?: SectionBadge;
-  /** Подпрограмма из Flux Store: раздел появляется и исчезает вместе с установкой (syncInstalledSections) */
+  /** Программа из Flux Store: раздел появляется и исчезает вместе с установкой (syncInstalledSections) */
   dynamic?: boolean;
   /**
    * Можно открыть несколькими окнами.
@@ -203,16 +203,16 @@ export const SECTIONS: SectionDef[] = [
   { path: '/settings', title: 'Настройки', icon: SettingsAppIcon, scope: 'mixed', scroll: 'fixed', pad: false, Component: SettingsScreen },
   { path: '/logs', title: 'Журнал', icon: LogsAppIcon, scope: 'global', scroll: 'fixed', pad: false, feature: 'log.view', Component: LogsManagement },
   { path: '/users', title: 'Сотрудники', icon: UsersAppIcon, scope: 'global', scroll: 'fixed', pad: false, adminOnly: true, Component: UsersManagement },
-  // Flux Store — витрина подпрограмм: поставить, обновить, вернуть версию. Вид как у Microsoft Store (исключение в 01-design.md)
+  // Flux Store — витрина программ: поставить, обновить, вернуть версию. Вид как у Microsoft Store (исключение в 01-design.md)
   { path: '/store', title: 'Store', icon: StoreAppIcon, scope: 'global', scroll: 'fixed', pad: false, Component: StoreScreen },
-  // Проверка подпрограмм владельцем до выпуска (Flux Studio, этап 2); внутри — только владелец
+  // Проверка программ владельцем до выпуска (Flux Studio, этап 2); внутри — только владелец
   ...bundledModules.map((manifest) => ({ path: moduleHref(manifest.id), title: manifest.name, icon: BuilderAppIcon, scope: 'global' as const, scroll: 'fixed' as const, pad: false, multi: true, fileOnly: !manifest.entries.includes('start'), Component: ModuleHost })),
 ];
 
 const BY_PATH = new Map(SECTIONS.map((s) => [s.path, s]));
 
 /**
- * Установленные из Store подпрограммы становятся разделами: Пуск, панель задач
+ * Установленные из Store программы становятся разделами: Пуск, панель задач
  * и поиск читают SECTIONS, так что запись идёт в тот же массив. Версия реестра
  * растёт только при настоящей перемене (useAppContext пересчитывает списки).
  */

@@ -21,7 +21,7 @@ export type ControlsStatus = 'passed' | 'failed' | 'unknown';
 /** Итог прогона: расхождение результата — окончательный отказ; ошибка расчёта (время, память) — повторить */
 export type ControlsOutcome = 'passed' | 'mismatch' | 'transient';
 export const CONTROLS_MAX = 500;
-/** Сколько раз подряд подпрограмма может не уложиться (время/память/сбой), прежде чем отказ станет окончательным */
+/** Сколько раз подряд программа может не уложиться (время/память/сбой), прежде чем отказ станет окончательным */
 export const CONTROLS_RETRIES = 3;
 
 export class ModuleControls {
@@ -49,7 +49,7 @@ export class ModuleControls {
     return found.tries !== undefined && found.tries < CONTROLS_RETRIES ? 'unknown' : 'failed';
   }
 
-  /** Подпрограмме без контрольных примеров (TypeScript) проверять нечего — запуск не ждёт итога */
+  /** Программе без контрольных примеров (TypeScript) проверять нечего — запуск не ждёт итога */
   required(release: RunnableRelease) { return release.manifest.language === 'python' || release.manifest.language === 'wasm'; }
   blocked(release: RunnableRelease) { return this.required(release) && this.status(release) === 'failed'; }
 

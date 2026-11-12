@@ -2,7 +2,7 @@ import type { ModuleApi } from '../../../contract';
 
 /**
  * Пример подключения по HTTP: адрес и права объявлены в manifest.json, вызов идёт как есть.
- * Отказ человека — обычный исход: подпрограмма показывает, что работает без сервера.
+ * Отказ человека — обычный исход: программа показывает, что работает без сервера.
  */
 export function setup({ flux, state, calc, connect, log }: ModuleApi) {
   flux.on('changed', async () => {

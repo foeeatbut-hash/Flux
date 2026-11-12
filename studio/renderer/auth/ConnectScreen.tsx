@@ -16,6 +16,10 @@ export default function ConnectScreen({ state, onDone, theme, onToggleTheme }: {
   const [error, setError] = useState('');
   const [phase, setPhase] = useState('');
   const [busy, setBusy] = useState(false);
+  // Адрес у лежащего рядом Flux: найден — предлагается одной кнопкой, не найден — причина словами и ручной ввод
+  const [flux, setFlux] = useState<{ found: boolean; display: string; reason: string } | null>(null);
+  const [manual, setManual] = useState(false);
+  useEffect(() => { void window.studio.call<{ found: boolean; display: string; reason: string }>('fluxBase').then(r => { if (r.ok) setFlux(r.value); }); }, []);
   useEffect(() => window.studio.onProgress(data => setPhase(data.phase)), []);
   const run = async (action: string, args?: object) => {
     setBusy(true); setError('');
@@ -38,9 +42,16 @@ export default function ConnectScreen({ state, onDone, theme, onToggleTheme }: {
             <button type="button" className="fx-btn" onClick={() => void forget()} disabled={busy}>Забыть адрес</button>
             <button type="button" className="fx-btn fx-btn-primary" onClick={() => void run('connectRemembered')} disabled={busy}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}{busy ? 'Подключаемся…' : 'Подключиться'}</button>
           </div>
+        </> : flux?.found && !manual ? <>
+          <p className="fx-hint">Рядом найден Flux. Его общая база: <strong data-testid="flux-base">{flux.display}</strong>. Адрес берётся из настроек Flux и нигде больше не сохраняется.</p>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {busy && <button type="button" className="fx-btn" onClick={() => void window.studio.call('cancel')}>Отмена</button>}
+            <button type="button" className="fx-btn" onClick={() => setManual(true)} disabled={busy}>Ввести адрес вручную</button>
+            <button type="button" className="fx-btn fx-btn-primary" onClick={() => void run('connectFlux')} disabled={busy}>{busy && <Loader2 className="w-4 h-4 animate-spin" />}{busy ? 'Подключаемся…' : 'Подключиться как Flux'}</button>
+          </div>
         </> : <DatabaseUriForm
           draft={uri} onDraft={value => { setUri(value); setError(''); }} busy={busy} error=""
-          hint={<p className="fx-hint">Studio работает с той же базой, что и Flux. Адрес содержит пароль базы; если запомнить его, он будет храниться только в защищённом хранилище Windows. Рядом со Studio должен лежать тот же выпуск Flux: он запускает локальный обработчик базы.</p>}
+          hint={<>{flux && !flux.found && flux.reason && <p className="fx-hint" data-testid="flux-reason">{flux.reason}</p>}<p className="fx-hint">Studio работает с той же базой, что и Flux. Адрес содержит пароль базы; если запомнить его, он будет храниться только в защищённом хранилище Windows. Рядом со Studio должен лежать тот же выпуск Flux: он запускает локальный обработчик базы.</p></>}
           extra={<label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-slate-500 dark:text-slate-400"><input type="checkbox" className="w-4 h-4 rounded-sm border-slate-300 dark:border-slate-800 accent-emerald-500 cursor-pointer" checked={remember} onChange={e => setRemember(e.target.checked)} /> Запомнить адрес на этом компьютере</label>}
           onSubmit={() => void run('connect', { uri, remember })} submitLabel={busy ? 'Подключаемся…' : 'Подключиться'}
           secondary={busy ? <button type="button" className="fx-btn" onClick={() => void window.studio.call('cancel')}>Отмена</button> : undefined}

@@ -20,7 +20,7 @@ import type { ProjectFiles } from './templates';
 export interface ControlsOutcome { kind: 'done'; report: ControlsReport; cases: number; slowestMs: number }
 export interface ControlsUnavailable { kind: 'unavailable'; reason: string }
 export interface ControlsEngine {
-  /** Один расчёт для запуска подпрограммы на WebAssembly: вход → выход, с теми же пределами */
+  /** Один расчёт для запуска программы на WebAssembly: вход → выход, с теми же пределами */
   compute(language: ModuleLanguage, files: ProjectFiles, logicPath: string, input: unknown): Promise<ModuleOutput>;
   run(language: ModuleLanguage, files: ProjectFiles, logicPath: string, controlsText: string): Promise<ControlsOutcome | ControlsUnavailable | { kind: 'invalid'; reason: string }>;
 }

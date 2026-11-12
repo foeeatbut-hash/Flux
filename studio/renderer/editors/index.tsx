@@ -1,9 +1,9 @@
 /**
  * Редакторы программы в Flux Studio: форма (визуально и текстом), код, договор, правила.
  *
- * Оболочка подключает раздел как `studio-editors` и передаёт файлы проекта по договору
+ * Оболочка подключает раздел как `studio-editors` и передаёт файлы проекта по описанию данных
  * studio/shared/editorContract.ts (здесь он повторён в shellContract.ts): <Editors moduleId draft onChange />.
- * Редакторы читают form.json, manifest.json (reads), contract.json (значения договора) и файлы кода,
+ * Редакторы читают form.json, manifest.json (reads), contract.json (значения описания данных) и файлы кода,
  * а изменённые файлы отдают в onChange. Пока в тексте form.json ошибка, на диск уходит только верный текст:
  * визуальная вкладка в это время только для чтения, чтобы правка не стёрла набранное.
  */
@@ -31,7 +31,7 @@ export type { EditorProps, EditorDraft } from '../../shared/editorContract';
 export type { ModuleDraft, Finding, FormDef, CodeFile, ContractDraft } from './types';
 
 type Tab = 'form' | 'text' | 'code' | 'contract' | 'rules';
-const TABS: Array<[Tab, string]> = [['form', 'Форма'], ['text', 'form.json'], ['code', 'Код'], ['contract', 'Договор'], ['rules', 'Правила']];
+const TABS: Array<[Tab, string]> = [['form', 'Форма'], ['text', 'form.json'], ['code', 'Код'], ['contract', 'Данные'], ['rules', 'Правила']];
 const TAB_KEYS: Tab[] = TABS.map(([key]) => key);
 const HISTORY_LIMIT = 100;
 /** Правки текста, сделанные подряд быстрее этого срока, — один шаг отмены */
@@ -176,7 +176,7 @@ export default function Editors({ moduleId, draft, onChange }: EditorProps) {
         <ContractEditor contract={contract} onChange={onContract} />
       </div>
       <div className="ed-panel" role="tabpanel" id="ed-panel-rules" aria-labelledby="ed-tab-rules" hidden={tab !== 'rules'}>
-        <RulesPanel findings={[...state.bindings.map(problem => ({ rule: 'binding', severity: problem.severity, path: '', message: `Строка ${problem.line}: ${problem.message}`, source: 'Договор' })), ...findings]} />
+        <RulesPanel findings={[...state.bindings.map(problem => ({ rule: 'binding', severity: problem.severity, path: '', message: `Строка ${problem.line}: ${problem.message}`, source: 'Данные' })), ...findings]} />
       </div>
     </div>
   );

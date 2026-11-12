@@ -74,3 +74,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .segs { display: inline-flex; border: 1px solid var(--border); border-radius: var(--flux-radius-sm, 4px); overflow: hidden; }
 .segs button { padding: 5px 12px; border: 0; background: transparent; color: var(--text); font: inherit; cursor: pointer; }
 .segs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); font-weight: 600; }
+
+.segs.sub { margin: 10px 16px; align-self: flex-start; flex: 0 0 auto; }
+.segs.sub .count { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-size: 11px; color: var(--text); }
+.segs.sub button[aria-pressed="true"] .count { border-color: transparent; }

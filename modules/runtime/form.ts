@@ -16,7 +16,7 @@ export function binding(data: unknown, path: string): unknown {
   }, data);
 }
 const blank = (value: unknown) => value === undefined || value === null || value === '';
-/** Условие показа: одно правило и для окна подпрограммы, и для предпросмотра в Studio */
+/** Условие показа: одно правило и для окна программы, и для предпросмотра в Studio */
 export function isVisible(rule: ModuleVisibility | undefined, data: unknown): boolean {
   if (!rule) return true;
   const value = binding(data, rule.bind);

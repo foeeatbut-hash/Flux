@@ -88,21 +88,25 @@ app.whenReady().then(async()=>{
 });
 // Окно владельца открывается из оболочки Studio — Владелец, а не при запуске программы: у
 // разработчика того же exe окна владельца нет, у владельца — отдельный раздел.
-async function openOwnerWindow(){
-  if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.focus();return;}
+// tab: какая вкладка окна лицензий нужна («licenses» или «updates»); вкладка переключается нажатием, как это сделал бы человек
+const showTab=tab=>win.webContents.executeJavaScript(`document.querySelector('[data-tab="${tab==='updates'?'updates':'licenses'}"]')?.click()`).catch(()=>{});
+async function openOwnerWindow(tab){
+  if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.focus();if(tab)await showTab(tab);return;}
   vaultExists=await fs.stat(vaultFile).then(()=>true,()=>false);
   win=new BrowserWindow({width:1180,height:850,minWidth:860,minHeight:640,title:`Flux Studio — Владелец ${version}`,backgroundColor:'#101722',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false,webSecurity:true}});
   for(const event of ['did-finish-load','did-fail-load','render-process-gone','unresponsive','responsive','preload-error'])win.webContents.on(event,(...args)=>{journal().record(`window.${event}`,{details:args.slice(1).map(value=>typeof value==='object'&&value!==null?{reason:value.reason,exitCode:value.exitCode}:value)},['did-fail-load','render-process-gone','preload-error','unresponsive'].includes(event)?'error':'info');});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',event=>event.preventDefault());
   await win.loadFile(uiPath);
+  if(tab)await showTab(tab);
   const timer=setInterval(()=>{if(vault&&!operation&&Date.now()-lastActivity>15*60*1000)lock();},30000);timer.unref();
   for(const event of ['unresponsive','responsive'])win.on(event,()=>diagnosticEvent(`window.${event}`,{memory:process.memoryUsage()}));
   let heartbeatAt=Date.now();const heartbeat=setInterval(()=>{const now=Date.now(),delay=now-heartbeatAt-1000;heartbeatAt=now;if(delay>2000)diagnosticEvent('process.eventLoopDelay',{delayMs:delay,memory:process.memoryUsage()});},1000);heartbeat.unref();
-  win.on('closed',()=>{clearInterval(heartbeat);void lock();});
+  // Хранилище запирается, когда закрыто и это окно, и окно разделов: пока открыто хоть одно, пароль второй раз не спрашивается
+  win.on('closed',()=>{clearInterval(heartbeat);if(!require('./console.cjs').isConsoleOpen())void lock();});
 }
 app.on('child-process-gone',(_event,details)=>diagnosticEvent('app.childProcessGone',{type:details.type,reason:details.reason,exitCode:details.exitCode,serviceName:details.serviceName}));
 // Закрытие окна владельца только запирает хранилище: программа живёт, пока открыта оболочка Studio.
-// Схема для пробного запуска подпрограммы в разделе «Запросы на публикацию»: регистрировать её можно только до готовности
+// Схема для пробного запуска программы в разделе «Запросы на публикацию»: регистрировать её можно только до готовности
 // приложения. Привилегии те же, что у Flux (electron/modules.ts): без обхода CSP, служебных воркеров и файловой системы.
 try{protocol?.registerSchemesAsPrivileged?.([{scheme:'flux-module',privileges:{standard:true,secure:true,corsEnabled:true,supportFetchAPI:true}}]);}catch{}
 // Разделы владельца в общем окне Studio — Владелец (запросы на публикацию, выпуски, сертификаты, обновления Flux).
@@ -111,6 +115,6 @@ function consoleContext(){return {version,snapshot,vault:()=>vault,token:()=>tok
   confirm,touch:()=>{lastActivity=Date.now();},lockIfIdle:ms=>{if(vault&&!operation&&Date.now()-lastActivity>ms)lock();},
   setParent:w=>{activeParent=w;},listeners,refreshVault:async()=>{vaultExists=await fs.stat(vaultFile).then(()=>true,()=>false);},
   forward:{state:()=>snapshot(),unlock:a=>actions.unlock(a),connect:a=>actions.connect(a),disconnect:()=>actions.disconnect({}),lock:()=>actions.lock(),cancel:()=>actions.cancel()},
-  journal:()=>journal(),diagnosticOperation};}
+  journal:()=>journal(),diagnosticOperation,openLicenses:tab=>openOwnerWindow(tab),licensesOpen:()=>!!win&&!win.isDestroyed(),lockAll:()=>lock()};}
 async function openConsole(tab){return require('./console.cjs').openConsole(consoleContext(),tab);}
 module.exports={openOwnerWindow,openConsole};

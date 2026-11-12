@@ -1,5 +1,5 @@
 /**
- * Flux Store в браузере: витрина (карусель, ряды, поиск), страница подпрограммы
+ * Flux Store в браузере: витрина (карусель, ряды, поиск), страница программы
  * с сжимающейся шапкой, установка с окном разрешений, обновление с новыми
  * разрешениями, возврат версии без связи, удаление, библиотека, экран
  * администратора. Мерки и состояния — по замеру (getBoundingClientRect,
@@ -37,7 +37,7 @@ function serverModel() {
     const versions = d.versions.filter((v) => !hidden.has(`${d.id}@${v}`));
     const top = versions[versions.length - 1];
     const reads = top === versions[versions.length - 1] && extraReads[d.id] ? extraReads[d.id] : d.reads;
-    const manifest: any = manifestOf(d.id, d.name, top, reads, { category: d.category, summary: d.summary, description: `${d.summary}.\n\nПодпрограмма читает данные Flux только на просмотр, ничего не записывает и работает без отдельной установки на сервер.\nРезультат расчёта показывается в её окне и сохраняется файлом по кнопке.\n\nПодробное описание нужно, чтобы проверить сворачивание текста: здесь достаточно длинный абзац, который не помещается в четыре строки на странице подпрограммы и сворачивается, пока человек не нажмёт «Показать больше».`, color: d.color, screenshots: ['store/a.png', 'store/b.png'], roles: d.roles, requires: (d as any).requires || {} });
+    const manifest: any = manifestOf(d.id, d.name, top, reads, { category: d.category, summary: d.summary, description: `${d.summary}.\n\nПрограмма читает данные Flux только на просмотр, ничего не записывает и работает без отдельной установки на сервер.\nРезультат расчёта показывается в её окне и сохраняется файлом по кнопке.\n\nПодробное описание нужно, чтобы проверить сворачивание текста: здесь достаточно длинный абзац, который не помещается в четыре строки на странице программы и сворачивается, пока человек не нажмёт «Показать больше».`, color: d.color, screenshots: ['store/a.png', 'store/b.png'], roles: d.roles, requires: (d as any).requires || {} });
     const info = storeInfoOf(manifest);
     const stars = d.rating, count = stars.reduce((a, b) => a + b, 0);
     return {
@@ -151,7 +151,7 @@ async function run() {
     check('категория «Связь с программами»', (await page.locator('.stx-grid .stx-card-name').allTextContents()).join() === 'Связь с E3.series');
     check('кнопка недоступна не в Windows, причина в подсказке', await page.getByTestId('stx-act-e3-link').isDisabled() && /Windows/.test(await page.getByTestId('stx-act-e3-link').getAttribute('title') || ''));
 
-    console.log('Страница подпрограммы');
+    console.log('Страница программы');
     await page.getByTestId('stx-nav-home').click();
     // Нажатие прямо в DOM: автопрокрутка Playwright к карточке перед щелчком прокручивала бы область и сама сжимала шапку
     await page.getByTestId('stx-card-calc-load').first().evaluate((el: HTMLElement) => el.click());
@@ -191,7 +191,7 @@ async function run() {
     await page.waitForFunction(() => document.querySelector('.stx-ph [data-testid="stx-act-calc-load"]')?.textContent === 'Открыть');
     check('кнопка стала «Открыть»', true);
     check('сервер записал установку, главный процесс — выбор', model.mine['calc-load']?.version === '1.2.0' && (await page.evaluate(() => (window as any).__calls.includes('modules:install'))));
-    check('подпрограмма появилась в разделах Пуска', (await page.evaluate(() => (window as any).__sections())).includes('/module/calc-load'));
+    check('программа появилась в разделах Пуска', (await page.evaluate(() => (window as any).__sections())).includes('/module/calc-load'));
 
     console.log('Библиотека, обновление с новыми разрешениями, возврат версии');
     model.mine['calc-load'] = { version: '1.1.0', auto: '' };
@@ -214,7 +214,7 @@ async function run() {
     check('«Вернуть предыдущую версию» доступна', await back.isEnabled());
     await back.click();
     await page.waitForFunction(() => /"version":"1.1.0"/.test(sessionStorage.getItem('stx-installed') || ''));
-    check('возврат работает без связи: версия 1.1.0, автообновление подпрограммы выключено', true);
+    check('возврат работает без связи: версия 1.1.0, автообновление программы выключено', true);
     flags.offline = false;
     check('при обрыве связи на экране сказано, что работает кэш', true);
 
@@ -233,7 +233,7 @@ async function run() {
     await admin.goto(`${BASE}/scripts/fixtures/store-ui.html?role=ADMIN`);
     await admin.getByTestId('stx-nav-admin').click();
     await admin.getByTestId('stx-admin').waitFor();
-    check(`допуск: ждущая подпрограмма с кнопкой «Допустить» (${(await admin.getByTestId('stx-admin').innerText()).replace(/\n/g, ' | ').slice(0, 300)})`, await admin.locator('tr', { hasText: 'Пакет документов' }).getByText('Допустить', { exact: true }).count() === 1);
+    check(`допуск: ждущая программа с кнопкой «Допустить» (${(await admin.getByTestId('stx-admin').innerText()).replace(/\n/g, ' | ').slice(0, 300)})`, await admin.locator('tr', { hasText: 'Пакет документов' }).getByText('Допустить', { exact: true }).count() === 1);
     check('сбои версии видны администратору (всплеск → отзыв)', /7 в 1\.2\.0/.test(await admin.getByTestId('stx-admin').innerText()));
     if (shot) await admin.screenshot({ path: shot.replace(/\.png$/, '-admin.png') });
     await admin.getByRole('tab', { name: 'Журнал', exact: true }).click();

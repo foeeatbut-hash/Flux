@@ -72,11 +72,7 @@
         "studio/build-assets.cjs",
         "server/routes/studioDeveloper.ts",
         "studio/renderer/call.ts",
-        "studio/renderer/sections/Projects.tsx",
         "studio/renderer/sections/Run.tsx",
-        "studio/renderer/sections/Editor.tsx",
-        "studio/renderer/sections/Check.tsx",
-        "studio/renderer/sections/Publish.tsx",
         "studio/renderer/sections/Errors.tsx",
         "studio/owner/src/console.cjs",
         "studio/owner/src/consoleApi.cjs",
@@ -112,7 +108,27 @@
         "src/components/auth/OwnerLoginPanel.tsx",
         "src/components/auth/DatabaseUriForm.tsx",
         "src/components/window/FloatingFrame.tsx",
-        "src/components/ui/controls.tsx"
+        "src/components/ui/controls.tsx",
+        "studio/renderer/work/BottomPanel.tsx",
+        "studio/renderer/work/EditorArea.tsx",
+        "studio/renderer/work/FileTree.tsx",
+        "studio/renderer/work/Home.tsx",
+        "studio/renderer/work/Modal.tsx",
+        "studio/renderer/work/NewProgram.tsx",
+        "studio/renderer/work/ProjectWindow.tsx",
+        "studio/renderer/work/PublishDialog.tsx",
+        "studio/renderer/work/helpers.ts",
+        "studio/renderer/work/useKey.tsx",
+        "studio/shared/workspace.ts",
+        "studio/shared/archive.ts",
+        "studio/shared/conflict.ts",
+        "studio/owner/console/Programs.tsx",
+        "studio/owner/console/Licenses.tsx",
+        "studio/owner/console/Releases.tsx",
+        "studio/owner/console/Trial.tsx",
+        "studio/owner/console/Updates.tsx",
+        "studio/owner/console/main.tsx",
+        "studio/owner/src/main.cjs"
       ]
     }
   ],
@@ -251,6 +267,17 @@
       "timeoutMs": 300000
     },
     {
+      "id": "studio-workspace",
+      "path": "scripts/test-studio-workspace.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
       "id": "studio-page",
       "path": "scripts/test-studio-page.ts",
       "layer": "unit",
@@ -379,6 +406,49 @@
         }
       ],
       "timeoutMs": 300000
+    },
+    {
+      "id": "studio-journey",
+      "path": "scripts/test-studio-journey.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files",
+        "loopback-http"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 600000
+    },
+    {
+      "id": "studio-words",
+      "path": "scripts/test-studio-words.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-tsbuild",
+      "path": "scripts/test-studio-tsbuild.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-flux-address",
+      "path": "scripts/test-studio-flux-address.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
     }
   ],
   "actions": [
@@ -396,7 +466,7 @@
       ],
       "risk": "critical",
       "expected": [
-        "Пускает право «Разработка подпрограмм»; без права отказывает сервер, окно сессии не получает"
+        "Пускает право «Разработка программ»; без права отказывает сервер, окно сессии не получает"
       ],
       "checks": [
         {
@@ -404,7 +474,7 @@
           "layer": "api-db",
           "claims": [
             "Сервер отвечает 403 без права (и администратору без права), 200 с module.develop и владельцу",
-            "Свои подпрограммы видны только автору, список ограничен"
+            "Свои программы видны только автору, список ограничен"
           ]
         },
         {
@@ -498,18 +568,18 @@
     {
       "id": "studio.modules-list",
       "program": "studio",
-      "label": "Раздел «Подпрограммы»",
+      "label": "Раздел «Программы»",
       "sources": [
         "studio/renderer/main.tsx",
         "server/routes/studio.ts"
       ],
       "triggers": [
         "вход",
-        "раздел «Подпрограммы»"
+        "раздел «Программы»"
       ],
       "risk": "normal",
       "expected": [
-        "Видны свои подпрограммы и состояние последней отправки; пустой список объяснён"
+        "Видны свои программы и состояние последней отправки; пустой список объяснён"
       ],
       "checks": [
         {
@@ -583,25 +653,33 @@
     {
       "id": "studio.owner-section",
       "program": "studio",
-      "label": "Раздел владельца в Studio — Владелец",
+      "label": "Studio — Владелец: три пункта",
       "sources": [
         "studio/entry-owner.ts",
         "studio/shell/main.ts",
-        "studio/build.cjs"
+        "studio/build.cjs",
+        "studio/owner/console/Programs.tsx",
+        "studio/owner/console/Licenses.tsx",
+        "studio/owner/console/main.tsx",
+        "studio/owner/src/main.cjs",
+        "studio/owner/src/console.cjs"
       ],
       "triggers": [
-        "меню «Лицензии и обновления Flux»"
+        "меню «Программы на проверку»",
+        "меню «Flux: обновления»",
+        "меню «Лицензии»"
       ],
       "risk": "critical",
       "expected": [
-        "Открывается окно прежнего Flux Owner; хранилище ключей прежнее по пути и формату, перевыпуск лицензий не нужен"
+        "Три пункта: «Программы на проверку» (запросы на право публиковать, запросы на публикацию с выпуском одним окном, выпущенные, кому доступны), «Flux: обновления», «Лицензии»; пароль хранилища спрашивается один раз за сеанс; пробный запуск программ-страниц",
+        "Хранилище ключей прежнее по пути и формату, перевыпуск лицензий не нужен"
       ],
       "checks": [
         {
           "suite": "studio-owner-section",
           "layer": "unit",
           "claims": [
-            "Готовый пакет владельца открывает хранилище прежнего Flux Owner теми же открытыми ключами, создаёт новое тем же форматом; у разработчика раздела и канала нет"
+            "Окно владельца открывается из пункта «Лицензии» окна разделов; хранилище не запирается, пока открыто хоть одно окно; готовый пакет открывает хранилище прежнего Flux Owner теми же открытыми ключами; у разработчика раздела нет"
           ]
         },
         {
@@ -609,6 +687,20 @@
           "layer": "browser-live",
           "claims": [
             "Раздел в меню только в сборке владельца"
+          ]
+        },
+        {
+          "suite": "studio-owner-console",
+          "layer": "api-db",
+          "claims": [
+            "Действия владельца на настоящих маршрутах: выпуск, возврат, отклонение, сертификаты, возврат к прежней версии, обновления; пробный запуск страницы берёт только ui/ из пакета запроса"
+          ]
+        },
+        {
+          "suite": "studio-owner-console-ui",
+          "layer": "browser-live",
+          "claims": [
+            "Три пункта и четыре подраздела, выпуск для всех, кому доступны, запросы на право, «Опубликовать новую версию Flux», «Лицензии»; обе темы, ширина 1180 и 1024; в подписях нет слов «канал», «договор», «привязки», «манифест», «бандл»"
           ]
         }
       ],
@@ -663,10 +755,10 @@
       "sources": [
         "studio/shared/keyring.ts",
         "studio/shell/developer.ts",
-        "studio/renderer/sections/Publish.tsx"
+        "studio/renderer/work/useKey.tsx"
       ],
       "triggers": [
-        "кнопки «Создать ключ», «Запросить сертификат у владельца»"
+        "кнопка «Запросить право публиковать»"
       ],
       "risk": "critical",
       "expected": [
@@ -734,10 +826,10 @@
       "sources": [
         "studio/shared/testBase.ts",
         "studio/shell/developer.ts",
-        "studio/renderer/sections/Projects.tsx"
+        "studio/renderer/work/NewProgram.tsx"
       ],
       "triggers": [
-        "раздел «Проект подпрограммы»",
+        "стартовый экран «Мои программы» и «Новая программа»",
         "«Сбросить тестовую базу»"
       ],
       "risk": "normal",
@@ -765,17 +857,19 @@
     {
       "id": "studio.project",
       "program": "studio",
-      "label": "Проект подпрограммы: заготовки, черновики, запуск",
+      "label": "Проект программы: заготовки, черновики, запуск",
       "sources": [
         "studio/shared/templates.ts",
         "studio/shared/drafts.ts",
         "studio/shared/runtime.ts",
         "studio/shell/developer.ts",
-        "studio/renderer/sections/Projects.tsx",
-        "studio/renderer/sections/Run.tsx"
+        "studio/renderer/sections/Run.tsx",
+        "studio/renderer/work/NewProgram.tsx",
+        "studio/renderer/work/Home.tsx",
+        "studio/renderer/work/ProjectWindow.tsx"
       ],
       "triggers": [
-        "раздел «Проект подпрограммы»"
+        "стартовый экран «Мои программы» и «Новая программа»"
       ],
       "risk": "critical",
       "expected": [
@@ -793,14 +887,21 @@
           "suite": "studio-shell",
           "layer": "unit",
           "claims": [
-            "Страница и runtime отдаются по flux-module://run только запущенной подпрограммы; чтение — только объявленное в reads из тестовой базы"
+            "Страница и runtime отдаются по flux-module://run только запущенной программы; чтение — только объявленное в reads из тестовой базы"
           ]
         },
         {
           "suite": "studio-ui-developer",
           "layer": "browser-live",
           "claims": [
-            "Настоящий iframe sandbox с настоящим runtime показывает данные тестовой базы; журнал моста; снимки обеих тем"
+            "Стартовый экран, диалог «Новая программа», дерево и вкладки, поиск, запуск в нижней панели с настоящим iframe sandbox, «Опубликовать» с проверкой и окном версии, ключ сам и запрос права, «Сбои у пользователей» — в обеих темах"
+          ]
+        },
+        {
+          "suite": "studio-workspace",
+          "layer": "unit",
+          "claims": [
+            "Проект — папка на диске: выход за папку, ссылки, служебные каталоги, исключения, слежение за внешними изменениями, конфликт с несохранённым, перенос прежних черновиков"
           ]
         }
       ],
@@ -809,7 +910,7 @@
           "layer": "portable",
           "scenario": "Запустить заготовку в FluxStudio.exe на Windows, снять обе темы",
           "expected": [
-            "Подпрограмма открывается под flux-module://, снимки сохраняются (capturePage)"
+            "Программа открывается под flux-module://, снимки сохраняются (capturePage)"
           ]
         }
       ]
@@ -826,7 +927,7 @@
         "docs/methodology/03-programs/studio.md"
       ],
       "triggers": [
-        "раздел «Проект подпрограммы» → «Новый проект из заготовки» → «Пример: Переводчик терминов»"
+        "раздел «Проект программы» → «Новый проект из заготовки» → «Пример: Переводчик терминов»"
       ],
       "risk": "normal",
       "expected": [
@@ -858,10 +959,11 @@
       "sources": [
         "studio/shared/checks.ts",
         "studio/shared/controlsEngine.ts",
-        "studio/renderer/sections/Check.tsx"
+        "studio/renderer/work/ProjectWindow.tsx",
+        "studio/renderer/work/BottomPanel.tsx"
       ],
       "triggers": [
-        "раздел «Проверка перед отправкой»"
+        "кнопка «Проверить» и вкладка «Проблемы»"
       ],
       "risk": "critical",
       "expected": [
@@ -903,15 +1005,15 @@
         "studio/shell/developerServer.ts",
         "server/routes/studioDeveloper.ts",
         "server/routes/modulePublishing.ts",
-        "studio/renderer/sections/Publish.tsx"
+        "studio/renderer/work/PublishDialog.tsx"
       ],
       "triggers": [
-        "кнопка «Отправить на публикацию»",
+        "кнопка «Опубликовать»",
         "«Исправить и отправить заново»"
       ],
       "risk": "critical",
       "expected": [
-        "Запрос подписан ключом разработчика и принят сервером; чужую подпрограмму не прислать и не увидеть; право module.develop — явное"
+        "Запрос подписан ключом разработчика и принят сервером; чужую программу не прислать и не увидеть; право module.develop — явное"
       ],
       "checks": [
         {
@@ -925,7 +1027,7 @@
           "suite": "studio-publish",
           "layer": "api-db",
           "claims": [
-            "Явное право (администратор без него — 403; без крючка Studio проходил бы); чужая подпрограмма не отправляется и не видна; пакет только автору; сертификат, выпуски"
+            "Явное право (администратор без него — 403; без крючка Studio проходил бы); чужая программа не отправляется и не видна; пакет только автору; сертификат, выпуски"
           ]
         },
         {
@@ -947,12 +1049,12 @@
         "studio/renderer/sections/Errors.tsx"
       ],
       "triggers": [
-        "раздел «Ошибки»",
+        "вкладка «Сбои у пользователей»",
         "«Отметить»"
       ],
       "risk": "normal",
       "expected": [
-        "Обращения и счётчики сбоев по своим подпрограммам; «исправлено в версии» уходит на проверку автору"
+        "Обращения и счётчики сбоев по своим программам; «исправлено в версии» уходит на проверку автору"
       ],
       "checks": [
         {
@@ -967,6 +1069,133 @@
           "layer": "browser-live",
           "claims": [
             "Таблицы обращений и счётчиков, отметка в обеих темах"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "studio.journey",
+      "program": "studio",
+      "label": "Путь: новая программа → проверить → запросить право → выпуск",
+      "sources": [
+        "studio/shell/developer.ts",
+        "studio/owner/src/console.cjs",
+        "server/routes/modulePublishing.ts",
+        "server/routes/studioDeveloper.ts",
+        "scripts/test-studio-journey.ts"
+      ],
+      "triggers": [
+        "разработчик создаёт программу, просит право публиковать и публикует; владелец выдаёт право и выпускает"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Весь путь проходит на настоящих маршрутах сервера: право выдаёт только владелец, без него публикация закрыта, выпуск виден разработчику"
+      ],
+      "checks": [
+        {
+          "suite": "studio-journey",
+          "layer": "api-db",
+          "claims": [
+            "Новая программа, проверка, запрос права, выдача владельцем, публикация, выпуск владельцем и статус «выпущено» у разработчика — без Electron"
+          ]
+        },
+        {
+          "suite": "studio-electron-start",
+          "layer": "browser-live",
+          "claims": [
+            "Настоящий запуск обеих Studio под Electron — в CI на Windows"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "studio.words",
+      "program": "studio",
+      "label": "Слова интерфейса Studio",
+      "sources": [
+        "studio/renderer/Workspace.tsx",
+        "studio/owner/console/main.tsx",
+        "scripts/test-studio-words.ts"
+      ],
+      "triggers": [
+        "любой текст интерфейса Studio"
+      ],
+      "risk": "normal",
+      "expected": [
+        "В интерфейсе обеих Studio нет слов «канал», «договор», «привязки», «манифест», «бандл»"
+      ],
+      "checks": [
+        {
+          "suite": "studio-words",
+          "layer": "unit",
+          "claims": [
+            "Все строки и текст разметки Studio просмотрены разбором TypeScript; запрещённого слова нет, проверка находит каждое слово на синтетическом примере"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "studio.build",
+      "program": "studio",
+      "label": "Собрать: TypeScript проекта внутри Studio",
+      "sources": [
+        "studio/shared/tsBuild.ts",
+        "studio/shared/tsBuildWorker.ts",
+        "studio/shared/tsBuildHost.ts",
+        "studio/shell/developer.ts",
+        "studio/renderer/work/ProjectWindow.tsx"
+      ],
+      "triggers": [
+        "кнопка «Собрать»",
+        "«Запустить» и «Проверить» в проекте с файлами .ts"
+      ],
+      "risk": "normal",
+      "expected": [
+        "TypeScript собирается внутри Studio в рабочем потоке без интернета; ошибки приходят по файлам и строкам во вкладку «Проблемы»; «Запустить», «Проверить» и «Опубликовать» сами собирают проект и не идут дальше при ошибке"
+      ],
+      "checks": [
+        {
+          "suite": "studio-tsbuild",
+          "layer": "api-db",
+          "claims": [
+            "Несколько файлов собираются в один и исполняются; ошибки синтаксиса, несуществующий файл и пакет называют файл, строку и столбец; зависшая сборка останавливается по времени; запуск, проверка и отправка останавливаются на ошибке сборки"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "studio.flux-address",
+      "program": "studio",
+      "label": "Адрес базы у лежащего рядом Flux",
+      "sources": [
+        "studio/shared/fluxAddress.ts",
+        "studio/shell/main.ts",
+        "studio/renderer/auth/ConnectScreen.tsx"
+      ],
+      "triggers": [
+        "первый шаг входа: подключение к общей базе"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Studio находит общую базу в настройках Flux и подключается одной кнопкой; пароль в окно не уходит; ручной ввод остаётся запасным путём"
+      ],
+      "checks": [
+        {
+          "suite": "studio-flux-address",
+          "layer": "unit",
+          "claims": [
+            "Папка данных Flux находится на трёх системах; берётся только общая база, которую Studio умеет подключать; в описании и причинах отказа пароля нет; файл Flux не меняется"
+          ]
+        },
+        {
+          "suite": "studio-ui",
+          "layer": "browser-live",
+          "claims": [
+            "Экран подключения показывает базу Flux без пароля, подключает «как Flux» без ввода адреса, при отказе называет причину и оставляет ручной ввод"
           ]
         }
       ],

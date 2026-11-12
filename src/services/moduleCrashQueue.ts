@@ -16,7 +16,7 @@ export class ModuleCrashQueue {
   record(moduleId: string, version: string, kind: ModuleFailure) {
     const batch: ModuleCrashBatch = { id: newRequestId(), events: [{ moduleId, version, kind, count: 1 }] };
     if (!validCrashBatch(batch)) return;
-    // Предел защищает диск при бесконечном сбое неисправной подпрограммы.
+    // Предел защищает диск при бесконечном сбое неисправной программы.
     this.storage.setItem(KEY, JSON.stringify([...this.read(), batch].slice(-2000)));
   }
   flush(): Promise<void> {

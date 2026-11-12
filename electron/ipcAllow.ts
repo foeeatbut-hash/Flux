@@ -27,7 +27,7 @@ export const INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   'modules:controls',
   'modules:controls-result',
   'modules:controls-reset',
-  // Подключения подпрограмм к внешним программам, решения человека и журнал (electron/moduleConnectionsIpc.ts)
+  // Подключения программ к внешним программам, решения человека и журнал (electron/moduleConnectionsIpc.ts)
   'modules:connect',
   'modules:connect-close',
   'modules:grant',
@@ -38,6 +38,8 @@ export const INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   'modules:journal-pending',
   'modules:journal-ack',
   'modules:journal-recent',
+  // Файл пользователя для программы: диалог показывает главный процесс (electron/modulePickFile.ts)
+  'modules:pick-file',
   'app:get-server-url',
   'app:get-database',
   'app:probe-database',

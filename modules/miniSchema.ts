@@ -1,7 +1,7 @@
 /**
  * Проверка по JSON Schema без Ajv.
  *
- * Ajv собирает проверки через new Function, а окно Studio и окно подпрограммы работают с CSP без
+ * Ajv собирает проверки через new Function, а окно Studio и окно программы работают с CSP без
  * 'unsafe-eval'. Описание формы (modules/formSchema.ts) пользуется малой частью JSON Schema; её и
  * разбирает эта функция. Ошибки имеют тот же вид (keyword, instancePath, params), что у Ajv.
  *

@@ -1,10 +1,10 @@
 /**
- * Журнал подпрограмм на этом компьютере: кольцо с ротацией по размеру и сроку.
+ * Журнал программ на этом компьютере: кольцо с ротацией по размеру и сроку.
  *
  * Пишет главный процесс — подключения он видит сам, остальное (запуск, расчёты,
  * чтения, flux.log) присылает окно Flux, но каждая запись проходит здесь ту же
  * проверку формы (`validEntry`) и предел частоты: журнал не может раздуться
- * ни от неисправной подпрограммы, ни от окна. На сервер записи уходят пачками
+ * ни от неисправной программы, ни от окна. На сервер записи уходят пачками
  * через окно (`src/services/moduleJournalSync.ts`) и подтверждаются по
  * номеру: неподтверждённое остаётся на диске, подтверждённое остаётся до
  * конца срока для просмотра на этом компьютере.
@@ -20,7 +20,7 @@ export class ModuleJournal {
   private state: Stored = { seq: 0, sent: 0, entries: [] };
   private timer: NodeJS.Timeout | null = null;
   private loaded: Promise<void> | null = null;
-  /** Предел частоты записей от окна на одну подпрограмму: пачка событий не заменяет лимит */
+  /** Предел частоты записей от окна на одну программу: пачка событий не заменяет лимит */
   private windows = new Map<string, { at: number; n: number }>();
   constructor(private file: string, private now: () => number = Date.now, private ring: number = JOURNAL_LIMITS.ring) {}
 
@@ -32,7 +32,7 @@ export class ModuleJournal {
           this.state = { seq: Number(parsed.seq) || 0, sent: Number(parsed.sent) || 0, entries: parsed.entries.filter(e => validEntry(e) && Number.isSafeInteger((e as any).seq)) };
           this.rotate();
         }
-      } catch { /* журнала ещё нет или он повреждён: начинаем чистый, подпрограммы от этого не страдают */ }
+      } catch { /* журнала ещё нет или он повреждён: начинаем чистый, программы от этого не страдают */ }
     })();
   }
 

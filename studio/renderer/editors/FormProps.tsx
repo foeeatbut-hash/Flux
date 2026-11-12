@@ -1,6 +1,6 @@
 /**
  * Свойства выбранного компонента формы: подпись, единицы, допустимые значения, обязательность,
- * привязка к входу или выходу договора, условие показа и проверка ввода на примере.
+ * привязка к входу или выходу описания данных, условие показа и проверка ввода на примере.
  */
 import React from 'react';
 import { columnKeys, bindingOptions, type BindingOption } from './contractModel';
@@ -15,7 +15,7 @@ function BindSelect({ label, value, options, onChange, hint, error }: { label: s
   return (
     <SelectField label={label} value={value} onChange={onChange} hint={hint} error={error}>
       <option value="">— не выбрано —</option>
-      {!known && value && <option value={value}>{value} (нет в договоре)</option>}
+      {!known && value && <option value={value}>{value} (нет в описании данных)</option>}
       {(['input', 'output', 'state'] as const).map(kind => {
         const group = options.filter(option => option.kind === kind);
         return group.length ? (
@@ -73,7 +73,7 @@ export function FormProps({ form, selection, contract, patch, messages, findings
     body = (
       <>
         <TextField label="Подпись" value={field.label} onChange={value => patch({ label: value })} hint="Подпись говорит, что будет: «Расход воздуха», а не «Параметр 1»." />
-        <BindSelect label="Привязка" value={field.bind} options={scalar} onChange={value => patch({ bind: value })} hint="Откуда берётся значение: вход договора, выход расчёта или своё состояние." />
+        <BindSelect label="Источник" value={field.bind} options={scalar} onChange={value => patch({ bind: value })} hint="Откуда берётся значение: вход описания данных, выход расчёта или своё состояние." />
         <Check label="Код (моноширинный шрифт)" checked={field.kind === 'code'} onChange={value => patch({ kind: value ? 'code' : undefined })} />
         <TextField label="Единица" value={field.unit ?? ''} onChange={value => patch({ unit: value })} placeholder="м³/ч" />
         <TextField label="Пояснение" value={field.hint ?? ''} onChange={value => patch({ hint: value })} hint="Одно предложение под полем, и только там, где без него ошибутся." />

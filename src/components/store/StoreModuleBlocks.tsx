@@ -1,5 +1,5 @@
 /**
- * Блоки страницы подпрограммы: снимки, описание, известные проблемы, отзывы, история версий.
+ * Блоки страницы программы: снимки, описание, известные проблемы, отзывы, история версий.
  */
 import React, { useEffect, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
@@ -18,7 +18,7 @@ export function Screenshots({ listing }: { listing: StoreListing }) {
   return <section className="stx-block"><h3>Снимки экрана<ChevronRight className="chev" size={16} /></h3>
     <div className="stx-shots" data-testid="stx-shots">{listing.screenshots.map((src) => <Shot key={src} src={src} onOpen={setBig} />)}</div>
     {big && <div className="stx-lightbox" role="dialog" aria-label="Снимок экрана" onClick={() => setBig('')} onKeyDown={(e) => e.key === 'Escape' && setBig('')} tabIndex={-1} ref={(el) => el?.focus()}>
-      <img src={big} alt="Снимок экрана подпрограммы" /></div>}
+      <img src={big} alt="Снимок экрана программы" /></div>}
   </section>;
 }
 

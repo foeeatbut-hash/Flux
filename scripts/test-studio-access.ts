@@ -1,12 +1,12 @@
 /**
- * Вход в Flux Studio: сервер пускает право «Разработка подпрограмм» и владельца.
+ * Вход в Flux Studio: сервер пускает право «Разработка программ» и владельца.
  *
  * Что доказывается:
  * - без права разработки (в том числе у администратора) вход закрыт кодом 403
  *   на сервере, а не скрытой кнопкой в окне;
  * - с правом module.develop и у владельца вход открыт;
- * - список подпрограмм показывает только свои запросы человека, чужие не видны;
- * - список ограничен: больше предела подпрограмм не отдаётся.
+ * - список программ показывает только свои запросы человека, чужие не видны;
+ * - список ограничен: больше предела программ не отдаётся.
  *
  * Запуск: npx tsx scripts/test-studio-access.ts
  */
@@ -61,19 +61,19 @@ async function main() {
   console.log('Сервер проверяет право входа');
   ok('без токена вход закрыт', (await fetch(`${origin}/api/studio/session`)).status === 401);
   ok('сотрудник без права: 403 с подсказкой, что просить', (await call('plain', '/api/studio/session')).status === 403
-    && /Разработка подпрограмм/.test((await call('plain', '/api/studio/session')).body.error));
+    && /Разработка программ/.test((await call('plain', '/api/studio/session')).body.error));
   ok('администратор без явного права не входит (общая проверка прав пустила бы его)', (await call('admin', '/api/studio/session')).status === 403 && (await call('admin', '/api/studio/modules')).status === 403);
   ok('администратор с явно выданным правом входит', (await call('adminGranted', '/api/studio/session')).status === 200);
   ok('личное право без должности пускает', (await call('personal', '/api/studio/session')).status === 200);
   ok('право должности пускает', (await call('dev', '/api/studio/session')).status === 200);
   ok('просроченное, выключенное и отключённого профиля право не пускает', [(await call('expired', '/api/studio/session')).status, (await call('disabled', '/api/studio/session')).status, (await call('off', '/api/studio/session')).status].every((x) => x === 403));
-  ok('список подпрограмм без права закрыт так же', (await call('plain', '/api/studio/modules')).status === 403);
+  ok('список программ без права закрыт так же', (await call('plain', '/api/studio/modules')).status === 403);
   const dev = await call('dev', '/api/studio/session');
   ok('разработчик с module.develop входит, как не владелец', dev.status === 200 && dev.body.ok === true && dev.body.owner === false);
   const owner = await call('owner', '/api/studio/session');
   ok('владелец входит и помечен владельцем', owner.status === 200 && owner.body.owner === true);
 
-  console.log('Свои подпрограммы');
+  console.log('Свои программы');
   const base = { signature: 's', authorKey: 'k', size: 1, sha256: 'h', chunkCount: 1 };
   let n = 0;
   const add = (authorId: string, moduleId: string, version: string, state = 'pending') => db.moduleRequest.create({ data: {
@@ -83,10 +83,10 @@ async function main() {
   await add('dev', 'beta', '0.1.0', 'returned');
   await add('other', 'gamma', '1.0.0');
   const mine = (await call('dev', '/api/studio/modules')).body.modules;
-  ok('разработчик видит только свои подпрограммы', mine.length === 2 && mine.every((m: any) => ['alpha', 'beta'].includes(m.moduleId)));
+  ok('разработчик видит только свои программы', mine.length === 2 && mine.every((m: any) => ['alpha', 'beta'].includes(m.moduleId)));
   const alpha = mine.find((m: any) => m.moduleId === 'alpha');
-  ok('по подпрограмме — последняя отправленная версия и число запросов', alpha.version === '1.1.0' && alpha.requests === 2 && alpha.state === 'pending');
-  ok('чужая подпрограмма не видна и владельцу как «своя»', (await call('owner', '/api/studio/modules')).body.modules.length === 0);
+  ok('по программе — последняя отправленная версия и число запросов', alpha.version === '1.1.0' && alpha.requests === 2 && alpha.state === 'pending');
+  ok('чужая программа не видна и владельцу как «своя»', (await call('owner', '/api/studio/modules')).body.modules.length === 0);
 
   console.log('Предел списка');
   for (let i = 0; i < STUDIO_MODULE_LIMIT + 5; i++) await add('other', `mass-${i}`, '1.0.0');
@@ -99,6 +99,6 @@ async function main() {
   server.close();
   await db.$disconnect();
   fs.rmSync(dir, { recursive: true, force: true });
-  console.log(`\nStudio: вход и свои подпрограммы — ${passed} проверок пройдено`);
+  console.log(`\nStudio: вход и свои программы — ${passed} проверок пройдено`);
 }
 main().catch((e) => { console.error(e); fs.rmSync(dir, { recursive: true, force: true }); process.exit(1); });

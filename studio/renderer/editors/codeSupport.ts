@@ -1,10 +1,10 @@
 /**
- * Подсказки и проверка кода по договору.
+ * Подсказки и проверка кода по описанию данных.
  *
- * Полные ошибки типов даёт настоящий компилятор по файлу `.d.ts` из договора (contractTypes.ts) —
+ * Полные ошибки типов даёт настоящий компилятор по файлу `.d.ts` из описания данных (contractTypes.ts) —
  * при выпуске. В самом редакторе работает лёгкая проверка без компилятора (он весит десятки
  * мегабайт, а Studio открывается без сети): неизвестные и неразрешённые данные Flux, значения,
- * не объявленные в договоре, и автодополнение по тем же схемам.
+ * не объявленные в описании данных, и автодополнение по тем же схемам.
  */
 import { dataSchemas } from '../../../modules/dataSchemas';
 import { resources } from '../../../modules/contract';
@@ -32,13 +32,13 @@ export function checkScript(text: string, contract: ContractDraft): CodeIssue[] 
     const name = match[2];
     const at = match.index! + match[0].lastIndexOf(name);
     if (!isResource(name)) push(at, name.length, 'error', `У Flux нет данных «${name}». Доступны: ${resources.join(', ')}`);
-    else if (!contract.reads.includes(name)) push(at, name.length, 'error', `Данные «${name}» не разрешены договором: добавьте их в «Что читает программа»`);
+    else if (!contract.reads.includes(name)) push(at, name.length, 'error', `Данные «${name}» не разрешены описанием данных: добавьте их в «Что читает программа»`);
   }
   const scan = (pattern: RegExp, declared: string[], where: string) => {
     for (const match of text.matchAll(pattern)) {
       const name = match[1];
       if (declared.includes(name)) continue;
-      push(match.index! + match[0].lastIndexOf(name), name.length, 'error', `«${name}» не объявлено в договоре (${where}). Объявите его или поправьте имя`);
+      push(match.index! + match[0].lastIndexOf(name), name.length, 'error', `«${name}» не объявлено в описании данных (${where}). Объявите его или поправьте имя`);
     }
   };
   scan(/(?<![\w$.])state\s*\.\s*([A-Za-z_$][\w$]*)/g, contract.state.map(value => value.name), 'состояние');
@@ -47,7 +47,7 @@ export function checkScript(text: string, contract: ContractDraft): CodeIssue[] 
     const body = match[1];
     for (const key of body.matchAll(/(?:^|,)\s*([A-Za-z_$][\w$]*)\s*:/g)) {
       if (contract.outputs.some(value => value.name === key[1])) continue;
-      push(match.index! + match[0].indexOf(body) + key.index! + key[0].lastIndexOf(key[1]), key[1].length, 'error', `«${key[1]}» не объявлено в договоре (выходы расчёта)`);
+      push(match.index! + match[0].indexOf(body) + key.index! + key[0].lastIndexOf(key[1]), key[1].length, 'error', `«${key[1]}» не объявлено в описании данных (выходы расчёта)`);
     }
   }
   return issues.sort((a, b) => a.line - b.line || a.column - b.column);
@@ -60,7 +60,7 @@ export function checkOther(text: string, contract: ContractDraft): CodeIssue[] {
     const name = match[2];
     if (contract.reads.includes(name as never)) continue;
     const offset = match.index! + match[0].lastIndexOf(name);
-    issues.push({ ...placeOf(text, offset), length: name.length, severity: 'warning', message: `Данные «${name}» не разрешены договором: расчёт их не получит` });
+    issues.push({ ...placeOf(text, offset), length: name.length, severity: 'warning', message: `Данные «${name}» не разрешены описанием данных: расчёт их не получит` });
   }
   return issues;
 }

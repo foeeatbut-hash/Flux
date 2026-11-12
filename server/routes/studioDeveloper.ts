@@ -1,8 +1,8 @@
 /**
- * Разделы разработчика в Flux Studio: сертификат, запросы на публикацию и выпуски своей подпрограммы.
+ * Разделы разработчика в Flux Studio: сертификат, запросы на публикацию и выпуски своей программы.
  *
  * Все маршруты закрыты ЯВНЫМ правом module.develop (developerGate, а не общей userCan, которая
- * отдаёт администратору всё). Чужая подпрограмма разработчику не видна и не отправляется:
+ * отдаёт администратору всё). Чужая программа разработчику не видна и не отправляется:
  * - список запросов, пакет запроса и выпуски отдаются только автору запроса / ключа;
  * - `studioPublishGate` подключается к приёму запросов (modulePublishing): тот же явный отказ
  *   и запрет присылать версию под идентификатором, который занят другим разработчиком.
@@ -26,7 +26,7 @@ async function myKeys(db: any, me: string, rootHex: string): Promise<Set<string>
   return new Set([...trust.certificates.values()].filter(c => c.userId === me).map(c => c.key));
 }
 
-/** Подпрограмма чужая, если её уже присылал или выпускал другой разработчик */
+/** Программа чужая, если её уже присылал или выпускал другой разработчик */
 export async function foreignModule(db: any, moduleId: string, me: string, rootHex: string): Promise<boolean> {
   const other = await db.moduleRequest.findFirst({
     where: { moduleId, byOwner: false, authorId: { not: me }, state: { notIn: ['rejected', 'writing'] } }, select: { id: true },
@@ -40,7 +40,7 @@ export async function foreignModule(db: any, moduleId: string, me: string, rootH
   });
 }
 
-/** Крючок для приёма запросов: явное право и «чужую подпрограмму не прислать» */
+/** Крючок для приёма запросов: явное право и «чужую программу не прислать» */
 export function studioPublishGate(deps: Pick<StudioDeps, 'permissionsOf'> & { modulePublicKeyHex?: string }) {
   const may = developerGate(deps);
   const rootHex = () => deps.modulePublicKeyHex ?? MODULE_ROOT_KEY_HEX;
@@ -51,7 +51,7 @@ export function studioPublishGate(deps: Pick<StudioDeps, 'permissionsOf'> & { mo
     async ownership(db: any, req: Request, moduleId: string): Promise<string | null> {
       if ((req as any).authUser?.role === 'OWNER') return null;
       return await foreignModule(db, moduleId, userId(req), rootHex())
-        ? `Подпрограмма «${moduleId}» принадлежит другому разработчику: выберите другой идентификатор.` : null;
+        ? `Программа «${moduleId}» принадлежит другому разработчику: выберите другой идентификатор.` : null;
     },
   };
 }
@@ -104,10 +104,10 @@ export function registerStudioDeveloperRoutes(app: Express, deps: StudioDevelope
     res.type('application/octet-stream').send(Buffer.from(await readBundle(db, row.id, row.chunkCount)));
   }));
 
-  /** Выпуски своей подпрограммы: от них считается «разница с прошлой версией» и повышается номер */
+  /** Выпуски своей программы: от них считается «разница с прошлой версией» и повышается номер */
   app.get('/api/studio/releases', guard(async (req, res) => {
     const db = deps.getPrisma(), moduleId = String(req.query.moduleId || '');
-    if (!MODULE_ID.test(moduleId)) return res.status(400).json({ error: 'Нужен идентификатор подпрограммы.' });
+    if (!MODULE_ID.test(moduleId)) return res.status(400).json({ error: 'Нужен идентификатор программы.' });
     const keys = await myKeys(db, userId(req), rootHex());
     const rows = await db.moduleRelease.findMany({ where: { moduleId }, orderBy: { createdAt: 'desc' }, take: 100 });
     res.json({ releases: rows.flatMap((r: any) => {

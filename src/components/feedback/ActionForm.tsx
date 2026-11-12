@@ -37,7 +37,7 @@ export const emptyInput = (): ActionInput => ({
 export function whatIsMissing(action: Action, input: ActionInput): string {
   if (action.needs.reason && !input.reason.trim()) return 'Напишите причину — её увидит автор';
   if (action.needs.assignee && !input.assigneeId) return 'Выберите, кто берётся за это';
-  if (action.needs.moduleRelease && !MODULE_VERSION.test(input.resolvedVersion.trim())) return 'Укажите версию подпрограммы с исправлением';
+  if (action.needs.moduleRelease && !MODULE_VERSION.test(input.resolvedVersion.trim())) return 'Укажите версию программы с исправлением';
   if (action.needs.release && !input.resolvedVersion.trim() && !input.noReleaseReason.trim()) {
     return 'Укажите версию с исправлением или объясните, почему выпуска не будет';
   }

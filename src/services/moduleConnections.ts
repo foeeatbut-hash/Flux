@@ -1,25 +1,25 @@
 /**
- * Подключения подпрограммы со стороны окна Flux: вызов уходит в главный процесс
+ * Подключения программы со стороны окна Flux: вызов уходит в главный процесс
  * (`modules:connect`), а когда решение человека ещё не принято, окно показывает
  * ему вопрос и записывает ответ тоже через главный процесс. Решение, разрешение
  * и проверка адреса — не здесь: окно только передаёт вызов и показывает вопрос,
- * поэтому ни подпрограмма, ни ошибка окна не могут «разрешить» себе подключение.
+ * поэтому ни программа, ни ошибка окна не могут «разрешить» себе подключение.
  */
 import type { ConnectCall, ConnectErrorCode, GrantAsk } from '../../modules/connections/model';
 import { bridge } from './moduleReleaseService';
 
-/** `later` — окно подпрограммы закрыто, человек не отвечал: ничего не запоминается, спросим при следующем обращении */
+/** `later` — окно программы закрыто, человек не отвечал: ничего не запоминается, спросим при следующем обращении */
 export type GrantChoice = 'always' | 'once' | 'never' | 'later';
 export type ConnectResult = { ok: true; data: unknown } | { ok: false; code: ConnectErrorCode };
 
 export interface ConnectorOptions {
   moduleId: string;
   version: string;
-  /** Сеанс окна подпрограммы: по нему главный процесс закрывает всё, что она открыла */
+  /** Сеанс окна программы: по нему главный процесс закрывает всё, что она открыла */
   session: string;
   /** Окно вопроса; возвращает выбор человека. Закрытие окна без выбора — «не разрешать» */
   ask: (ask: GrantAsk) => Promise<GrantChoice>;
-  /** Подпрограмме отказали (человек или политика): окно показывает плашку «Нет доступа к … — Разрешить…» */
+  /** Программе отказали (человек или политика): окно показывает плашку «Нет доступа к … — Разрешить…» */
   /** Понятные имена программ по идентификатору подключения: из манифеста, который окно получило от главного процесса */
   apps?: Record<string, string>;
   onDenied?: (ask: { connection: string; app: string }) => void;
@@ -50,7 +50,7 @@ export function createConnector(options: ConnectorOptions) {
           asking.set(connection, pending);
         }
         const choice = await pending;
-        // Закрытие окна подпрограммы без ответа не запоминается и плашки не показывает
+        // Закрытие окна программы без ответа не запоминается и плашки не показывает
         if (choice === 'later') return { ok: false, code: 'NOT_ALLOWED' };
         if (choice === 'never') { options.onDenied?.({ connection, app: ask.app }); return { ok: false, code: 'NOT_ALLOWED' }; }
         reply = await invoke(connection, call);
@@ -61,7 +61,7 @@ export function createConnector(options: ConnectorOptions) {
       }
       return reply?.ok ? { ok: true, data: reply.data } : { ok: false, code: (reply?.code as ConnectErrorCode) || 'FAILED' };
     },
-    /** Окно подпрограммы закрыто */
+    /** Окно программы закрыто */
     close() { void bridge()?.invoke('modules:connect-close', { session: options.session }).catch(() => null); },
   };
 }

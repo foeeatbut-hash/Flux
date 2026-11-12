@@ -6,7 +6,7 @@ import { validMessage } from './schemas';
 import { ComputeError, codeOf, type ComputeErrorCode } from './engine/types';
 import { encodeJson } from './engine/json';
 import type { ConnectCall, ConnectErrorCode } from './connections/model';
-import { PAGE_LIMITS, saveNameProblem, WINDOW_LIMITS } from './page/model';
+import { openAcceptProblem, PAGE_LIMITS, saveNameProblem, WINDOW_LIMITS } from './page/model';
 
 export interface ModuleBridgeOptions {
   frame: () => Window | null;
@@ -19,19 +19,19 @@ export interface ModuleBridgeOptions {
   onFailure?: (kind: ModuleFailureKind) => void;
   /**
    * Расчёт логики на Python или WebAssembly (src/services/moduleCompute.ts). Язык и файл выбирает
-   * не подпрограмма, а подписанный манифест: подпрограмма присылает только вход.
+   * не программа, а подписанный манифест: программа присылает только вход.
    */
   compute?: (input: Record<string, unknown>) => Promise<ModuleOutput>;
-  /** Расчёт закончился ошибкой: окно показывает «подпрограмма остановилась»; счётчик сбоев пишет сам расчёт */
+  /** Расчёт закончился ошибкой: окно показывает «программа остановилась»; счётчик сбоев пишет сам расчёт */
   onComputeError?: (code: ComputeErrorCode) => void;
   /**
    * Сквозной вызов подключения (src/services/moduleConnections.ts → главный процесс). Окно не решает, можно ли:
    * разрешение, адрес и пределы проверяет главный процесс по подписанному манифесту выпуска.
    */
   connect?: (connection: string, call: ConnectCall) => Promise<{ ok: true; data: unknown } | { ok: false; code: ConnectErrorCode }>;
-  /** Подпрограмма закрыта: подключения, которые она открыла, закрываются (главный процесс сам держит их список) */
+  /** Программа закрыта: подключения, которые она открыла, закрываются (главный процесс сам держит их список) */
   onClose?: () => void;
-  /** Строка из flux.log подпрограммы; окно пишет её в журнал */
+  /** Строка из flux.log программы; окно пишет её в журнал */
   onLog?: (level: 'info' | 'warn' | 'error', text: string) => void;
   /**
    * Страница программы (договор v2). Действия страницы выполняет окно Flux: состояние держит оно,
@@ -42,6 +42,11 @@ export interface ModuleBridgeOptions {
     loadState: () => Record<string, unknown>;
     keepState: (state: Record<string, unknown>) => void;
     offerFile: (file: { name: string; mime: string; bytes: Uint8Array }) => Promise<'saved' | 'cancelled'>;
+    /**
+     * Файл пользователя (flux.openFile, добавлено к v2): окно Flux показывает системный диалог, человек выбирает файл,
+     * программа получает имя и содержимое только его. Нет поля — хост этого не умеет, программе отвечают DENIED.
+     */
+    pickFile?: (request: { accept: string[] }) => Promise<{ name: string; mime: string; bytes: Uint8Array } | 'cancelled' | 'limit'>;
     onBeat: () => void;
     /** Свои окна программы: Flux открывает обычное окно с этой страницей пакета; false — предел или страницы нет */
     openWindow: (page: string, params: Record<string, unknown>) => boolean;
@@ -92,7 +97,7 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     const epoch = generation;
     computing.add(message.id);
     try {
-      // Числа проверяются здесь, а не в подпрограмме: NaN и целое больше 2^53 в обход frame.ts не пройдут
+      // Числа проверяются здесь, а не в программе: NaN и целое больше 2^53 в обход frame.ts не пройдут
       encodeJson(message.input);
       const output = await options.compute(message.input);
       if (disposed || epoch !== generation) return;
@@ -108,7 +113,7 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
   }
   async function runConnect(message: { id: string; connection: string; call: ConnectCall }) {
     const fail = (code: ConnectErrorCode) => {
-      // Превышение пределов и обращение к необъявленному — признак неисправной подпрограммы: идёт в счётчики сбоев
+      // Превышение пределов и обращение к необъявленному — признак неисправной программы: идёт в счётчики сбоев
       if (code === 'LIMIT' || code === 'TIMEOUT' || code === 'DENIED') options.onFailure?.('connection');
       post({ flux: 'module', v: 1, session: options.session, type: 'connect-error', id: message.id, code });
     };
@@ -128,6 +133,8 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     finally { connecting.delete(message.id); }
   }
   let offering = false;
+  let picking = false;
+  let pickedAt = 0;
   let offeredAt = 0;
   async function runPage(message: { id: string } & PageOp) {
     const answer = (result: { data: unknown } | { code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' }) => {
@@ -154,6 +161,26 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     if (message.op === 'state-keep') {
       if (messageBytes(message.state) > PAGE_LIMITS.stateBytes) { answer({ code: 'LIMIT' }); return; }
       page.keepState(message.state); answer({ data: null }); return;
+    }
+    if (message.op === 'file-pick') {
+      if (!page.pickFile) { answer({ code: 'DENIED' }); return; }
+      if (openAcceptProblem(message.accept)) { answer({ code: 'DENIED' }); return; }
+      // Один диалог за раз и не чаще раза в секунду, как у «отдать файл»; программа не заваливает человека окнами
+      if (picking || Date.now() - pickedAt < 1000) { answer({ code: 'LIMIT' }); return; }
+      picking = true; pickedAt = Date.now();
+      try {
+        const picked = await page.pickFile({ accept: message.accept ?? [] });
+        if (picked === 'cancelled') answer({ code: 'CANCELLED' });
+        else if (picked === 'limit' || picked.bytes.length > PAGE_LIMITS.openBytes) answer({ code: 'LIMIT' });
+        else {
+          let raw = '';
+          for (let i = 0; i < picked.bytes.length; i += 0x8000) raw += String.fromCharCode(...picked.bytes.subarray(i, i + 0x8000));
+          // Имя без путей: даже если хост ошибётся, программа не узнает папок человека
+          answer({ data: { name: picked.name.replace(/^.*[\\/]/, '').slice(0, 100), size: picked.bytes.length, mime: picked.mime || 'application/octet-stream', data: btoa(raw), encoding: 'base64' } });
+        }
+      } catch { answer({ code: 'FAILED' }); }
+      finally { picking = false; }
+      return;
     }
     // Файл пользователю: одно окно диалога за раз и не чаще раза в секунду, имя без путей
     if (saveNameProblem(message.name)) { answer({ code: 'DENIED' }); return; }
@@ -228,7 +255,7 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       return;
     }
     if (validMessage('log', message)) {
-      // Частота и длина ограничены здесь, до журнала: подпрограмма не раздует его (5 в секунду)
+      // Частота и длина ограничены здесь, до журнала: программа не раздует его (5 в секунду)
       if (Date.now() - logAt >= 1000) { logAt = Date.now(); logs = 0; }
       if (++logs <= 5) options.onLog?.(message.level, String(message.text).slice(0, 200));
       return;

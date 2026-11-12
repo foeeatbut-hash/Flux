@@ -43,7 +43,7 @@ function Values({ title, hint, values, onChange, id }: { title: string; hint: st
           </tbody>
         </table>
       )}
-      {values.some(value => dup(value.name)) && <p className="ed-error" role="alert">Имена повторяются: в договоре у значения должно быть своё имя.</p>}
+      {values.some(value => dup(value.name)) && <p className="ed-error" role="alert">Имена повторяются: в описании данных у значения должно быть своё имя.</p>}
       <div className="ed-actions"><button type="button" className="ed-btn" onClick={() => onChange([...values, { name: '', type: 'string' }])}>Добавить значение</button></div>
     </section>
   );
@@ -54,7 +54,7 @@ export function ContractEditor({ contract, onChange }: { contract: ContractDraft
     <div className="ed-contract" data-testid="contract-editor">
       <section aria-label="Что читает программа">
         <h3 className="ed-title">Что читает программа</h3>
-        <p className="ed-hint">Только отмеченное. Остальные данные Flux программа не получит, а привязка к ним не пройдёт проверку.</p>
+        <p className="ed-hint">Только отмеченное. Остальные данные Flux программа не получит, а источник значения из них не пройдёт проверку.</p>
         <div className="ed-checks">
           {resources.map(resource => (
             <Check key={resource} label={RESOURCE_NAMES[resource]} checked={contract.reads.includes(resource)}

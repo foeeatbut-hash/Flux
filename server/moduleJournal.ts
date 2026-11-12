@@ -1,8 +1,8 @@
 /**
- * Журнал подпрограмм на сервере: приём пачек с компьютеров, просмотр, уборка.
+ * Журнал программ на сервере: приём пачек с компьютеров, просмотр, уборка.
  *
  * Решает сервер, а не окно: кто видит (владелец и администратор — всё, с
- * именами; разработчик — только свои подпрограммы и без людей, как счётчики
+ * именами; разработчик — только свои программы и без людей, как счётчики
  * сбоев), сколько принимать (предел частоты и размера пачки), как долго
  * хранить (срок и общее число строк). Содержимого вызовов и данных проектов в
  * записях нет: форму проверяет `validEntry`, а не доверие к клиенту.
@@ -34,9 +34,9 @@ function allowBatch(userId: string, now: number): boolean {
   return ++w.n <= BATCHES_PER_MINUTE;
 }
 
-/** Подпрограммы, выпущенные по сертификату этого человека: только их журнал он видит */
+/** Программы, выпущенные по сертификату этого человека: только их журнал он видит */
 const developerCache = new Map<string, { at: number; modules: Set<string> }>();
-/** Список своих подпрограмм разработчика читает все выпуски и проверяет подписи: минуту он держится в памяти */
+/** Список своих программ разработчика читает все выпуски и проверяет подписи: минуту он держится в памяти */
 export const DEVELOPER_CACHE_MS = 60_000;
 export async function modulesOfDeveloper(db: any, userId: string, rootHex: string, now = Date.now()): Promise<Set<string>> {
   const hit = developerCache.get(userId);
@@ -62,7 +62,7 @@ export async function acceptJournal(db: any, user: any, raw: unknown, now = Date
     .map((e: JournalEntry) => ({ ...e, userId: String(user.id) }))
     .filter((e: JournalEntry) => e.at <= now + 3_600_000 && e.at >= now - JOURNAL_LIMITS.serverDays * DAY);
   if (!valid.length) return { accepted: 0, rejected: list.length };
-  // Записи неизвестных подпрограмм не принимаются: журнал не место для чужого мусора
+  // Записи неизвестных программ не принимаются: журнал не место для чужого мусора
   const known = new Set((await db.moduleRelease.findMany({ where: { moduleId: { in: [...new Set(valid.map(e => e.moduleId))] } }, select: { moduleId: true } })).map((r: any) => r.moduleId));
   const fresh = valid.filter(e => known.has(e.moduleId));
   // Ключ строки привязан к человеку: чужой номер записи занять нельзя, а повтор своей пачки не даёт дублей
@@ -113,11 +113,11 @@ export function registerJournalRoutes(app: Express, deps: JournalDeps): void {
     catch (e: any) { fail(res, 503, e?.message || 'Журнал недоступен'); }
   });
 
-  /** Просмотр: владелец и администратор видят всё; разработчик — только свои подпрограммы и без людей */
+  /** Просмотр: владелец и администратор видят всё; разработчик — только свои программы и без людей */
   app.get('/api/modules/journal', async (req: Request, res: Response) => {
     const db = deps.getPrisma(), user = userOf(req), admin = isAdmin(req);
     const developer = !admin && can(req, 'module.develop');
-    if (!admin && !developer) return fail(res, 403, 'Журнал подпрограмм доступен владельцу, администратору и разработчику');
+    if (!admin && !developer) return fail(res, 403, 'Журнал программ доступен владельцу, администратору и разработчику');
     const q = req.query as Record<string, string>;
     const where: any = {};
     if (developer) {
@@ -142,7 +142,7 @@ export function registerJournalRoutes(app: Express, deps: JournalDeps): void {
         detail: r.detail, outcome: r.outcome, ms: r.ms, bytesIn: r.bytesIn, bytesOut: r.bytesOut, at: r.at };
       if (admin) return row;
       const { userName: _name, ...rest } = anonymize(row) as any;
-      // Текст flux.log пишет сама подпрограмма и может содержать что угодно: разработчику в общем журнале — только факт, уровень и время;
+      // Текст flux.log пишет сама программа и может содержать что угодно: разработчику в общем журнале — только факт, уровень и время;
       // текст он увидит, лишь если человек сам приложил журнал к обращению
       return row.category === 'log' ? { ...rest, detail: '' } : rest;
     };

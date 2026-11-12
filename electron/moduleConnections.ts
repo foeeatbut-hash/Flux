@@ -1,16 +1,16 @@
 /**
- * Сквозной канал подпрограммы к внешней программе (этап 3б) — главный процесс.
+ * Сквозной канал программы к внешней программе (этап 3б) — главный процесс.
  *
  * Порядок на каждый вызов, и решает его только этот файл, а не окно:
  * 1. по проверенному выпуску (подпись владельца, кэш) берётся манифест — слова
- *    подпрограммы и окна о том, что ей разрешено, в расчёт не идут;
+ *    программы и окна о том, что ей разрешено, в расчёт не идут;
  * 2. подключение должно быть объявлено в манифесте (для COM — белый список ProgID,
  *    опасные объекты только с флагом владельца), вид вызова — соответствовать объявлению;
  * 3. политика администратора и решение человека (electron/moduleGrants.ts):
  *    запрещено — отказ, не решено — окну возвращается вопрос, а не канал;
  * 4. пределы: частота, одновременные вызовы, открытые подключения, размеры;
  * 5. сам вызов как есть: HTTP/WebSocket — на проверенный адрес объявленного
- *    сервера (electron/moduleNet.ts), COM — через помощника подпрограммы (moduleCom.ts);
+ *    сервера (electron/moduleNet.ts), COM — через помощника программы (moduleCom.ts);
  * 6. запись в журнал: только метаданные, содержимого вызова в нём нет.
  */
 import { validMessage } from '../modules/schemas';
@@ -27,12 +27,12 @@ import { WsSession, httpCall, systemLookup, type Lookup } from './moduleNet';
 export interface VerifiedModule { manifest: ModuleManifest; version: string; author: string; verifiedAt: number }
 export interface ConnectRequest { moduleId: string; version: string; session: string; connection: string; call: unknown }
 export interface ConnectionDeps {
-  /** Проверенный выпуск установленной подпрограммы; null — такого нет или он не запускается */
+  /** Проверенный выпуск установленной программы; null — такого нет или он не запускается */
   resolve: (moduleId: string, version: string) => Promise<VerifiedModule | null>;
   userId: () => string;
   grants: ModuleGrants;
   journal: ModuleJournal;
-  /** Помощник COM подпрограммы: у каждой свой, чтобы таймаут или сбой одной не трогал объекты других */
+  /** Помощник COM программы: у каждой свой, чтобы таймаут или сбой одной не трогал объекты других */
   comFor: (moduleId: string) => ComBackend;
   lookup?: Lookup;
   now?: () => number;
@@ -85,7 +85,7 @@ export class ModuleConnections {
     if (!s) { s = { moduleId, sockets: new Map(), handles: new Map(), roots: new Map() }; this.sessions.set(key, s); }
     return s;
   }
-  /** Помощник COM подпрограммы; когда он завершился, её объекты недействительны — учёт обнуляется, чужие подпрограммы не затронуты */
+  /** Помощник COM программы; когда он завершился, её объекты недействительны — учёт обнуляется, чужие программы не затронуты */
   private com(moduleId: string): ComBackend {
     let backend = this.backends.get(moduleId);
     if (!backend) {
@@ -198,7 +198,7 @@ export class ModuleConnections {
         return { data: reply, io: { inn: socket.bytesIn - before } };
       }
       default: {
-        // Вызовы COM одной подпрограммы идут строго по одному: помощник однопоточный
+        // Вызовы COM одной программы идут строго по одному: помощник однопоточный
         slot.comWaiting++;
         const turn = slot.comQueue.then(() => this.comCall(session, decl, call as Extract<ConnectCall, { op: `com-${string}` }>, slot), () => this.comCall(session, decl, call as Extract<ConnectCall, { op: `com-${string}` }>, slot));
         slot.comQueue = turn.then(() => undefined, () => undefined).finally(() => { slot.comWaiting--; });
@@ -247,7 +247,7 @@ export class ModuleConnections {
     }
     const results = call.op === 'com-batch' ? await limit(backend.batch(items, deny))
       : [{ ok: true as const, value: await limit(backend.invoke(items[0].handle, items[0].kind, items[0].name, items[0].args, items[0].value, deny)) }];
-    // Объекты из ответа записываются подпрограмме; сверх предела — освобождаются сразу, а не остаются висеть у помощника
+    // Объекты из ответа записываются программе; сверх предела — освобождаются сразу, а не остаются висеть у помощника
     const fresh: number[] = [];
     for (const r of results) if (r.ok) walk(r.value, handle => { if (!owned.has(handle) && !fresh.includes(handle)) fresh.push(handle); });
     if (owned.size + fresh.length > CONNECTION_LIMITS.comHandles || sizeOf(results) > CONNECTION_LIMITS.comReplyBytes) {
@@ -260,7 +260,7 @@ export class ModuleConnections {
     return { data: call.op === 'com-set' ? {} : { value: (results[0] as { value: unknown }).value }, io: { inn, out } };
   }
 
-  /** Окно подпрограммы закрыто: сокеты и COM-объекты, которые она оставила, закрываются здесь */
+  /** Окно программы закрыто: сокеты и COM-объекты, которые она оставила, закрываются здесь */
   async closeSession(owner: string, session: string) {
     const key = `${owner}:${session}`, s = this.sessions.get(key);
     this.deps.grants.endSession(key);
@@ -269,7 +269,7 @@ export class ModuleConnections {
     for (const socket of s.sockets.values()) socket.close();
     const backend = this.backends.get(s.moduleId);
     if (backend) for (const set of s.handles.values()) for (const handle of set) await backend.release(handle).catch(() => {});
-    // Места открытых подключений этого окна возвращаются подпрограмме
+    // Места открытых подключений этого окна возвращаются программе
     const freed = s.sockets.size + [...s.roots.values()].reduce((n, set) => n + set.size, 0);
     const slot = this.slots.get(s.moduleId);
     if (slot && freed) slot.open = Math.max(0, slot.open - freed);

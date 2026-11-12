@@ -1,5 +1,5 @@
 /**
- * Подключения подпрограмм в настоящем Electron (этап 3б): подписанные выпуски через
+ * Подключения программ в настоящем Electron (этап 3б): подписанные выпуски через
  * настоящий протокол и кэш, окно запроса разрешения у человека, HTTP-пример против
  * локального сервера, COM-пример (на Windows — настоящий Scripting.FileSystemObject,
  * на других ОС — поддельный), журнал, разрешения и снимки обеих тем.
@@ -36,7 +36,7 @@ async function main() {
   fs.mkdirSync(shots, { recursive: true });
   const root = newKey(), rootHex = hexOf(root), dev = hexOf(newKey());
 
-  // ── Сервер, к которому подпрограмма имеет право ходить (и счётчик обращений) ──
+  // ── Сервер, к которому программа имеет право ходить (и счётчик обращений) ──
   const hits: Array<{ url: string; headers: Record<string, unknown> }> = [];
   const api = createServer((req, res) => { hits.push({ url: req.url || '', headers: req.headers }); res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ answer: 42 })); });
   await new Promise<void>(r => api.listen(0, '127.0.0.1', r));
@@ -127,14 +127,14 @@ async function main() {
     await prompt.waitFor({ timeout: 30000 });
     check('при первом обращении человек видит запрос, а до сервера обращений нет', await prompt.isVisible() && hits.length === 0);
     const title = await page.locator('.fx-dialog-head h3').innerText();
-    check('заголовок: «„подпрограмма“ хочет подключиться к программе», одна строка о том, что она будет делать', title.includes('Расчёт на сервере') && title.includes('хочет подключиться к Сервер расчётов')
+    check('заголовок: «„программа“ хочет подключиться к программе», одна строка о том, что она будет делать', title.includes('Расчёт на сервере') && title.includes('хочет подключиться к Сервер расчётов')
       && (await prompt.innerText()).includes('Отправляет на сервер расчётов номер проекта'));
     check('по умолчанию выбран «Только сейчас»', await page.evaluate(() => document.activeElement?.getAttribute('data-testid')) === 'grant-once');
     check('в свёрнутом виде нет подробностей и технических деталей', !(await page.locator('[data-testid="grant-details"]').count()) && !(await prompt.innerText()).includes('127.0.0.1'));
     for (const dark of [false, true]) { await theme(dark); await page.screenshot({ path: path.join(shots, `prompt-collapsed-${dark ? 'dark' : 'light'}.png`) }); }
     await page.locator('[data-testid="grant-more"]').click();
     const details = await page.locator('[data-testid="grant-details"]').innerText();
-    check('«Подробнее»: что разрешается, чего подпрограмма не получит, кто выпустил и когда проверено', details.includes('отправлять данные') && details.includes('не получит') && details.includes('данные Flux') && details.includes('проверено владельцем'));
+    check('«Подробнее»: что разрешается, чего программа не получит, кто выпустил и когда проверено', details.includes('отправлять данные') && details.includes('не получит') && details.includes('данные Flux') && details.includes('проверено владельцем'));
     check('технические детали свёрнуты ещё ниже', !(await page.locator('[data-testid="grant-tech-text"]').count()));
     await page.locator('[data-testid="grant-tech"]').click();
     check('«Для специалиста» раскрывает адрес', (await page.locator('[data-testid="grant-tech-text"]').innerText()).includes(`127.0.0.1:${apiPort}`));
@@ -142,7 +142,7 @@ async function main() {
     await theme(false);
     await page.locator('[data-testid="grant-once"]').click();
     const answered = await frameText('conn-once', '42');
-    check('«Только сейчас»: вызов прошёл как есть, подпрограмма показала ответ сервера', answered.includes('42') && hits.length === 1 && hits[0].url === '/api/ping?from=flux');
+    check('«Только сейчас»: вызов прошёл как есть, программа показала ответ сервера', answered.includes('42') && hits.length === 1 && hits[0].url === '/api/ping?from=flux');
     check('к серверу не ушли cookie Flux; заголовки соответствуют вызову', hits[0].headers.cookie === undefined && hits[0].headers['user-agent'] === 'Flux-Module');
 
     // «Только сейчас» не запоминается: в новом окне — снова вопрос; Esc = «Не разрешать» и запоминается
@@ -152,7 +152,7 @@ async function main() {
     await page.keyboard.press('Escape');
     await page.locator('[data-testid="module-denied"]').waitFor({ timeout: 30000 });
     const denied = await frameText('conn-once', 'NOT_ALLOWED');
-    check('Esc = «Не разрешать»: понятная плашка, подпрограмма работает без подключения, канал не открыт', denied.includes('NOT_ALLOWED') && hits.length === 1
+    check('Esc = «Не разрешать»: понятная плашка, программа работает без подключения, канал не открыт', denied.includes('NOT_ALLOWED') && hits.length === 1
       && (await page.locator('[data-testid="module-denied"]').innerText()).includes('Нет доступа к «Сервер расчётов»'));
     for (const dark of [false, true]) { await theme(dark); await page.screenshot({ path: path.join(shots, `denied-banner-${dark ? 'dark' : 'light'}.png`) }); }
     await theme(false);
@@ -169,7 +169,7 @@ async function main() {
     await frameText('conn-once', '42');
     check('«Разрешить всегда» запомнилось: вопроса больше нет', !(await prompt.count()) && hits.length === 3);
 
-    // ── 2. «Не разрешать» кнопкой, у другой подпрограммы ──
+    // ── 2. «Не разрешать» кнопкой, у другой программы ──
     await open('conn-never');
     await prompt.waitFor({ timeout: 30000 });
     await page.locator('[data-testid="grant-never"]').click();
@@ -185,10 +185,10 @@ async function main() {
     const forged: any = await ipc('modules:connect', { moduleId: 'conn-once', version: '9.9.9', session: 's', connection: 'api', call: { op: 'http', method: 'GET', path: '/api/ping' } });
     const foreign: any = await ipc('modules:connect', { moduleId: 'нет-такой', version: '1.0.0', session: 's', connection: 'api', call: { op: 'http', method: 'GET', path: '/api/ping' } });
     const undeclaredGrant: any = await ipc('modules:grant', { moduleId: 'conn-once', version: '1.0.0', connection: 'нет', session: 's', decision: 'always' });
-    check('главный процесс отказывает: путь вне префикса, неизвестная версия и подпрограмма, разрешение несуществующего подключения', outside.code === 'TARGET' && forged.code === 'DENIED'
+    check('главный процесс отказывает: путь вне префикса, неизвестная версия и программа, разрешение несуществующего подключения', outside.code === 'TARGET' && forged.code === 'DENIED'
       && foreign.code === 'DENIED' && undeclaredGrant.ok === false && hits.length === 3);
     const frames = await page.evaluate(() => document.querySelectorAll('iframe').length);
-    check('окно подпрограммы не имеет доступа к IPC: решение «разрешить» возможно только из окна Flux', frames > 0 && await (async () => {
+    check('окно программы не имеет доступа к IPC: решение «разрешить» возможно только из окна Flux', frames > 0 && await (async () => {
       const f = page.frames().find(x => x.url().startsWith('flux-module://conn-strict/'))!;
       return (await f.evaluate('typeof window.electron')) === 'undefined';
     })());
@@ -206,7 +206,7 @@ async function main() {
     const rows: any[] = recent.entries;
     const text = JSON.stringify(rows);
     console.log('  виды записей:', [...new Set(rows.map(r => `${r.category}/${r.outcome}`))].join(', '));
-    check('журнал: запуск, чтения, подключения, решения человека и сообщения подпрограммы', ['lifecycle', 'read', 'connection', 'permission', 'log'].every(c => rows.some(r => r.category === c)));
+    check('журнал: запуск, чтения, подключения, решения человека и сообщения программы', ['lifecycle', 'read', 'connection', 'permission', 'log'].every(c => rows.some(r => r.category === c)));
     check('журнал: итоги вызовов — успех, отказ человека, отказ по границе', rows.some(r => r.category === 'connection' && r.outcome === 'ok') && rows.some(r => r.outcome === 'user-denied') && rows.some(r => r.category === 'connection' && r.outcome === 'target'));
     check('журнал: без содержимого — нет ответа сервера, имени проекта и значений', !text.includes('"answer"') && !text.includes('Тестовый проект') && !text.includes('C:\\\\Проекты') && rows.every(r => typeof r.bytesIn === 'number'));
     const pending: any = await ipc('modules:journal-pending', {});
@@ -225,7 +225,7 @@ async function main() {
       let waited = 0;
       for (const name of names) {
         let r = await call({ op: 'com-call', handle, name: 'GetBaseName', args: [name] });
-        // Быстрый COM упирается в предел 1000 вызовов в секунду: подпрограмма ждёт окно и повторяет, время ожидания учитывается отдельно
+        // Быстрый COM упирается в предел 1000 вызовов в секунду: программа ждёт окно и повторяет, время ожидания учитывается отдельно
         if (!r.ok && r.code === 'LIMIT') { const w = performance.now(); await new Promise(res => setTimeout(res, 1100)); waited += performance.now() - w; r = await call({ op: 'com-call', handle, name: 'GetBaseName', args: [name] }); }
         if (r.ok && r.data.value.startsWith('схема-')) single++;
       }
@@ -250,7 +250,7 @@ async function main() {
       let exits = 0; helper.onExit(() => { exits++; });
       const fso = await helper.open('Scripting.FileSystemObject');
       const folder = await helper.invoke(fso, 'call', 'GetFolder', ['C:\\']) as any;
-      check('настоящий COM: объект в ответе приходит номером подпрограммы', typeof folder?.$com === 'number' && folder.$com !== fso);
+      check('настоящий COM: объект в ответе приходит номером программы', typeof folder?.$com === 'number' && folder.$com !== fso);
       let denied = '';
       try { await helper.invoke(fso, 'call', 'GetFolder', ['C:\\'], undefined, ['^(I)?Folder\\d*$']); } catch (error) { denied = (error as Error).message; }
       check('настоящий COM: объект запрещённого типа не выдаётся, ошибка', denied.length > 0);
@@ -260,7 +260,7 @@ async function main() {
       await new Promise(r => setTimeout(r, 500));
       let stale = '';
       try { await helper.invoke(fso, 'get', 'Drives', []); } catch (error) { stale = (error as any).code; }
-      check('настоящий COM: после завершения помощника старый номер недействителен, подпрограмме сообщено', exits === 1 && stale === 'DENIED');
+      check('настоящий COM: после завершения помощника старый номер недействителен, программе сообщено', exits === 1 && stale === 'DENIED');
     }
 
     // ── 6. Разрешения и журнал на экране, обе темы ──
@@ -281,7 +281,7 @@ async function main() {
     await page.goto(`${url}/?view=journal`);
     await page.waitForSelector('[data-testid="journal-table"]', { timeout: 30000 });
     for (const dark of [false, true]) { await theme(dark); await page.screenshot({ path: path.join(shots, `journal-${dark ? 'dark' : 'light'}.png`) }); }
-    check('журнал подпрограмм: таблица с фильтрами и выгрузкой', (await page.locator('[data-testid="journal-table"] tbody tr').count()) > 5 && await page.locator('[data-testid="journal-export"]').isVisible());
+    check('журнал программ: таблица с фильтрами и выгрузкой', (await page.locator('[data-testid="journal-table"] tbody tr').count()) > 5 && await page.locator('[data-testid="journal-export"]').isVisible());
     check('ошибок страницы нет', errors.length === 0);
   } finally {
     await electron.close().catch(() => {});

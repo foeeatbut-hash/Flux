@@ -105,7 +105,9 @@
         "scripts/fixtures/page-host.ts",
         "modules/page/harden.ts",
         "src/lib/pageStateMemory.ts",
-        "scripts/fixtures/modules-page-host.tsx"
+        "scripts/fixtures/modules-page-host.tsx",
+        "electron/modulePickFile.ts",
+        "modules/page/pickFile.ts"
       ]
     }
   ],
@@ -397,6 +399,40 @@
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 900000
+    },
+    {
+      "id": "modules-openfile",
+      "path": "scripts/test-modules-openfile.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "loopback-http"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_CHROME"
+        }
+      ],
+      "timeoutMs": 600000
+    },
+    {
+      "id": "modules-naming",
+      "path": "scripts/test-program-naming.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "modules-no-bundled",
+      "path": "scripts/test-modules-no-bundled.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 300000
     }
   ],
   "actions": [
@@ -648,7 +684,7 @@
     {
       "id": "modules.restart",
       "program": "modules",
-      "label": "Перезапустить обновлённую подпрограмму",
+      "label": "Перезапустить обновлённую программу",
       "risk": "normal",
       "sources": [
         "src/screens/ModuleHost.tsx"
@@ -673,7 +709,7 @@
     {
       "id": "modules.feedback",
       "program": "modules",
-      "label": "Сообщить о проблеме подпрограммы",
+      "label": "Сообщить о проблеме программы",
       "risk": "critical",
       "sources": [
         "src/components/modules/ModuleFrame.tsx",
@@ -712,6 +748,47 @@
         }
       ],
       "manual": []
+    },
+    {
+      "id": "modules.open-file",
+      "program": "modules",
+      "label": "Программа просит файл пользователя (flux.openFile)",
+      "risk": "critical",
+      "sources": [
+        "modules/bridge.ts",
+        "modules/schemas.ts",
+        "modules/page/client.ts",
+        "modules/page/model.ts",
+        "modules/page/pickFile.ts",
+        "electron/modulePickFile.ts",
+        "src/services/modulePage.ts"
+      ],
+      "triggers": [
+        "программа со своим экраном вызывает flux.openFile"
+      ],
+      "expected": [
+        "Диалог показывает Flux; программа получает имя и содержимое только выбранного файла до 512 КиБ; отказ человека, большой файл и частые просьбы дают понятные коды"
+      ],
+      "checks": [
+        {
+          "suite": "modules-openfile",
+          "layer": "browser-live",
+          "claims": [
+            "Схема принимает только список расширений вида «.csv»; мост отдаёт файл без пути, отвечает CANCELLED, LIMIT, DENIED и FAILED, не чаще раза в секунду",
+            "Главный процесс читает только выбранный обычный файл в пределе размера",
+            "Клиент flux.openFile в настоящем кадре отдаёт имя, размер, text() и bytes(); прежний saveFile работает"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "В Flux открыть программу со своим экраном и нажать «Загрузить числа из файла»",
+          "expected": [
+            "Откроется системный диалог с названием программы; после выбора файла числа попадают в поле, а при отказе ничего не меняется"
+          ]
+        }
+      ]
     }
   ],
   "connections": [

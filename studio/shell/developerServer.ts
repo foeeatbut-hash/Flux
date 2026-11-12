@@ -53,7 +53,7 @@ export async function versionWarning(origin: string, studio: string): Promise<st
     const health = await studioRequest<{ version?: string }>(origin, 'health', { timeoutMs: 5000 });
     const flux = clip(health.version, 40);
     if (flux && compareVersions(studio, flux) < 0) {
-      return `Studio ${studio} старее Flux ${flux} в общей базе: договор программ мог измениться. Обновите Studio перед отправкой.`;
+      return `Studio ${studio} старее Flux ${flux} в общей базе: формат программ мог измениться. Обновите Studio перед отправкой.`;
     }
   } catch { /* версия не определилась — предупреждать не о чем */ }
   return '';

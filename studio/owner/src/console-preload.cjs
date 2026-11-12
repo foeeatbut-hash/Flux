@@ -2,7 +2,7 @@
 // Мост окна разделов владельца: только перечисленные действия и три события. Токен и ключи сюда не попадают.
 const { contextBridge, ipcRenderer } = require('electron');
 const allowed = ['state', 'unlock', 'connect', 'disconnect', 'lock', 'cancel', 'requests', 'request', 'returnRequest', 'rejectRequest', 'release', 'ownerEdit',
-  'releases', 'testers', 'saveTesters', 'promote', 'pin', 'revoke', 'certificates', 'certify', 'declineCertificate', 'devices', 'assignUpdate', 'trialLoad'];
+  'releases', 'testers', 'saveTesters', 'promote', 'pin', 'revoke', 'certificates', 'certify', 'declineCertificate', 'devices', 'assignUpdate', 'trialLoad', 'openLicenses'];
 const subscribe = channel => fn => {
   if (typeof fn !== 'function') return () => {};
   const listener = (_event, data) => fn(data);

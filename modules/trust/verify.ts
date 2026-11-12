@@ -83,7 +83,7 @@ export function checkChunks(digest: BundleDigest, chunks: readonly Uint8Array[])
 export function bundleManifest(files: BundleFiles, moduleId: string, version: string): ModuleManifest | string {
   let manifest: unknown;
   try { manifest = JSON.parse(bundleText(files, 'manifest.json') || ''); } catch { return 'В пакете нет корректного manifest.json'; }
-  if (!validManifest(manifest)) return 'manifest.json не соответствует договору';
+  if (!validManifest(manifest)) return 'manifest.json не соответствует формату программы';
   const m = manifest as unknown as ModuleManifest;
   if (m.id !== moduleId || m.version !== version) return 'manifest.json описывает другой модуль или версию';
   if (m.contractVersion > CONTRACT_VERSION) return `Модулю нужен договор v${m.contractVersion}: обновите Flux`;
@@ -124,7 +124,7 @@ export function verifyRelease(input: {
   try { files = unpackBundle(joinChunks(input.chunks as Uint8Array[])); } catch (e: any) { return { ok: false, why: e.message }; }
   const manifest = bundleManifest(files, claim.moduleId, claim.version);
   if (typeof manifest === 'string') return { ok: false, why: manifest };
-  if (manifest.contractVersion !== claim.contractVersion) return { ok: false, why: 'Версия договора в подписи и в manifest.json разная' };
+  if (manifest.contractVersion !== claim.contractVersion) return { ok: false, why: 'Версия формата в подписи и в manifest.json разная' };
   const surface = interfaceProblem(manifest, files);
   if (surface) return { ok: false, why: surface };
   // Язык и платформа подписаны вместе с пакетом: манифест внутри пакета обязан говорить то же,
@@ -169,7 +169,7 @@ export function verifyRequest(input: {
   try { files = unpackBundle(input.bundle); } catch (e: any) { return { ok: false, why: e.message }; }
   const manifest = bundleManifest(files, claim.moduleId, claim.version);
   if (typeof manifest === 'string') return { ok: false, why: manifest };
-  if (manifest.contractVersion !== claim.meta.contractVersion) return { ok: false, why: 'Версия договора в запросе и в manifest.json разная' };
+  if (manifest.contractVersion !== claim.meta.contractVersion) return { ok: false, why: 'Версия формата в запросе и в manifest.json разная' };
   const surface = interfaceProblem(manifest, files);
   if (surface) return { ok: false, why: surface };
   const execution = executionProblem(manifest, files);

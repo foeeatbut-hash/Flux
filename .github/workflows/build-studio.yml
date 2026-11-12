@@ -73,8 +73,12 @@ jobs:
         run: |
           node --import tsx scripts/test-studio-keyring.ts
           node --import tsx scripts/test-studio-project.ts
+          node --import tsx scripts/test-studio-workspace.ts
           node --import tsx scripts/test-studio-page.ts
           node --import tsx scripts/test-studio-translator.ts
+          node --import tsx scripts/test-studio-tsbuild.ts
+          node --import tsx scripts/test-studio-flux-address.ts
+          node --import tsx scripts/test-studio-words.ts
       - name: Две сборки и проверка бандла разработчика (с мутациями)
         run: node --import tsx scripts/test-studio-bundle.ts
       - name: Раздел владельца и прежнее хранилище ключей
@@ -82,6 +86,7 @@ jobs:
       - name: Разделы владельца насквозь (подпись, 403 всем, кроме владельца, назначение обновлений) и снятие разрешений
         run: |
           node --import tsx scripts/test-studio-owner-console.ts
+          node --import tsx scripts/test-studio-journey.ts
           node --import tsx scripts/test-update-delegation-cleanup.ts
       - name: Окна Studio, обе темы
         env:
@@ -90,7 +95,8 @@ jobs:
         run: |
           node --import tsx scripts/test-studio-ui.ts
           node --import tsx scripts/test-studio-ui-developer.ts
-      - name: Редакторы подпрограммы (модель) и в браузере, обе темы
+          node --import tsx scripts/test-modules-openfile.ts
+      - name: Редакторы программы (модель) и в браузере, обе темы
         env:
           FLUX_CHROME: /usr/bin/google-chrome
           FLUX_STUDIO_SHOTS: ${{ runner.temp }}/studio-shots
@@ -104,7 +110,7 @@ jobs:
         run: |
           node --import tsx scripts/test-unified-login-ui.ts
           node --import tsx scripts/test-studio-icons.ts
-      - name: Окно разделов владельца, обе темы
+      - name: Окно разделов владельца (три пункта), обе темы, ширина 1180 и 1024
         env:
           FLUX_CHROME: /usr/bin/google-chrome
           FLUX_STUDIO_SHOTS: ${{ runner.temp }}/studio-shots

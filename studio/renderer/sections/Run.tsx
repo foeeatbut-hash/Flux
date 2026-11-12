@@ -24,7 +24,8 @@ function theme(): ThemeTokens {
   return Object.fromEntries(themeKeys.map(key => [key, style.getPropertyValue(key).trim()])) as ThemeTokens;
 }
 
-export default function Run({ id }: { id: string }) {
+/** `signal` — счётчик нажатий «Запустить» сверху: каждое новое значение запускает программу; `onFail` — текст отказа запуска для списка «Проблемы» */
+export default function Run({ id, signal = 0, onFail, onStarted }: { id: string; signal?: number; onFail?: (text: string) => void; onStarted?: () => void }) {
   const [contexts, setContexts] = useState<BaseContext[]>([]);
   const [pick, setPick] = useState({ projectId: 'p1', entry: 'equipment', entityId: 'p1-e-fan' });
   const [started, setStarted] = useState<Started | null>(null);
@@ -37,12 +38,16 @@ export default function Run({ id }: { id: string }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const bridge = useRef<ReturnType<typeof createModuleBridge> | null>(null);
   const latest = useRef(pick);
+  // Главный процесс держит только последний запуск: если два запуска идут подряд (верхняя «Запустить» и сразу
+  // «Перезапустить») или сменился проект, ответ прежнего может прийти позже — окно с его сеансом мост бы отверг
+  // и оно осталось бы пустым, поэтому опоздавший ответ отбрасывается
+  const attempt = useRef(0);
   latest.current = pick;
 
   const add = (kind: string, text: string, level: LogRow['level'] = 'info') =>
     setLog(rows => [...rows.slice(-199), { at: new Date().toLocaleTimeString('ru-RU'), kind, text, level }]);
 
-  useEffect(() => { setStarted(null); setLog([]); setError(''); void call<{ context: BaseContext[] }>('testBase').then(b => setContexts(b.context)).catch(() => {}); }, [id]);
+  useEffect(() => { attempt.current++; setStarted(null); setLog([]); setError(''); void call<{ context: BaseContext[] }>('testBase').then(b => setContexts(b.context)).catch(() => {}); }, [id]);
 
   // Мост живёт, пока открыт запуск; закрытие окна программы закрывает и его
   useEffect(() => {
@@ -69,6 +74,17 @@ export default function Run({ id }: { id: string }) {
       page: isPage ? {
         loadState: () => kept.current, keepState: state => { kept.current = state; },
         offerFile: async file => { add('файл', `${file.name} (${file.bytes.length} Б) — во Flux Flux спросит и сохранит через диалог`); return 'saved'; },
+        // Файл пользователя: диалог показывает главный процесс Studio, как Flux в настоящем запуске; программа получает только выбранный файл
+        pickFile: async request => {
+          const reply = await call<{ ok: boolean; code?: string; name?: string; data?: string }>('runPickFile', { accept: request.accept });
+          if (reply.ok && reply.name !== undefined && reply.data !== undefined) {
+            const bytes = Uint8Array.from(atob(reply.data), c => c.charCodeAt(0));
+            add('файл', `${reply.name} (${bytes.length} Б) выдан программе`); return { name: reply.name, mime: '', bytes };
+          }
+          if (reply.code === 'CANCELLED') { add('файл', 'человек отказался выбирать файл'); return 'cancelled'; }
+          if (reply.code === 'LIMIT') { add('файл', 'файл больше 512 КиБ — программе не выдан', 'warn'); return 'limit'; }
+          throw new Error(reply.code || 'FAILED');
+        },
         onBeat: () => undefined,
         openWindow: (page, params) => { add('окно', `${page} ${JSON.stringify(params)} — во Flux откроется обычным окном`); return true; },
         params: () => ({}), broadcast: data => add('обмен', JSON.stringify(data).slice(0, 120)),
@@ -84,10 +100,20 @@ export default function Run({ id }: { id: string }) {
   const project = contexts.find(c => c.id === pick.projectId);
   const entities = pick.entry === 'equipment' ? project?.equipment : pick.entry === 'tag' ? project?.tags : [];
   const start = async () => {
+    const mine = ++attempt.current;
     setError(''); setLog([]); setStarted(null);
-    try { setStarted(await call<Started>('runStart', { id, ...pick, entityId: pick.entry === 'start' ? '' : pick.entityId })); }
-    catch (e) { setError((e as Error).message); }
+    try {
+      const reply = await call<Started>('runStart', { id, ...pick, entityId: pick.entry === 'start' ? '' : pick.entityId });
+      if (mine !== attempt.current) return;
+      setStarted(reply); onStarted?.();
+    } catch (e) {
+      if (mine !== attempt.current) return;
+      setError((e as Error).message); onFail?.((e as Error).message);
+    }
   };
+  const startRef = useRef(start);
+  startRef.current = start;
+  useEffect(() => { if (signal > 0) void startRef.current(); }, [signal]);
   const shoot = async () => {
     setShots('');
     // Тема окна — класс dark на <html>, как во Flux; на время снимков переключаем его и возвращаем как было

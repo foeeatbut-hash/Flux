@@ -2,7 +2,7 @@ import { build } from 'esbuild';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import { bundledModules } from './bundled';
+import { sampleModules } from './sampleModules';
 import { validManifest } from './schemas';
 import { validateModuleForm } from './validateForm';
 import Ajv from 'ajv';
@@ -57,7 +57,7 @@ export async function buildModuleRuntime(dir: string, manifest: ModuleManifest, 
 export async function buildModuleAssets(css: string, fonts: Record<string, string | Uint8Array>) {
   const assets: Record<string, string | Uint8Array> = {};
   const staticValidation = staticValidators();
-  for (const manifest of bundledModules) {
+  for (const manifest of sampleModules) {
     if (!validManifest(manifest)) throw new Error('Манифест фикстуры не соответствует договору v1');
     assets[`modules/${manifest.id}/runtime.js`] = await buildModuleRuntime(path.resolve('modules/fixtures', manifest.id), manifest, staticValidation);
     shellAssets(assets, `modules/${manifest.id}/`, css, fonts);
@@ -94,7 +94,7 @@ export const PYODIDE_PACKAGES = ['numpy'] as const;
 /**
  * Хост общей среды Python (`flux-module://_compute/`): страница, скрипт хоста со
  * встроенным Worker'ом и файлы Pyodide из пакета npm. Pyodide кладётся в
- * сборку, а не берётся из интернета: сеть подпрограммам закрыта, а Flux
+ * сборку, а не берётся из интернета: сеть программам закрыта, а Flux
  * должен работать офлайн.
  */
 export async function buildComputeAssets(): Promise<Record<string, string | Uint8Array>> {

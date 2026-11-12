@@ -3,7 +3,7 @@
  *
  * Данные Flux берутся из тех же JSON Schema (modules/dataSchemas.ts), по которым оболочка проверяет
  * сообщения и форму при выпуске, — второй список полей не ведётся. Свои значения программы
- * (state.*, calc.out.*) разработчик объявляет в договоре сам.
+ * (state.*, calc.out.*) разработчик объявляет в описании данных сам.
  */
 import { dataSchemas } from '../../../modules/dataSchemas';
 import { resources } from '../../../modules/contract';
@@ -47,20 +47,20 @@ export function valueType(schema: Schema): ValueType {
 /** Не объединение по `ok`: в проекте выключен strictNullChecks, там такое сужение не работает */
 export interface Resolved { ok: boolean; reason?: string; type?: ValueType; schema?: Schema | null; kind?: BindingOption['kind'] }
 
-/** Что значит привязка: путь Flux по схеме договора, свой state или выход расчёта */
+/** Что значит привязка: путь Flux по схеме данных, свой state или выход расчёта */
 export function resolveBinding(path: string, contract: ContractDraft): Resolved {
-  if (typeof path !== 'string' || !path) return { ok: false, reason: 'привязка пуста' };
+  if (typeof path !== 'string' || !path) return { ok: false, reason: 'источник значения не указан' };
   const [root, name, ...keys] = path.split('.');
   if (root === 'state' || (root === 'calc' && name === 'out')) {
     const parts = root === 'state' ? [name, ...keys] : keys;
-    if (!parts.length || parts.some(part => !part)) return { ok: false, reason: `в привязке «${path}» не назван ${root === 'state' ? 'ключ состояния' : 'выход расчёта'}` };
+    if (!parts.length || parts.some(part => !part)) return { ok: false, reason: `в источнике значения «${path}» не назван ${root === 'state' ? 'ключ состояния' : 'выход расчёта'}` };
     const declared = (root === 'state' ? contract.state : contract.outputs).find(value => value.name === parts[0]);
-    if (!declared) return { ok: false, reason: `«${parts[0]}» не объявлено в договоре (${root === 'state' ? 'состояние' : 'выходы расчёта'})` };
+    if (!declared) return { ok: false, reason: `«${parts[0]}» не объявлено в описании данных (${root === 'state' ? 'состояние' : 'выходы расчёта'})` };
     return { ok: true, type: parts.length === 1 ? declared.type : 'object', schema: null, kind: root === 'state' ? 'state' : 'output' };
   }
-  if (root !== 'flux' || !name) return { ok: false, reason: `привязка «${path}» должна начинаться с flux., state. или calc.out.` };
+  if (root !== 'flux' || !name) return { ok: false, reason: `источник значения «${path}» должна начинаться с flux., state. или calc.out.` };
   if (!isResource(name)) return { ok: false, reason: `у Flux нет данных «${name}»` };
-  if (!contract.reads.includes(name)) return { ok: false, reason: `данные «${name}» не разрешены: добавьте их в договоре в «Что читает программа»` };
+  if (!contract.reads.includes(name)) return { ok: false, reason: `данные «${name}» не разрешены: добавьте их в описании данных в «Что читает программа»` };
   const schema = stepSchema(dataSchemas[name], keys);
   if (!schema) return { ok: false, reason: `в данных «${name}» нет пути «${keys.join('.')}»` };
   return { ok: true, type: valueType(schema), schema, kind: 'input' };

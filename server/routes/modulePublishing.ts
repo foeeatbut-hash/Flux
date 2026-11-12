@@ -38,7 +38,7 @@ export interface ModulePublishingDeps {
   modulePublicKeyHex?: string;
   /**
    * Дополнительные условия приёма запросов от Flux Studio (server/routes/studioDeveloper.ts): ЯВНОЕ право
-   * разработки и запрет присылать версию чужой подпрограммы. Без него действует только общая проверка `can`.
+   * разработки и запрет присылать версию чужой программы. Без него действует только общая проверка `can`.
    */
   studioGate?: { allowed: (req: Request) => Promise<boolean>; ownership: (db: any, req: Request, moduleId: string) => Promise<string | null> };
 }
@@ -90,7 +90,7 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
   app.post('/api/modules/requests', async (req: Request, res: Response) => {
     // Права проверяет сервер: окно разработчика может быть любым
     if (!can(req, 'module.develop') || (deps.studioGate && !await deps.studioGate.allowed(req))) {
-      return fail(res, 403, 'Присылать подпрограммы на публикацию могут только разработчики: нужно право «Разработка подпрограмм»');
+      return fail(res, 403, 'Присылать программы на публикацию могут только разработчики: нужно право «Разработка программ»');
     }
     const db = deps.getPrisma(), signature = String(req.body?.signature || '').trim();
     let bundle: Uint8Array;
@@ -115,7 +115,7 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
       // «Что нового» обязательно: без него пользователь в Store не поймёт, зачем обновляться
       if (!claim.meta.changelog.trim()) return fail(res, 400, 'Заполните «что нового»: без него выложить нельзя');
       if (!byOwner && claim.meta.channel === 'production' && !can(req, 'module.publish')) {
-        return fail(res, 403, 'Просить рабочий канал сразу можно с правом «Просить рабочий канал»: отправьте запрос в тестовый');
+        return fail(res, 403, 'Просить выпуск сразу для всех можно с правом «Просить рабочий канал»: отправьте запрос для пробной группы');
       }
       if (await db.moduleRelease.findUnique({ where: { moduleId_version: { moduleId: claim.moduleId, version: claim.version } } })) {
         return fail(res, 409, `Версия ${claim.version} уже выпущена: повысьте номер версии`);

@@ -67,10 +67,13 @@ jobs:
         run: |
           node_modules/.bin/tsc --noEmit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($suite in @('modules-contract', 'modules-page', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'modules-languages', 'modules-wasm', 'modules-python', 'modules-parity', 'modules-scheduler', 'modules-compute', 'modules-controls', 'modules-connections', 'architecture')) {
+          foreach ($suite in @('modules-contract', 'modules-page', 'modules-openfile', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'modules-languages', 'modules-wasm', 'modules-python', 'modules-parity', 'modules-scheduler', 'modules-compute', 'modules-controls', 'modules-connections', 'modules-no-bundled', 'architecture')) {
             node --import tsx "scripts/test-$suite.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+          # Набор modules-naming лежит в файле test-program-naming.ts (путь из манифеста проверок)
+          node --import tsx scripts/test-program-naming.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Подписи, публикация, каналы и обращения на SQLite
         shell: pwsh
         run: |

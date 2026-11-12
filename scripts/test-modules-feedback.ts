@@ -59,7 +59,7 @@ async function main() {
   await call('admin', '/modules/store/calc-a/admission', 'POST', { status: 'admitted' });
   const conf = await settings();
   const submit = () => ({ schemaVersion: 1, clientRequestId: randomUUID(), deploymentId: conf.deploymentId,
-    type: 'BUG', title: 'Не считает подпрограмма', description: 'При открытии расчёт остановился', sectionKey: '/module/calc-a',
+    type: 'BUG', title: 'Не считает программа', description: 'При открытии расчёт остановился', sectionKey: '/module/calc-a',
     projectId: 'секрет-проекта', incidentAt: new Date().toISOString(), appVersion: '1.2.3', frequency: 'ALWAYS', impact: 'HIGH', uploadIds: [],
     consent: { technicalEvents: true, appContext: true, reviewedAt: new Date().toISOString() },
     moduleId: 'calc-a', moduleVersion: '1.0.0', moduleChannel: 'production', moduleApiVersion: '1', moduleDeveloper: 'Разработчик',
@@ -69,7 +69,7 @@ async function main() {
   ok('неполный адресат не проходит договор', !validateSubmit({ ...submit(), moduleVersion: undefined }).ok);
   ok('произвольные данные не проходят как модульная диагностика', !validateSubmit({ ...submit(), moduleDiagnostics: { project: 'секрет-проекта' } }).ok);
   const fp = { errorCode: 'crash', moduleId: 'calc-a', moduleVersion: '1.0.0' };
-  ok('другая подпрограмма меняет отпечаток', technicalFingerprint(fp) !== technicalFingerprint({ ...fp, moduleId: 'calc-b' }));
+  ok('другая программа меняет отпечаток', technicalFingerprint(fp) !== technicalFingerprint({ ...fp, moduleId: 'calc-b' }));
   ok('другая версия меняет отпечаток', technicalFingerprint(fp) !== technicalFingerprint({ ...fp, moduleVersion: '1.0.1' }));
   ok('сводка полного пакета различает версии модуля', fingerprintOfEvents([{ event: 'log.error', data: { code: 'E' } }], '1.2.3', '/module/calc-a', fp) !== fingerprintOfEvents([{ event: 'log.error', data: { code: 'E' } }], '1.2.3', '/module/calc-a', { ...fp, moduleVersion: '1.0.1' }));
   const body = submit(); const made = await call('ann', '/feedback/reports', 'POST', body);
@@ -93,7 +93,7 @@ async function main() {
   ok('проект сохранён в полной карточке Flux', (await call('admin', `/feedback/reports/${id}`)).body.data.projectId === 'секрет-проекта');
   ok('очередь разработчика содержит только его модуль', (await call('dev', '/feedback/reports?scope=modules')).body.data.every((r: any) => r.moduleId === 'calc-a'));
   ok('общая очередь разработчику закрыта', (await call('dev', '/feedback/reports?scope=queue')).status === 403);
-  ok('общий фильтр по подпрограммам работает', (await call('admin', '/feedback/reports?scope=queue&modules=1')).body.data.some((r: any) => r.id === id));
+  ok('общий фильтр по программам работает', (await call('admin', '/feedback/reports?scope=queue&modules=1')).body.data.some((r: any) => r.id === id));
   const mutate = async (who: string, action: string, extra: any) => {
     const r = await db.feedbackReport.findUnique({ where: { id } });
     return call(who, `/feedback/reports/${id}/${action}`, 'POST', { clientRequestId: randomUUID(), expectedRevision: r.revision, ...extra });
@@ -122,7 +122,7 @@ async function main() {
   await call('bob', `/feedback/reports/${id}/affected`, 'POST', {}); await call('bob', `/feedback/reports/${id}/affected`, 'POST', {});
   ok('«У меня тоже» не удваивает одного человека', await db.appSetting.count({ where: { key: `modules.affected.${id}` } }) === 1);
   const batch = { id: randomUUID(), events: [{ moduleId: 'calc-a', version: '1.1.0', kind: 'timeout', count: 3 }] };
-  ok('несуществующая подпрограмма не принимает счётчики', (await call('ann', '/modules/crashes', 'POST', { id: randomUUID(), events: [{ ...batch.events[0], moduleId: 'missing-module' }] })).status === 400);
+  ok('несуществующая программа не принимает счётчики', (await call('ann', '/modules/crashes', 'POST', { id: randomUUID(), events: [{ ...batch.events[0], moduleId: 'missing-module' }] })).status === 400);
   ok('несуществующая версия не принимает счётчики', (await call('ann', '/modules/crashes', 'POST', { id: randomUUID(), events: [{ ...batch.events[0], version: '99.0.0' }] })).status === 400);
   const mixedId = randomUUID();
   ok('пакет с одной несуществующей версией отклоняется целиком', (await call('ann', '/modules/crashes', 'POST', { id: mixedId, events: [batch.events[0], { ...batch.events[0], version: '99.0.0' }] })).status === 400 && !await db.appSetting.findUnique({ where: { id: `module-crash-${mixedId}` } }));

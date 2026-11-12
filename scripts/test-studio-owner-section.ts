@@ -27,7 +27,7 @@ const STUB = `
 const handlers = new Map(); const windows = []; let nextSave = '';
 class Win {
   constructor(options) { this.options = options; this.closedHandlers = []; this.destroyed = false;
-    this.webContents = { setWindowOpenHandler() {}, setWebRTCIPHandlingPolicy() {}, session: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }, on() {}, send() {}, mainFrame: {}, id: windows.length };
+    this.webContents = { setWindowOpenHandler() {}, setWebRTCIPHandlingPolicy() {}, session: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {} }, on() {}, send() {}, mainFrame: {}, id: windows.length, scripts: [], executeJavaScript(code) { this.scripts.push(code); return Promise.resolve(); } };
     windows.push(this); }
   setMenu() {} once() {} show() {} loadFile(file) { this.file = file; return Promise.resolve(); } isDestroyed() { return this.destroyed; }
   isMinimized() { return false; } restore() {} focus() { this.focused = (this.focused || 0) + 1; }
@@ -73,30 +73,30 @@ async function main() {
     console.log('Сборка владельца');
     const built = await run('owner', home);
     const state = (await built.shellCall('state')).value;
-    ok('оболочка показывает разделы владельца: запросы на публикацию, выпуски, сертификаты, обновления Flux и лицензии',
-      state.sections.map((x: any) => x.id).join() === 'publish,releases,certificates,updates,owner' && state.build === 'owner');
+    ok('оболочка показывает три пункта: программы на проверку, обновления Flux, лицензии',
+      state.sections.map((x: any) => x.id).join() === 'programs,updates,licenses' && state.sections.map((x: any) => x.title).join() === 'Программы на проверку,Flux: обновления,Лицензии' && state.build === 'owner');
     ok('до открытия окна владельца нет', built.electron.__windows.length === 1);
-    ok('раздел открывается из оболочки', (await built.shellCall('openSection', { id: 'owner' })).ok === true && built.electron.__windows.length === 2);
-    const ownerWindow = built.electron.__windows[1];
+    ok('пункт открывается из оболочки окном разделов', (await built.shellCall('openSection', { id: 'programs' })).ok === true && built.electron.__windows.length === 2);
+    const consoleWindow = built.electron.__windows[1];
+    const consoleCall = (action: string, args: object = {}, sender = consoleWindow) => built.electron.__handlers.get('console:action')({ sender: sender.webContents, senderFrame: sender.webContents.mainFrame }, action, args);
+    const lic = await consoleCall('openLicenses', { tab: 'licenses' }); if (!lic.ok) console.log(lic);
+    ok('окно лицензий открывается из пункта «Лицензии» окна разделов, а не из оболочки', lic.ok === true && built.electron.__windows.length === 3);
+    const ownerWindow = built.electron.__windows[2];
     ok('окно владельца грузит свой интерфейс с изоляцией', /ui[\\/]index\.html$/.test(ownerWindow.file) && ownerWindow.options.webPreferences.contextIsolation === true && /owner[\\/]preload\.cjs$/.test(ownerWindow.options.webPreferences.preload));
     ok('имя окна говорит, что это Studio — Владелец', /Flux Studio — Владелец/.test(ownerWindow.options.title));
-    await built.shellCall('openSection', { id: 'owner' });
-    ok('повторное открытие не плодит окон', built.electron.__windows.length === 2 && ownerWindow.focused >= 1);
-
+    await consoleCall('openLicenses', { tab: 'updates' });
+    ok('повторное открытие не плодит окон и переключает вкладку «Обновления»', built.electron.__windows.length === 3 && ownerWindow.focused >= 1 && /data-tab="updates"/.test(ownerWindow.webContents.scripts.at(-1) || ''));
     const ownerCall = (action: string, args: object = {}, sender = ownerWindow) => built.electron.__handlers.get('owner:action')({ sender: sender.webContents, senderFrame: sender.webContents.mainFrame }, action, args);
     ok('действия владельца принимает только его окно', (await ownerCall('state', {}, built.shellWindow)).ok === false && (await ownerCall('state')).ok === true);
     const initial = (await ownerCall('state')).value;
     ok('окно видит прежний путь хранилища и ту же версию, что у Flux', initial.vaultExists === true && initial.vaultPath === vaultFile && initial.version === version);
     ok('неизвестное действие отклоняется', (await ownerCall('exec')).ok === false);
 
-    console.log('Разделы владельца (запросы на публикацию, выпуски, сертификаты, обновления Flux)');
-    const before = built.electron.__windows.length;
-    ok('раздел «Запросы на публикацию» открывается из оболочки', (await built.shellCall('openSection', { id: 'publish' })).ok === true && built.electron.__windows.length === before + 1);
-    const consoleWindow = built.electron.__windows[before];
+    console.log('Разделы владельца (программы на проверку, обновления Flux, лицензии)');
+    const before = built.electron.__windows.length - 2;
     ok('окно разделов грузит свой интерфейс с изоляцией и своим мостом', /ui[\\/]console[\\/]index\.html$/.test(consoleWindow.file) && consoleWindow.options.webPreferences.contextIsolation === true
       && consoleWindow.options.webPreferences.nodeIntegration === false && consoleWindow.options.webPreferences.sandbox === true && /owner[\\/]console-preload\.cjs$/.test(consoleWindow.options.webPreferences.preload));
-    ok('другой раздел владельца открывается в том же окне', (await built.shellCall('openSection', { id: 'updates' })).ok === true && built.electron.__windows.length === before + 1 && consoleWindow.focused >= 1);
-    const consoleCall = (action: string, args: object = {}, sender = consoleWindow) => built.electron.__handlers.get('console:action')({ sender: sender.webContents, senderFrame: sender.webContents.mainFrame }, action, args);
+    ok('другой раздел владельца открывается в том же окне', (await built.shellCall('openSection', { id: 'updates' })).ok === true && built.electron.__windows.length === before + 2 && consoleWindow.focused >= 1);
     ok('действия разделов принимает только их окно', (await consoleCall('state', {}, built.shellWindow)).ok === false && (await consoleCall('state', {}, ownerWindow)).ok === false && (await consoleCall('state')).ok === true);
     ok('чужое и неизвестное действие отклоняется', (await consoleCall('exec')).ok === false && (await consoleCall('openFlux')).ok === false && (await consoleCall('export')).ok === false);
     ok('хранилище общее с окном лицензий и пока заперто', (await consoleCall('state')).value.unlocked === false);
@@ -113,11 +113,12 @@ async function main() {
     ok('окно разделов видит открытое хранилище, но не ключи, лицензии и реестры', shared.value.unlocked === true && !JSON.stringify(shared.value).match(/PRIVATE KEY|licenses|publicKeys|revocations/));
     ok('открытое хранилище без подключения к базе: запросы по-прежнему закрыты', (await consoleCall('requests')).ok === false);
     ok('без подключения публикация обновления закрыта', (await ownerCall('publish', { version: '9.9.9', changelog: 'x' })).ok === false);
-    ok('закрытие окна запирает хранилище, а Studio остаётся', (ownerWindow.close(), (await ownerCall('state')).ok === false || (await ownerCall('state')).value.unlocked === false));
+    ok('закрытие окна лицензий хранилище не запирает: окно разделов открыто, пароль второй раз не нужен', (ownerWindow.close(), (await consoleCall('state')).value.unlocked === true));
+    ok('закрытие и окна разделов запирает хранилище, а Studio остаётся', (consoleWindow.close(), (await ownerCall('state')).ok === false || (await ownerCall('state')).value.unlocked === false));
     ok('оболочка жива после закрытия окна владельца', (await built.shellCall('state')).ok === true);
     fs.rmSync(vaultFile);
-    const again = await built.shellCall('openSection', { id: 'owner' });
-    ok('раздел открывается снова новым окном', again.ok && built.electron.__windows.length === before + 2);
+    const again = await built.shellCall('openSection', { id: 'licenses' });
+    ok('пункт открывается снова новым окном', again.ok && built.electron.__windows.length === before + 3);
 
     console.log('Новое хранилище');
     const second = built.electron.__windows[before + 1];
@@ -133,9 +134,9 @@ async function main() {
     const developer = await run('developer', home);
     const devState = (await developer.shellCall('state')).value;
     ok('в сборке разработчика разделов владельца нет', devState.sections.length === 0 && devState.build === 'developer');
-    ok('раздел владельца не открывается', (await developer.shellCall('openSection', { id: 'owner' })).ok === false && developer.electron.__windows.length === 1);
+    ok('раздел владельца не открывается', (await developer.shellCall('openSection', { id: 'licenses' })).ok === false && developer.electron.__windows.length === 1);
     ok('канала владельца у разработчика нет вовсе', !developer.electron.__handlers.has('owner:action') && !developer.electron.__handlers.has('console:action') && !fs.existsSync(path.join(developer.app, 'owner')) && !fs.existsSync(path.join(developer.app, 'ui')));
-    ok('разделы владельца у разработчика не открываются', (await developer.shellCall('openSection', { id: 'publish' })).ok === false && (await developer.shellCall('openSection', { id: 'updates' })).ok === false);
+    ok('разделы владельца у разработчика не открываются', (await developer.shellCall('openSection', { id: 'programs' })).ok === false && (await developer.shellCall('openSection', { id: 'updates' })).ok === false);
 
     console.log(`\nFlux Studio: раздел владельца в готовой сборке — ${passed} проверок пройдено`);
   } finally { fs.rmSync(home, { recursive: true, force: true }); }

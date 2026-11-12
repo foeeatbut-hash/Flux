@@ -2335,7 +2335,7 @@ model ModuleChannelPin {
   @@index([moduleId, channel])
 }
 
-/// Решения администратора по подпрограмме в Flux Store: допуск, устаревшая,
+/// Решения администратора по программе в Flux Store: допуск, устаревшая,
 /// закрепление версии, обязательность для должностей. Это политика, а не
 /// защита: что можно запустить, решает подпись владельца на выпуске.
 model ModuleStoreEntry {
@@ -2349,7 +2349,7 @@ model ModuleStoreEntry {
   pinVersion      String   @default("")
   /// JSON-список кодов должностей, для которых действует закрепление; пусто — для всех
   pinRoles        String   @default("[]")
-  /// JSON-список кодов должностей, которым подпрограмма ставится сама
+  /// JSON-список кодов должностей, которым программа ставится сама
   requiredRoles   String   @default("[]")
   requiredVersion String   @default("")
   note            String   @default("")
@@ -2358,7 +2358,7 @@ model ModuleStoreEntry {
 }
 
 /// Что установлено у человека (не у компьютера): на другом его компьютере те же
-/// подпрограммы ставятся одной кнопкой. Запускает Flux только то, что
+/// программы ставятся одной кнопкой. Запускает Flux только то, что
 /// установлено в локальном выборе главного процесса и подписано владельцем.
 model ModuleInstall {
   id          String   @id @default(uuid())
@@ -2367,7 +2367,7 @@ model ModuleInstall {
   version     String
   /// user | required | dependency
   source      String   @default("user")
-  /// "" — как общий переключатель, on | off — свой у подпрограммы
+  /// "" — как общий переключатель, on | off — свой у программы
   autoUpdate  String   @default("")
   installedAt DateTime @default(now())
   updatedAt   DateTime @default(now()) @updatedAt
@@ -2376,7 +2376,7 @@ model ModuleInstall {
   @@index([moduleId])
 }
 
-/// Журнал подпрограмм: что они делали на компьютерах людей. Только метаданные — без содержимого вызовов и данных проектов.
+/// Журнал программ: что они делали на компьютерах людей. Только метаданные — без содержимого вызовов и данных проектов.
 /// id задаёт компьютер (повторная отправка пачки не даёт дублей); срок и число строк ограничены уборкой (server/moduleJournal.ts)
 model ModuleJournal {
   id         String   @id

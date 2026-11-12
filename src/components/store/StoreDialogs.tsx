@@ -14,7 +14,7 @@ export function RequirementsList({ listing }: { listing: StoreListing }) {
   const rows: string[] = [
     `Минимальная версия Flux: ${r.flux || 'любая'}`,
     `Платформа: ${r.platform === 'windows' ? 'Windows' : 'любая'}`,
-    `Договор подпрограмм: v${listing.manifest.contractVersion}`,
+    `Договор программ: v${listing.manifest.contractVersion}`,
     ...(r.external?.length ? [`Нужны программы: ${r.external.join(', ')}`] : []),
     `Размер: ${formatSize(listing.size)}`,
   ];
@@ -49,9 +49,9 @@ export default function StoreDialogs({ dialog, onClose, onDone }: { dialog: Stor
     return <Dialog title={`Удалить «${listing.name}»?`} onClose={onClose} busy={busy} footer={<><Btn disabled={busy} onClick={onClose}>Отмена</Btn>
       <Btn tone="danger" disabled={busy} onClick={() => void run()}>Удалить</Btn></>}>
       <div className="flex flex-col gap-3 text-sm">
-        <div>Подпрограмма пропадёт из «Пуска» и карточек только у вас. Поставить её снова можно из Store.</div>
+        <div>Программа пропадёт из «Пуска» и карточек только у вас. Поставить её снова можно из Store.</div>
         <label className="flex items-center gap-2"><input type="checkbox" checked={wipe} onChange={(e) => setWipe(e.target.checked)} />
-          Удалить и данные подпрограммы (по умолчанию они сохраняются на случай повторной установки)</label>
+          Удалить и данные программы (по умолчанию они сохраняются на случай повторной установки)</label>
         {error && <div className="fx-error">{error}</div>}
       </div>
     </Dialog>;
@@ -68,7 +68,7 @@ export default function StoreDialogs({ dialog, onClose, onDone }: { dialog: Stor
           <div className="text-xs" style={{ color: 'var(--flux-text-muted)' }}>{listing.developer} · {categoryName(listing.category)}</div></div></div>
       {deps.length > 0 && <div className="stx-note">Вместе с ней поставится: {deps.map((d) => `${d.listing.name} ${d.version}`).join(', ')}</div>}
       {added.length > 0 && <div className="stx-note">Новая версия просит больше, чем прежняя. Проверьте разрешения ниже.</div>}
-      <div><div className="mb-1 text-sm font-semibold">Подпрограмма получит</div><PermissionsList listing={listing} added={added} /></div>
+      <div><div className="mb-1 text-sm font-semibold">Программа получит</div><PermissionsList listing={listing} added={added} /></div>
       <div><div className="mb-1 text-sm font-semibold">Требования</div><RequirementsList listing={listing} /></div>
       {kind === 'install' && listing.testing && <div className="stx-note">Это тестовая версия: её видят только назначенные владельцем тестировщики.</div>}
       {busy && <div className="text-sm" style={{ color: 'var(--flux-text-muted)' }}>Скачивание и проверка подписи владельца…</div>}

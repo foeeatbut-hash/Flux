@@ -1,5 +1,5 @@
 /**
- * Подключения подпрограммы к внешним программам (этап 3б): что модуль
+ * Подключения программы к внешним программам (этап 3б): что модуль
  * объявляет в `manifest.json`, как это описывается человеку и по каким
  * правилам вызов считается разрешённым.
  *
@@ -19,11 +19,11 @@ export const ACCESS_KINDS = ['read', 'write', 'send'] as const;
 export type AccessKind = typeof ACCESS_KINDS[number];
 export const ACCESS_NAMES: Record<AccessKind, string> = { read: 'читать', write: 'изменять', send: 'отправлять данные' };
 interface Base {
-  /** Имя внутри манифеста: по нему подпрограмма просит подключение */
+  /** Имя внутри манифеста: по нему программа просит подключение */
   id: string;
   /** Понятное имя программы или сервера для человека: «E3.series», «Сервер расчётов» */
   app: string;
-  /** Что подпрограмма будет делать, простыми словами: человек решает по этой строке */
+  /** Что программа будет делать, простыми словами: человек решает по этой строке */
   does: string;
   /** Что именно разрешается: читать, изменять или отправлять данные; расширение (читать → изменять) спрашивается заново */
   access: AccessKind;
@@ -33,7 +33,7 @@ export interface NetConnection extends Base {
   kind: 'http' | 'ws';
   /** Схема, адрес и порт без пути: `http://127.0.0.1:8123` */
   url: string;
-  /** Подпрограмма ходит только по путям внутри префикса */
+  /** Программа ходит только по путям внутри префикса */
   pathPrefix: string;
   /** Имя во внутренней сети объявлено явно: без этого имя, которое разрешилось во внутренний адрес, отвергается */
   internal?: boolean;
@@ -169,7 +169,7 @@ export function connectionsOf(manifest: { connections?: unknown } | null | undef
   return parseConnections(manifest?.connections) || [];
 }
 
-// ── Вызовы подпрограммы ─────────────────────────────────────────────────────
+// ── Вызовы программы ─────────────────────────────────────────────────────
 
 /** Пределы одного модуля (главный процесс следит за ними, а не окно) */
 export const CONNECTION_LIMITS = {
@@ -179,7 +179,7 @@ export const CONNECTION_LIMITS = {
   inFlight: 4,
   /** Открытых подключений (сокеты WebSocket и группы COM-объектов) на модуль */
   open: 4,
-  /** Живых COM-объектов на одно подключение: E3 отдаёт много объектов, но они освобождаются явно и при закрытии подпрограммы */
+  /** Живых COM-объектов на одно подключение: E3 отдаёт много объектов, но они освобождаются явно и при закрытии программы */
   comHandles: 4096,
   /** COM — локальный однопоточный помощник: вызовов в секунду много, одновременно один (остальные ждут очереди не длиннее comQueue) */
   comCallsPerSecond: 1000,
@@ -236,14 +236,14 @@ export type ConnectCall =
   | { op: 'com-set'; handle: number; name: string; value: unknown; args?: unknown[] }
   | { op: 'com-release'; handle: number }
   | { op: 'com-batch'; calls: Array<{ kind: 'call' | 'get' | 'set'; handle: number; name: string; args?: unknown[]; value?: unknown }> };
-/** NOT_ALLOWED — человек (или политика администратора) не разрешил подключение: подпрограмма продолжает без него */
+/** NOT_ALLOWED — человек (или политика администратора) не разрешил подключение: программа продолжает без него */
 export type ConnectErrorCode = 'DENIED' | 'NOT_ALLOWED' | 'LIMIT' | 'TIMEOUT' | 'TARGET' | 'UNAVAILABLE' | 'FAILED';
 export const CONNECT_ERROR_CODES: readonly ConnectErrorCode[] = ['DENIED', 'NOT_ALLOWED', 'LIMIT', 'TIMEOUT', 'TARGET', 'UNAVAILABLE', 'FAILED'];
 /** Что видит человек в окне запроса: тексты из проверенного манифеста и сведения о выпуске */
 export interface GrantAsk {
   moduleId: string; moduleName: string; version: string; connection: string;
   app: string; does: string; access: AccessKind; technical: string; author: string; verifiedAt: number;
-  /** Сколько разрешено: адрес мелко и что подпрограмма не получает — окно строит из этого */
+  /** Сколько разрешено: адрес мелко и что программа не получает — окно строит из этого */
   kind: ConnectionKind;
 }
 export type ConnectReply =
@@ -255,7 +255,7 @@ export const CONNECT_OPS = ['http', 'ws-open', 'ws-send', 'ws-recv', 'ws-close',
 /** Подключение, которое нужно виду вызова: http — к HTTP-объявлению, ws-* — к WebSocket, com-* — к COM */
 export const kindOfOp = (op: ConnectCall['op']): ConnectionKind => op === 'http' ? 'http' : op.startsWith('ws-') ? 'ws' : 'com';
 
-/** Отказ вызова с кодом, который увидит подпрограмма; текст — для журнала и отладки, в подпрограмму не уходит */
+/** Отказ вызова с кодом, который увидит программа; текст — для журнала и отладки, в программу не уходит */
 export class ConnectError extends Error {
   constructor(public code: ConnectErrorCode, message: string = code) { super(message); }
 }

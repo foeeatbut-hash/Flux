@@ -49,7 +49,7 @@ async function ensureVerified(moduleId: string, version: string): Promise<LocalS
 
 interface Plan { listing: StoreListing; version: string; source: 'user' | 'required' | 'dependency' }
 
-/** Что поставится вместе с подпрограммой: недостающие зависимости идут первыми */
+/** Что поставится вместе с программой: недостающие зависимости идут первыми */
 export function installPlan(listing: StoreListing, all = state().listings, source: Plan['source'] = 'user'): Plan[] {
   const out: Plan[] = [], seen = new Set<string>();
   const visit = (l: StoreListing, src: Plan['source']) => {
@@ -66,11 +66,11 @@ export function installPlan(listing: StoreListing, all = state().listings, sourc
 export function blockers(listing: StoreListing, all = state().listings): string[] {
   const why = unmetRequirements(listing.manifest, storeEnv());
   if (!hasLocalHost()) why.push('Установка работает в программе Flux на компьютере, а не в браузере');
-  for (const id of listing.dependsOn) { const dep = all.find((x) => x.moduleId === id); if (!dep) why.push(`Нужна подпрограмма ${id}, её нет в Store`); else if (!dep.mine) why.push(...unmetRequirements(dep.manifest, storeEnv()).map((r) => `${dep.name}: ${r}`)); }
+  for (const id of listing.dependsOn) { const dep = all.find((x) => x.moduleId === id); if (!dep) why.push(`Нужна программа ${id}, её нет в Store`); else if (!dep.mine) why.push(...unmetRequirements(dep.manifest, storeEnv()).map((r) => `${dep.name}: ${r}`)); }
   return why;
 }
 
-/** Поставить или обновить одну подпрограмму (зависимости — отдельными шагами плана) */
+/** Поставить или обновить одну программу (зависимости — отдельными шагами плана) */
 async function applyOne(plan: Plan, digest: boolean): Promise<void> {
   const { listing, version, source } = plan, id = listing.moduleId;
   state().setBusy(id, 'Подготовка…');
@@ -133,7 +133,7 @@ export async function removeModule(listing: StoreListing, keepData: boolean): Pr
 /**
  * Вернуть прошлую версию: берётся то, что уже лежит в кэше, поэтому связь не
  * нужна; на сервер уходит при первой возможности. Автообновление этой
- * подпрограммы выключается, чтобы плохая версия не вернулась сама.
+ * программы выключается, чтобы плохая версия не вернулась сама.
  */
 export async function rollbackModule(moduleId: string, version?: string): Promise<string> {
   // Более старая версия, которой нет на диске, скачивается и проверяется; лежащая в кэше — без связи
@@ -162,7 +162,7 @@ export async function setAutoUpdate(enabled: boolean): Promise<void> {
 let running: Promise<void> | null = null;
 let startupDone = false;
 
-/** Эффективное автообновление подпрограммы: общий переключатель, если свой не задан */
+/** Эффективное автообновление программы: общий переключатель, если свой не задан */
 export const autoOn = (l: StoreListing, global: boolean) => !!l.mine && (l.mine.auto === 'on' || (global && l.mine.auto !== 'off'));
 
 async function reconcile(): Promise<void> {
@@ -196,7 +196,7 @@ async function reconcile(): Promise<void> {
       const target = l.versions.find((v) => v.version === l.required && !v.revoked);
       if (!target || unmetRequirements(l.manifest, storeEnv()).length) continue;
       try { for (const p of installPlan(l, store.listings, 'required')) await applyOne({ ...p, version: p.listing.moduleId === l.moduleId ? l.required : p.version }, false); }
-      catch (e: any) { state().set({ error: `Обязательная подпрограмма «${l.name}» не поставлена: ${e?.message || ''}` }); }
+      catch (e: any) { state().set({ error: `Обязательная программа «${l.name}» не поставлена: ${e?.message || ''}` }); }
     }
     // Автообновление: только при запуске Flux, не посреди работы, и только если разрешений не прибавилось
     if (!startupDone) {

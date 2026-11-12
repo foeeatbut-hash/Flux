@@ -110,7 +110,7 @@ console.log('Разница');
   const narrowed = unpackBundle(moduleBundle('1.2.0', {}, { reads: ['project'] }));
   const perms = diffPermissions(manifestOf(narrowed), manifestOf(after)!);
   ok('расширение разрешений выделено', perms.widened && perms.added.reads?.includes('equipment'));
-  ok('новая подпрограмма помечена', diffPermissions(null, manifestOf(after)!).isNew);
+  ok('новая программа помечена', diffPermissions(null, manifestOf(after)!).isNew);
 }
 
 console.log('Что подписывает владелец — из байт пакета');

@@ -1,6 +1,6 @@
 /**
- * «Журнал подпрограмм»: что подпрограммы делали на компьютерах людей. Владелец и
- * администратор видят всё, разработчик — только свои подпрограммы и без людей;
+ * «Журнал программ»: что программы делали на компьютерах людей. Владелец и
+ * администратор видят всё, разработчик — только свои программы и без людей;
  * решает сервер, окно только показывает то, что он отдал. Содержимого вызовов и
  * данных проектов в записях нет.
  */
@@ -44,11 +44,11 @@ export default function ModuleJournalView({ moduleNames = {} }: { moduleNames?: 
   };
   const name = (id: string) => moduleNames[id] || id;
   return <div data-testid="module-journal">
-    <div className="stx-h">Журнал подпрограмм</div>
+    <div className="stx-h">Журнал программ</div>
     <div className="fx-hint mb-2">{role === 'admin' ? 'Записи всех компьютеров за последние 30 дней. Содержимого вызовов и данных проектов в журнале нет.'
-      : 'Только ваши подпрограммы, без имён людей и проектов. Записи хранятся 30 дней.'}</div>
+      : 'Только ваши программы, без имён людей и проектов. Записи хранятся 30 дней.'}</div>
     <div className="mb-3 flex flex-wrap items-end gap-2">
-      <Input placeholder="Подпрограмма (идентификатор)" aria-label="Подпрограмма" style={{ width: 230 }} value={filters.moduleId} onChange={e => set('moduleId')(e.target.value.trim())} />
+      <Input placeholder="Программа (идентификатор)" aria-label="Программа" style={{ width: 230 }} value={filters.moduleId} onChange={e => set('moduleId')(e.target.value.trim())} />
       <Input placeholder="Версия" aria-label="Версия" value={filters.version} onChange={e => set('version')(e.target.value.trim())} style={{ width: 100 }} />
       {role === 'admin' && <Input placeholder="Пользователь (идентификатор)" aria-label="Пользователь" style={{ width: 230 }} value={filters.userId} onChange={e => set('userId')(e.target.value.trim())} />}
       <Select value={filters.level} onChange={set('level')} aria-label="Уровень" className="w-40" options={[{ value: '', label: 'Все уровни' }, { value: 'info', label: 'info' }, { value: 'warn', label: 'warn' }, { value: 'error', label: 'error' }]} />
@@ -58,7 +58,7 @@ export default function ModuleJournalView({ moduleNames = {} }: { moduleNames?: 
     </div>
     {error && <div className="fx-error mb-2">{error}</div>}
     {!rows ? <div className="stx-note">Загрузка…</div> : rows.length === 0 ? <div className="stx-note">За выбранный период записей нет.</div>
-      : <table className="fx-table" data-testid="journal-table"><thead><tr><th>Когда</th>{role === 'admin' && <th>Кто</th>}<th>Подпрограмма</th><th>Вид</th><th>Событие</th><th>Итог</th><th>мс</th><th>Объём, Б</th></tr></thead>
+      : <table className="fx-table" data-testid="journal-table"><thead><tr><th>Когда</th>{role === 'admin' && <th>Кто</th>}<th>Программа</th><th>Вид</th><th>Событие</th><th>Итог</th><th>мс</th><th>Объём, Б</th></tr></thead>
         <tbody>{rows.map(r => <tr key={r.id}>
           <td>{new Date(r.at).toLocaleString('ru-RU')}</td>{role === 'admin' && <td>{r.userName || r.userId}</td>}
           <td>{name(r.moduleId)} <span className="fx-hint">{r.version}</span></td><td>{CATEGORY_NAMES[r.category]}</td>

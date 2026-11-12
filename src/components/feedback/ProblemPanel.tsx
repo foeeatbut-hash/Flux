@@ -88,7 +88,7 @@ export default function ProblemPanel() {
   const top = topWindow(windows.filter((w) => w.desk === desk));
   const activePath = top?.path || '';
   // Метаданные читаются только внутри верхнего окна: в другом окне может
-  // продолжать работать другая версия той же подпрограммы.
+  // продолжать работать другая версия той же программы.
   const frame = top && Array.from(document.querySelectorAll<HTMLElement>('[data-win]')).find((el) => el.dataset.win === top.id);
   const running = frame?.querySelector<HTMLElement>('[data-running-module]')?.dataset;
   const runningModule = running?.runningModule && running.runningVersion && (running.runningChannel === 'test' || running.runningChannel === 'production')
@@ -169,7 +169,7 @@ function PanelBody({ userId, appVersion, anchor, sectionKey, modules, activeId, 
       .catch(() => { if (current) setSimilarError('Похожие обращения не загрузились'); });
     return () => { current = false; };
   }, [recipient]);
-  // Журнал подпрограммы к обращению: человек видит строки и сам решает, прикладывать ли их (по умолчанию нет)
+  // Журнал программы к обращению: человек видит строки и сам решает, прикладывать ли их (по умолчанию нет)
   const [journalLines, setJournalLines] = useState<string[]>([]);
   const [attachJournal, setAttachJournal] = useState(false);
   useEffect(() => {
@@ -335,7 +335,7 @@ function PanelBody({ userId, appVersion, anchor, sectionKey, modules, activeId, 
                 {storeModule && <option value={storeModule.id}>{storeModule.name} · {storeModule.version} · {storeModule.developer}</option>}
                 {modules.filter((m) => m.manifest.id !== storeModule?.id).map((m) => <option key={m.manifest.id} value={m.manifest.id}>{m.manifest.name} · {m.version} · {m.author}</option>)}
               </select>
-              {recipient && <span className="block mt-1 text-xs text-slate-600 dark:text-slate-300">Заголовок и описание увидит разработчик подпрограммы. Данные проектов не передаются.</span>}
+              {recipient && <span className="block mt-1 text-xs text-slate-600 dark:text-slate-300">Заголовок и описание увидит разработчик программы. Данные проектов не передаются.</span>}
             </label>}
             <label className="block">
               <span className="sr-only">Что случилось</span>
@@ -354,7 +354,7 @@ function PanelBody({ userId, appVersion, anchor, sectionKey, modules, activeId, 
             {similarError && <p className="text-xs text-rose-600 dark:text-rose-400">{similarError}</p>}
             {recipient && recipient === (selected?.manifest.id || fallback?.id) && journalLines.length > 0 && <div className="space-y-1 text-xs text-slate-700 dark:text-slate-300" data-testid="journal-attach">
               <label className="flex items-center gap-2"><input type="checkbox" checked={attachJournal} disabled={busy} onChange={(e) => setAttachJournal(e.target.checked)} />
-                Приложить журнал подпрограммы (последние {journalLines.length} записей)</label>
+                Приложить журнал программы (последние {journalLines.length} записей)</label>
               <details><summary className="cursor-pointer">Что именно уйдёт</summary>
                 <pre className="m-0 mt-1 max-h-32 overflow-auto whitespace-pre-wrap font-mono text-[11px]">{journalLines.join('\n')}</pre>
                 <p className="m-0 mt-1">Только вид событий, время и итог. Данных проектов, содержимого вызовов и вашего имени в записях нет.</p></details>

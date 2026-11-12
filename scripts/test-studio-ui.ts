@@ -24,7 +24,7 @@ const ok = (name: string, value: unknown) => { assert.ok(value, name); passed++;
 const shots = process.env.FLUX_STUDIO_SHOTS || path.join(os.tmpdir(), 'flux-studio-shots');
 
 /** Заглушка моста: ведёт себя как главный процесс, но без Electron */
-const bridge = (build: string, sections: { id: string; title: string }[], modules: unknown[], remembered = '') => `(() => {
+const bridge = (build: string, sections: { id: string; title: string }[], modules: unknown[], remembered = '', flux: unknown = null) => `(() => {
   const name = ${JSON.stringify(build === 'owner' ? 'Flux Studio — Владелец' : 'Flux Studio')};
   let state = { version: '9.9.9', build: ${JSON.stringify(build)}, name, connected: false, display: '', remembered: ${JSON.stringify(remembered)}, user: null, owner: false, warning: '', sections: ${JSON.stringify(sections)} };
   const listeners = new Set(); window.__calls = [];
@@ -33,6 +33,7 @@ const bridge = (build: string, sections: { id: string; title: string }[], module
   window.studio = {
     onState: fn => { listeners.add(fn); return () => listeners.delete(fn); },
     onProgress: () => () => {},
+    onProject: () => () => {},
     call: async (action, args) => {
       window.__calls.push([action, args]);
       if (action === 'state') return { ok: true, value: state };
@@ -40,8 +41,10 @@ const bridge = (build: string, sections: { id: string; title: string }[], module
         if (args && args.uri === 'broken') return { ok: false, error: 'Не найден Flux рядом со Studio: нужен файл Flux-9.9.9-x64.exe. Положите его в одну папку с этой программой и подключитесь снова или выберите файл вручную.' };
         state = { ...state, connected: true, display: 'MariaDB / MySQL · db.example:3306/Flux' }; return { ok: true, value: state };
       }
+      if (action === 'fluxBase') return { ok: true, value: ${JSON.stringify(flux)} };
+      if (action === 'connectFlux') { state = { ...state, connected: true, display: 'MariaDB / MySQL · db.example:3306/Flux' }; return { ok: true, value: state }; }
       if (action === 'login') {
-        if (args.password !== 'good') return { ok: false, error: 'Flux Studio открывается с правом «Разработка подпрограмм». Попросите администратора выдать его.' };
+        if (args.password !== 'good') return { ok: false, error: 'Flux Studio открывается с правом «Разработка программ». Попросите администратора выдать его.' };
         state = { ...state, user: { id: 'dev', name: 'Разработчик' } }; return { ok: true, value: state };
       }
       if (action === 'ownerSelectKey') return { ok: true, value: { canceled: false, name: 'vault.flux-owner' } };
@@ -50,6 +53,9 @@ const bridge = (build: string, sections: { id: string; title: string }[], module
         state = { ...state, user: { id: 'owner', name: 'Владелец' }, owner: true }; return { ok: true, value: state };
       }
       if (action === 'modules') return { ok: true, value: ${JSON.stringify(modules)} };
+      if (action === 'drafts') return { ok: true, value: [] };
+      if (action === 'requests') return { ok: true, value: ${JSON.stringify(modules)}.map((m, i) => ({ id: 'r' + i, moduleId: m.moduleId, version: m.version, state: m.state, parentId: null, changelog: '', channel: 'test', createdAt: m.createdAt || '2026-11-10T09:00:00Z', decidedAt: null, review: null })) };
+      if (action === 'keyEnsure') return { ok: true, value: { exists: false, available: true, damaged: false } };
       if (action === 'openSection') return { ok: true, value: { opened: true } };
       if (action === 'disconnect') { state = { ...state, connected: false, user: null, owner: false }; return { ok: true, value: state }; }
       if (action === 'logout') { state = { ...state, user: null, owner: false }; return { ok: true, value: state }; }
@@ -129,7 +135,7 @@ async function main() {
         await page.fill('#login-input', 'dev'); await page.fill('#password-input', 'bad');
         await page.getByRole('button', { name: 'Войти', exact: true }).click();
         await page.getByRole('alert').waitFor();
-        ok(`${tag}: отказ сервера показан текстом`, /Разработка подпрограмм/.test(await page.getByRole('alert').innerText()));
+        ok(`${tag}: отказ сервера показан текстом`, /Разработка программ/.test(await page.getByRole('alert').innerText()));
         await measure(page, `${tag}/вход`);
         await page.screenshot({ path: path.join(shots, `studio-${target}-${theme}-2-login-refused.png`) });
 
@@ -146,9 +152,9 @@ async function main() {
         await page.screenshot({ path: path.join(shots, `studio-${target}-${theme}-2b-owner-refused.png`) });
         await page.getByLabel('Пароль ключа владельца').fill('правильный пароль владельца');
         await submit.click();
-        await page.getByRole('heading', { name: 'Программы' }).waitFor();
+        await page.getByRole('heading', { name: 'Мои программы' }).waitFor();
         ok(`${tag}: владелец вошёл ключом`, true);
-        const nav = await page.getByRole('navigation', { name: 'Разделы Studio' }).innerText();
+        const nav = await page.getByRole('navigation', { name: 'Flux Studio' }).innerText();
         ok(`${tag}: раздел владельца в меню — ${target === 'owner' ? 'есть' : 'нет'}`, nav.includes('Лицензии и выпуск обновлений') === (target === 'owner'));
         if (target === 'owner') {
           await page.getByRole('button', { name: 'Лицензии и выпуск обновлений' }).click();
@@ -158,11 +164,11 @@ async function main() {
         await page.locator('#login-input').waitFor();
         await page.fill('#login-input', 'dev'); await page.fill('#password-input', 'good');
         await page.getByRole('button', { name: 'Войти', exact: true }).click();
-        await page.getByRole('heading', { name: 'Программы' }).waitFor();
+        await page.getByRole('heading', { name: 'Мои программы' }).waitFor();
         await page.getByRole('cell', { name: 'equipment-inspector' }).waitFor();
         ok(`${tag}: состояние показано по-русски`, (await page.locator('tbody').innerText()).includes('На проверке'));
         await measure(page, `${tag}/программы`);
-        ok(`${tag}: разделов владельца у вошедшего по логину нет`, !(await page.getByRole('navigation', { name: 'Разделы Studio' }).innerText()).includes('Лицензии и выпуск обновлений'));
+        ok(`${tag}: разделов владельца у вошедшего по логину нет`, !(await page.getByRole('navigation', { name: 'Flux Studio' }).innerText()).includes('Лицензии и выпуск обновлений'));
         await page.screenshot({ path: path.join(shots, `studio-${target}-${theme}-3-modules.png`) });
         // Тема переключается кнопкой, выбор запоминается (тот же ключ, что у Flux)
         await page.getByRole('button', { name: 'Переключить тему' }).click();
@@ -180,11 +186,30 @@ async function main() {
     await remembered.page.locator('#login-input').waitFor();
     ok('подключение по запомненной базе — сразу вход', true);
     await remembered.page.close();
+    // Адрес у лежащего рядом Flux: предложен одной кнопкой, пароля в окне нет; ручной ввод остаётся
+    const beside = await open(browser, path.join(temp, 'developer', 'app', 'renderer', 'index.html'), 'light', bridge('developer', [], [], '', { found: true, display: 'MariaDB / MySQL · flux-db:3306/Flux', reason: '' }));
+    await beside.page.getByTestId('flux-base').waitFor();
+    ok('база лежащего рядом Flux показана без пароля', (await beside.page.getByTestId('flux-base').innerText()) === 'MariaDB / MySQL · flux-db:3306/Flux');
+    await beside.page.waitForTimeout(1800); // заставка запуска уходит сама
+    await beside.page.screenshot({ path: path.join(shots, 'studio-developer-light-0-flux-beside.png') });
+    await beside.page.getByRole('button', { name: 'Ввести адрес вручную' }).click();
+    await beside.page.getByLabel('URI базы MariaDB/MySQL').waitFor();
+    ok('ручной ввод остаётся запасным путём', true);
+    await beside.page.close();
+    const connectBeside = await open(browser, path.join(temp, 'developer', 'app', 'renderer', 'index.html'), 'light', bridge('developer', [], [], '', { found: true, display: 'MariaDB / MySQL · flux-db:3306/Flux', reason: '' }));
+    await connectBeside.page.getByRole('button', { name: 'Подключиться как Flux' }).click();
+    await connectBeside.page.locator('#login-input').waitFor();
+    ok('подключение «как Flux» — сразу вход; адрес в окне не вводился', await connectBeside.page.evaluate(() => (window as any).__calls.some((c: unknown[]) => c[0] === 'connectFlux') && !(window as any).__calls.some((c: unknown[]) => c[0] === 'connect')));
+    await connectBeside.page.close();
+    const noFlux = await open(browser, path.join(temp, 'developer', 'app', 'renderer', 'index.html'), 'light', bridge('developer', [], [], '', { found: false, display: '', reason: 'Flux на этом компьютере работает с локальной базой, а Studio подключается к общей: введите адрес общей базы.' }));
+    await noFlux.page.getByTestId('flux-reason').waitFor();
+    ok('нет адреса у Flux: причина словами и форма ввода', (await noFlux.page.getByLabel('URI базы MariaDB/MySQL').count()) === 1);
+    await noFlux.page.close();
     // Пустой список
     const empty = await open(browser, path.join(temp, 'developer', 'app', 'renderer', 'index.html'), 'light', bridge('developer', [], []));
     await empty.page.getByLabel('URI базы MariaDB/MySQL').fill('x'); await empty.page.getByRole('button', { name: 'Подключиться' }).click();
     await empty.page.fill('#login-input', 'dev'); await empty.page.fill('#password-input', 'good'); await empty.page.getByRole('button', { name: 'Войти', exact: true }).click();
-    await empty.page.getByText('Вы ещё не отправляли программ').waitFor();
+    await empty.page.getByText('Программ пока нет').waitFor();
     ok('пустой список объяснён, а не пуст', true);
     await empty.page.screenshot({ path: path.join(shots, 'studio-developer-light-4-empty.png') });
     console.log(`\nFlux Studio: окна — ${passed} проверок пройдено, снимки: ${shots}`);

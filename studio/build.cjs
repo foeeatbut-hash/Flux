@@ -112,6 +112,11 @@ async function buildStudio({ target, outDir, extraMain = null }) {
       plugins: [staticValidation],
     });
     metafiles['owner-console'] = consoleBuild.metafile;
+    // Пробный запуск программ со своим экраном: клиент flux.* и набор Flux, те же файлы, что Flux отдаёт по /_flux/
+    const pageClient = await esbuild.build({ entryPoints: [path.join(root, 'modules/page/client.ts')], bundle: true, write: false, platform: 'browser', format: 'iife', minify: true, legalComments: 'none', logLevel: 'silent', metafile: true });
+    metafiles['owner-page-client'] = pageClient.metafile;
+    fs.writeFileSync(path.join(consoleDir, 'flux.v1.js'), pageClient.outputFiles[0].text);
+    fs.copyFileSync(path.join(root, 'modules/page/flux-ui.v1.css'), path.join(consoleDir, 'flux-ui.v1.css'));
     for (const file of ['index.html', 'console.css']) fs.copyFileSync(path.join(root, 'studio/owner/console', file), path.join(consoleDir, file));
     // Оформление Flux — тот же файл и шрифты, что у главного окна Studio (собраны выше)
     fs.copyFileSync(path.join(app, 'renderer', 'flux.css'), path.join(consoleDir, 'flux.css'));
@@ -135,7 +140,7 @@ function builderConfig({ target, outDir, release }) {
     directories: { app: path.join(outDir, 'app'), output: release },
     files: ['**/*'],
     // Рабочий поток контрольных примеров запускается как файл: из app.asar его не открыть
-    asarUnpack: ['controls-worker.cjs'],
+    asarUnpack: ['controls-worker.cjs', 'ts-build-worker.cjs', 'esbuild.wasm'],
     win: { target: [{ target: 'portable', arch: ['x64'] }], icon: path.join(root, 'studio/icons', `${spec.icon}.ico`), artifactName: spec.exe.replace(/\.exe$/, '.${ext}') },
     portable: { requestExecutionLevel: 'user' },
   };

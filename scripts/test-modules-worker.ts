@@ -135,7 +135,7 @@ async function main() {
       try { globalThis.Worker = class {}; new globalThis.Worker('x'); state.restored = 'created'; } catch (e) { state.restored = 'blocked'; }
     }`));
     const probe = (await nested.run()).state;
-    check('из Worker подпрограммы нельзя создать Worker, SharedWorker и вернуть конструктор', probe.worker === 'blocked' && probe.shared === 'blocked' && probe.restored === 'blocked');
+    check('из Worker программы нельзя создать Worker, SharedWorker и вернуть конструктор', probe.worker === 'blocked' && probe.shared === 'blocked' && probe.restored === 'blocked');
     complete = true;
     console.log(`${passed} проверок пройдено`);
   } finally {

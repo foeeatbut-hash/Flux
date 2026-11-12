@@ -18,7 +18,7 @@ export function FormTextEditor({ state, onText }: { state: FormState; onText: (t
         {state.textValid ? (
           all.length === 0
             ? <p className="ed-ok" role="status" data-testid="text-status">Форма верна: правки видны в визуальном редакторе сразу.</p>
-            : <p className="ed-muted" role="status" data-testid="text-status">Текст принят, но привязки нужно поправить: {all.length}.</p>
+            : <p className="ed-muted" role="status" data-testid="text-status">Текст принят, но источники значений нужно поправить: {all.length}.</p>
         ) : (
           <p className="ed-error" role="status" data-testid="text-status">
             Текст не принят: в визуальном редакторе осталась последняя верная форма. Исправьте ошибки ниже.

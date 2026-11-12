@@ -65,7 +65,7 @@ const SECTIONS: Array<{
   { id: 'tags', label: 'Теги', icon: Tag, desc: 'Схема связей', scope: 'global' },
   { id: 'notifications', label: 'Уведомления', icon: Bell, desc: 'Какие события показывать', scope: 'global' },
   { id: 'translate', label: 'Переводчик', icon: Languages, desc: 'Чем переводим', scope: 'global' },
-  { id: 'modules', label: 'Подпрограммы', icon: Puzzle, desc: 'Разрешения подключений', scope: 'global' },
+  { id: 'modules', label: 'Программы', icon: Puzzle, desc: 'Разрешения подключений', scope: 'global' },
   { id: 'browser', label: 'Браузер', icon: Globe, desc: 'Куда разрешено ходить', scope: 'global' },
   { id: 'database', label: 'База данных', icon: Database, desc: 'Подключение сервера к БД', scope: 'global', ownerOnly: true },
   { id: 'license', label: 'Лицензии сотрудников', icon: ShieldCheck, desc: 'Запрос и активация лицензий', scope: 'global', adminFeature: 'admin.license.activate' },
@@ -201,7 +201,7 @@ export default function SettingsScreen() {
           </SectionShell>
         )}
         {displayedSection === 'modules' && (
-          <SectionShell title="Подпрограммы" desc="Какие подпрограммы могут подключаться к внешним программам. Выбор действует на этом компьютере.">
+          <SectionShell title="Программы" desc="Какие программы могут подключаться к внешним программам. Выбор действует на этом компьютере.">
             <ConnectionGrants />
           </SectionShell>
         )}

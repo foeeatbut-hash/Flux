@@ -1,5 +1,5 @@
 /**
- * Сервер для разделов разработчика Studio: явное право, чужая подпрограмма, запросы, сертификат, выпуски.
+ * Сервер для разделов разработчика Studio: явное право, чужая программа, запросы, сертификат, выпуски.
  *
  * Настоящие маршруты на одноразовой SQLite с таблицами из prisma/schema.prisma. Что доказывается:
  * - все маршруты разработчика закрыты ЯВНЫМ правом module.develop: администратору без него — 403, хотя общая
@@ -7,7 +7,7 @@
  * - разработчик видит и скачивает только свои запросы; чужой пакет отвечает «не найден»;
  * - присылать версию под идентификатором, который занят другим разработчиком (запросом или выпуском), нельзя;
  * - состояние сертификата: нет / выдан / отозван; чужие ключи и имена не раскрываются;
- * - замечания владельца видны автору запроса; выпуски отдаются только своей подпрограммы.
+ * - замечания владельца видны автору запроса; выпуски отдаются только своей программы.
  *
  * Запуск: npx tsx scripts/test-studio-publish.ts
  */
@@ -84,18 +84,18 @@ async function main() {
     ok('разработчик с правом входит во все разделы', (await Promise.all(routes.map(r => call(strict, 'a', r)))).every(r => r.status === 200));
     ok('владелец входит', (await call(strict, 'owner', '/api/studio/requests')).status === 200);
     const adminSend = await send(strict, 'admin', keys.admin, 'admin-mod', '0.1.0');
-    ok('администратор с сертификатом, но без явного права: отправка закрыта (403)', adminSend.status === 403 && /Разработка подпрограмм/.test(adminSend.body.error));
+    ok('администратор с сертификатом, но без явного права: отправка закрыта (403)', adminSend.status === 403 && /Разработка программ/.test(adminSend.body.error));
     const looseSend = await send(loose, 'admin', keys.admin, 'admin-mod', '0.1.0');
     ok('мутация: без крючка Studio та же отправка проходит — проверка не пустая', looseSend.status === 200 && !!looseSend.body.id);
     await db.moduleRequest.deleteMany({ where: { moduleId: 'admin-mod' } });
 
-    console.log('Свои запросы и чужая подпрограмма');
+    console.log('Свои запросы и чужая программа');
     const first = await send(strict, 'a', keys.a, 'alpha', '0.1.0');
     ok('Анна отправляет «alpha»', first.status === 200 && first.body.id);
     const foreign = await send(strict, 'b', keys.b, 'alpha', '0.2.0');
     ok('Борис не может прислать версию чужой «alpha» (403)', foreign.status === 403 && /принадлежит другому разработчику/.test(foreign.body.error));
     ok('отказ не создал запрос', await db.moduleRequest.count({ where: { moduleId: 'alpha', authorId: 'dev-b' } }) === 0);
-    ok('мутация: без крючка Борис чужую подпрограмму присылает', (await send(loose, 'b', keys.b, 'alpha', '0.3.0')).status === 200);
+    ok('мутация: без крючка Борис чужую программу присылает', (await send(loose, 'b', keys.b, 'alpha', '0.3.0')).status === 200);
     await db.moduleRequest.deleteMany({ where: { moduleId: 'alpha', authorId: 'dev-b' } });
     ok('Борис отправляет свою «beta»', (await send(strict, 'b', keys.b, 'beta', '0.1.0')).status === 200);
     const listA = (await call(strict, 'a', '/api/studio/requests')).body.requests, listB = (await call(strict, 'b', '/api/studio/requests')).body.requests;
@@ -121,7 +121,7 @@ async function main() {
     const firstGamma = (await db.moduleRequest.findFirst({ where: { moduleId: 'gamma' }, orderBy: { createdAt: 'asc' } })).id;
     ok('исправление к ожидающему запросу предел не увеличивает', (await send(strict, 'a', keys.a, 'gamma', '0.7.0', { parentRequest: firstGamma })).status === 200);
     const foreignParent = await send(strict, 'b', keys.b, 'gamma', '0.8.0', { parentRequest: firstGamma });
-    ok('родитель — запрос другого автора: не принимается (чужая подпрограмма)', foreignParent.status === 403 || foreignParent.status === 400);
+    ok('родитель — запрос другого автора: не принимается (чужая программа)', foreignParent.status === 403 || foreignParent.status === 400);
     const sameSignature = await call(strict, 'b', '/api/modules/requests', { signature: (await db.moduleRequest.findFirst({ where: { moduleId: 'gamma' } })).signature, bundle: '' });
     ok('повтор чужой подписи не раскрывает id чужого запроса', !sameSignature.body?.id);
     await db.moduleRequest.deleteMany({ where: { moduleId: { in: ['gamma', 'delta'] } } });
@@ -143,17 +143,17 @@ async function main() {
     ok('отозванный сертификат: «отозван»', (await status('b', hexOf(keys.b))).status === 'revoked');
     ok('отозванный ключ больше не присылает запросы', (await send(strict, 'b', keys.b, 'beta', '0.2.0')).status === 400);
 
-    console.log('Выпуски своей подпрограммы');
+    console.log('Выпуски своей программы');
     const bundle = moduleBundle('0.1.0', {}, { id: 'alpha' });
     await db.moduleRelease.create({ data: { moduleId: 'alpha', version: '0.1.0', channel: 'test', signature: releaseEnvelope(root, bundle, { moduleId: 'alpha', version: '0.1.0', author: hexOf(keys.a), channel: 'test' }), requestId: first.body.id, blobId: first.body.id, size: bundle.length, sha256: 'x', chunkCount: 1 } });
     const releasesA = (await call(strict, 'a', '/api/studio/releases?moduleId=alpha')).body.releases;
-    ok('автор видит выпуск своей подпрограммы', releasesA.length === 1 && releasesA[0].version === '0.1.0' && releasesA[0].channel === 'test');
+    ok('автор видит выпуск своей программы', releasesA.length === 1 && releasesA[0].version === '0.1.0' && releasesA[0].channel === 'test');
     ok('чужой разработчик выпусков не видит', (await call(strict, 'b', '/api/studio/releases?moduleId=alpha')).body.releases.length === 0);
     ok('некорректный идентификатор — 400', (await call(strict, 'a', '/api/studio/releases?moduleId=Bad')).status === 400);
     await db.moduleRequest.deleteMany({ where: { moduleId: 'alpha' } });
     const stillForeign = await send(strict, 'c', keys.c, 'alpha', '0.9.0');
-    ok('выпуск чужого ключа закрывает подпрограмму и без запросов в очереди (403)', stillForeign.status === 403 && /другому разработчику/.test(stillForeign.body.error));
-    ok('автор выпуска продолжает свою подпрограмму', (await send(strict, 'a', keys.a, 'alpha', '0.9.0')).status === 200);
+    ok('выпуск чужого ключа закрывает программу и без запросов в очереди (403)', stillForeign.status === 403 && /другому разработчику/.test(stillForeign.body.error));
+    ok('автор выпуска продолжает свою программу', (await send(strict, 'a', keys.a, 'alpha', '0.9.0')).status === 200);
   } finally {
     strict.close(); loose.close();
     await db.$disconnect?.();

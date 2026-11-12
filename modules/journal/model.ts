@@ -1,5 +1,5 @@
 /**
- * Журнал подпрограмм: что они делают во Flux — одна запись на событие, только метаданные.
+ * Журнал программ: что они делают во Flux — одна запись на событие, только метаданные.
  *
  * Чистый модуль: форму записи и её проверку читают главный процесс (кольцо на
  * диске), сервер (приём пачек и показ) и окно владельца. Содержимого вызовов,
@@ -13,7 +13,7 @@ export const JOURNAL_LEVELS = ['info', 'warn', 'error'] as const;
 export type JournalLevel = typeof JOURNAL_LEVELS[number];
 export const CATEGORY_NAMES: Record<JournalCategory, string> = {
   lifecycle: 'Запуск и закрытие', compute: 'Расчёты', read: 'Чтение данных Flux', permission: 'Разрешения',
-  connection: 'Подключения', log: 'Сообщения подпрограммы', failure: 'Сбои',
+  connection: 'Подключения', log: 'Сообщения программы', failure: 'Сбои',
 };
 
 export interface JournalEntry {
@@ -29,7 +29,7 @@ export interface JournalEntry {
   level: JournalLevel;
   /** Короткое имя события: `open`, `close`, `compute`, `call`, `grant`, `message` … */
   event: string;
-  /** Метка без данных: язык, вид данных, «GET /api», имя метода COM, текст сообщения подпрограммы */
+  /** Метка без данных: язык, вид данных, «GET /api», имя метода COM, текст сообщения программы */
   detail: string;
   /** Итог: `ok`, `denied`, `limit`, `timeout`, `failed`, `user-denied`… */
   outcome: string;
@@ -52,7 +52,7 @@ export const JOURNAL_LIMITS = {
   serverRows: 200_000,
   /** Сколько записей сервер принимает от одного человека за сутки: один неисправный компьютер не вытесняет журнал остальных */
   userPerDay: 20_000,
-  /** Сообщений подпрограммы через flux.log: в секунду и длина строки */
+  /** Сообщений программы через flux.log: в секунду и длина строки */
   logPerSecond: 5,
   logLine: 200,
 } as const;
@@ -73,7 +73,7 @@ export function validEntry(raw: unknown): raw is JournalEntry {
     && typeof e.outcome === 'string' && e.outcome.length <= JOURNAL_LIMITS.outcome && count(e.ms) && count(e.bytesIn) && count(e.bytesOut);
 }
 
-/** Обрезка длинных полей перед записью: подпрограмма не раздует журнал одной строкой */
+/** Обрезка длинных полей перед записью: программа не раздует журнал одной строкой */
 export const clipText = (value: unknown, max: number) => String(value ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').slice(0, max);
 
 /** Что видит разработчик: те же записи без людей — идентификатор человека убирается */

@@ -9,7 +9,7 @@ export interface LaunchContext {
   entry: 'start' | 'equipment' | 'tag';
   entityId: string | null;
 }
-/** Витрина Flux Store (modules/store/model.ts): необязательна, без неё подпрограмма попадает в «Прочее» */
+/** Витрина Flux Store (modules/store/model.ts): необязательна, без неё программа попадает в «Прочее» */
 export interface ModuleStoreBlock {
   category: 'calc' | 'link' | 'docs' | 'reports' | 'other';
   summary: string;
@@ -17,7 +17,7 @@ export interface ModuleStoreBlock {
   /** Цвет значка и подложки, #rrggbb */
   color?: string;
   requires?: { flux?: string; platform?: 'any' | 'windows'; external?: string[] };
-  /** Идентификаторы подпрограмм, без которых эта не работает */
+  /** Идентификаторы программ, без которых эта не работает */
   dependsOn?: string[];
   /** Для каких должностей (коды Role) */
   roles?: string[];
@@ -75,6 +75,8 @@ export type PageOp =
   | { op: 'state-load' }
   | { op: 'state-keep'; state: Record<string, unknown> }
   | { op: 'file-offer'; name: string; mime?: string; data: string; encoding: 'utf8' | 'base64' }
+  /** Файл пользователя (добавлено к v2): диалог показывает Flux, программа получает имя и содержимое только выбранного файла */
+  | { op: 'file-pick'; accept?: string[] }
   | { op: 'beat' }
   | { op: 'window-open'; page: string; params?: Record<string, unknown> }
   | { op: 'params-load' }
@@ -108,7 +110,7 @@ export interface ModuleApi {
     read<R extends Resource>(resource: R, entityId?: string): Promise<ReadData[R]>;
     on(event: 'changed', listener: () => void | Promise<void>): () => void;
   };
-  /** Журнал подпрограммы: строка до 200 знаков, не чаще 5 в секунду; данные проектов в него не пишутся */
+  /** Журнал программы: строка до 200 знаков, не чаще 5 в секунду; данные проектов в него не пишутся */
   log: { info(text: string): void; warn(text: string): void; error(text: string): void };
   /**
    * Подключения к внешним программам, объявленные в manifest.json. Вызов идёт как есть: Flux проверяет

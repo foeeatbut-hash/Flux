@@ -36,7 +36,7 @@ export interface RequestClaim extends BundleDigest {
   v: 1;
   moduleId: string;
   version: string;
-  /** Выпуск, от которого считается разница; null — новая подпрограмма */
+  /** Выпуск, от которого считается разница; null — новая программа */
   baseRelease: string | null;
   /** Запрос, который этот заменяет или правит; null — первый */
   parentRequest: string | null;

@@ -26,5 +26,7 @@ export interface Snapshot {
   version: string; unlocked: boolean; vaultExists: boolean; backupSession: boolean; kind: string;
   connected: boolean; display: string; user: { id: string; name: string } | null;
 }
-export type Tab = 'requests' | 'releases' | 'certificates' | 'updates';
+/** Три пункта Studio — Владелец; «programs» делится на подразделы */
+export type Tab = 'programs' | 'updates' | 'licenses';
+export type Section = 'certificates' | 'requests' | 'releases' | 'testers';
 export type { ModuleChannel };

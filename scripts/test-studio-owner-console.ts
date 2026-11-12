@@ -147,7 +147,7 @@ async function main() {
   await rejects('запасное хранилище сертификат не подписывает', make('owner', { ...vault, kind: 'backup' }).certify({ key: devHex, userId: 'developer' }), /основное хранилище/);
   await rejects('без подключения к базе подписывать нельзя', make('').certify({ key: devHex, userId: 'developer' }), /Подключитесь/);
 
-  console.log('Тестовый канал: назначение тестировщиков');
+  console.log('Пробная группа: назначение тестировщиков');
   await db.user.create({ data: { id: 'tester-1', symbol: 't1', password: 'x', name: 'Тестировщик 1' } });
   await db.user.create({ data: { id: 'tester-2', symbol: 't2', password: 'x', name: 'Тестировщик 2' } });
   await owner.saveTesters({ testers: ['tester-1', 'tester-2', 'tester-1'] });
@@ -169,7 +169,18 @@ async function main() {
   const view = await owner.request({ id: sent.body.id });
   ok('карточка: подпись разработчика, разница и пакет байт в байт', view.signature === sig100 && view.diff.files.length > 0 && Buffer.from(view.bundle, 'base64').equals(Buffer.from(b100)));
   ok('хеш показанного пакета', /^[0-9a-f]{64}$/.test(view.sha256));
-  ok('пробный запуск берёт собранную подпрограмму из того же пакета', (await owner.trialLoad({ id: sent.body.id })).manifest.id === 'equipment-inspector' && consoleApi.trialState()?.id === sent.body.id);
+  ok('пробный запуск берёт собранную программу из того же пакета', (await owner.trialLoad({ id: sent.body.id })).manifest.id === 'equipment-inspector' && consoleApi.trialState()?.id === sent.body.id);
+
+  // Программа со своим экраном: пробный запуск отдаёт только ui/ из пакета запроса, runtime.js ей не нужен
+  const withRuntime = unpackBundle(moduleBundle('1.0.1', { 'ui/index.html': '<!doctype html><title>x</title>', 'ui/app.js': 'void 0;' }, { ui: 'page', contractVersion: 2 }));
+  delete withRuntime['build/runtime.js'];
+  const bPage = packBundle(withRuntime);
+  const pageSent = await call('developer', '/api/modules/requests', 'POST', { signature: requestEnvelope(dev, bPage, { version: '1.0.1', channel: 'test', contractVersion: 2 }), bundle: Buffer.from(bPage).toString('base64') });
+  if (pageSent.status === 200) {
+    const pageTrial = await owner.trialLoad({ id: pageSent.body.id });
+    ok('пробный запуск страницы: берутся файлы ui/ из пакета', pageTrial.manifest.ui === 'page' && Object.keys(consoleApi.trialState()?.page || {}).sort().join() === 'ui/app.js,ui/index.html' && !consoleApi.trialState()?.runtime);
+    await owner.trialLoad({ id: sent.body.id });
+  } else console.log('  (страница не принята сервером в этом наборе:', pageSent.status, JSON.stringify(pageSent.body).slice(0, 200), ')');
 
   console.log('Выпуск подписывает владелец');
   await rejects('пакет изменился после просмотра — подпись не ставится', owner.release({ id: sent.body.id, channel: 'test', notBefore: 0, sha256: 'f'.repeat(64) }), /изменился/);
@@ -178,16 +189,16 @@ async function main() {
   await rejects('отказ в диалоге — выпуска нет', owner.release({ id: sent.body.id, channel: 'test', notBefore: 0, sha256: view.sha256 }), /отменена/);
   ok('выпусков по-прежнему нет', await count('ModuleRelease') === 0);
   answer = true;
-  await rejects('неизвестный канал отвергается', owner.release({ id: sent.body.id, channel: 'beta', notBefore: 0, sha256: view.sha256 }), /канал/);
+  await rejects('неизвестный канал отвергается', owner.release({ id: sent.body.id, channel: 'beta', notBefore: 0, sha256: view.sha256 }), /вид выпуска/);
   await rejects('запасное хранилище не выпускает', make('owner', { ...vault, kind: 'backup' }).release({ id: sent.body.id, channel: 'test', notBefore: 0, sha256: view.sha256 }), /основное хранилище/);
   asked.length = 0;
   const released = await owner.release({ id: sent.body.id, channel: 'test', notBefore: 0, sha256: view.sha256 });
   ok('выпуск записан сервером (подпись ключом издателя принята)', released.release.moduleId === 'equipment-inspector' && await count('ModuleRelease') === 1);
-  ok('перед подписью владельцу показали модуль, версию и канал', asked.length === 1 && /1\.0\.0/.test(asked[0].message) && /тестовый/.test(asked[0].detail));
+  ok('перед подписью владельцу показали модуль, версию и для кого', asked.length === 1 && /1\.0\.0/.test(asked[0].message) && /пробная группа/.test(asked[0].detail));
   await rejects('решённый запрос второй раз не выпускается', owner.release({ id: sent.body.id, channel: 'test', notBefore: 0, sha256: view.sha256 }), /уже решён/);
-  ok('перевод в рабочий канал', (await owner.promote({ releaseId: released.release.id })) && (await call('owner', '/api/modules/promotions')).body.promotions.length === 1);
+  ok('выпуск для всех', (await owner.promote({ releaseId: released.release.id })) && (await call('owner', '/api/modules/promotions')).body.promotions.length === 1);
   await owner.pin({ moduleId: 'equipment-inspector', channel: 'production', version: '1.0.0', reason: 'проверка' });
-  ok('откат канала записан', (await call('owner', '/api/modules/pins')).body.pins.length === 1);
+  ok('возврат к прежней версии записан', (await call('owner', '/api/modules/pins')).body.pins.length === 1);
   await owner.pin({ moduleId: 'equipment-inspector', channel: 'production', version: null, reason: 'снять' });
   ok('снятие отката записано', (await call('owner', '/api/modules/pins')).body.pins.length === 2);
   await owner.revoke({ target: 'release', value: 'equipment-inspector@1.0.0', reason: 'проверка' });
@@ -201,7 +212,7 @@ async function main() {
   await rejects('исходный код владелец не правит', owner.ownerEdit({ id: r110.body.id, texts: { 'logic/extra.ts': 'export const x = 2;' }, sha256: v110.sha256 }), /Исходный код/);
   await rejects('form.json владелец не правит: форма вшита в runtime.js', owner.ownerEdit({ id: r110.body.id, texts: { 'form.json': '{}' }, sha256: v110.sha256 }), /form\.json/);
   await rejects('build/runtime.js владелец не правит', owner.ownerEdit({ id: r110.body.id, texts: { 'build/runtime.js': '/* другое */' }, sha256: v110.sha256 }), /build\/runtime\.js/);
-  ok('после отказов правок в базе нет', await count('ModuleRequest') === 2);
+  ok('после отказов правок в базе нет (запросы: основной, правка, страница)', await count('ModuleRequest') === 3);
   await rejects('без изменений правка не подписывается', owner.ownerEdit({ id: r110.body.id, texts: {}, sha256: v110.sha256 }), /Нет изменений/);
   const edited = await owner.ownerEdit({ id: r110.body.id, texts: { 'examples/basic.json': '{"input":{},"expect":{"parameterCount":1}}' }, comment: 'поправил', sha256: v110.sha256 });
   const ownerRequest = (await owner.requests()).requests.find((r: any) => r.id === edited.id);
@@ -242,7 +253,7 @@ async function main() {
     ok(`${label}: отзыв — 403`, (await call(who, '/api/modules/revocations', 'POST', { signature: 'x' })).status === 403);
     ok(`${label}: назначение обновления — 403`, (await call(who, '/api/updates/campaigns', 'POST', {})).status === 403);
     ok(`${label}: список устройств — 403`, (await call(who, '/api/updates/devices')).status === 403);
-    ok(`${label}: тестовый канал — 403`, (await call(who, '/api/modules/testers')).status === 403);
+    ok(`${label}: пробная группа — 403`, (await call(who, '/api/modules/testers')).status === 403);
   }
   await rejects('действие под входом администратора отказывает целиком', make('admin').devices(), /только владелец|Доступно только владельцу/);
   await rejects('и подпись выпуска под входом администратора', make('admin').certify({ key: devHex, userId: 'developer' }), /Доступно только владельцу|только владелец/);

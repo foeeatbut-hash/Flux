@@ -8,8 +8,12 @@
  */
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, protocol, safeStorage } from 'electron';
 import path from 'node:path';
-import { startDatabaseRuntime } from '../shared/database-runtime.cjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import { findFluxAddress } from '../shared/fluxAddress';
+import { parseDatabaseUri, startDatabaseRuntime } from '../shared/database-runtime.cjs';
 import { createControlsEngine } from '../shared/controlsEngine';
+import { createTsBuilder } from '../shared/tsBuildHost';
 import { hardenModuleContents, hardenModuleSession } from '../../modules/page/harden';
 import { MODULE_SCHEME, pageNavigationAllowed } from '../../modules/protocol';
 import { ownModules, signIn, StudioFailure, type StudioModule, type StudioUser } from './api';
@@ -89,6 +93,11 @@ export function startShell(sections: ShellSection[] = []): void {
     return value;
   };
 
+  const lookupFlux = () => findFluxAddress({
+    env: process.env, platform: process.platform, home: os.homedir(),
+    read: file => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } },
+    accept: uri => parseDatabaseUri(uri).uri,
+  });
   const connectTo = (uri: string, remember: boolean) => busy(async signal => {
     // Не disconnect(): он прерывает текущую операцию, то есть само это подключение, и человек видел «Подключение к общей базе отменено»
     await release();
@@ -111,6 +120,13 @@ export function startShell(sections: ShellSection[] = []): void {
       return connectTo(uri, false);
     },
     forgetBase: async () => { remembered?.forget(); return snapshot(); },
+    // Адрес общей базы у лежащего рядом Flux: окну отдаётся только описание «сервер/база», пароль остаётся здесь
+    fluxBase: async () => { const found = lookupFlux(); return { found: found.found, display: found.display, reason: found.reason }; },
+    connectFlux: async args => {
+      const found = lookupFlux();
+      if (!found.found) throw new StudioFailure(found.reason || 'Настроек Flux не найдено.');
+      return connectTo(found.uri, args.remember === true);
+    },
     login: async args => busy(async signal => {
       if (!runtime) throw new StudioFailure('Сначала подключитесь к общей базе.');
       const signed = await signIn(runtime.origin, text(args.symbol, 200), text(args.password, 1024), signal);
@@ -150,7 +166,27 @@ export function startShell(sections: ShellSection[] = []): void {
       session: () => runtime && token && user ? { origin: runtime.origin, token, user, owner } : null,
       assets: { templatesRoot: path.join(__dirname, 'templates'), runtimeDir: path.join(__dirname, 'runtime') },
       engine: createControlsEngine({ workerFile: unpacked(path.join(__dirname, 'controls-worker.cjs')) }),
+      tsBuilder: createTsBuilder({ workerFile: unpacked(path.join(__dirname, 'ts-build-worker.cjs')), wasmFile: unpacked(path.join(__dirname, 'esbuild.wasm')) }),
       capture: async rect => (await win!.webContents.capturePage(rect)).toPNG(),
+      home: path.join(app.getPath('documents'), 'Flux Studio'),
+      emit: (channel, data) => { if (win && !win.isDestroyed()) win.webContents.send(channel, data); },
+      pickArchive: async (mode, suggested) => {
+        if (!win) return null;
+        const filters = [{ name: 'Архив ZIP', extensions: ['zip'] }];
+        if (mode === 'save') { const r = await dialog.showSaveDialog(win, { title: 'Сохранить проект архивом', defaultPath: suggested, filters }); return r.canceled || !r.filePath ? null : r.filePath; }
+        const r = await dialog.showOpenDialog(win, { title: 'Архив проекта', properties: ['openFile'], filters });
+        return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+      },
+      pickDataFile: async options => {
+        if (!win) return null;
+        const picked = await dialog.showOpenDialog(win, { ...options, buttonLabel: 'Отдать программе', properties: ['openFile'] });
+        return picked.canceled || !picked.filePaths[0] ? null : picked.filePaths[0];
+      },
+      pickFolder: async title => {
+        if (!win) return null;
+        const picked = await dialog.showOpenDialog(win, { title, properties: ['openDirectory', 'createDirectory'] });
+        return picked.canceled || !picked.filePaths[0] ? null : picked.filePaths[0];
+      },
     });
     win = new BrowserWindow({
       width: 1280, height: 800, minWidth: 960, minHeight: 620, title: `${PRODUCT_NAME} ${__STUDIO_VERSION__}`,
@@ -206,7 +242,7 @@ export function startShell(sections: ShellSection[] = []): void {
         } catch { /* страница ещё загружается */ }
       }, 300);
     }
-    win.on('closed', () => { win = null; });
+    win.on('closed', () => { developer?.dispose(); win = null; });
   });
   app.on('window-all-closed', () => { void disconnect().finally(() => app.quit()); });
 }

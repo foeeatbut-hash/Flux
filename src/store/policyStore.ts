@@ -97,7 +97,7 @@ export function useAppContext(): AppContext {
   const platform = usePolicyStore((s) => s.platform);
   const permissions = usePolicyStore((s) => s.permissions);
   const rolePermissions = usePolicyStore((s) => s.rolePermissions);
-  // Список разделов меняется, когда из Store ставят или удаляют подпрограмму: тот же контекст пересчитывает Пуск и панель задач
+  // Список разделов меняется, когда из Store ставят или удаляют программу: тот же контекст пересчитывает Пуск и панель задач
   const sections = useSectionsVersion((s) => s.version);
   return React.useMemo<AppContext>(() => ({
     user: user

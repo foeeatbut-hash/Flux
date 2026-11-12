@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { validateModuleForm } from '../modules/validateForm';
 import { buildModuleAssets } from '../modules/build';
-import { bundledModules } from '../modules/bundled';
+import { sampleModules as bundledModules } from '../modules/sampleModules';
 
 let complete = false;
 process.on('exit', () => { if (!complete) process.exitCode = 1; });

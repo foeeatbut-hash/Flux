@@ -48,7 +48,7 @@ export const messageSchemas = {
     ...envelope, id, type: { const: 'compute-result' },
     output: object({ state: { type: 'object' }, calc: object({ out: { type: 'object' } }) }),
   }),
-  // Сообщение самой подпрограммы в журнал (flux.log): уровень и короткая строка, ответа нет
+  // Сообщение самой программы в журнал (flux.log): уровень и короткая строка, ответа нет
   log: object({ ...envelope, type: { const: 'log' }, level: { enum: ['info', 'warn', 'error'] }, text: { type: 'string', maxLength: 200 } }),
   // Подключение к внешней программе (этап 3б): подключение названо по `id` из манифеста, сквозной вызов идёт как есть
   connect: object({ ...envelope, id, type: { const: 'connect' }, connection: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,31}$' }, call: { oneOf: connectCallSchemas } }),
@@ -61,6 +61,7 @@ export const messageSchemas = {
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'state-keep' }, state: { type: 'object' } }),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'file-offer' }, name: { type: 'string', minLength: 1, maxLength: 100 },
       mime: { type: 'string', maxLength: 100 }, data: { type: 'string', maxLength: 700_000 }, encoding }, ['flux', 'v', 'session', 'id', 'type', 'op', 'name', 'data', 'encoding']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'file-pick' }, accept: { type: 'array', maxItems: 10, items: { type: 'string', pattern: '^\\.[A-Za-z0-9]{1,10}$' } } }, ['flux', 'v', 'session', 'id', 'type', 'op']),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'beat' } }),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'window-open' }, page: { type: 'string', maxLength: 160 }, params: { type: 'object' } }, ['flux', 'v', 'session', 'id', 'type', 'op', 'page']),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'params-load' } }),
