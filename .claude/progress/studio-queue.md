@@ -12,16 +12,17 @@
 
 - [x] 0. Ветка, файл хода, черновой PR.
 - [x] 1. Разрешения программ: разведка и план (что есть, что добавить).
-- [ ] 2. Разрешения программ: 2а реестр+internet/lan [x]; 2б programs.call [ ].
+- [x] 2. Разрешения программ: 2а реестр+internet/lan; 2б programs.call.
 - [ ] 3. Окна программ: диалоги через Flux, заголовок и размер в `flux.windows.open`, вопрос о несохранённом.
 - [ ] 4. Окна Flux вместе с окнами Windows — простой вариант.
 - [ ] 5. План (`studio-next.md`) и страницы программ обновлены, CI зелёный, PR из черновика.
 
 ## Где остановился
 
-2а принят (021086f9, 0575b096, 36772670): реестр `modules/permissions/registry.ts`,
-`permissions` в манифесте (договор v3), `flux.net.fetch(url)`, Studio, документы.
-Не проверено: настоящий Electron и Windows CI. Падают и на main: `test-modules-restart-ui`,
-`test-studio-electron-start` (нет dist-studio).
-Сейчас: 2б — `flux.programs.call` и `exports` (новый исполнитель, файл хода
-`.claude/progress/programs-call.md`). После него шаг 3 (окна программ).
+Шаг 2 принят целиком: 2а (021086f9, 0575b096, 36772670), 2б `flux.programs.call`
+(ff19ef10, c5557fab, 14dcc118, 7790b0cf). Ограничения 2б: exports на TypeScript
+не принимаются (ранний отказ), политика администратора для `program` не сделана.
+Не проверено: настоящий Electron, Windows CI. Падают и на main: `test-modules-restart-ui`,
+`test-studio-electron-start`.
+Сейчас: шаг 3 — окна программ (новый исполнитель, файл хода
+`.claude/progress/program-windows.md`). После него шаг 4 (windows-layer, простой вариант).
