@@ -27,6 +27,10 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Проверки раздела владельца
         run: npm run test:studio-owner
+      - name: Три пункта владельца: окно, пароль один раз, слова интерфейса
+        run: |
+          node --import tsx scripts/test-studio-owner-section.ts
+          node --import tsx scripts/test-studio-words.ts
       - name: Пакет владельца
         run: npm run build:studio-owner
       # Настоящий запуск: пакет доходит до экрана входа, как у разработчика

@@ -134,8 +134,8 @@ console.log('Привязки и согласие с проверкой выпу
     ok('строка ошибки — строка с этой привязкой', serializeForm(next).split('\n')[unknownPath[0].line - 1].includes('flux.equipment.nme'));
   }
   ok('данные не из reads', /не разрешены/.test(bad(f => { f.groups[0].fields[0].bind = 'flux.catalog.families'; })[0].message));
-  ok('state без объявления', /не объявлено в договоре/.test(bad(f => { f.groups[1].fields[1].bind = 'state.unknown'; })[0].message));
-  ok('пустая привязка', /не выбрана/.test(bad(f => { f.groups[0].fields[0].bind = ''; })[0].message));
+  ok('state без объявления', /не объявлено в описании данных/.test(bad(f => { f.groups[1].fields[1].bind = 'state.unknown'; })[0].message));
+  ok('пустой источник значения', /не выбран/.test(bad(f => { f.groups[0].fields[0].bind = ''; })[0].message));
   ok('таблица на не-список', /должна ссылаться на список/.test(bad(f => { f.tables[0].bind = 'flux.equipment.name'; })[0].message));
   ok('колонка вне схемы', /нет поля «zzz»/.test(bad(f => { f.tables[0].columns[0].key = 'zzz'; })[0].message));
   ok('список в поле', /нужна таблица/.test(bad(f => { f.groups[0].fields[0].bind = 'flux.equipment.params'; })[0].message));
@@ -451,7 +451,7 @@ console.log('Выпуск и Studio решают одинаково (modules/val
     ['пустая колонка', f => { f.tables[0].columns[0].key = ''; }], ['список в поле', f => { f.groups[0].fields[0].bind = 'flux.equipment.params'; }],
     ['условие на чужую привязку', f => { f.groups[1].fields[1].visibleIf.bind = 'flux.bogus.x'; }], ['условие eq без значения', f => { f.groups[1].fields[1].visibleIf = { bind: 'state.mode', op: 'eq' }; }],
     ['лишний ключ', f => { f.groups[0].fields[0].color = 'red'; }], ['лишний ключ формы', f => { f.extra = 1; }], ['версия 2', f => { f.version = 2; }],
-    ['пустая привязка', f => { f.groups[0].fields[0].bind = ''; }],
+    ['пустой источник значения', f => { f.groups[0].fields[0].bind = ''; }],
   ];
   for (const [name, mutate] of cases) {
     const form = clone(sampleForm()) as any; mutate(form);

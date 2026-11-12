@@ -78,6 +78,7 @@ const bridge = () => `(() => {
         case 'declineCertificate': certRequests = certRequests.filter(r => r.key !== args.key); return ok({ done: true });
         case 'devices': return ok({ inst: 'company', devices: data.devices, releases: [{ version: '2.0.0', generation: 'g', signature: 's', sha256: 'a' }] });
         case 'assignUpdate': return ok({ ids: ['cmd'] });
+        case 'openLicenses': return ok({ opened: true });
       }
       return { ok: false, error: 'Недоступное действие.' };
     },
@@ -97,6 +98,9 @@ async function measure(page: Page, label: string) {
   const bg = info.bg, fg = info.color;
   ok(`${label}: фон сплошной`, bg[3] === 1);
   ok(`${label}: нет горизонтальной прокрутки`, info.overflowX <= 0);
+  // Слова интерфейса (решение владельца): подписи кнопок, вкладок, заголовков и подсказок без «канал», «договор» и др.
+  const words = await page.evaluate(`[...document.querySelectorAll('button, [role=tab], h1, h2, h3, label, th, .hint, .muted, strong, .fx-empty')].map(e => e.innerText || '').join(' | ')`) as string;
+  ok(`${label}: в подписях нет слов «канал», «договор», «привязки», «манифест», «бандл»`, !/канал|договор|привяз|манифест|бандл/i.test(words));
   ok(`${label}: у полей есть подписи`, info.unlabeled === 0);
   ok(`${label}: контраст текста не ниже 4.5:1`, contrast(fg.slice(0, 3), bg.slice(0, 3)) >= 4.5);
 }
@@ -109,9 +113,10 @@ async function main() {
   try {
     const built = await buildStudio({ target: 'owner', outDir: path.join(temp, 'owner') });
     const url = 'file://' + path.join(built.app, 'ui', 'console', 'index.html');
-    for (const theme of ['light', 'dark'] as const) {
-      console.log(`Тема: ${theme}`);
-      const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+    for (const [theme, width] of [['light', 1180], ['dark', 1180], ['light', 1024], ['dark', 1024]] as const) {
+      console.log(`Тема: ${theme}, ширина ${width}`);
+      const tag = `${theme}${width === 1180 ? '' : `-${width}`}`;
+      const page = await browser.newPage({ viewport: { width, height: 860 } });
       await page.addInitScript((value: string) => { try { localStorage.setItem('theme', value); } catch { /* приватный режим */ } }, theme);
       const errors: string[] = [];
       page.on('pageerror', e => errors.push(e.message));
@@ -121,8 +126,8 @@ async function main() {
 
       // Вход в хранилище и подключение
       await page.getByRole('heading', { name: 'Хранилище владельца' }).waitFor();
-      await measure(page, `${theme}/хранилище`);
-      await page.screenshot({ path: path.join(shots, `owner-console-${theme}-1-vault.png`) });
+      await measure(page, `${tag}/хранилище`);
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-1-vault.png`) });
       await page.fill('#vault-password', 'неверный-пароль-хранилища');
       await page.getByRole('button', { name: 'Открыть хранилище' }).click();
       await page.getByRole('alert').waitFor();
@@ -131,9 +136,14 @@ async function main() {
       await page.getByRole('button', { name: 'Открыть хранилище' }).click();
       await page.getByRole('heading', { name: 'Подключение к общей базе' }).waitFor();
       ok(`${theme}: адрес базы скрыт полем пароля`, (await page.locator('#uri').getAttribute('type')) === 'password');
-      await measure(page, `${theme}/подключение`);
+      await measure(page, `${tag}/подключение`);
       await page.fill('#uri', 'mysql://U:P@H:3306/Flux');
       await page.getByRole('button', { name: 'Подключиться' }).click();
+
+      // Три пункта вместо прежних разделов
+      await page.getByRole('tab', { name: /Программы на проверку/ }).waitFor();
+      ok(`${theme}: ровно три пункта: программы на проверку, обновления Flux, лицензии`, (await page.getByRole('tablist', { name: 'Разделы владельца' }).getByRole('tab').allInnerTexts()).map(t => t.replace(/\s*\d+$/, '').trim()).join('|') === 'Программы на проверку|Flux: обновления|Лицензии');
+      ok(`${theme}: в «Программах на проверку» четыре подраздела`, (await page.getByRole('group', { name: 'Программы на проверку' }).getByRole('button').count()) === 4);
 
       // Запросы на публикацию
       await page.getByRole('button', { name: /connections-http 1\.1\.0/ }).waitFor();
@@ -143,12 +153,12 @@ async function main() {
       await page.getByTestId('request-code').waitFor();
       const code = await page.getByTestId('request-code').innerText();
       ok(`${theme}: код и разница с прошлой версией построчно`, code.includes('+ // новое') || code.includes('+ ') );
-      await measure(page, `${theme}/запрос`);
-      await page.screenshot({ path: path.join(shots, `owner-console-${theme}-2-request.png`) });
+      await measure(page, `${tag}/запрос`);
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-2-request.png`) });
       await page.getByRole('tab', { name: 'Связь с Flux' }).click();
       await page.getByTestId('owner-connection-texts').waitFor();
       ok(`${theme}: подключение показано человеческим текстом`, /хочет подключиться к Сервер расчётов/.test(await page.getByTestId('owner-connection-texts').innerText()) && (await page.getByTestId('diff-connection').count()) === 1);
-      await page.screenshot({ path: path.join(shots, `owner-console-${theme}-3-flux.png`) });
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-3-flux.png`) });
       await page.getByRole('tab', { name: /Замечания и проверки/ }).click();
       ok(`${theme}: отчёт проверок виден и помечен «заявлено автором»`, (await page.getByText('контрольные примеры').count()) > 0 && (await page.getByText('заявлено автором').count()) > 0);
       await page.getByRole('tab', { name: 'Проверить в работе' }).click();
@@ -177,25 +187,31 @@ async function main() {
       await page.getByRole('button', { name: /connections-http 1\.1\.0/ }).click();
       ok(`${theme}: решённый запрос не предлагает решений`, (await page.getByRole('button', { name: 'Выпустить' }).count()) === 0);
       await page.getByRole('button', { name: /Ждут/ }).click();
-      await page.screenshot({ path: path.join(shots, `owner-console-${theme}-4-after-return.png`) });
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-4-after-return.png`) });
 
       // Выпуски
-      await page.getByRole('tab', { name: 'Выпуски и каналы' }).click();
-      await page.getByRole('button', { name: 'Перевести в рабочий канал' }).waitFor();
-      await measure(page, `${theme}/выпуски`);
+      await page.getByRole('group', { name: 'Программы на проверку' }).getByRole('button', { name: 'Выпущенные' }).click();
+      await page.getByRole('button', { name: 'Выпустить для всех' }).waitFor();
+      await measure(page, `${tag}/выпуски`);
       await page.getByRole('button', { name: 'Отозвать' }).click();
       await page.getByLabel('Причина').fill('Ошибка в расчёте');
       await page.getByRole('dialog').getByRole('button', { name: 'Подписать' }).click();
       await page.getByRole('dialog').waitFor({ state: 'detached' });
       const revoked = (await calls(page, 'revoke'))[0][1];
       ok(`${theme}: отзыв выпуска ушёл с именем выпуска и причиной`, revoked.target === 'release' && revoked.value === 'connections-http@1.0.0' && revoked.reason === 'Ошибка в расчёте');
-      await page.screenshot({ path: path.join(shots, `owner-console-${theme}-5-releases.png`) });
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-5-releases.png`) });
 
-      // Сертификаты
-      await page.getByRole('tab', { name: /Сертификаты разработчиков/ }).click();
+      // Кому доступны
+      await page.getByRole('group', { name: 'Программы на проверку' }).getByRole('button', { name: 'Кому доступны' }).click();
+      await page.getByTestId('module-testers').waitFor();
+      await measure(page, `${tag}/кому доступны`);
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-5b-testers.png`) });
+
+      // Запросы на право публиковать
+      await page.getByRole('group', { name: 'Программы на проверку' }).getByRole('button', { name: /Запросы на право публиковать/ }).click();
       await page.getByTestId('certificate-requests').waitFor();
-      await measure(page, `${theme}/сертификаты`);
-      await page.screenshot({ path: path.join(shots, `owner-console-${theme}-6-certificates.png`) });
+      await measure(page, `${tag}/сертификаты`);
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-6-certificates.png`) });
       await page.getByTestId('certificate-requests').getByRole('button', { name: 'Выдать' }).click();
       ok(`${theme}: запрос на сертификат подставил ключ и имя`, (await page.inputValue('#cert-key')) === 'cd'.repeat(32) && (await page.inputValue('#cert-name')) === 'Второй разработчик');
       await page.getByRole('dialog').getByRole('button', { name: 'Подписать сертификат' }).click();
@@ -204,11 +220,11 @@ async function main() {
       ok(`${theme}: сертификат выдан, запрос закрыт`, (await page.getByTestId('certificate-requests').count()) === 0 && (await calls(page, 'certify'))[0][1].userId === 'dev2');
 
       // Обновления Flux
-      await page.getByRole('tab', { name: 'Обновления Flux' }).click();
+      await page.getByRole('tab', { name: 'Flux: обновления' }).click();
       await page.getByRole('button', { name: /Выбрать всех устаревших · 1/ }).waitFor();
       await page.getByRole('button', { name: /Иван Первый/ }).click();
-      await measure(page, `${theme}/обновления`);
-      await page.screenshot({ path: path.join(shots, `owner-console-${theme}-7-updates.png`) });
+      await measure(page, `${tag}/обновления`);
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-7-updates.png`) });
       await page.getByRole('button', { name: /Выбрать всех устаревших/ }).click();
       await page.getByRole('button', { name: 'Назначить обновление' }).click();
       await page.getByRole('dialog').getByRole('button', { name: 'Назначить' }).click();
@@ -216,6 +232,15 @@ async function main() {
       const assigned = (await calls(page, 'assignUpdate'))[0][1];
       ok(`${theme}: назначение ушло только для устаревшего устройства, срок и версия на месте`, assigned.action === 'schedule' && assigned.version === '2.0.0' && assigned.minutes === 10
         && assigned.devices.length === 1 && assigned.devices[0] === 'aaaaaaaa-0000-0000-0000-000000000001:u1');
+      await page.getByRole('button', { name: /Опубликовать новую версию Flux/ }).click();
+      ok(`${theme}: выпуск новой версии Flux открывает окно лицензий на нужной вкладке`, (await calls(page, 'openLicenses')).some(c => c[1].tab === 'updates'));
+
+      // Лицензии
+      await page.getByRole('tab', { name: 'Лицензии' }).click();
+      await page.getByRole('button', { name: 'Открыть лицензии' }).click();
+      await measure(page, `${tag}/лицензии`);
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-8-licenses.png`) });
+      ok(`${theme}: «Лицензии» открывают окно лицензий, пароль второй раз не спрашивается`, (await calls(page, 'openLicenses')).some(c => c[1].tab === 'licenses') && (await calls(page, 'unlock')).length === 2 && (await page.getByLabel('Пароль хранилища').count()) === 0);
       ok(`${theme}: ошибок страницы нет`, errors.length === 0);
       await page.close();
     }

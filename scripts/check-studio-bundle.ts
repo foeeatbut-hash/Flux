@@ -46,7 +46,7 @@ export const OUTSIDE_MARKERS: Record<string, string> = {
   buildRevocationClaim: 'modules/trust/owner.ts', buildPinClaim: 'modules/trust/owner.ts', buildPromotionClaim: 'modules/trust/owner.ts',
   // Тексты отказов сборщиков подписи переживают переименование функций и файла
   'Описание правки не прошло проверку': 'modules/trust/owner.ts', 'Запрос разработчика повреждён': 'modules/trust/owner.ts',
-  'Нужен подписанный владельцем выпуск тестового канала': 'modules/trust/owner.ts',
+  'Нужен подписанный владельцем выпуск для пробной группы': 'modules/trust/owner.ts',
   OWNER_PUBLIC_KEY_HEX: 'license/ownerKey.ts', OWNER_BACKUP_PUBLIC_KEY_HEX: 'license/ownerKey.ts', LICENSE_SIGNING_PUBLIC_KEY_HEX: 'license/ownerKey.ts',
 };
 const OWNER_DIRECTORIES = ['owner', 'ui'];

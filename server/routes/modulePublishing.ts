@@ -115,7 +115,7 @@ export function registerModulePublishingRoutes(app: Express, deps: ModulePublish
       // «Что нового» обязательно: без него пользователь в Store не поймёт, зачем обновляться
       if (!claim.meta.changelog.trim()) return fail(res, 400, 'Заполните «что нового»: без него выложить нельзя');
       if (!byOwner && claim.meta.channel === 'production' && !can(req, 'module.publish')) {
-        return fail(res, 403, 'Просить рабочий канал сразу можно с правом «Просить рабочий канал»: отправьте запрос в тестовый');
+        return fail(res, 403, 'Просить выпуск сразу для всех можно с правом «Просить рабочий канал»: отправьте запрос для пробной группы');
       }
       if (await db.moduleRelease.findUnique({ where: { moduleId_version: { moduleId: claim.moduleId, version: claim.version } } })) {
         return fail(res, 409, `Версия ${claim.version} уже выпущена: повысьте номер версии`);

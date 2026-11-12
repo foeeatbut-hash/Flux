@@ -28,7 +28,7 @@ export function buildReleaseClaim(p: {
   if (digest.sha256 !== request.sha256 || digest.size !== request.size) throw new Error('Пакет не тот, что прислан в запросе: выпуск не подписан');
   const manifest = bundleManifest(unpackBundle(p.bundle), request.moduleId, request.version);
   if (typeof manifest === 'string') throw new Error(manifest);
-  if (!MODULE_CHANNELS.includes(p.channel)) throw new Error('Неизвестный канал выпуска');
+  if (!MODULE_CHANNELS.includes(p.channel)) throw new Error('Неизвестный вид выпуска');
   const claim = parseReleaseClaim({
     v: 1, moduleId: request.moduleId, version: request.version, contractVersion: manifest.contractVersion, channel: p.channel,
     notBefore: Math.max(0, Math.floor(p.notBefore || 0)), request: p.requestId, author: request.author, iat: p.now ?? Date.now(), ...digest,
@@ -75,15 +75,15 @@ export function buildCertificateClaim(p: { key: string; userId: string; name: st
 export function buildPinClaim(p: { moduleId: string; channel: ModuleChannel; version: string | null; reason: string; now?: number }): PinClaim {
   const claim = parsePinClaim({ v: 1, moduleId: String(p.moduleId || ''), channel: p.channel, version: p.version ? String(p.version) : null,
     reason: String(p.reason || '').slice(0, 2000), iat: p.now ?? Date.now() });
-  if (!claim) throw new Error('Укажите подпрограмму, канал и версию как 1.2.3');
+  if (!claim) throw new Error('Укажите программу, для кого выпуск и версию как 1.2.3');
   return claim;
 }
 
 export function buildPromotionClaim(p: { releaseSignature: string; rootHex: string; now?: number }): PromotionClaim {
   const release = parseReleaseClaim(openEnvelope('release', p.releaseSignature, p.rootHex));
-  if (!release || release.channel !== 'test') throw new Error('Нужен подписанный владельцем выпуск тестового канала');
+  if (!release || release.channel !== 'test') throw new Error('Нужен подписанный владельцем выпуск для пробной группы');
   const claim = parsePromotionClaim({ v: 1, moduleId: release.moduleId, version: release.version,
     releaseSignatureHash: sha256Hex(p.releaseSignature), channel: 'production', iat: p.now ?? Date.now() });
-  if (!claim) throw new Error('Назначение канала не прошло проверку');
+  if (!claim) throw new Error('Возврат к прежней версии не прошёл проверку');
   return claim;
 }

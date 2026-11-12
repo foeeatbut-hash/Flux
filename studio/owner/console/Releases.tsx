@@ -73,7 +73,7 @@ export function Testers() {
     <div className="bar"><strong>Пробная группа</strong><span className="muted">{chosen.size}</span><span className="grow" />
       <Btn onClick={() => setOpen(!open)}>{open ? 'Свернуть' : 'Назначить тестировщиков'}</Btn>{dirty && <Btn tone="primary" onClick={() => void save()}>Сохранить</Btn>}</div>
     <ErrorLine text={error} />
-    {open && <div className="sect" data-testid="module-testers" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 4 }}>
+    {open && <div className="sect" data-testid="module-testers" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: '6px 32px', padding: '12px 16px' }}>
       {users.map(u => <label key={u.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <input type="checkbox" checked={chosen.has(u.id)} onChange={e => { const next = new Set(chosen); if (e.target.checked) next.add(u.id); else next.delete(u.id); setChosen(next); }} />
         <span className="grow">{u.name}</span><span className="muted">{u.role}</span></label>)}

@@ -8,9 +8,9 @@ import { Btn, Empty, ErrorLine, useAction } from './ui';
 
 export default function Licenses() {
   const { busy, error, run } = useAction();
-  return <div className="scroll"><div className="pad" style={{ textAlign: 'center' }}>
+  return <div className="scroll" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: 24 }}>
     <Empty title="Лицензии компаний" text="Выпуск и отзыв лицензий, реестр выданных, открытые ключи и резервная копия хранилища. Окно откроется отдельно; пароль хранилища второй раз не спрашивается." />
-    <Btn tone="primary" disabled={busy} onClick={() => void run(() => call('openLicenses', { tab: 'licenses' }))}>Открыть лицензии</Btn>
+    <div><Btn tone="primary" disabled={busy} onClick={() => void run(() => call('openLicenses', { tab: 'licenses' }))}>Открыть лицензии</Btn></div>
     <ErrorLine text={error} />
-  </div></div>;
+  </div>;
 }

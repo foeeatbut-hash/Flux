@@ -121,7 +121,14 @@
         "studio/renderer/work/useKey.tsx",
         "studio/shared/workspace.ts",
         "studio/shared/archive.ts",
-        "studio/shared/conflict.ts"
+        "studio/shared/conflict.ts",
+        "studio/owner/console/Programs.tsx",
+        "studio/owner/console/Licenses.tsx",
+        "studio/owner/console/Releases.tsx",
+        "studio/owner/console/Trial.tsx",
+        "studio/owner/console/Updates.tsx",
+        "studio/owner/console/main.tsx",
+        "studio/owner/src/main.cjs"
       ]
     }
   ],
@@ -399,6 +406,27 @@
         }
       ],
       "timeoutMs": 300000
+    },
+    {
+      "id": "studio-journey",
+      "path": "scripts/test-studio-journey.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files",
+        "loopback-http"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 600000
+    },
+    {
+      "id": "studio-words",
+      "path": "scripts/test-studio-words.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 300000
     }
   ],
   "actions": [
@@ -603,25 +631,33 @@
     {
       "id": "studio.owner-section",
       "program": "studio",
-      "label": "Раздел владельца в Studio — Владелец",
+      "label": "Studio — Владелец: три пункта",
       "sources": [
         "studio/entry-owner.ts",
         "studio/shell/main.ts",
-        "studio/build.cjs"
+        "studio/build.cjs",
+        "studio/owner/console/Programs.tsx",
+        "studio/owner/console/Licenses.tsx",
+        "studio/owner/console/main.tsx",
+        "studio/owner/src/main.cjs",
+        "studio/owner/src/console.cjs"
       ],
       "triggers": [
-        "меню «Лицензии и обновления Flux»"
+        "меню «Программы на проверку»",
+        "меню «Flux: обновления»",
+        "меню «Лицензии»"
       ],
       "risk": "critical",
       "expected": [
-        "Открывается окно прежнего Flux Owner; хранилище ключей прежнее по пути и формату, перевыпуск лицензий не нужен"
+        "Три пункта: «Программы на проверку» (запросы на право публиковать, запросы на публикацию с выпуском одним окном, выпущенные, кому доступны), «Flux: обновления», «Лицензии»; пароль хранилища спрашивается один раз за сеанс; пробный запуск программ-страниц",
+        "Хранилище ключей прежнее по пути и формату, перевыпуск лицензий не нужен"
       ],
       "checks": [
         {
           "suite": "studio-owner-section",
           "layer": "unit",
           "claims": [
-            "Готовый пакет владельца открывает хранилище прежнего Flux Owner теми же открытыми ключами, создаёт новое тем же форматом; у разработчика раздела и канала нет"
+            "Окно владельца открывается из пункта «Лицензии» окна разделов; хранилище не запирается, пока открыто хоть одно окно; готовый пакет открывает хранилище прежнего Flux Owner теми же открытыми ключами; у разработчика раздела нет"
           ]
         },
         {
@@ -629,6 +665,20 @@
           "layer": "browser-live",
           "claims": [
             "Раздел в меню только в сборке владельца"
+          ]
+        },
+        {
+          "suite": "studio-owner-console",
+          "layer": "api-db",
+          "claims": [
+            "Действия владельца на настоящих маршрутах: выпуск, возврат, отклонение, сертификаты, возврат к прежней версии, обновления; пробный запуск страницы берёт только ui/ из пакета запроса"
+          ]
+        },
+        {
+          "suite": "studio-owner-console-ui",
+          "layer": "browser-live",
+          "claims": [
+            "Три пункта и четыре подраздела, выпуск для всех, кому доступны, запросы на право, «Опубликовать новую версию Flux», «Лицензии»; обе темы, ширина 1180 и 1024; в подписях нет слов «канал», «договор», «привязки», «манифест», «бандл»"
           ]
         }
       ],
@@ -997,6 +1047,69 @@
           "layer": "browser-live",
           "claims": [
             "Таблицы обращений и счётчиков, отметка в обеих темах"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "studio.journey",
+      "program": "studio",
+      "label": "Путь: новая программа → проверить → запросить право → выпуск",
+      "sources": [
+        "studio/shell/developer.ts",
+        "studio/owner/src/console.cjs",
+        "server/routes/modulePublishing.ts",
+        "server/routes/studioDeveloper.ts",
+        "scripts/test-studio-journey.ts"
+      ],
+      "triggers": [
+        "разработчик создаёт программу, просит право публиковать и публикует; владелец выдаёт право и выпускает"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Весь путь проходит на настоящих маршрутах сервера: право выдаёт только владелец, без него публикация закрыта, выпуск виден разработчику"
+      ],
+      "checks": [
+        {
+          "suite": "studio-journey",
+          "layer": "api-db",
+          "claims": [
+            "Новая программа, проверка, запрос права, выдача владельцем, публикация, выпуск владельцем и статус «выпущено» у разработчика — без Electron"
+          ]
+        },
+        {
+          "suite": "studio-electron-start",
+          "layer": "browser-live",
+          "claims": [
+            "Настоящий запуск обеих Studio под Electron — в CI на Windows"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "studio.words",
+      "program": "studio",
+      "label": "Слова интерфейса Studio",
+      "sources": [
+        "studio/renderer/Workspace.tsx",
+        "studio/owner/console/main.tsx",
+        "scripts/test-studio-words.ts"
+      ],
+      "triggers": [
+        "любой текст интерфейса Studio"
+      ],
+      "risk": "normal",
+      "expected": [
+        "В интерфейсе обеих Studio нет слов «канал», «договор», «привязки», «манифест», «бандл»"
+      ],
+      "checks": [
+        {
+          "suite": "studio-words",
+          "layer": "unit",
+          "claims": [
+            "Все строки и текст разметки Studio просмотрены разбором TypeScript; запрещённого слова нет, проверка находит каждое слово на синтетическом примере"
           ]
         }
       ],
