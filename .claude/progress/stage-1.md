@@ -15,3 +15,6 @@
 - [ ] 5. Нестабильные проверки CI: office-native, полный Flux на Windows (FLUX_LOAD_*), test-modules-restart-ui, молча пропускающие себя наборы
 
 ## Ход
+- 12.11: находок с Windows нет → начат пункт 2. Исполнители (worktree, пушат wip в эту ветку):
+  `ts-exports` (2а, файл хода `.claude/progress/ts-exports.md`), `ci-flaky` (пункт 5, `.claude/progress/ci-flaky.md`).
+  Возобновление: новый flux-executor «продолжи по файлу хода». 2б (политика администратора) — после приёмки 2а: общий файл `electron/moduleProgramCalls.ts`.
