@@ -1,6 +1,7 @@
 import Ajv from 'ajv';
 import { resources, themeKeys } from './contract';
-import { parseConnections, HTTP_METHODS, CONNECT_ERROR_CODES } from './connections/model';
+import { HTTP_METHODS, CONNECT_ERROR_CODES } from './connections/model';
+import { permissionsValid } from './permissions/registry';
 import { COMPUTE_ERROR_CODES, LANGUAGES, PLATFORMS, SOURCE_LANGUAGES, LOGIC_FILES } from './engine/types';
 
 import { text, id, nullableId, array, object, dataSchemas } from './dataSchemas';
@@ -96,13 +97,15 @@ const storeBlock = object({
 }, ['category', 'summary']);
 export const manifestSchema = object({
   id: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,63}$' }, name: text, author: text,
-  version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' }, contractVersion: { enum: [1, 2] },
+  version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' }, contractVersion: { enum: [1, 2, 3] },
   entries: { type: 'array', uniqueItems: true, items: { enum: ['start', 'equipment', 'tag'] } },
   reads: { type: 'array', uniqueItems: true, items: { enum: resources } }, logic: { enum: Object.values(LOGIC_FILES) },
   language: { enum: [...LANGUAGES] }, sourceLanguage: { enum: [...SOURCE_LANGUAGES] }, platform: { enum: [...PLATFORMS] },
   store: storeBlock,
   // Форма каждого подключения и запрет опасных объектов проверяет parseConnections (modules/connections/model.ts): схема тут только отсекает не массив
   connections: { type: 'array', maxItems: 8, items: { type: 'object' } },
+  // Форму каждого разрешения проверяет реестр (modules/permissions/registry.ts)
+  permissions: { type: 'array', maxItems: 16, items: { type: 'object' } },
   ui: { const: 'page' },
   pages: { type: 'array', maxItems: 20, uniqueItems: true, items: { type: 'string', pattern: '^(?:[A-Za-z0-9_][A-Za-z0-9_-]{0,63}/){0,4}[A-Za-z0-9_][A-Za-z0-9_.-]{0,99}\\.html$' } },
 }, ['id', 'name', 'author', 'version', 'contractVersion', 'entries', 'reads', 'logic']);
@@ -110,7 +113,9 @@ export const manifestSchema = object({
 const languageIs = (language: string) => ({ required: ['language'], properties: { language: { const: language } } });
 (manifestSchema as any).allOf = [
   // Страница — договор v2; v1 её не знает, и старый Flux такой выпуск не запустит
-  { if: { required: ['ui'] }, then: { properties: { contractVersion: { const: 2 } } } },
+  { if: { required: ['ui'] }, then: { properties: { contractVersion: { enum: [2, 3] } } } },
+  // Раздел permissions — договор v3: схема старого Flux его не знает и отвергла бы выпуск, поэтому версия обязана сказать об этом честно
+  { if: { required: ['permissions'] }, then: { properties: { contractVersion: { const: 3 } } } },
   { if: { required: ['pages'] }, then: { required: ['ui'] } },
   { if: languageIs('python'), then: { properties: { logic: { const: LOGIC_FILES.python } }, not: { required: ['sourceLanguage'] } } },
   { if: languageIs('wasm'), then: { properties: { logic: { const: LOGIC_FILES.wasm } }, required: ['sourceLanguage'] } },
@@ -118,6 +123,5 @@ const languageIs = (language: string) => ({ required: ['language'], properties: 
     then: { properties: { logic: { const: LOGIC_FILES.typescript } }, not: { required: ['sourceLanguage'] } } },
 ];
 const validShape = ajv.compile(manifestSchema);
-/** Схема плюс разбор подключений: объявление с чужой схемой, путём в адресе или запрещённым COM-объектом манифестом не считается */
-export const validManifest = (value: unknown): boolean =>
-  !!validShape(value) && parseConnections((value as { connections?: unknown }).connections) !== null;
+/** Схема плюс разбор объявлений по реестру разрешений: подключение с чужой схемой, путём в адресе или запрещённым COM-объектом, разрешение без человеческого текста манифестом не считается */
+export const validManifest = (value: unknown): boolean => !!validShape(value) && permissionsValid(value);

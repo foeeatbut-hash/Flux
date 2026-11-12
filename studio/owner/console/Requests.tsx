@@ -130,7 +130,10 @@ function RequestView({ summary, onChanged }: { summary: PublishRequest; onChange
       {diff && Object.keys(diff.permissions.added).length === 0 && Object.keys(diff.permissions.removed).length === 0 && <div>Разрешения не изменились.</div>}
       {diff && Object.entries(diff.permissions.added).map(([k, v]) => k === 'connections'
         ? v.map(line => <div key={`+c${line}`} data-testid="diff-connection"><Badge tone="warn">новое</Badge> подключение к {line}</div>)
-        : <div key={`+${k}`}><Badge tone="warn">новое</Badge> {k}: {v.join(', ')}</div>)}
+        : k === 'permissions'
+          // Любой адрес в интернете и локальная сеть — заметные разрешения: владелец должен не пропустить их среди прочих строк
+          ? v.map(line => <div key={`+p${line}`} data-testid="diff-permission"><Badge tone="warn">новое</Badge> <b>{line}</b></div>)
+          : <div key={`+${k}`}><Badge tone="warn">новое</Badge> {k}: {v.join(', ')}</div>)}
       {diff && Object.entries(diff.permissions.removed).map(([k, v]) => <div key={`-${k}`}><Badge>убрано</Badge> {k}: {v.join(', ')}</div>)}
       {humanConnections.length > 0 && <div data-testid="owner-connection-texts"><h3>Подключения — так их увидит человек</h3>
         {humanConnections.map(c => <div key={c.id} className="box">

@@ -12,6 +12,8 @@
  */
 import { bundleText, type BundleFiles } from './bundle';
 import { connectionsOf, grantKey } from '../connections/model';
+import { PERMISSION_KINDS } from '../permissions/registry';
+import type { ModuleManifest } from '../contract';
 
 export type DiffLine = { op: ' ' | '+' | '-'; text: string };
 export interface FileDiff { path: string; status: 'added' | 'removed' | 'changed' | 'same'; binary: boolean; lines: DiffLine[] }
@@ -69,11 +71,13 @@ export function diffFiles(before: BundleFiles | null, after: BundleFiles): FileD
 }
 
 /** Поля манифеста, которые расширяют доступ модуля. Подключения (этап 3) добавятся сюда же */
-const PERMISSION_FIELDS = ['reads', 'entries', 'connections'] as const;
+const PERMISSION_FIELDS = ['reads', 'entries', 'connections', 'permissions'] as const;
 export interface PermissionDiff { isNew: boolean; added: Record<string, string[]>; removed: Record<string, string[]>; widened: boolean }
 
 const listOf = (manifest: Record<string, unknown> | null, field: string): string[] => {
   // Подключения сравниваются по адресу и виду доступа: новый адрес или «читать → изменять» — новое подключение, смена текста — нет
+  // Интернет и локальная сеть — по названию вида и тексту «что делает»: новое заметное разрешение или смена его смысла — «новое»
+  if (field === 'permissions') return PERMISSION_KINDS.filter((k) => k.field === 'permissions').flatMap((k) => k.items((manifest || {}) as unknown as ModuleManifest)).map((i) => i.label);
   if (field === 'connections') return connectionsOf(manifest as { connections?: unknown } | null).map(grantKey);
   const value = manifest?.[field];
   return Array.isArray(value) ? value.map((v) => (typeof v === 'string' ? v : JSON.stringify(v))) : [];

@@ -7,9 +7,9 @@
  * владелец проверяет именно его, поэтому разработчик не может «написать
  * про себя» одно, а запросить другое.
  */
-import type { ModuleManifest, Resource } from '../contract';
+import type { ModuleManifest } from '../contract';
 import { CONTRACT_VERSION } from '../contract';
-import { ACCESS_NAMES, connectionsOf, describeConnection } from '../connections/model';
+import type { PermissionLine } from '../permissions/registry';
 import { compareVersions } from '../../shared/versionCompare';
 
 export const STORE_CATEGORIES = [
@@ -62,48 +62,10 @@ export function storeInfoOf(manifest: ModuleManifest): StoreInfo {
 }
 
 // ── Разрешения ──────────────────────────────────────────────────────────────
+// Виды разрешений, строки для человека, сравнение версий и отпечаток — в реестре
+// (modules/permissions/registry.ts); здесь они доступны окну Store под прежними именами.
 
-export const RESOURCE_NAMES: Record<Resource, string> = {
-  project: 'данные текущего проекта', equipment: 'оборудование и его параметры', tag: 'теги',
-  specification: 'ведомость (спецификацию)', catalog: 'справочник каталога',
-};
-export const ENTRY_NAMES: Record<string, string> = {
-  start: 'из «Пуска» и панели задач', equipment: 'из карточки оборудования', tag: 'из карточки тега',
-};
-
-export interface PermissionLine { kind: 'read' | 'open' | 'connect' | 'write' | 'run'; text: string }
-
-/**
- * Что программа получает, словами для окна установки. Запись и запуск
- * программ договор v1 не даёт — строки об этом остаются, чтобы человек
- * видел отсутствие права так же ясно, как наличие.
- */
-export function permissionLines(manifest: ModuleManifest): PermissionLine[] {
-  const lines: PermissionLine[] = (manifest.reads || []).map((r) => ({ kind: 'read', text: `Читает во Flux: ${RESOURCE_NAMES[r] || r}` }));
-  if (!lines.length) lines.push({ kind: 'read', text: 'Не читает данные Flux' });
-  lines.push({ kind: 'open', text: `Открывается ${(manifest.entries || []).map((e) => ENTRY_NAMES[e] || e).join(', ') || 'нигде'}` });
-  for (const c of connectionsOf(manifest)) {
-    // Человеку — имя программы, вид доступа и что будет делать; адрес мелко, в скобках: он же отличает «новый адрес» при обновлении
-    lines.push({ kind: 'connect', text: `Подключается к «${c.app}»: ${ACCESS_NAMES[c.access]}. ${c.does} (${describeConnection(c)})` });
-  }
-  lines.push({ kind: 'write', text: 'Ничего не записывает во Flux' });
-  lines.push({ kind: 'run', text: 'Не запускает программы на компьютере' });
-  return lines;
-}
-
-/** Строки «опасных» разрешений для сравнения: пустые «не делает» не в счёт */
-const grants = (m: ModuleManifest | null) => new Set(m ? permissionLines(m).filter((l) => ['read', 'connect'].includes(l.kind) && !/^Не /.test(l.text)).map((l) => l.text) : []);
-
-/** Что новая версия просит сверх прошлой — человек подтверждает это при обновлении */
-export function addedPermissions(before: ModuleManifest | null, after: ModuleManifest): string[] {
-  const had = grants(before);
-  return [...grants(after)].filter((t) => !had.has(t));
-}
-
-/** Короткий отпечаток разрешений: окно сверяет то, что показало, с тем, что проверил главный процесс */
-export function permissionsDigest(manifest: ModuleManifest): string {
-  return permissionLines(manifest).map((l) => `${l.kind}:${l.text}`).sort().join('|');
-}
+export { RESOURCE_NAMES, ENTRY_NAMES, permissionLines, addedPermissions, permissionsDigest } from '../permissions/registry';
 
 // ── Требования ──────────────────────────────────────────────────────────────
 

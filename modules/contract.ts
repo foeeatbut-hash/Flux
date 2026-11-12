@@ -1,7 +1,11 @@
 import type { ConnectCall, ConnectErrorCode, ConnectionDecl, HttpMethod } from './connections/model';
 import type { ModuleLanguage, ModulePlatform, SourceLanguage, ComputeErrorCode } from './engine/types';
-/** v2 добавляет страницу (`ui: 'page'`); сообщения моста остаются v1 — только новые виды, смысл прежних не меняется */
-export const CONTRACT_VERSION = 2 as const;
+/**
+ * v2 добавляет страницу (`ui: 'page'`), v3 — раздел `permissions` манифеста (интернет и локальная сеть). Сообщения моста
+ * остаются v1: добавляются только новые виды, смысл прежних не меняется. Выпуск с `permissions` — v3, и старый Flux
+ * (его схема манифеста строгая) показывает «обновите Flux», а не запускает программу без права, о котором не знает.
+ */
+export const CONTRACT_VERSION = 3 as const;
 export const resources = ['project', 'equipment', 'tag', 'specification', 'catalog'] as const;
 export type Resource = typeof resources[number];
 export interface LaunchContext {
@@ -9,6 +13,8 @@ export interface LaunchContext {
   entry: 'start' | 'equipment' | 'tag';
   entityId: string | null;
 }
+/** Разрешение сети из раздела `permissions` манифеста (modules/permissions/registry.ts): `does` — что программа делает, текстом для человека */
+export interface ModulePermission { kind: 'internet' | 'lan'; does: string }
 /** Витрина Flux Store (modules/store/model.ts): необязательна, без неё программа попадает в «Прочее» */
 export interface ModuleStoreBlock {
   category: 'calc' | 'link' | 'docs' | 'reports' | 'other';
@@ -42,6 +48,8 @@ export interface ModuleManifest {
   store?: ModuleStoreBlock;
   /** Подключения к внешним программам (этап 3б): разрешение — само объявление в подписанном выпуске */
   connections?: ConnectionDecl[];
+  /** Разрешения сети (договор v3): «любой адрес в интернете», «локальная сеть»; больше видов — записями реестра разрешений */
+  permissions?: ModulePermission[];
   /** Вид интерфейса: без поля — форма (form.json); `page` — своя страница ui/index.html (договор v2) */
   ui?: 'page';
   /** Дополнительные страницы программы-приложения (пути внутри ui/, например `settings.html`); открываются как окна Flux через flux.windows.open. Главная — ui/index.html */
