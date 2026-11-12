@@ -3,6 +3,7 @@ export const SHELL_ACTIONS = ['state', 'connect', 'connectRemembered', 'forgetBa
 export const DEVELOPER_ACTIONS = [
   'keyInfo', 'keyCreate', 'keyRequest', 'keyRequestSend', 'keyCertificate',
   'templates', 'drafts', 'draftCreate', 'draftImport', 'draftTree', 'draftFile', 'draftSave', 'draftRemoveFile', 'draftRemove', 'draftState',
+  'projectOpenFolder', 'projectWatch', 'projectUnwatch', 'fileMkdir', 'fileRename', 'fileSearch', 'fileImport', 'keyEnsure',
   'testBase', 'testBaseReset',
   'runStart', 'runRead', 'runCompute', 'runShot',
   'check', 'publish', 'requests', 'errors', 'errorFixed',

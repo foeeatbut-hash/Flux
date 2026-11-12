@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('studio', Object.freeze({
     : Promise.resolve({ ok: false, error: 'Недоступное действие.' }),
   onState: (fn: unknown) => subscribe('studio:state', fn),
   onProgress: (fn: unknown) => subscribe('studio:progress', fn),
+  onProject: (fn: unknown) => subscribe('studio:project', fn),
 }));
 
 /** Кнопки окна — тот же мост, что у Flux (window.electron.windowControls), чтобы одна и та же плавающая панелька работала в обеих программах */

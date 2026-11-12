@@ -151,6 +151,13 @@ export function startShell(sections: ShellSection[] = []): void {
       assets: { templatesRoot: path.join(__dirname, 'templates'), runtimeDir: path.join(__dirname, 'runtime') },
       engine: createControlsEngine({ workerFile: unpacked(path.join(__dirname, 'controls-worker.cjs')) }),
       capture: async rect => (await win!.webContents.capturePage(rect)).toPNG(),
+      home: path.join(app.getPath('documents'), 'Flux Studio'),
+      emit: (channel, data) => { if (win && !win.isDestroyed()) win.webContents.send(channel, data); },
+      pickFolder: async title => {
+        if (!win) return null;
+        const picked = await dialog.showOpenDialog(win, { title, properties: ['openDirectory', 'createDirectory'] });
+        return picked.canceled || !picked.filePaths[0] ? null : picked.filePaths[0];
+      },
     });
     win = new BrowserWindow({
       width: 1280, height: 800, minWidth: 960, minHeight: 620, title: `${PRODUCT_NAME} ${__STUDIO_VERSION__}`,
@@ -206,7 +213,7 @@ export function startShell(sections: ShellSection[] = []): void {
         } catch { /* страница ещё загружается */ }
       }, 300);
     }
-    win.on('closed', () => { win = null; });
+    win.on('closed', () => { developer?.dispose(); win = null; });
   });
   app.on('window-all-closed', () => { void disconnect().finally(() => app.quit()); });
 }

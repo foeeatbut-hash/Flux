@@ -16,7 +16,8 @@ import { runChecks, type CheckReport } from '../shared/checks';
 import type { ControlsEngine } from '../shared/controlsEngine';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Drafts } from '../shared/drafts';
+import { Drafts, TEXT_FILE } from '../shared/drafts';
+import { FolderWatcher, type FolderChange } from '../shared/workspace';
 import { DeveloperKeyring, KeyringFailure, type SafeStorageLike } from '../shared/keyring';
 import { buildRequest, PublishRefused } from '../shared/publish';
 import { assembleRuntime, loadRuntimeTemplates, type RuntimeTemplates } from '../shared/runtime';
@@ -39,6 +40,14 @@ export interface DeveloperDeps {
   engine: ControlsEngine;
   /** Снимок области окна в PNG (Electron: capturePage); в проверках подставляется */
   capture?: (rect: { x: number; y: number; width: number; height: number }) => Promise<Uint8Array>;
+  /** Системный диалог выбора папки (главный процесс): окно пути не называет, папку выбирает человек */
+  pickFolder?: (title: string) => Promise<string | null>;
+  /** Событие окну (`studio:project`): изменения в папке проекта снаружи */
+  emit?: (channel: string, data: unknown) => void;
+  /** Папка новых проектов по умолчанию (по умолчанию — «projects» в данных Studio) */
+  home?: string;
+  /** Период запасного опроса папки, мс */
+  pollMs?: number;
 }
 
 const text = (v: unknown, max: number): string => {
@@ -51,7 +60,6 @@ const moduleId = (v: unknown): string => {
   return id;
 };
 /** Текст в окне редактируется только у небольших текстовых файлов; остальное (wasm, снимки) показывается размером */
-const TEXT_FILE = /\.(json|ts|js|mjs|html|css|svg|py|c|cpp|h|rs|go|cs|csproj|toml|mod|sh|md|txt)$|^(Cargo\.lock|go\.sum)$/i;
 const EDIT_LIMIT = 512 * 1024;
 
 /** Отметка «запрос сертификата отправлен» для этого ключа: после выдачи или смены ключа перестаёт совпадать */
@@ -74,12 +82,15 @@ export class DeveloperService {
   readonly drafts: Drafts;
   readonly testBase: TestBase;
   private templates: RuntimeTemplates | null = null;
+  private watching: { id: string; watcher: FolderWatcher } | null = null;
   private run: Run | null = null;
   private readonly requested: RequestedMarker;
 
   constructor(private readonly deps: DeveloperDeps) {
     this.keyring = new DeveloperKeyring(deps.dir, deps.storage);
-    this.drafts = new Drafts(deps.dir);
+    this.drafts = new Drafts(deps.dir, deps.home);
+    // Прежние скрытые черновики становятся папками один раз; ошибка переноса не мешает запуску
+    try { this.drafts.migrate(); } catch { /* останутся открываемыми по-старому */ }
     this.testBase = new TestBase(deps.dir);
     this.requested = new RequestedMarker(deps.dir);
   }
@@ -122,6 +133,12 @@ export class DeveloperService {
     switch (action) {
       // ── Ключ разработчика ────────────────────────────────────────────────────
       case 'keyInfo': return this.keyring.info();
+      // Ключ создаётся сам при первом входе: человек его не видит. Хранилище недоступно или файл повреждён — состояние возвращается как есть, окно скажет понятно
+      case 'keyEnsure': {
+        const info = this.keyring.info();
+        if (info.exists || !info.available || info.damaged) return info;
+        return this.guard(() => this.keyring.create(false));
+      }
       case 'keyCreate': return this.guard(() => this.keyring.create(args.replace === true));
       case 'keyRequest': {
         const user = this.session().user;
@@ -154,17 +171,53 @@ export class DeveloperService {
         if (this.drafts.exists(id)) throw new StudioFailure(`Проект «${id}» уже есть на этом компьютере.`);
         const s = this.session();
         const files = createFromTemplate(this.deps.assets.templatesRoot, template, { id, name, author: s.user.name || s.user.id }, args.kind === 'page' ? 'page' : 'form');
-        this.drafts.create(id, files, { template, ...(TEMPLATES.find(t => t.id === template)?.changelog ? { changelog: TEMPLATES.find(t => t.id === template)!.changelog } : {}) });
+        // «Выбрать папку» — выбирает человек в системном диалоге; без выбора проект кладётся в папку Studio по умолчанию
+        let folder: string | undefined;
+        if (args.chooseFolder === true) {
+          const picked = await this.deps.pickFolder?.('Папка для новой программы (пустая или новая)');
+          if (!picked) return { id: '', canceled: true };
+          folder = picked;
+        }
+        this.drafts.create(id, files, { template, ...(TEMPLATES.find(t => t.id === template)?.changelog ? { changelog: TEMPLATES.find(t => t.id === template)!.changelog } : {}) }, folder);
         return { id };
+      }
+      // «Открыть папку как проект»: manifest.json в папке задаёт программу; список недавних — сами проекты в данных Studio
+      case 'projectOpenFolder': {
+        const picked = await this.deps.pickFolder?.('Открыть папку как проект программы');
+        if (!picked) return { id: '', canceled: true };
+        return { ...this.drafts.openFolder(picked) };
+      }
+      case 'projectWatch': {
+        const id = moduleId(args.id);
+        this.unwatch();
+        const watcher = new FolderWatcher(this.drafts.space(id), changes => this.deps.emit?.('studio:project', { id, changes }), this.deps.pollMs);
+        watcher.start();
+        this.watching = { id, watcher };
+        return { watching: true };
+      }
+      case 'projectUnwatch': { this.unwatch(); return { watching: false }; }
+      case 'fileMkdir': { this.drafts.makeDir(moduleId(args.id), text(args.path, 240)); return { created: true }; }
+      case 'fileRename': { this.drafts.rename(moduleId(args.id), text(args.from, 240), text(args.to, 240)); return { renamed: true }; }
+      case 'fileSearch': return this.drafts.search(moduleId(args.id), text(args.query, 200));
+      case 'fileImport': {
+        // Загрузка файлов в проект: содержимое приходит из окна (выбор файла в окне), путь проверяют те же правила
+        const id = moduleId(args.id), dir = typeof args.dir === 'string' ? text(args.dir, 200) : '';
+        const list = Array.isArray(args.files) ? args.files.slice(0, 200) : [];
+        for (const f of list) {
+          const name = `${dir ? `${dir}/` : ''}${text(f?.name, 100)}`;
+          if (typeof f?.data !== 'string' || f.data.length > 44 * 1024 * 1024) throw new StudioFailure('Некорректный файл.');
+          this.drafts.writeFile(id, name, new Uint8Array(Buffer.from(f.data, 'base64')));
+        }
+        return { imported: list.length };
       }
       case 'draftImport': return this.importRequest(text(args.requestId, 64));
       case 'draftTree': {
-        const id = moduleId(args.id), files = this.drafts.files(id);
-        return { state: this.drafts.state(id), files: Object.entries(files).map(([path, bytes]) => ({ path, size: bytes.length, text: TEXT_FILE.test(path) && bytes.length <= EDIT_LIMIT })).sort((a, b) => a.path.localeCompare(b.path)) };
+        const id = moduleId(args.id), entries = this.drafts.tree(id);
+        // files — то, что попадёт в пакет (его читают редакторы); entries — всё дерево папки, включая каталоги и исключённое
+        return { state: this.drafts.state(id), folder: this.drafts.folder(id), entries, files: entries.filter(e => !e.dir && !e.ignored).map(e => ({ path: e.path, size: e.size, text: !!e.text })) };
       }
       case 'draftFile': {
-        const id = moduleId(args.id), path = text(args.path, 240), bytes = this.drafts.files(id)[path];
-        if (!bytes) throw new StudioFailure('Файла нет в проекте.');
+        const id = moduleId(args.id), path = text(args.path, 240), bytes = this.drafts.readAny(id, path);
         if (!TEXT_FILE.test(path) || bytes.length > EDIT_LIMIT) return { text: null, size: bytes.length };
         return { text: Buffer.from(bytes).toString('utf8'), size: bytes.length };
       }
@@ -201,6 +254,10 @@ export class DeveloperService {
       }
     }
   }
+
+  private unwatch() { this.watching?.watcher.stop(); this.watching = null; }
+  /** Закрытие окна: слежение останавливается */
+  dispose() { this.unwatch(); }
 
   private guard<T>(fn: () => T): T {
     try { return fn(); } catch (error) { if (error instanceof KeyringFailure) throw new StudioFailure(error.message); throw error; }
