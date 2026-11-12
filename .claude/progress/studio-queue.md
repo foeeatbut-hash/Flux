@@ -12,15 +12,16 @@
 
 - [x] 0. Ветка, файл хода, черновой PR.
 - [x] 1. Разрешения программ: разведка и план (что есть, что добавить).
-- [ ] 2. Разрешения программ: реализация и проверки.
+- [ ] 2. Разрешения программ: 2а реестр+internet/lan [x]; 2б programs.call [ ].
 - [ ] 3. Окна программ: диалоги через Flux, заголовок и размер в `flux.windows.open`, вопрос о несохранённом.
 - [ ] 4. Окна Flux вместе с окнами Windows — простой вариант.
 - [ ] 5. План (`studio-next.md`) и страницы программ обновлены, CI зелёный, PR из черновика.
 
 ## Где остановился
 
-Шаг 1 (разведка) сделан: согласие при установке/обновлении уже есть в Store
-(`modules/store/model.ts`: permissionLines, addedPermissions, permissionsDigest).
-Шаг 2 разбит: 2а — реестр + `internet`/`lan` (исполнитель flux-executor, Sonnet,
-усилие высокое, свой файл хода `.claude/progress/permissions.md`); 2б —
-`flux.programs.call` и `exports` тому же исполнителю после приёмки 2а.
+2а принят (021086f9, 0575b096, 36772670): реестр `modules/permissions/registry.ts`,
+`permissions` в манифесте (договор v3), `flux.net.fetch(url)`, Studio, документы.
+Не проверено: настоящий Electron и Windows CI. Падают и на main: `test-modules-restart-ui`,
+`test-studio-electron-start` (нет dist-studio).
+Сейчас: 2б — `flux.programs.call` и `exports` (новый исполнитель, файл хода
+`.claude/progress/programs-call.md`). После него шаг 3 (окна программ).
