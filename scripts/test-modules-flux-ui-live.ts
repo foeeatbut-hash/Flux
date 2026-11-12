@@ -95,6 +95,20 @@ async function main() {
       entryPoints: ['scripts/fixtures/modules-flux-main.ts'], bundle: true, platform: 'node',
       format: 'cjs', external: ['electron'], outfile: path.join(temp, 'main.cjs'),
     });
+    // Прогрев адреса Vite до запуска Electron: первый запрос на Windows CI отвечал долго или отказом
+    const warmUrl = `http://127.0.0.1:${uiPort}/`;
+    let warmed = false;
+    for (let attempt = 1; attempt <= 10 && !warmed; attempt++) {
+      try {
+        const response = await fetch(warmUrl, { signal: AbortSignal.timeout(15000) });
+        await response.text();
+        warmed = response.ok;
+        process.stderr.write(`FLUX_LOAD_WARMUP ${JSON.stringify({ attempt, status: response.status })}\n`);
+      } catch (error) {
+        process.stderr.write(`FLUX_LOAD_WARMUP ${JSON.stringify({ attempt, error: String((error as Error)?.message || error) })}\n`);
+        await pause(500);
+      }
+    }
     electron = await _electron.launch({
       args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), path.join(temp, 'main.cjs')],
       env: { ...process.env, FLUX_MODULE_FLUX_URL: `http://127.0.0.1:${uiPort}`, FLUX_MODULE_FLUX_DATA: temp, FLUX_TEST_ROOT: sample.rootHex }, timeout: 60000,
