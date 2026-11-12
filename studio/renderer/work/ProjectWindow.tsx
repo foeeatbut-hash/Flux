@@ -70,7 +70,7 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
       if (list.length) setPanel('problems');
       else setNote('Проверка пройдена: проблем нет.');
       return report;
-    } catch (e) { setProblems([{ source: 'Проверка', title: (e as Error).message }]); setPanel('problems'); setPanelOpen(true); return null; }
+    } catch (e) { setProblems([{ source: 'Проверка', title: (e as Error).message, detail: '' }]); setPanel('problems'); setPanelOpen(true); return null; }
     finally { setBusy(''); }
   };
   // «Опубликовать» сама запускает проверку: есть проблемы — список, нет — окно «что нового»

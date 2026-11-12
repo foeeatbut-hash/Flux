@@ -54,7 +54,7 @@ export default function BottomPanel({ id, tab, onTab, open, onToggle, runSignal,
       {open && (
         <div className="studio-bottom-body">
           {/* Запуск не размонтируется при смене вкладки: программа остаётся запущенной */}
-          <div hidden={tab !== 'run'} className="studio-run"><Run id={id} signal={runSignal} onFail={text => onProblems([{ source: 'Запуск', title: text }, ...own.filter(p => p.source !== 'Запуск'), ...owner])} /></div>
+          <div hidden={tab !== 'run'} className="studio-run"><Run id={id} signal={runSignal} onFail={text => onProblems([{ source: 'Запуск', title: text, detail: '' }, ...own.filter(p => p.source !== 'Запуск'), ...owner])} /></div>
           {tab === 'problems' && <ProblemList problems={own} onGo={onGo} empty="Проблем нет. Нажмите «Проверить», чтобы убедиться." />}
           {tab === 'publication' && (
             <div className="p-3">
