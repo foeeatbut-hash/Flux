@@ -438,6 +438,17 @@
       ],
       "prerequisites": [],
       "timeoutMs": 300000
+    },
+    {
+      "id": "studio-flux-address",
+      "path": "scripts/test-studio-flux-address.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 120000
     }
   ],
   "actions": [
@@ -1151,6 +1162,40 @@
           "layer": "api-db",
           "claims": [
             "Несколько файлов собираются в один и исполняются; ошибки синтаксиса, несуществующий файл и пакет называют файл, строку и столбец; зависшая сборка останавливается по времени; запуск, проверка и отправка останавливаются на ошибке сборки"
+          ]
+        }
+      ],
+      "manual": []
+    },
+    {
+      "id": "studio.flux-address",
+      "program": "studio",
+      "label": "Адрес базы у лежащего рядом Flux",
+      "sources": [
+        "studio/shared/fluxAddress.ts",
+        "studio/shell/main.ts",
+        "studio/renderer/auth/ConnectScreen.tsx"
+      ],
+      "triggers": [
+        "первый шаг входа: подключение к общей базе"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Studio находит общую базу в настройках Flux и подключается одной кнопкой; пароль в окно не уходит; ручной ввод остаётся запасным путём"
+      ],
+      "checks": [
+        {
+          "suite": "studio-flux-address",
+          "layer": "unit",
+          "claims": [
+            "Папка данных Flux находится на трёх системах; берётся только общая база, которую Studio умеет подключать; в описании и причинах отказа пароля нет; файл Flux не меняется"
+          ]
+        },
+        {
+          "suite": "studio-ui",
+          "layer": "browser-live",
+          "claims": [
+            "Экран подключения показывает базу Flux без пароля, подключает «как Flux» без ввода адреса, при отказе называет причину и оставляет ручной ввод"
           ]
         }
       ],

@@ -8,7 +8,10 @@
  */
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, protocol, safeStorage } from 'electron';
 import path from 'node:path';
-import { startDatabaseRuntime } from '../shared/database-runtime.cjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import { findFluxAddress } from '../shared/fluxAddress';
+import { parseDatabaseUri, startDatabaseRuntime } from '../shared/database-runtime.cjs';
 import { createControlsEngine } from '../shared/controlsEngine';
 import { createTsBuilder } from '../shared/tsBuildHost';
 import { hardenModuleContents, hardenModuleSession } from '../../modules/page/harden';
@@ -90,6 +93,11 @@ export function startShell(sections: ShellSection[] = []): void {
     return value;
   };
 
+  const lookupFlux = () => findFluxAddress({
+    env: process.env, platform: process.platform, home: os.homedir(),
+    read: file => { try { return fs.readFileSync(file, 'utf8'); } catch { return null; } },
+    accept: uri => parseDatabaseUri(uri).uri,
+  });
   const connectTo = (uri: string, remember: boolean) => busy(async signal => {
     // Не disconnect(): он прерывает текущую операцию, то есть само это подключение, и человек видел «Подключение к общей базе отменено»
     await release();
@@ -112,6 +120,13 @@ export function startShell(sections: ShellSection[] = []): void {
       return connectTo(uri, false);
     },
     forgetBase: async () => { remembered?.forget(); return snapshot(); },
+    // Адрес общей базы у лежащего рядом Flux: окну отдаётся только описание «сервер/база», пароль остаётся здесь
+    fluxBase: async () => { const found = lookupFlux(); return { found: found.found, display: found.display, reason: found.reason }; },
+    connectFlux: async args => {
+      const found = lookupFlux();
+      if (!found.found) throw new StudioFailure(found.reason || 'Настроек Flux не найдено.');
+      return connectTo(found.uri, args.remember === true);
+    },
     login: async args => busy(async signal => {
       if (!runtime) throw new StudioFailure('Сначала подключитесь к общей базе.');
       const signed = await signIn(runtime.origin, text(args.symbol, 200), text(args.password, 1024), signal);

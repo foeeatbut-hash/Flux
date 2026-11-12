@@ -24,7 +24,7 @@ const ok = (name: string, value: unknown) => { assert.ok(value, name); passed++;
 const shots = process.env.FLUX_STUDIO_SHOTS || path.join(os.tmpdir(), 'flux-studio-shots');
 
 /** Заглушка моста: ведёт себя как главный процесс, но без Electron */
-const bridge = (build: string, sections: { id: string; title: string }[], modules: unknown[], remembered = '') => `(() => {
+const bridge = (build: string, sections: { id: string; title: string }[], modules: unknown[], remembered = '', flux: unknown = null) => `(() => {
   const name = ${JSON.stringify(build === 'owner' ? 'Flux Studio — Владелец' : 'Flux Studio')};
   let state = { version: '9.9.9', build: ${JSON.stringify(build)}, name, connected: false, display: '', remembered: ${JSON.stringify(remembered)}, user: null, owner: false, warning: '', sections: ${JSON.stringify(sections)} };
   const listeners = new Set(); window.__calls = [];
@@ -41,6 +41,8 @@ const bridge = (build: string, sections: { id: string; title: string }[], module
         if (args && args.uri === 'broken') return { ok: false, error: 'Не найден Flux рядом со Studio: нужен файл Flux-9.9.9-x64.exe. Положите его в одну папку с этой программой и подключитесь снова или выберите файл вручную.' };
         state = { ...state, connected: true, display: 'MariaDB / MySQL · db.example:3306/Flux' }; return { ok: true, value: state };
       }
+      if (action === 'fluxBase') return { ok: true, value: ${JSON.stringify(flux)} };
+      if (action === 'connectFlux') { state = { ...state, connected: true, display: 'MariaDB / MySQL · db.example:3306/Flux' }; return { ok: true, value: state }; }
       if (action === 'login') {
         if (args.password !== 'good') return { ok: false, error: 'Flux Studio открывается с правом «Разработка подпрограмм». Попросите администратора выдать его.' };
         state = { ...state, user: { id: 'dev', name: 'Разработчик' } }; return { ok: true, value: state };
@@ -184,6 +186,25 @@ async function main() {
     await remembered.page.locator('#login-input').waitFor();
     ok('подключение по запомненной базе — сразу вход', true);
     await remembered.page.close();
+    // Адрес у лежащего рядом Flux: предложен одной кнопкой, пароля в окне нет; ручной ввод остаётся
+    const beside = await open(browser, path.join(temp, 'developer', 'app', 'renderer', 'index.html'), 'light', bridge('developer', [], [], '', { found: true, display: 'MariaDB / MySQL · flux-db:3306/Flux', reason: '' }));
+    await beside.page.getByTestId('flux-base').waitFor();
+    ok('база лежащего рядом Flux показана без пароля', (await beside.page.getByTestId('flux-base').innerText()) === 'MariaDB / MySQL · flux-db:3306/Flux');
+    await beside.page.waitForTimeout(1800); // заставка запуска уходит сама
+    await beside.page.screenshot({ path: path.join(shots, 'studio-developer-light-0-flux-beside.png') });
+    await beside.page.getByRole('button', { name: 'Ввести адрес вручную' }).click();
+    await beside.page.getByLabel('URI базы MariaDB/MySQL').waitFor();
+    ok('ручной ввод остаётся запасным путём', true);
+    await beside.page.close();
+    const connectBeside = await open(browser, path.join(temp, 'developer', 'app', 'renderer', 'index.html'), 'light', bridge('developer', [], [], '', { found: true, display: 'MariaDB / MySQL · flux-db:3306/Flux', reason: '' }));
+    await connectBeside.page.getByRole('button', { name: 'Подключиться как Flux' }).click();
+    await connectBeside.page.locator('#login-input').waitFor();
+    ok('подключение «как Flux» — сразу вход; адрес в окне не вводился', await connectBeside.page.evaluate(() => (window as any).__calls.some((c: unknown[]) => c[0] === 'connectFlux') && !(window as any).__calls.some((c: unknown[]) => c[0] === 'connect')));
+    await connectBeside.page.close();
+    const noFlux = await open(browser, path.join(temp, 'developer', 'app', 'renderer', 'index.html'), 'light', bridge('developer', [], [], '', { found: false, display: '', reason: 'Flux на этом компьютере работает с локальной базой, а Studio подключается к общей: введите адрес общей базы.' }));
+    await noFlux.page.getByTestId('flux-reason').waitFor();
+    ok('нет адреса у Flux: причина словами и форма ввода', (await noFlux.page.getByLabel('URI базы MariaDB/MySQL').count()) === 1);
+    await noFlux.page.close();
     // Пустой список
     const empty = await open(browser, path.join(temp, 'developer', 'app', 'renderer', 'index.html'), 'light', bridge('developer', [], []));
     await empty.page.getByLabel('URI базы MariaDB/MySQL').fill('x'); await empty.page.getByRole('button', { name: 'Подключиться' }).click();

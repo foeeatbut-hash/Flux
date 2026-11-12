@@ -77,6 +77,7 @@ jobs:
           node --import tsx scripts/test-studio-page.ts
           node --import tsx scripts/test-studio-translator.ts
           node --import tsx scripts/test-studio-tsbuild.ts
+          node --import tsx scripts/test-studio-flux-address.ts
           node --import tsx scripts/test-studio-words.ts
       - name: Две сборки и проверка бандла разработчика (с мутациями)
         run: node --import tsx scripts/test-studio-bundle.ts
