@@ -20,6 +20,7 @@ import { parseControls } from '../../modules/engine/controls';
 import { MODULE_BUNDLE_MAX, MODULE_VERSION } from '../../modules/trust/claims';
 import { compareVersions } from '../../shared/versionCompare';
 import { pageProblem, pageFiles, PAGE_ENTRY, PAGE_MIN_FLUX } from '../../modules/page/model';
+import { exportsItem, programsItem } from './programChecks';
 import type { ControlsEngine } from './controlsEngine';
 import type { ProjectFiles } from './templates';
 
@@ -69,7 +70,8 @@ const ADVERT = /мгновенн|сквозн|в реальном времени
  * Адреса из переменных не видны — их проверит запуск; закрыто всегда: петля, этот компьютер, метаданные облака.
  */
 function netItem(manifest: ModuleManifest, scripts: string[]): CheckItem {
-  const declared = new Set((manifest.permissions || []).map(p => p.kind));
+  // Обращения к программам (kind program) к сети не относятся — их проверяет programsItem
+  const declared = new Set((manifest.permissions || []).flatMap(p => p.kind === 'internet' || p.kind === 'lan' ? [p.kind] : []));
   const hasConnections = (manifest.connections || []).length > 0;
   const problems: string[] = [];
   let calls = 0;
@@ -145,10 +147,11 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
   const contract: string[] = [];
   try { manifest = JSON.parse(text(files, 'manifest.json') || ''); } catch { contract.push('manifest.json не читается как JSON'); }
   if (manifest && !validManifest(manifest)) {
-    // Разрешения сети — формат v3: старый Flux не знает раздел permissions и не примет такой выпуск за v1/v2
-    contract.push((manifest as ModuleManifest).permissions !== undefined && (manifest as ModuleManifest).contractVersion !== 3
-      ? 'раздел permissions (интернет, локальная сеть) — формат v3: укажите contractVersion 3'
-      : 'manifest.json не соответствует формату программы (id, версия, entries, reads, logic, language, для страницы — contractVersion 2 и ui, для permissions — contractVersion 3)');
+    // Разрешения и exports — формат v3: старый Flux не знает эти разделы и не примет такой выпуск за v1/v2
+    const asked = (manifest as ModuleManifest).permissions !== undefined ? 'permissions (интернет, локальная сеть, обращение к программам)' : (manifest as ModuleManifest).exports !== undefined ? 'exports (методы для других программ)' : '';
+    contract.push(asked && (manifest as ModuleManifest).contractVersion !== 3
+      ? `раздел ${asked} — формат v3: укажите contractVersion 3`
+      : 'manifest.json не соответствует формату программы (id, версия, entries, reads, logic, language, для страницы — contractVersion 2 и ui, для permissions и exports — contractVersion 3; у обращения к программе — идентификатор, не равный своему, и текст для человека)');
   }
   if (manifest && validManifest(manifest)) {
     if (!MODULE_VERSION.test(manifest.version)) contract.push('версия — три числа через точку');
@@ -159,7 +162,7 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
   const isPage = !!manifest && (manifest as ModuleManifest).ui === 'page';
   if (isPage) { const problem = pageProblem(files, (manifest as ModuleManifest).pages); if (problem) contract.push(problem); }
   else if (!files['form.json']) contract.push('нет form.json');
-  if (!isPage && (manifest as ModuleManifest | null)?.permissions?.length) contract.push('permissions (интернет, локальная сеть) нужны только программе со своим экраном: flux.net.fetch есть на странице');
+  if (!isPage && (manifest as ModuleManifest | null)?.permissions?.length) contract.push('permissions (интернет, локальная сеть, обращение к программам) нужны только программе со своим экраном: flux.net.fetch и flux.programs.call есть на странице');
   if (isPage) {
     const need = (manifest as ModuleManifest).store?.requires?.flux;
     if (!need || compareVersions(need, PAGE_MIN_FLUX) < 0) contract.push(`для страницы укажите store.requires.flux не ниже ${PAGE_MIN_FLUX}: старый Flux её не запустит, а Store спрячет установку`);
@@ -204,6 +207,9 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
   items.push(item('isolation', 'Изоляция: нет сети, хранилищ, выхода из окна', isolation.length ? 'fail' : 'ok',
     isolation.join('; ') || (language === 'wasm' ? 'импорты .wasm — только разрешённые Flux' : 'в тексте логики нет запрещённых обращений; сама изоляция проверяется при запуске во Flux')));
 
+  const exported = exportsItem(manifest, language, source);
+  if (exported) items.push(exported);
+
   // 4а. Страница: нарушения CSP, обращения в сеть, размер, обе темы -------------
   if (isPage) {
     const csp: string[] = [], themeIssues: string[] = [];
@@ -226,7 +232,10 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
     items.push(item('page-csp', 'Страница: нет нарушений CSP и обращений в сеть', csp.length ? 'fail' : 'ok',
       csp.join('; ') || 'в файлах страницы нет сети, хранилищ, eval, встроенных скриптов и стилей; настоящую проверку делает запуск (CSP-нарушения видны в журнале)'));
     if (hardColors && !usesTokens) themeIssues.push('цвета в стилях заданы жёстко и нет токенов Flux (var(--flux-…)): в одной из тем текст может оказаться нечитаемым');
-    items.push(netItem(manifest, sources.map(f => text(files, f) || '').filter((_, i) => /\.(?:js|mjs)$/i.test(sources[i]))));
+    const scripts = sources.map(f => text(files, f) || '').filter((_, i) => /\.(?:js|mjs)$/i.test(sources[i]));
+    items.push(netItem(manifest, scripts));
+    const programs = programsItem(manifest, scripts);
+    if (programs) items.push(programs);
     items.push(item('page-themes', 'Страница: работа в светлой и тёмной теме', themeIssues.length ? 'fail' : 'ok',
       themeIssues.join('; ') || 'цвета берутся из токенов темы Flux; вид в обеих темах подтверждают снимки (раздел «Запуск» → «Снять обе темы»)'));
   }

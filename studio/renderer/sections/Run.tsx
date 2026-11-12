@@ -8,6 +8,7 @@ import { createModuleBridge } from '../../../modules/bridge';
 import { MODULE_SANDBOX } from '../../../modules/protocol';
 import { themeKeys, type LaunchContext, type ModuleManifest, type ThemeTokens } from '../../../modules/contract';
 import { call } from '../call';
+import { trialProgramCall } from '../../shared/trialPrograms';
 
 interface Started {
   session: string; url: string; language: string;
@@ -76,6 +77,8 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
         add('сеть', `${request.method} ${host}: ${reply.code}`, 'warn');
         return { ok: false, code: (reply.code || 'FAILED') as never };
       },
+      // Других программ на тестовой базе нет: вызов отвечает NOT_INSTALLED, строка в журнале запуска
+      program: async request => { const { reply, line } = trialProgramCall(request); add('программа', line, 'warn'); return reply; },
       onComputeError: code => add('сбой', `расчёт остановлен: ${code}`, 'error'),
       onLog: (level, text) => add('flux.log', text, level),
       // Страница программы: окна, файлы и обмен в Studio только записываются в журнал, настоящие — во Flux

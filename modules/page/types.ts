@@ -5,6 +5,7 @@
  */
 import { resources, themeKeys } from '../contract';
 import { COMPUTE_ERROR_CODES } from '../engine/types';
+import { PROGRAM_ERROR_CODES, PROGRAM_LIMITS } from '../programs/model';
 import { PAGE_ERROR_CODES, PAGE_LIMITS, WINDOW_LIMITS } from './model';
 
 const union = (items: readonly string[]) => items.map(item => `'${item}'`).join(' | ');
@@ -16,7 +17,7 @@ export function fluxPageTypes(): string {
 // Подключите клиент в странице: <script src="/_flux/flux.v1.js"></script>
 
 type FluxResource = ${union(resources)};
-type FluxErrorCode = ${union(['READ_ONLY', 'DENIED', 'NO_PROJECT', 'FAILED', 'LIMIT', 'TIMEOUT', 'CONTEXT_CHANGED', ...PAGE_ERROR_CODES, ...COMPUTE_ERROR_CODES])};
+type FluxErrorCode = ${union(['READ_ONLY', 'DENIED', 'NO_PROJECT', 'FAILED', 'LIMIT', 'TIMEOUT', 'CONTEXT_CHANGED', ...PROGRAM_ERROR_CODES, ...PAGE_ERROR_CODES, ...COMPUTE_ERROR_CODES])};
 
 interface FluxParameter { group: string; key: string; value: string; unit: string }
 interface FluxTag { id: string; identifier: string; name: string; parentId: string | null }
@@ -56,6 +57,13 @@ declare const flux: {
   state: { get(): Promise<Record<string, unknown>>; set(state: Record<string, unknown>): Promise<null> };
   /** Подключение из manifest.json; первое обращение Flux подтверждает у человека */
   connect: { call(connection: string, call: Record<string, unknown>): Promise<unknown> };
+  /**
+   * Обращение к другой программе: flux.programs.call('rates', 'convert', { … }). Нужно разрешение { kind: 'program', program: 'rates', does: '…' }
+   * в permissions manifest.json (формат contractVersion 3), а у вызываемой — метод в её exports. Исполняется логика вызываемой программы
+   * (Python или WebAssembly: вход { export, data }, ответ — calc.out), окно она не открывает; данные и ответ до ${PROGRAM_LIMITS.bytes / 1024} КиБ,
+   * не больше ${PROGRAM_LIMITS.inFlight} вызовов одновременно и ${PROGRAM_LIMITS.perSecond} в секунду. Ошибки (FluxError.code): NOT_ALLOWED, NOT_INSTALLED, NO_METHOD, LIMIT, TIMEOUT, FAILED.
+   */
+  programs: { call(program: string, method: string, data?: unknown): Promise<Record<string, unknown>> };
   /**
    * Сеть только через Flux; кадр сам в сеть не ходит. Две формы:
    * fetch(url, init) — полный адрес http(s)://…: нужно разрешение { kind: 'internet' } (публичные адреса) или { kind: 'lan' } (частная сеть) в permissions manifest.json

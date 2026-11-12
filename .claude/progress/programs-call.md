@@ -12,13 +12,11 @@
 ## Шаги
 - [x] 1. Реестр и схема (exports, вид program), строки/разница/отпечаток, окно установки и разница владельца + проверки модели.
 - [x] 2. Мост, клиент, исполнение и проверки вызова, журнал + набор проверок с двумя подписанными программами.
-- [ ] 3. Studio и документы (module-api.md, modules.md, 03-programs/modules.md, studio.md).
+- [x] 3. Studio и документы (module-api.md, modules.md, 03-programs/modules.md, studio.md).
 
 ## Проверки «до»
 Известно: test-modules-restart-ui и test-studio-electron-start падают и на main.
 
 ## Где остановился
-Шаги 1–2 сделаны. Шаг 2: modules/programs/model.ts, мост (type 'program', ответы program-result/program-error), клиент flux.programs.call,
-electron/moduleProgramCalls.ts (begin/end, currentRelease), src/services/moduleProgramCall.ts (сторона окна), exports на TypeScript отвергает
-executionProblem (trust/execution.ts), набор scripts/test-modules-programs.ts (77, 18 мутантов). Проверки: tsc 0; modules-programs/net/connections/page/trust/journal/contract/permissions/store/limits/languages/publishing/architecture — 0 провалов.
-Следующий — шаг 3: Studio (flux.d.ts = modules/page/types.ts, проверка перед отправкой в studio/shared/checks.ts, запуск на тестовой базе NOT_INSTALLED со строкой в журнале studio/shell/developer.ts), документы.
+Шаги 1–3 сделаны и запушены. Остаётся: снимок окна установки Store со строкой program в обеих темах (scripts/test-modules-store-ui.ts, нужен Vite + Chromium из /opt/pw-browsers), финальный коммит с удалением этого файла, отчёт.
+Полный прогон `modules studio architecture`: наборов 58, провалено 3 — test-modules-restart-ui и test-modules-store-ui (в прогоне без FLUX_UI_URL/FLUX_CHROME), test-studio-electron-start (нет dist-studio, падает и на main).
