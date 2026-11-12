@@ -35,6 +35,7 @@ import { getMeta } from '../feedback/feedbackApi';
 import Taskbar from './Taskbar';
 import WindowsLayer from './WindowsLayer';
 import { useDisplayStore } from '../store/displayStore';
+import { useDeskPointer } from '../lib/deskPointer';
 import { BAR_H } from '../lib/metrics';
 import ProjectSwitcher from './ProjectSwitcher';
 import ContextMenu, { MenuItem } from './ContextMenu';
@@ -88,6 +89,7 @@ export default function Layout() {
   const activeDisplayId = useWindowStore(s => s.activeDisplayId);
   const activeDisplayArea = displayAreas.find(d => d.id === activeDisplayId)?.workArea || displayAreas[0]?.workArea;
   React.useEffect(() => useDisplayStore.getState().init(), []);
+  useDeskPointer();
   React.useEffect(() => {
     document.documentElement.dataset.fluxAllMonitors = String(displayWorkspace.enabled);
     return () => { delete document.documentElement.dataset.fluxAllMonitors; };

@@ -8,6 +8,8 @@ export default function DisplaySettings() {
   const busy = useDisplayStore(s => s.busy);
   const error = useDisplayStore(s => s.error);
   const apply = useDisplayStore(s => s.setAllMonitors);
+  const desk = useDisplayStore(s => s.desk);
+  const applyDesk = useDisplayStore(s => s.setDeskStaysBack);
   if (!available) return null;
   return <div id="monitors" className="fx-set-group">
     <h3 className="fx-group-title">Мониторы</h3>
@@ -16,6 +18,10 @@ export default function DisplaySettings() {
       <Switch label="Рабочий стол на всех мониторах" checked={workspace.enabled}
         disabled={busy || (!workspace.enabled && workspace.displays.length < 2)} onChange={v => void apply(v)} />
     </SettingRow>
+    {desk.available && <SettingRow title="Нажатие по столу не выводит Flux поверх других программ"
+      desc="Пустое место стола ведёт себя как рабочий стол Windows: Word и Excel остаются перед Flux. Нажатие на окно раздела, панель задач или значок выводит Flux вперёд.">
+      <Switch label="Нажатие по столу не выводит Flux поверх других программ" checked={desk.enabled} onChange={v => void applyDesk(v)} />
+    </SettingRow>}
     <div className="text-xs text-slate-500 dark:text-slate-400 py-2">
       {workspace.displays.length} мониторов · {workspace.enabled ? 'Все мониторы' : 'Обычное окно'}
       {workspace.displays.map((d, index) => <div key={d.id} className="pt-1">

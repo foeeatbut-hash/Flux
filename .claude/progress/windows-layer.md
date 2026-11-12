@@ -8,8 +8,9 @@
 - [x] 1. Модель `workspace/deskFocus.ts`, `electron/windowForeground.ts`
   (`bringToFront`), `electron/deskFocus.ts` (IPC, выключатель, частота),
   `electron/displayPrefs.ts`, проверка `scripts/test-desk-focus-native.ts`
-- [ ] 2. Окно: слежение за указателем, выключатель в «Параметры → Мониторы»,
-  проверка в Chromium
+- [x] 2. Окно: слежение за указателем (`src/lib/deskPointer.ts`, метка
+  `data-flux-desk` на области стола), выключатель в «Параметры → Мониторы»,
+  стенд `desk-focus-ui` и проверка `test-desk-focus-ui.ts` (21, обе темы)
 - [ ] 3. Документы: `shell.md`, `windows-layer.md`, `studio-next.md`
 
 Проверки «до» (наборы shell/displays/security/architecture): все без UI
@@ -17,4 +18,8 @@
 После шага 1: tsc код 0; test-desk-focus-native 50 сценариев; displays,
 display-workspace, security, architecture — зелёные.
 
-Следующее: шаг 2.
+Шаг 2: tsc 0; test-desk-focus-ui 21 проверка; снимки /tmp/windows-layer/shots.
+Chromium в среде: /opt/pw-browsers/chromium-1243/chrome-linux64/chrome, Vite на 5231.
+test-desktop-creation-ui падает и без моих правок (заголовок «Проводник» не появляется) — не мое.
+
+Следующее: шаг 3 (документы).
