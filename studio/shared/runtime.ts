@@ -38,7 +38,7 @@ export function assembleRuntime(templates: RuntimeTemplates, manifest: ModuleMan
     worker = `globalThis.__fluxLogic=(function(){var module={exports:{}},exports=module.exports;${compiled.code}\n;return module.exports;})();\n${templates.worker}`;
   }
   const put = (text: string, sentinel: string, value: string) => {
-    if (!text.includes(sentinel)) throw new Error(`В шаблоне окна подпрограммы нет метки ${sentinel}: пересоберите Studio`);
+    if (!text.includes(sentinel)) throw new Error(`В шаблоне окна программы нет метки ${sentinel}: пересоберите Studio`);
     return text.split(sentinel).join(value);
   };
   // split/join вместо replace: в значении встречаются «$&» и подобное, которое replace понял бы как шаблон

@@ -27,6 +27,7 @@ import { readCertificates, verifyRequest } from '../modules/trust/verify';
 import { publicHexOf, sealEnvelope } from '../modules/trust/envelope';
 import { parseCertificateRequest } from '../studio/shared/keyring';
 import { registerStudioRoutes } from '../server/routes/studio';
+import { OwnerChallenges } from '../server/ownerAuth';
 import { loopbackOrigin, ownModules, signIn, studioRequest, StudioFailure } from '../studio/shell/api';
 
 const root = path.resolve(__dirname, '..');
@@ -40,7 +41,11 @@ const refused = async (promise: Promise<unknown>, pattern: RegExp) => {
 const people: Record<string, { id: string; name: string; role: string; perms: string[]; password: string }> = {
   dev: { id: 'dev', name: 'Разработчик', role: 'MODULE_DEVELOPER', perms: ['module.develop'], password: 'dev-pass' },
   plain: { id: 'plain', name: 'Инженер', role: 'ENGINEER_VENT', perms: [], password: 'plain-pass' },
+  owner: { id: 'owner', name: 'Владелец', role: 'OWNER', perms: [], password: '' },
 };
+/** Синтетический ключ владельца: настоящих ключей в проверках нет (тот же приём, что у scripts/test-owner-auth.ts) */
+const ownerKey = crypto.generateKeyPairSync('ed25519');
+const ownerPublicHex = publicHexOf(ownerKey.privateKey);
 
 async function main() {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-studio-shell-'));
@@ -52,6 +57,14 @@ async function main() {
     res.json({ success: true, user: { id: person.id }, token: `token-${person.id}-long-enough` });
   });
   app.get('/api/health', (_req, res) => res.json({ ok: true, version: '9.9.9' }));
+  // Вход владельца: настоящий выдающий одноразовые запросы класс сервера, проверяющий синтетический ключ; origin — по заголовку Host, как в сервере
+  const challenges = new OwnerChallenges([ownerPublicHex]);
+  const originOf = (req: any) => `${req.protocol}://${String(req.get('host') || '').toLowerCase()}`;
+  app.get('/api/owner/challenge', (req, res) => res.json(challenges.issue('install-1', originOf(req))));
+  app.post('/api/owner/login', (req, res) => {
+    if (!challenges.verify(req.body?.nonce, req.body?.sig, 'install-1', originOf(req))) return res.status(401).json({ success: false, error: 'Подпись владельца не принята.' });
+    res.json({ success: true, token: 'token-owner-long-enough', user: { id: 'owner', name: 'Владелец', role: 'OWNER' } });
+  });
   app.use('/api', (req: any, res, next) => {
     req.authUser = Object.values(people).find((p) => `Bearer token-${p.id}-long-enough` === req.headers.authorization);
     return req.authUser ? next() : res.status(401).json({ error: 'Нужен вход.' });
@@ -115,22 +128,23 @@ async function main() {
     fs.writeFileSync(stubs, `
       const handlers = new Map(); const sent = []; let created = null;
       class Win { constructor(o){ created = this; this.options=o; this.webContents={ setWindowOpenHandler(){}, on(){}, send:(c,d)=>sent.push([c,d]), mainFrame:{}, capturePage: async () => ({ toPNG: () => Buffer.from([0x89,0x50,0x4e,0x47,1,2,3,4,5,6,7,8]) }) }; }
-        setMenu(){} loadFile(){ return Promise.resolve(); } on(){} isDestroyed(){ return false; } }
+        setMenu(){} loadFile(){ return Promise.resolve(); } on(){} once(){} show(){} isDestroyed(){ return false; } }
       module.exports = { __handlers: handlers, __sent: sent, __win: () => created,
-        app: { whenReady: () => Promise.resolve(), on(){} , quit(){}, getPath: () => process.env.STUDIO_TEST_DATA },
-        BrowserWindow: Win, dialog: {}, ipcMain: { handle: (c, f) => handlers.set(c, f) },
+        app: { whenReady: () => Promise.resolve(), on: (e, f) => handlers.set('app:' + e, f), quit(){ globalThis.__quitAt = globalThis.__cleaned === true ? 'после очистки' : 'до очистки'; }, getPath: () => process.env.STUDIO_TEST_DATA },
+        BrowserWindow: Win, dialog: { showOpenDialog: async () => process.env.STUDIO_TEST_VAULT ? { canceled: false, filePaths: [process.env.STUDIO_TEST_VAULT] } : { canceled: true, filePaths: [] } }, ipcMain: { handle: (c, f) => handlers.set(c, f), on: (c, f) => handlers.set('on:' + c, f), removeAllListeners() {}, removeHandler() {} },
+        nativeImage: { createFromPath: () => ({}) },
         protocol: { registerSchemesAsPrivileged(){}, handle: (scheme, fn) => handlers.set('protocol:' + scheme, fn) },
         // Хранилище с настоящим обратимым преобразованием: без него адрес не расшифровать, а открытым текстом он на диск не попадает
         safeStorage: { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(Buffer.from(s, 'utf8').toString('hex').split('').reverse().join('')), decryptString: (b) => Buffer.from(Buffer.from(b).toString().split('').reverse().join(''), 'hex').toString('utf8') } };`);
     const runtimeStub = path.join(temp, 'runtime.cjs');
-    fs.writeFileSync(runtimeStub, `let stops = 0; module.exports = { __stops: () => stops, startDatabaseRuntime: async (o) => ({ origin: ${JSON.stringify(origin)}, display: 'MariaDB / MySQL · stub', stop: async () => { stops++; } }), __last: null };`);
+    fs.writeFileSync(runtimeStub, `let stops = 0; module.exports = { __stops: () => stops, startDatabaseRuntime: async (o) => { if (process.env.STUDIO_TEST_SLOW) return new Promise((_, reject) => o.signal.addEventListener('abort', () => setTimeout(() => { globalThis.__cleaned = true; reject(new Error('Подключение к общей базе отменено.')); }, 250))); if (o.signal && o.signal.aborted) throw new Error('Подключение к общей базе отменено.'); return ({ origin: ${JSON.stringify(origin)}, display: 'MariaDB / MySQL · stub', stop: async () => { stops++; } }); }, __last: null };`);
     const out = path.join(temp, 'main.cjs');
     process.env.STUDIO_TEST_DATA = path.join(temp, 'data');
     // Окно подпрограммы, рабочий поток и заготовки лежат рядом с main.cjs, как в упакованной Studio
     await require('../studio/build-assets.cjs').buildDeveloperAssets({ app: temp, esbuild });
     await esbuild.build({
       entryPoints: [path.join(root, 'studio/shell/main.ts')], outfile: out, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent',
-      define: { __STUDIO_VERSION__: '"0.0.1"', __STUDIO_BUILD__: '"developer"' },
+      define: { __STUDIO_VERSION__: '"0.0.1"', __STUDIO_BUILD__: '"developer"', __STUDIO_NAME__: '"Flux Studio"' },
       plugins: [{ name: 'stubs', setup(build) {
         build.onResolve({ filter: /^electron$/ }, () => ({ path: stubs, external: true }));
         build.onResolve({ filter: /database-runtime\.cjs$/ }, () => ({ path: runtimeStub, external: true }));
@@ -168,7 +182,58 @@ async function main() {
     const everyFile = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? everyFile(path.join(dir, e.name)) : [path.join(dir, e.name)]);
     const data = path.join(temp, 'data');
     ok('адрес без «запомнить» нигде не сохранён', !fs.existsSync(data) || everyFile(data).every((f) => !fs.readFileSync(f, 'latin1').includes('U:P@H')));
-    ok('в окно уходит только перечисленный набор состояния', Object.keys((await call('state')).value).sort().join() === 'build,connected,display,remembered,sections,user,version,warning');
+    ok('в окно уходит только перечисленный набор состояния', Object.keys((await call('state')).value).sort().join() === 'build,connected,display,name,owner,remembered,sections,user,version,warning');
+
+
+    console.log('Подключение: операция не отменяет сама себя');
+    ok('«Подключиться» доходит до конца: сброс прежнего подключения не прерывает текущее', (await call('connect', { uri: 'mysql://U:P@H:3306/Flux' })).value.connected === true);
+    ok('повторное подключение поверх прежнего тоже проходит', (await call('connect', { uri: 'mysql://U:P@H:3306/Flux' })).value.connected === true);
+    await call('disconnect');
+
+    console.log('Вход владельца файлом ключа');
+    const vaultApi = require('../studio/owner/src/vault.cjs');
+    const vaultPassword = 'синтетический пароль хранилища';
+    const ownerPem = ownerKey.privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
+    const vaultFile = path.join(temp, 'synthetic.flux-owner');
+    fs.writeFileSync(vaultFile, await vaultApi.encrypt({ v: 1, kind: 'backup', keys: { owner: { privatePem: ownerPem, publicHex: ownerPublicHex } }, licenses: [], updates: [] }, vaultPassword));
+    const foreignFile = path.join(temp, 'foreign.flux-owner');
+    fs.writeFileSync(foreignFile, '{"format":"NOTVAULT"}');
+    ok('вход владельца без подключения отказан', /подключитесь/i.test((await call('ownerLogin', { password: vaultPassword })).error));
+    await call('connect', { uri: 'mysql://U:P@H:3306/Flux' });
+    ok('без выбранного файла вход отказан', /выберите файл/i.test((await call('ownerLogin', { password: vaultPassword })).error));
+    process.env.STUDIO_TEST_VAULT = '';
+    ok('закрытое окно выбора — «отмена», а не ошибка', (await call('ownerSelectKey')).value.canceled === true);
+    process.env.STUDIO_TEST_VAULT = foreignFile;
+    const wrong = await call('ownerSelectKey');
+    ok('чужой файл отклонён при выборе, с причиной', wrong.ok && wrong.value.ok === false && /не является зашифрованным хранилищем/.test(wrong.value.error));
+    process.env.STUDIO_TEST_VAULT = vaultFile;
+    const picked = await call('ownerSelectKey');
+    ok('нужный файл выбран, окну отдано только имя', picked.ok && picked.value.name === 'synthetic.flux-owner' && !JSON.stringify(picked).includes(temp));
+    const badPassword = await call('ownerLogin', { password: 'неверный пароль хранилища' });
+    ok('неверный пароль: отказ понятным текстом, сессии нет', badPassword.ok === false && /пароль именно этого файла/.test(badPassword.error) && (await call('state')).value.user === null);
+    ok('короткий пароль отклонён до расшифровки', (await call('ownerLogin', { password: 'коротко' })).ok === false);
+    const ownerIn = await call('ownerLogin', { password: vaultPassword });
+    ok('владелец входит файлом ключа', ownerIn.ok && ownerIn.value.user.id === 'owner');
+    ok('токен владельца окну не уходит', !JSON.stringify([ownerIn, electron.__sent, await call('state')]).includes('token-owner'));
+    ok('разделы владельца видны вошедшему владельцем', (await call('state')).value.owner === true && (await call('state')).value.sections.length === 1);
+    ok('и раздел из точки входа открывается', (await call('openSection', { id: 'extra' })).ok);
+    ok('закрытый ключ не лежит в данных программы', !fs.existsSync(data) || !everyFile(data).some((f) => fs.readFileSync(f, 'latin1').includes('PRIVATE KEY')));
+    ok('после входа выбор файла сброшен: повторный вход без выбора отказан', /выберите файл/i.test((await call('ownerLogin', { password: vaultPassword })).error));
+    await call('logout');
+    ok('после выхода разделов владельца нет', (await call('state')).value.owner === false);
+    const afterDev = await call('login', { symbol: 'dev', password: 'dev-pass' });
+    ok('вошедший по логину разработчик не получает разделов владельца', afterDev.ok && afterDev.value.owner === false);
+    await call('disconnect');
+
+    console.log('Закрытие окна посреди подключения');
+    process.env.STUDIO_TEST_SLOW = '1';
+    const hanging = call('connect', { uri: 'mysql://U:P@H:3306/Flux' });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    electron.__handlers.get('app:window-all-closed')();
+    await hanging;
+    for (let i = 0; i < 100 && !(globalThis as any).__quitAt; i++) await new Promise((resolve) => setTimeout(resolve, 50));
+    ok('программа закрывается только после остановки запущенного Flux (дочерний процесс не остаётся)', (globalThis as any).__cleaned === true && (globalThis as any).__quitAt === 'после очистки');
+    delete process.env.STUDIO_TEST_SLOW;
 
     console.log('Запомненный адрес');
     ok('до запоминания сохранённой базы нет', (await call('state')).value.remembered === '');

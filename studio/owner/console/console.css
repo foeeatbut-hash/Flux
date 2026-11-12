@@ -1,34 +1,18 @@
-/* Разделы владельца Flux Studio. Токены на :root, тёмная тема по системе или по data-theme; фоны сплошные.
-   Переменные --flux-* нужны пробному запуску подпрограммы: мост передаёт их странице подпрограммы. */
+/* Разделы владельца Flux Studio поверх оформления Flux (flux.css = src/index.css). Своих цветов и мер здесь нет: старые имена
+   токенов указывают на токены Flux, поэтому обе темы переключаются классом `dark`, как во Flux. Пробный запуск программы
+   получает --flux-* прямо от Flux. */
 :root {
-  --bg: #f1f5f9; --surface: #ffffff; --surface-2: #f8fafc; --border: #cbd5e1; --text: #0f172a; --muted: #475569;
-  --accent: #0d9488; --accent-text: #ffffff; --danger: #b91c1c; --danger-bg: #fef2f2; --ok: #047857; --ok-bg: #ecfdf5; --warn: #b45309; --warn-bg: #fffbeb;
-  --info: #0369a1; --info-bg: #f0f9ff; --add-bg: #dcfce7; --del-bg: #fee2e2; --focus: #0f766e;
-  --flux-surface: #ffffff; --flux-bg: #f8fafc; --flux-hover: #e2e8f0; --flux-sel: #ccfbf1; --flux-line: #cbd5e1;
-  --flux-text: #0f172a; --flux-text-muted: #475569; --flux-accent: #0d9488;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0f172a; --surface: #1e293b; --surface-2: #172033; --border: #334155; --text: #f1f5f9; --muted: #94a3b8;
-    --accent: #2dd4bf; --accent-text: #042f2e; --danger: #fca5a5; --danger-bg: #3b1d1d; --ok: #6ee7b7; --ok-bg: #0f2e25; --warn: #fcd34d; --warn-bg: #3a2f10;
-    --info: #7dd3fc; --info-bg: #10304a; --add-bg: #12351f; --del-bg: #43191c; --focus: #5eead4;
-    --flux-surface: #1e293b; --flux-bg: #172033; --flux-hover: #334155; --flux-sel: #134e4a; --flux-line: #334155;
-    --flux-text: #f1f5f9; --flux-text-muted: #94a3b8; --flux-accent: #2dd4bf;
-  }
-}
-:root[data-theme="dark"] {
-  --bg: #0f172a; --surface: #1e293b; --surface-2: #172033; --border: #334155; --text: #f1f5f9; --muted: #94a3b8;
-  --accent: #2dd4bf; --accent-text: #042f2e; --danger: #fca5a5; --danger-bg: #3b1d1d; --ok: #6ee7b7; --ok-bg: #0f2e25; --warn: #fcd34d; --warn-bg: #3a2f10;
-  --info: #7dd3fc; --info-bg: #10304a; --add-bg: #12351f; --del-bg: #43191c; --focus: #5eead4;
-  --flux-surface: #1e293b; --flux-bg: #172033; --flux-hover: #334155; --flux-sel: #134e4a; --flux-line: #334155;
-  --flux-text: #f1f5f9; --flux-text-muted: #94a3b8; --flux-accent: #2dd4bf;
+  --bg: var(--flux-bg); --surface: var(--flux-surface); --surface-2: var(--flux-bg); --border: var(--flux-line-strong); --text: var(--flux-text);
+  --muted: var(--flux-text-muted); --accent: var(--flux-accent); --accent-text: var(--flux-accent-on); --danger: var(--flux-bad-text);
+  --danger-bg: var(--flux-bad-soft); --ok: var(--flux-accent-text); --ok-bg: var(--flux-accent-soft); --warn: var(--flux-warn); --warn-bg: var(--flux-hover);
+  --info: var(--flux-info); --info-bg: var(--flux-hover); --add-bg: var(--flux-accent-soft); --del-bg: var(--flux-bad-soft); --focus: var(--flux-focus);
 }
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; height: 100%; }
-body { background: var(--bg); color: var(--text); font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { background: var(--flux-surface); color: var(--flux-text); font-family: var(--font-sans); font-size: 13px; line-height: 20px; }
 .app { display: flex; flex-direction: column; height: 100%; }
-.top { display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
-.top h1 { margin: 0; font-size: 15px; }
+.top { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.top h1 { margin: 0; font-size: 15px; line-height: 20px; font-weight: 600; letter-spacing: -0.012em; }
 .spacer { flex: 1; }
 .tabs { display: flex; gap: 4px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
 .tabs button { padding: 9px 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
@@ -49,44 +33,44 @@ body { background: var(--bg); color: var(--text); font: 13px/1.5 system-ui, -app
 .bar strong { font-size: 14px; }
 .info { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 2px; }
 .muted { color: var(--muted); }
-.mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
-.code { margin: 0; padding: 12px; overflow: auto; flex: 1; min-width: 0; font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre; }
+.mono { font-family: var(--font-mono); font-size: 12px; }
+.code { margin: 0; padding: 12px; overflow: auto; flex: 1; min-width: 0; font: 12px/1.5 var(--font-mono); white-space: pre; }
 .code .add { background: var(--add-bg); } .code .del { background: var(--del-bg); }
 .code .line { display: block; cursor: pointer; } .code .line:hover { background: var(--flux-hover); }
 .code .line[aria-selected="true"] { outline: 1px solid var(--accent); }
-.badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); white-space: nowrap; }
+.badge { display: inline-block; padding: 0 6px; height: 18px; line-height: 16px; border-radius: 4px; font-size: 12px; font-weight: 500; border: 1px solid var(--border); white-space: nowrap; }
 .badge.ok { color: var(--ok); background: var(--ok-bg); border-color: var(--ok); } .badge.warn { color: var(--warn); background: var(--warn-bg); border-color: var(--warn); }
 .badge.bad { color: var(--danger); background: var(--danger-bg); border-color: var(--danger); } .badge.info { color: var(--info); background: var(--info-bg); border-color: var(--info); }
 .badge.off { color: var(--muted); background: var(--surface-2); }
-button.btn { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+button.btn { height: var(--flux-control-h, 28px); padding: 0 12px; border-radius: var(--flux-radius-sm, 4px); font-weight: 500; border: 1px solid var(--border); background: transparent; color: var(--text); font: inherit; cursor: pointer; }
 button.btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
 button.btn.danger { color: var(--danger); border-color: var(--danger); }
 button.btn.ghost { border-color: transparent; }
 button:disabled { opacity: .55; cursor: default; }
-input, textarea, select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text); font: inherit; max-width: 100%; }
-textarea { width: 100%; resize: vertical; }
+input, textarea, select { height: var(--flux-control-h, 28px); padding: 0 8px; border: 1px solid var(--border); border-radius: var(--flux-radius-sm, 4px); background: var(--surface); color: var(--text); font: inherit; max-width: 100%; }
+textarea { width: 100%; height: auto; padding: 6px 8px; resize: vertical; }
 input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-.field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; } .field > label { font-weight: 600; }
+.field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; } .field > label { font-size: 12px; line-height: 16px; font-weight: 500; color: var(--muted); }
 .hint { font-size: 12px; color: var(--muted); margin: 0; }
-.error { margin: 8px 12px; padding: 8px 12px; border-radius: 8px; background: var(--danger-bg); color: var(--danger); }
-.notice { margin: 8px 12px; padding: 8px 12px; border-radius: 8px; background: var(--ok-bg); color: var(--ok); }
+.error { margin: 8px 12px; padding: 8px 12px; border-radius: var(--flux-radius-sm, 4px); background: var(--danger-bg); color: var(--danger); }
+.notice { margin: 8px 12px; padding: 8px 12px; border-radius: var(--flux-radius-sm, 4px); background: var(--ok-bg); color: var(--ok); }
 .empty { margin: 24px auto; padding: 24px; text-align: center; color: var(--muted); max-width: 520px; }
 .empty b { display: block; color: var(--text); font-size: 15px; margin-bottom: 4px; }
-.card { max-width: 560px; margin: 6vh auto 0; padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
-.card h2 { margin: 0 0 8px; font-size: 18px; }
+.card { max-width: 560px; margin: 6vh auto 0; padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--flux-radius-sm, 4px); }
+.card h2 { margin: 0 0 8px; font-size: 15px; font-weight: 600; }
 .tbl { width: 100%; border-collapse: collapse; }
 .tbl th, .tbl td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
 .tbl th { font-size: 12px; color: var(--muted); font-weight: 600; background: var(--surface-2); position: sticky; top: 0; }
 .rows { display: flex; gap: 6px; flex-wrap: wrap; }
 .sect { padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .sect h3 { margin: 0 0 6px; font-size: 13px; }
-.box { margin-top: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
+.box { margin-top: 6px; padding: 8px; border: 1px solid var(--border); border-radius: var(--flux-radius-sm, 4px); }
 .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(15, 23, 42, .6); padding: 16px; }
-.dialog { width: min(640px, 100%); max-height: 92vh; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
-.dialog > header { padding: 14px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 15px; }
+.dialog { width: min(640px, 100%); max-height: 92vh; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: var(--flux-radius-sm, 4px); }
+.dialog > header { padding: 10px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; }
 .dialog > .content { padding: 12px 16px; overflow: auto; }
 .dialog > footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
 .trial { width: 100%; height: 100%; border: 0; background: var(--surface); }
-.segs { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.segs { display: inline-flex; border: 1px solid var(--border); border-radius: var(--flux-radius-sm, 4px); overflow: hidden; }
 .segs button { padding: 5px 12px; border: 0; background: transparent; color: var(--text); font: inherit; cursor: pointer; }
 .segs button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); font-weight: 600; }

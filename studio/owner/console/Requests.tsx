@@ -48,7 +48,7 @@ export default function Requests({ onCount }: { onCount: (n: number) => void }) 
         {shown.map(r => <button key={r.id} type="button" className="li" aria-current={current?.id === r.id} onClick={() => setSelected(r.id)}
           title={`${r.byOwner ? 'владелец' : r.authorId} · ${r.meta?.changelog.split('\n')[0] || ''}`}>
           <span className="grow">{r.moduleId} {r.version}</span><Badge tone={REQUEST_STATE[r.state].tone}>{REQUEST_STATE[r.state].label}</Badge></button>)}
-        {list && !shown.length && <Empty title="Запросов нет" text="Разработчики отправляют подпрограммы на проверку из Flux Studio." />}
+        {list && !shown.length && <Empty title="Запросов нет" text="Разработчики отправляют программы на проверку из Flux Studio." />}
       </div>
     </div>
     <div className="pane">
@@ -91,7 +91,7 @@ function RequestView({ summary, onChanged }: { summary: PublishRequest; onChange
   return <>
     <div className="bar">
       <strong>{request.moduleId} {request.version}</strong><Badge tone={state.tone}>{state.label}</Badge>
-      {!request.baseRelease && !request.byOwner && <Badge tone="info">Новая подпрограмма</Badge>}
+      {!request.baseRelease && !request.byOwner && <Badge tone="info">Новая программа</Badge>}
       {diff?.permissions.widened && <Badge tone="warn">Расширены разрешения</Badge>}
       {request.byOwner && <Badge>Изменения владельца</Badge>}
       <span className="grow" />
@@ -105,7 +105,7 @@ function RequestView({ summary, onChanged }: { summary: PublishRequest; onChange
       <div><span className="muted">Что нового: </span>{meta?.changelog || '—'}</div>
       {meta?.comment && <div><span className="muted">Комментарий разработчика: </span>{meta.comment}</div>}
       <div className="muted">Автор {request.byOwner ? 'владелец' : request.authorId} · просит канал «{meta?.channel === 'test' ? 'тестовый' : 'рабочий'}» · Flux {meta?.fluxVersion || '—'}
-        {' · '}разница {diff?.against?.release ? `с выпуском ${diff.against.release}` : diff?.against?.request ? 'с запросом разработчика' : 'не с чем: новая подпрограмма'}</div>
+        {' · '}разница {diff?.against?.release ? `с выпуском ${diff.against.release}` : diff?.against?.request ? 'с запросом разработчика' : 'не с чем: новая программа'}</div>
     </div>
     <div className="tabs" role="tablist" aria-label="Запрос">
       {([['files', `Файлы${diff ? ` · ${diff.files.filter(f => f.status !== 'same').length}` : ''}`], ['flux', 'Связь с Flux'], ['review', `Замечания и проверки${notes.length ? ` · ${notes.length}` : ''}`], ['trial', 'Проверить в работе']] as Array<[Pane, string]>)

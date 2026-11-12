@@ -12,7 +12,7 @@ import { METHODOLOGY } from './methodology.generated';
 import { resolveBinding } from './contractModel';
 import type { ContractDraft, Finding } from './types';
 
-/** Узкое окно подпрограммы, px: ниже этой ширины форма не должна прокручиваться вбок */
+/** Узкое окно программы, px: ниже этой ширины форма не должна прокручиваться вбок */
 export const NARROW_WIDTH = 360;
 const CELL_MIN = 72;
 

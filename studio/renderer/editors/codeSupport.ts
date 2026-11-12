@@ -32,7 +32,7 @@ export function checkScript(text: string, contract: ContractDraft): CodeIssue[] 
     const name = match[2];
     const at = match.index! + match[0].lastIndexOf(name);
     if (!isResource(name)) push(at, name.length, 'error', `У Flux нет данных «${name}». Доступны: ${resources.join(', ')}`);
-    else if (!contract.reads.includes(name)) push(at, name.length, 'error', `Данные «${name}» не разрешены договором: добавьте их в «Что читает подпрограмма»`);
+    else if (!contract.reads.includes(name)) push(at, name.length, 'error', `Данные «${name}» не разрешены договором: добавьте их в «Что читает программа»`);
   }
   const scan = (pattern: RegExp, declared: string[], where: string) => {
     for (const match of text.matchAll(pattern)) {

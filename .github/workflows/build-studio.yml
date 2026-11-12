@@ -16,6 +16,16 @@ on:
       - server/moduleStore.ts
       - modules/**
       - scripts/*studio*.ts
+      - scripts/test-unified-login-ui.ts
+      - src/components/auth/**
+      - src/components/window/**
+      - src/components/ui/**
+      - src/screens/Login.tsx
+      - src/components/OwnerLogin.tsx
+      - src/components/ConnectionPanel.tsx
+      - electron/ownerLogin.ts
+      - index.html
+      - src/index.css
       - package.json
       - package-lock.json
       - .github/workflows/build-studio*.yml
@@ -86,6 +96,13 @@ jobs:
         run: |
           node --import tsx scripts/test-studio-editor.ts
           node --import tsx scripts/test-studio-editor-ui.ts
+      - name: Вход Studio и Flux — один экран (замеры до пикселя), значки трёх программ
+        env:
+          FLUX_CHROME: /usr/bin/google-chrome
+          FLUX_STUDIO_SHOTS: ${{ runner.temp }}/studio-shots
+        run: |
+          node --import tsx scripts/test-unified-login-ui.ts
+          node --import tsx scripts/test-studio-icons.ts
       - name: Окно разделов владельца, обе темы
         env:
           FLUX_CHROME: /usr/bin/google-chrome
@@ -118,8 +135,13 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Пакет разработчика
         run: npm run build:studio
-      - name: В пакете разработчика нет кода владельца
+      - name: В пакете разработчика нет кода владельца (а вход владельца файлом ключа есть)
         run: npm run check:studio-bundle -- --dir dist-studio/developer
+      # Настоящий запуск: Electron скачивается отдельно (зависимости ставились без скриптов), пакет доходит до экрана входа
+      - name: Электрон для проверки запуска
+        run: node node_modules/electron/install.js
+      - name: Запуск собранной Studio до экрана входа
+        run: node --import tsx scripts/test-studio-electron-start.ts developer
       - name: Portable FluxStudio.exe
         run: node studio/build.cjs developer --pack
       - name: Код владельца отсутствует и в app.asar готовой программы

@@ -27,11 +27,11 @@ export interface CheckReport { v: 1; ok: boolean; at: number; studio: string; it
 const text = (files: ProjectFiles, name: string): string | null => files[name] ? Buffer.from(files[name]).toString('utf8') : null;
 const item = (id: string, title: string, status: CheckStatus, detail: string): CheckItem => ({ id, title, status, detail });
 
-/** Что запрещено в тексте логики: подпрограмма изолирована, и эти обращения всё равно закрыты, но лучше узнать об этом сразу */
+/** Что запрещено в тексте логики: программа изолирована, и эти обращения всё равно закрыты, но лучше узнать об этом сразу */
 const FORBIDDEN_CODE: Array<[RegExp, string]> = [
-  [/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|importScripts)\b\s*\(/, 'сетевой вызов (сеть подпрограммам закрыта; внешние программы — через подключения в manifest.json)'],
+  [/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|importScripts)\b\s*\(/, 'сетевой вызов (сеть программам закрыта; внешние программы — через подключения в manifest.json)'],
   [/\b(?:localStorage|sessionStorage|indexedDB|document\.cookie)\b/, 'хранилище браузера (состояние хранит оболочка: flux state)'],
-  [/\b(?:window\.parent|parent\.postMessage|top\.|ipcRenderer|require\s*\(\s*['"]electron)/, 'выход за пределы окна подпрограммы'],
+  [/\b(?:window\.parent|parent\.postMessage|top\.|ipcRenderer|require\s*\(\s*['"]electron)/, 'выход за пределы окна программы'],
   [/\beval\s*\(|new\s+Function\s*\(/, 'динамическое выполнение кода (запрещено CSP)'],
   [/\bimport\s*\(/, 'динамическое подключение файлов'],
 ];
@@ -98,9 +98,9 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
   if (manifest && !validManifest(manifest)) { contract.push('manifest.json не соответствует договору v1 (id, версия, entries, reads, logic, language)'); }
   if (manifest && validManifest(manifest)) {
     if (!MODULE_VERSION.test(manifest.version)) contract.push('версия — три числа через точку');
-    if (manifest.contractVersion > CONTRACT_VERSION) contract.push(`подпрограмме нужен договор v${manifest.contractVersion}, а Studio знает v${CONTRACT_VERSION}: обновите Studio`);
+    if (manifest.contractVersion > CONTRACT_VERSION) contract.push(`программе нужен договор v${manifest.contractVersion}, а Studio знает v${CONTRACT_VERSION}: обновите Studio`);
     if (!files[manifest.logic]?.length) contract.push(`нет файла логики ${manifest.logic}`);
-    if (!manifest.entries.length) contract.push('entries пуст: подпрограмме негде появиться');
+    if (!manifest.entries.length) contract.push('entries пуст: программе негде появиться');
   }
   if (!files['form.json']) contract.push('нет form.json');
   const total = Object.values(files).reduce((sum, bytes) => sum + bytes.length, 0);
@@ -193,7 +193,7 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
     !log ? 'Заполните «что нового»: без него пользователь в Flux Store не поймёт, зачем обновляться' : log.length > 4000 ? 'Не длиннее 4000 знаков' : `${log.length} знаков`));
   const shots = manifest.store?.screenshots || [];
   const shotProblems: string[] = [];
-  if (!shots.length) shotProblems.push('снимите окно подпрограммы в светлой и тёмной теме (раздел «Редактор» → «Запуск» → «Снять обе темы»)');
+  if (!shots.length) shotProblems.push('снимите окно программы в светлой и тёмной теме (раздел «Редактор» → «Запуск» → «Снять обе темы»)');
   for (const shot of shots) {
     const bytes = files[shot];
     if (!bytes) shotProblems.push(`нет файла ${shot}`);

@@ -1,8 +1,9 @@
 /**
- * Раздел «Проект подпрограммы»: создать из заготовки, открыть свой запрос как проект, тестовая база, запуск.
+ * Раздел «Проект программы»: создать из заготовки, открыть свой запрос как проект, тестовая база, запуск.
  * Черновик хранится на этом компьютере (studio/shared/drafts.ts); в общую базу уходит только отправка.
  */
 import React, { useCallback, useEffect, useState } from 'react';
+import { SectionHead } from '../../../src/components/ui/controls';
 import { call, type DraftSummary, type RequestRow } from '../call';
 import Run from './Run';
 
@@ -44,14 +45,15 @@ export default function Projects({ current, onOpen }: { current: string; onOpen:
     setError('');
     try { const made = await call<{ id: string }>('draftImport', { requestId: id }); await reload(); onOpen(made.id); } catch (e) { fail(e); }
   };
-  // Свои подпрограммы, которых ещё нет на этом компьютере: по последнему запросу каждой
+  // Свои программы, которых ещё нет на этом компьютере: по последнему запросу каждой
   const own = requests ? [...new Map(requests.map(r => [r.moduleId, r])).values()].filter(r => !drafts.some(d => d.id === r.moduleId)) : [];
 
   return (
-    <section aria-labelledby="projects-title">
-      <h2 id="projects-title">Проект подпрограммы</h2>
-      <p className="muted">Черновик лежит на этом компьютере. В общую базу уходит только запрос на публикацию.</p>
-      {error && <p className="error" role="alert">{error}</p>}
+    <section aria-label="Проект программы" className="fx-page">
+      <SectionHead title="Проект программы" />
+      <div className="fx-page-body p-4 studio-body">
+      <p className="fx-hint">Черновик лежит на этом компьютере. В общую базу уходит только запрос на публикацию.</p>
+      {error && <p className="fx-error" role="alert">{error}</p>}
 
       <form className="panel" onSubmit={create} aria-labelledby="new-title">
         <h3 id="new-title">Новый проект из заготовки</h3>
@@ -65,39 +67,40 @@ export default function Projects({ current, onOpen }: { current: string; onOpen:
           <div className="field"><label htmlFor="pname">Название</label>
             <input id="pname" value={form.name} maxLength={80} onChange={e => setForm({ ...form, name: e.target.value })} /></div>
         </div>
-        <p className="hint">{templates.find(t => t.id === form.template)?.note}</p>
-        <div className="row"><button className="primary" type="submit" disabled={!form.id.trim() || !form.name.trim()}>Создать проект</button></div>
+        <p className="fx-hint">{templates.find(t => t.id === form.template)?.note}</p>
+        <div className="row"><button className="fx-btn fx-btn-primary" type="submit" disabled={!form.id.trim() || !form.name.trim()}>Создать проект</button></div>
       </form>
 
       <h3>Проекты на этом компьютере</h3>
-      {drafts.length === 0 ? <div className="empty">Проектов пока нет. Создайте новый из заготовки или откройте свою подпрограмму ниже.</div> : (
-        <table><thead><tr><th>Проект</th><th>Язык</th><th>Версия</th><th></th></tr></thead>
+      {drafts.length === 0 ? <div className="empty">Проектов пока нет. Создайте новый из заготовки или откройте свою программу ниже.</div> : (
+        <table className="fx-table"><thead><tr><th>Проект</th><th>Язык</th><th>Версия</th><th></th></tr></thead>
           <tbody>{drafts.map(d => (
             <tr key={d.id} aria-selected={d.id === current}>
               <td>{d.name} <span className="muted code">{d.id}</span></td><td>{d.language}</td><td>{d.version}</td>
-              <td className="end"><button className="secondary" onClick={() => onOpen(d.id)} disabled={d.id === current}>{d.id === current ? 'Открыт' : 'Открыть'}</button></td>
+              <td className="end"><button className="fx-btn" onClick={() => onOpen(d.id)} disabled={d.id === current}>{d.id === current ? 'Открыт' : 'Открыть'}</button></td>
             </tr>))}</tbody></table>
       )}
 
       {own.length > 0 && <>
-        <h3>Ваши подпрограммы в общей базе</h3>
-        <table><thead><tr><th>Подпрограмма</th><th>Версия</th><th>Последняя отправка</th><th></th></tr></thead>
+        <h3>Ваши программы в общей базе</h3>
+        <table className="fx-table"><thead><tr><th>Программа</th><th>Версия</th><th>Последняя отправка</th><th></th></tr></thead>
           <tbody>{own.map(r => (
             <tr key={r.moduleId}><td className="code">{r.moduleId}</td><td>{r.version}</td><td>{r.createdAt.slice(0, 10)}</td>
-              <td className="end"><button className="secondary" onClick={() => importRequest(r.id)}>Открыть как проект</button></td></tr>))}</tbody></table>
+              <td className="end"><button className="fx-btn" onClick={() => importRequest(r.id)}>Открыть как проект</button></td></tr>))}</tbody></table>
       </>}
 
       {current && tree && <>
         <h3>Файлы проекта «{current}»</h3>
-        <table><thead><tr><th>Файл</th><th>Размер</th></tr></thead>
+        <table className="fx-table"><thead><tr><th>Файл</th><th>Размер</th></tr></thead>
           <tbody>{tree.files.map(f => <tr key={f.path}><td className="code">{f.path}</td><td>{kb(f.size)}</td></tr>)}</tbody></table>
         <Run id={current} />
       </>}
 
       <h3>Тестовая база</h3>
-      <p className="muted">SQLite с образцами в каталоге данных Studio. Рабочей базы в ней нет; сброс возвращает образцы.</p>
+      <p className="fx-hint">SQLite с образцами в каталоге данных Studio. Рабочей базы в ней нет; сброс возвращает образцы.</p>
       {base && <div className="counts">{Object.entries(base.counts).map(([k, v]) => <span key={k} className="chip">{LABELS[k] || k}: {v}</span>)}</div>}
-      <div className="row"><button className="secondary" onClick={async () => { try { await call('testBaseReset'); await reload(); } catch (e) { fail(e); } }}>Сбросить тестовую базу</button></div>
+      <div className="row"><button className="fx-btn" onClick={async () => { try { await call('testBaseReset'); await reload(); } catch (e) { fail(e); } }}>Сбросить тестовую базу</button></div>
+      </div>
     </section>
   );
 }

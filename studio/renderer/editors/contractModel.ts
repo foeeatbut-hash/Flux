@@ -1,8 +1,8 @@
 /**
- * Договор подпрограммы глазами редакторов: какие привязки существуют и какого они типа.
+ * Договор программы глазами редакторов: какие привязки существуют и какого они типа.
  *
  * Данные Flux берутся из тех же JSON Schema (modules/dataSchemas.ts), по которым оболочка проверяет
- * сообщения и форму при выпуске, — второй список полей не ведётся. Свои значения подпрограммы
+ * сообщения и форму при выпуске, — второй список полей не ведётся. Свои значения программы
  * (state.*, calc.out.*) разработчик объявляет в договоре сам.
  */
 import { dataSchemas } from '../../../modules/dataSchemas';
@@ -60,7 +60,7 @@ export function resolveBinding(path: string, contract: ContractDraft): Resolved 
   }
   if (root !== 'flux' || !name) return { ok: false, reason: `привязка «${path}» должна начинаться с flux., state. или calc.out.` };
   if (!isResource(name)) return { ok: false, reason: `у Flux нет данных «${name}»` };
-  if (!contract.reads.includes(name)) return { ok: false, reason: `данные «${name}» не разрешены: добавьте их в договоре в «Что читает подпрограмма»` };
+  if (!contract.reads.includes(name)) return { ok: false, reason: `данные «${name}» не разрешены: добавьте их в договоре в «Что читает программа»` };
   const schema = stepSchema(dataSchemas[name], keys);
   if (!schema) return { ok: false, reason: `в данных «${name}» нет пути «${keys.join('.')}»` };
   return { ok: true, type: valueType(schema), schema, kind: 'input' };

@@ -1,5 +1,5 @@
 /**
- * Типы черновика подпрограммы для редакторов Studio.
+ * Типы черновика программы для редакторов Studio.
  *
  * Форма — тот же form.json, что читает и рисует Flux (modules/runtime/form.ts, схема —
  * modules/formSchema.ts): единица, пояснение и условие показа исполняются во Flux так же, как в
@@ -42,10 +42,10 @@ export type CodeLanguage = 'typescript' | 'javascript' | 'python' | 'rust' | 'cp
 export interface CodeFile { path: string; language: CodeLanguage; text: string }
 
 export type ValueType = 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array';
-/** Значение, которое подпрограмма отдаёт (calc.out.*) или хранит (state.*) */
+/** Значение, которое программа отдаёт (calc.out.*) или хранит (state.*) */
 export interface ContractValue { name: string; type: ValueType; /** Для списка: тип элемента */ items?: ValueType; unit?: string; description?: string }
 
-/** Договор подпрограммы: что она читает у Flux и что кладёт в state и calc.out */
+/** Договор программы: что она читает у Flux и что кладёт в state и calc.out */
 export interface ContractDraft {
   version: 1;
   reads: Resource[];

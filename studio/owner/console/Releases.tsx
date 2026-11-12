@@ -23,7 +23,7 @@ export default function Releases() {
     <ErrorLine text={error || action.error} />
     <div className="scroll">
       <table className="tbl">
-        <thead><tr><th>Подпрограмма</th><th>Версия</th><th>Канал</th><th>Состояние</th><th /></tr></thead>
+        <thead><tr><th>Программа</th><th>Версия</th><th>Канал</th><th>Состояние</th><th /></tr></thead>
         <tbody>{releases.map(r => <tr key={r.id}>
           <td>{r.moduleId}</td><td>{r.version}</td><td>{channelName(r.channel)}</td>
           <td>{r.state === 'revoked' ? <Badge tone="bad">Отозван</Badge> : <Badge tone="ok">Выпущен</Badge>}</td>

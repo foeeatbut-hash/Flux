@@ -33,6 +33,7 @@ async function build(outDir: string) {
   });
   fs.copyFileSync(path.join(root, 'studio/renderer/editors/harness/index.html'), path.join(outDir, 'index.html'));
   fs.copyFileSync(path.join(root, 'studio/renderer/styles.css'), path.join(outDir, 'styles.css'));
+  await require('../studio/build-renderer.cjs').buildFluxCss(outDir);
   return { bytes: Object.values(result.metafile.outputs)[0].bytes };
 }
 

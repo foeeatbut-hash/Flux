@@ -87,7 +87,30 @@
         "modules/trust/ownerEdit.ts",
         "server/routes/moduleCertRequests.ts",
         "server/updateDelegationCleanup.ts",
-        "server/routes/updateCampaigns.ts"
+        "server/routes/updateCampaigns.ts",
+        "studio/build-renderer.cjs",
+        "studio/renderer/flux.css",
+        "studio/renderer/flux-css-entry.js",
+        "studio/renderer/theme.ts",
+        "studio/renderer/Workspace.tsx",
+        "studio/renderer/Modules.tsx",
+        "studio/renderer/auth/ConnectScreen.tsx",
+        "studio/renderer/auth/LoginScreen.tsx",
+        "studio/shell/ownerLogin.ts",
+        "studio/shared/ownerKey.ts",
+        "studio/shared/vaultRead.cjs",
+        "studio/shared/database-runtime.cjs",
+        "scripts/gen-studio-icons.cjs",
+        "studio/icons/studio-developer.ico",
+        "studio/icons/studio-owner.ico",
+        "studio/icons/studio-developer.png",
+        "studio/icons/studio-owner.png",
+        "src/components/auth/LoginFrame.tsx",
+        "src/components/auth/LoginForm.tsx",
+        "src/components/auth/OwnerLoginPanel.tsx",
+        "src/components/auth/DatabaseUriForm.tsx",
+        "src/components/window/FloatingFrame.tsx",
+        "src/components/ui/controls.tsx"
       ]
     }
   ],
@@ -301,6 +324,50 @@
       "resources": [],
       "prerequisites": [],
       "timeoutMs": 900000
+    },
+    {
+      "id": "studio-icons",
+      "path": "scripts/test-studio-icons.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "unified-login-ui",
+      "path": "scripts/test-unified-login-ui.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files",
+        "loopback-http"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_CHROME"
+        }
+      ],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-electron-start",
+      "path": "scripts/test-studio-electron-start.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_CHROME"
+        }
+      ],
+      "timeoutMs": 300000
     }
   ],
   "actions": [
@@ -334,6 +401,28 @@
           "layer": "unit",
           "claims": [
             "Вход, отказ без права и неверный пароль через настоящие маршруты; токен остаётся в главном процессе; чужое окно и неизвестное действие отклоняются"
+          ]
+        },
+        {
+          "suite": "studio-shell",
+          "layer": "unit",
+          "claims": [
+            "Вход владельца файлом ключа: выбор файла, неверный пароль, синтетический ключ, токен окну не уходит, разделы владельца видны только владельцу",
+            "Подключение не отменяет само себя: сброс прежнего подключения не прерывает текущее"
+          ]
+        },
+        {
+          "suite": "unified-login-ui",
+          "layer": "browser-live",
+          "claims": [
+            "Экран входа Studio совпадает с экраном Flux до пикселя в обеих темах: карточка, поля, кнопка, фон"
+          ]
+        },
+        {
+          "suite": "studio-ui",
+          "layer": "browser-live",
+          "claims": [
+            "Порядок шагов: подключение к базе, логин и пароль, «Вход владельца»; обе темы, снимки"
           ]
         }
       ],
@@ -375,6 +464,13 @@
           "layer": "browser-live",
           "claims": [
             "Поле адреса скрыто как пароль в обеих темах"
+          ]
+        },
+        {
+          "suite": "studio-electron-start",
+          "layer": "browser-live",
+          "claims": [
+            "Настоящий запуск собранной Studio под Electron доходит до экрана входа: заставка погашена, рамка окна на месте"
           ]
         }
       ],
@@ -446,6 +542,20 @@
           "claims": [
             "Проверка бандла проходит у разработчика, падает у владельца и на мутациях (модуль владельца в сборке разработчика, метка в пакете и в asar)",
             "Версия обеих сборок совпадает с Flux, имена exe по решению владельца"
+          ]
+        },
+        {
+          "suite": "studio-icons",
+          "layer": "unit",
+          "claims": [
+            "У Flux, Studio и Studio — Владелец разные значки: хеши, размеры 16–256, подключение в electron-builder, значок окна = значок exe"
+          ]
+        },
+        {
+          "suite": "studio-bundle",
+          "layer": "unit",
+          "claims": [
+            "Вход владельца файлом ключа есть в обеих сборках, а подпись выпусков, лицензий и запись хранилища у разработчика по-прежнему запрещены"
           ]
         }
       ],
