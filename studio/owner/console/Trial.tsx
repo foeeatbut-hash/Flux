@@ -60,6 +60,10 @@ export default function Trial({ requestId }: { requestId: string }) {
         offerFile: async file => { setLogs(prev => [...prev.slice(-199), `файл: ${file.name} (${file.bytes.length} Б) — во Flux его предложат сохранить`]); return 'saved'; },
         // В пробном запуске владельца диалога выбора файла нет: программа получает отказ человека, как при saveFile запись только в журнал
         pickFile: async () => { setLogs(prev => [...prev.slice(-199), 'файл: программа просит файл пользователя — во Flux откроется диалог выбора; здесь ей отвечено отказом']); return 'cancelled'; },
+        // Диалоги Flux, заголовок и несохранённое: в пробном запуске владельца диалогов нет — программе отвечено отказом, строка в журнал
+        dialog: async request => { setLogs(prev => [...prev.slice(-199), `диалог: ${request.kind} «${request.title}» — во Flux его покажет окно Flux; здесь отвечено отказом`]); return request.kind === 'confirm' ? false : null; },
+        setTitle: text => setLogs(prev => [...prev.slice(-199), `заголовок окна: ${text || 'название программы'}`]),
+        setUnsaved: (unsaved, text) => setLogs(prev => [...prev.slice(-199), `несохранённое: ${unsaved ? `есть ${text}`.trim() : 'нет'}`]),
         onBeat: () => undefined, openWindow: (name, params) => { setLogs(prev => [...prev.slice(-199), `окно: ${name} ${JSON.stringify(params)} — во Flux откроется обычным окном`]); return true; },
         params: () => ({}), broadcast: data => setLogs(prev => [...prev.slice(-199), `обмен: ${JSON.stringify(data).slice(0, 120)}`]),
       } : undefined,

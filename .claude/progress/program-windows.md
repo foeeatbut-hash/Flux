@@ -8,7 +8,7 @@
 ## Шаги
 - [x] 1. Договор и мост: новые op, схема, клиент, типы + проверки.
 - [x] 2. Flux: диалоги, заголовок/размер, вопрос о несохранённом + проверки в Chromium.
-- [ ] 3. Studio и документы.
+- [x] 3. Studio и документы.
 
 ## Где остановился
 Шаг 1 готов: op dialog-confirm/alert/prompt, window-title, window-unsaved, options в window-open; клиент, типы, мост, scripts/test-modules-windows.ts (71 проверка, живая часть в Chromium). tsc 0. Дальше шаг 2: ModuleFrame/ModuleHost (диалог WindowDialog, titles, размер окна в windowStore.openAnother, guardClose для setUnsaved).
@@ -18,3 +18,5 @@ Chromium: FLUX_CHROME=/opt/pw-browsers/chromium-1243/chrome-linux64/chrome
 Проверка: стенд scripts/fixtures/program-windows-ui.* + scripts/test-modules-windows-ui.ts (77 проверок, обе темы, снимки /tmp/program-windows), Vite на 5471 (остановить в конце).
 Размер: минимум окна Flux 420x260 (MIN_W/MIN_H) важнее 320x240 договора; записать в отчёт и документы.
 Следующее: шаг 3 — Studio (диалог Studio, журнал запуска), документы (module-api.md, roadmap modules.md, 03-programs modules.md/studio.md, studio-next.md + «Влито» #165).
+
+Шаг 3 готов: RunDialog.tsx + Run.tsx/Trial.tsx, документы, test-studio-page (95). Полный прогон modules studio architecture: 60 наборов, 3 падения (restart-ui и studio-electron-start — известные; store-ui прошёл отдельно 48/48, падал только в общем прогоне). Осталось: финальный коммит (git rm файла хода), push, отчёт.

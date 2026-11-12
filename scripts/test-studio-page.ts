@@ -27,6 +27,9 @@ import { unpackBundle } from '../modules/trust/bundle';
 import { publicHexOf, sealEnvelope } from '../modules/trust/envelope';
 import { readCertificates, verifyRequest } from '../modules/trust/verify';
 import { resources } from '../modules/contract';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import RunDialog from '../studio/renderer/sections/RunDialog';
 
 const { buildDeveloperAssets } = require('../studio/build-assets.cjs');
 let passed = 0;
@@ -183,6 +186,11 @@ async function main() {
   ok('в типах все ресурсы договора', resources.every(r => types.includes(`'${r}'`)));
   ok('в типах мост: read, compute, state, net, saveFile, windows, onTheme', ['read<', 'compute(', 'state:', 'net:', 'saveFile(', 'windows:', 'onTheme('].every(x => types.includes(x)));
   ok('в типах нет методов записи в данные Flux', !/\b(?:write|update|delete|create)\w*\s*\(/.test(types.replace('windows', '')));
+  ok('в типах окна программы: flux.dialogs, flux.window.setTitle/setUnsaved, options у windows.open', ['dialogs: {', 'confirm(options', 'alert(options', 'prompt(options', 'setTitle(text: string)', 'setUnsaved(unsaved: boolean', 'options?: { title?: string; width?: number; height?: number }'].every(x => types.includes(x)));
+  const dialogHtml = (request: any) => renderToStaticMarkup(React.createElement(RunDialog, { program: 'Ведомость', request, onAnswer: () => undefined }));
+  const confirmHtml = dialogHtml({ kind: 'confirm', title: 'Удалить?', text: 'Строка <b>5</b>', ok: 'Удалить', danger: true });
+  ok('диалог Studio: название программы и заголовок в шапке, кнопки программы, текст экранирован', /Ведомость — Удалить\?/.test(confirmHtml) && />Удалить</.test(confirmHtml) && />Отмена</.test(confirmHtml) && !/<b>5<\/b>/.test(confirmHtml) && /&lt;b&gt;5/.test(confirmHtml));
+  ok('диалог Studio: у сообщения одна кнопка, у строки ввода — поле с пределом', !/>Отмена</.test(dialogHtml({ kind: 'alert', title: 'a', text: 'b' })) && /maxLength="30"|maxlength="30"/i.test(dialogHtml({ kind: 'prompt', title: 'a', label: 'Имя', maxLength: 30 })));
   console.log(`\nПроверок: ${passed}`);
 }
 main().then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); });

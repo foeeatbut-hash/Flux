@@ -9,6 +9,8 @@ import { MODULE_SANDBOX } from '../../../modules/protocol';
 import { themeKeys, type LaunchContext, type ModuleManifest, type ThemeTokens } from '../../../modules/contract';
 import { call } from '../call';
 import { trialProgramCall } from '../../shared/trialPrograms';
+import type { PageDialog, PageDialogAnswer } from '../../../modules/page/model';
+import RunDialog from './RunDialog';
 
 interface Started {
   session: string; url: string; language: string;
@@ -43,6 +45,7 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
   // «Перезапустить») или сменился проект, ответ прежнего может прийти позже — окно с его сеансом мост бы отверг
   // и оно осталось бы пустым, поэтому опоздавший ответ отбрасывается
   const attempt = useRef(0);
+  const [dialog, setDialog] = useState<{ request: PageDialog; resolve: (answer: PageDialogAnswer) => void } | null>(null);
   latest.current = pick;
 
   const add = (kind: string, text: string, level: LogRow['level'] = 'info') =>
@@ -97,7 +100,17 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
           throw new Error(reply.code || 'FAILED');
         },
         onBeat: () => undefined,
-        openWindow: (page, params) => { add('окно', `${page} ${JSON.stringify(params)} — во Flux откроется обычным окном`); return true; },
+        openWindow: (page, params, options) => {
+          const extra = options ? ` (${[options.title && `заголовок «${options.title}»`, options.width && `ширина ${options.width}`, options.height && `высота ${options.height}`].filter(Boolean).join(', ')})` : '';
+          add('окно', `${page} ${JSON.stringify(params)}${extra} — во Flux откроется обычным окном`); return true;
+        },
+        // Диалоги Flux: в Studio показывает диалог Studio, ответ человека идёт программе как во Flux; закрытие запуска закрывает диалог без ответа
+        dialog: request => new Promise<PageDialogAnswer>(resolve => {
+          add('диалог', `${request.kind}: «${request.title}»`);
+          setDialog({ request, resolve: answer => { add('диалог', `ответ: ${request.kind === 'prompt' ? (answer === null ? 'отказ' : `строка, ${String(answer).length} зн.`) : request.kind === 'confirm' ? (answer ? 'да' : 'нет') : 'прочитано'}`); resolve(answer); } });
+        }),
+        setTitle: text => add('заголовок окна', text ? `«${text}» — во Flux окно зовётся «${started.manifest.name} — ${text}»` : 'возвращено название программы'),
+        setUnsaved: (unsaved, text) => add('несохранённое', unsaved ? `есть${text ? `: «${text}»` : ''} — во Flux при закрытии окна спросят «Закрыть без сохранения?»` : 'нет'),
         params: () => ({}), broadcast: data => add('обмен', JSON.stringify(data).slice(0, 120)),
       } : undefined,
       onFailure: kind => add('сбой', String(kind), 'error'),
@@ -105,7 +118,7 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
     bridge.current = b;
     const listener = (event: MessageEvent) => { void b.handle(event); };
     window.addEventListener('message', listener);
-    return () => { window.removeEventListener('message', listener); b.dispose(); bridge.current = null; };
+    return () => { window.removeEventListener('message', listener); b.dispose(); bridge.current = null; setDialog(current => { current?.resolve(null); return null; }); };
   }, [started]);
 
   const project = contexts.find(c => c.id === pick.projectId);
@@ -174,6 +187,7 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
           sandbox={MODULE_SANDBOX} referrerPolicy="no-referrer" src={`${started.url}#${started.session}`}
           allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'" />
       )}
+      {dialog && started && <RunDialog program={started.manifest.name} request={dialog.request} onAnswer={answer => { setDialog(null); dialog.resolve(answer); }} />}
       <h4>Журнал сообщений моста</h4>
       {log.length === 0 ? <div className="empty small">Сообщений пока нет.</div> : (
         <table className="log"><thead><tr><th>Время</th><th>Вид</th><th>Сообщение</th></tr></thead>
