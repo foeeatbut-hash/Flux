@@ -70,6 +70,17 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
       page: isPage ? {
         loadState: () => kept.current, keepState: state => { kept.current = state; },
         offerFile: async file => { add('файл', `${file.name} (${file.bytes.length} Б) — во Flux Flux спросит и сохранит через диалог`); return 'saved'; },
+        // Файл пользователя: диалог показывает главный процесс Studio, как Flux в настоящем запуске; программа получает только выбранный файл
+        pickFile: async request => {
+          const reply = await call<{ ok: boolean; code?: string; name?: string; data?: string }>('runPickFile', { accept: request.accept });
+          if (reply.ok && reply.name !== undefined && reply.data !== undefined) {
+            const bytes = Uint8Array.from(atob(reply.data), c => c.charCodeAt(0));
+            add('файл', `${reply.name} (${bytes.length} Б) выдан программе`); return { name: reply.name, mime: '', bytes };
+          }
+          if (reply.code === 'CANCELLED') { add('файл', 'человек отказался выбирать файл'); return 'cancelled'; }
+          if (reply.code === 'LIMIT') { add('файл', 'файл больше 512 КиБ — программе не выдан', 'warn'); return 'limit'; }
+          throw new Error(reply.code || 'FAILED');
+        },
         onBeat: () => undefined,
         openWindow: (page, params) => { add('окно', `${page} ${JSON.stringify(params)} — во Flux откроется обычным окном`); return true; },
         params: () => ({}), broadcast: data => add('обмен', JSON.stringify(data).slice(0, 120)),

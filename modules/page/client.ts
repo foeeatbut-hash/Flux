@@ -146,6 +146,16 @@ const api = {
     else { let raw = ''; for (let i = 0; i < data.length; i += 0x8000) raw += String.fromCharCode(...data.subarray(i, i + 0x8000)); text = btoa(raw); encoding = 'base64'; }
     return request('page', { op: 'file-offer', name, mime, data: text, encoding }, 120_000);
   },
+  /**
+   * Попросить у пользователя файл (добавлено к v2): Flux покажет системный диалог, человек выберет файл сам,
+   * программа получит только его имя и содержимое (до 512 КиБ). Отказ человека — ошибка CANCELLED.
+   * `accept` — подсказка диалогу, например ['.csv', '.txt']; выбрать можно и другой файл, проверяйте содержимое.
+   */
+  async openFile(options: { accept?: string[] } = {}) {
+    const reply = await request<{ name: string; size: number; mime: string; data: string; encoding: 'base64' }>('page', { op: 'file-pick', ...(options.accept ? { accept: options.accept } : {}) }, 300_000);
+    const bytes = () => Uint8Array.from(atob(reply.data), c => c.charCodeAt(0));
+    return { name: reply.name, size: reply.size, mime: reply.mime, bytes, text: () => new TextDecoder().decode(bytes()) };
+  },
   /** Окна программы: каждое — обычное окно Flux с этой же страницей пакета либо другой, объявленной в manifest.json (pages) */
   windows: {
     open: (page: string, params: Record<string, unknown> = {}) => request<null>('page', { op: 'window-open', page, params }, 5000),

@@ -67,7 +67,7 @@ jobs:
         run: |
           node_modules/.bin/tsc --noEmit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($suite in @('modules-contract', 'modules-page', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'modules-languages', 'modules-wasm', 'modules-python', 'modules-parity', 'modules-scheduler', 'modules-compute', 'modules-controls', 'modules-connections', 'architecture')) {
+          foreach ($suite in @('modules-contract', 'modules-page', 'modules-openfile', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'modules-languages', 'modules-wasm', 'modules-python', 'modules-parity', 'modules-scheduler', 'modules-compute', 'modules-controls', 'modules-connections', 'architecture')) {
             node --import tsx "scripts/test-$suite.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }

@@ -6,7 +6,7 @@ import { validMessage } from './schemas';
 import { ComputeError, codeOf, type ComputeErrorCode } from './engine/types';
 import { encodeJson } from './engine/json';
 import type { ConnectCall, ConnectErrorCode } from './connections/model';
-import { PAGE_LIMITS, saveNameProblem, WINDOW_LIMITS } from './page/model';
+import { openAcceptProblem, PAGE_LIMITS, saveNameProblem, WINDOW_LIMITS } from './page/model';
 
 export interface ModuleBridgeOptions {
   frame: () => Window | null;
@@ -42,6 +42,11 @@ export interface ModuleBridgeOptions {
     loadState: () => Record<string, unknown>;
     keepState: (state: Record<string, unknown>) => void;
     offerFile: (file: { name: string; mime: string; bytes: Uint8Array }) => Promise<'saved' | 'cancelled'>;
+    /**
+     * Файл пользователя (flux.openFile, добавлено к v2): окно Flux показывает системный диалог, человек выбирает файл,
+     * программа получает имя и содержимое только его. Нет поля — хост этого не умеет, программе отвечают DENIED.
+     */
+    pickFile?: (request: { accept: string[] }) => Promise<{ name: string; mime: string; bytes: Uint8Array } | 'cancelled' | 'limit'>;
     onBeat: () => void;
     /** Свои окна программы: Flux открывает обычное окно с этой страницей пакета; false — предел или страницы нет */
     openWindow: (page: string, params: Record<string, unknown>) => boolean;
@@ -128,6 +133,8 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     finally { connecting.delete(message.id); }
   }
   let offering = false;
+  let picking = false;
+  let pickedAt = 0;
   let offeredAt = 0;
   async function runPage(message: { id: string } & PageOp) {
     const answer = (result: { data: unknown } | { code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' }) => {
@@ -154,6 +161,26 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     if (message.op === 'state-keep') {
       if (messageBytes(message.state) > PAGE_LIMITS.stateBytes) { answer({ code: 'LIMIT' }); return; }
       page.keepState(message.state); answer({ data: null }); return;
+    }
+    if (message.op === 'file-pick') {
+      if (!page.pickFile) { answer({ code: 'DENIED' }); return; }
+      if (openAcceptProblem(message.accept)) { answer({ code: 'DENIED' }); return; }
+      // Один диалог за раз и не чаще раза в секунду, как у «отдать файл»; программа не заваливает человека окнами
+      if (picking || Date.now() - pickedAt < 1000) { answer({ code: 'LIMIT' }); return; }
+      picking = true; pickedAt = Date.now();
+      try {
+        const picked = await page.pickFile({ accept: message.accept ?? [] });
+        if (picked === 'cancelled') answer({ code: 'CANCELLED' });
+        else if (picked === 'limit' || picked.bytes.length > PAGE_LIMITS.openBytes) answer({ code: 'LIMIT' });
+        else {
+          let raw = '';
+          for (let i = 0; i < picked.bytes.length; i += 0x8000) raw += String.fromCharCode(...picked.bytes.subarray(i, i + 0x8000));
+          // Имя без путей: даже если хост ошибётся, программа не узнает папок человека
+          answer({ data: { name: picked.name.replace(/^.*[\\/]/, '').slice(0, 100), size: picked.bytes.length, mime: picked.mime || 'application/octet-stream', data: btoa(raw), encoding: 'base64' } });
+        }
+      } catch { answer({ code: 'FAILED' }); }
+      finally { picking = false; }
+      return;
     }
     // Файл пользователю: одно окно диалога за раз и не чаще раза в секунду, имя без путей
     if (saveNameProblem(message.name)) { answer({ code: 'DENIED' }); return; }

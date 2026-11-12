@@ -25,6 +25,8 @@ const THEMES: Record<string, string[]> = {
     page: config.withPage === false ? undefined : {
       loadState: () => state, keepState: next => { for (const k of Object.keys(state)) delete state[k]; Object.assign(state, next); },
       offerFile: async file => { w.__saved.push({ name: file.name, mime: file.mime, size: file.bytes.length }); return 'saved'; },
+      // Файл пользователя (flux.openFile): ответ задаёт проверка через window.__pickNext, запросы копятся в __picks
+      pickFile: async request => { (w.__picks ||= []).push(request); return w.__pickNext ?? 'cancelled'; },
       onBeat: () => { w.__beats++; },
       openWindow: (page, params) => { w.__windows.push({ page, params }); return true; },
       params: () => ({}), broadcast: () => undefined,

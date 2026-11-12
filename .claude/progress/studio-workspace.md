@@ -9,7 +9,7 @@
 - [x] 4. Сквозной набор (test-studio-journey), слова (test-studio-words), UI владельца 1180/1024, манифесты, workflow, studio.md. Осталось: подсказка «путь за 5 шагов» уже есть (шаг 2); A3, A6, A7 не начаты
 - [x] A3. «Собрать»: esbuild-wasm в потоке (studio/shared/tsBuild*.ts), кнопка «Собрать», запуск/проверка/отправка собирают сами, набор test-studio-tsbuild (34). Типы не сверяются (только синтаксис и подключения); логика остаётся одним файлом (compileLogic)
 - [x] A6. Адрес базы у лежащего рядом Flux: studio/shared/fluxAddress.ts (читает config.json Flux: pdm-app, REMOTE+database_url), действия fluxBase/connectFlux, экран подключения, набор test-studio-flux-address (19) + блок в test-studio-ui. Только общая MariaDB/MySQL; рядом лежащий файл подключения не искался (у Flux такого нет)
-- [ ] A7. flux.openFile (добавлением к v2)
+- [x] A7. flux.openFile: op file-pick, bridge pickFile (необязательное поле), modules/page/pickFile.ts, electron/modulePickFile.ts + канал modules:pick-file, Studio runPickFile; в пробном запуске владельца файл не выдаётся (CANCELLED + журнал); набор test-modules-openfile (48), docs module-api.md/modules.md, пример в заготовке страницы
 - [ ] 5. PR, CI
 
 ## Для продолжения в новой сессии (12 ноября 2026)

@@ -89,11 +89,15 @@ async function main() {
 
   console.log('Служба разработчика');
   const storage = { isEncryptionAvailable: () => true, encryptString: (s: string) => Buffer.from(s).reverse(), decryptString: (b: Buffer) => Buffer.from(b).reverse().toString() };
+  const dialogs: Array<{ title: string; filters: unknown[] }> = [];
+  const picked: { path: string | null } = { path: null };
   const service = new DeveloperService({
     dir: path.join(temp, 'data'), storage, version: '1.0.0', session: () => ({ origin: 'http://127.0.0.1:1', token: 'token-dev-long-enough', user: { id: 'dev', name: 'Разработчик' }, owner: false }),
     assets: { templatesRoot: path.join(app, 'templates'), runtimeDir: path.join(app, 'runtime') },
     engine: createControlsEngine({ workerFile: path.join(app, 'controls-worker.cjs'), timeoutMs: 5000 }),
     tsBuilder: builder,
+    // Диалог выбора файла главного процесса: подставляется проверкой (flux.openFile в запуске Studio)
+    pickDataFile: async options => { dialogs.push(options); return picked.path; },
   });
   const call = (action: string, args: Record<string, unknown> = {}): Promise<any> => service.handle(action as never, args);
   ok('действие «build» объявлено', ALL_ACTIONS.includes('build'));
@@ -121,6 +125,18 @@ async function main() {
   const served = service.asset('flux-module://run/ui/extra.js');
   ok('запуск отдаёт ui/extra.js, собранный из src/extra.ts', !!served && /привет/.test(Buffer.from(served.body as Uint8Array).toString('utf8')));
   ok('исходник .ts в черновик страницы не подмешивается, а собранный файл на диск не пишется', !fs.existsSync(path.join((await call('draftTree', { id: 'page-demo' })).folder, 'ui/extra.js')));
+
+  console.log('flux.openFile в запуске Studio');
+  const dataFile = path.join(temp, 'выбранный.csv'); fs.writeFileSync(dataFile, 'a;b');
+  picked.path = dataFile;
+  const reply = await call('runPickFile', { accept: ['.csv'] });
+  ok('диалог главного процесса назван по программе и отдаёт имя и содержимое только выбранного файла', reply.ok === true && reply.name === 'выбранный.csv' && Buffer.from(reply.data, 'base64').toString() === 'a;b' && !JSON.stringify(reply).includes(temp) && /Страница/.test(dialogs[0].title));
+  picked.path = null;
+  ok('отказ человека — CANCELLED', (await call('runPickFile', {})).code === 'CANCELLED');
+  ok('неверное расширение — DENIED, диалог не показан', (await call('runPickFile', { accept: ['csv'] })).code === 'DENIED' && dialogs.length === 2);
+  await call('runStart', { id: 'logic-demo' });
+  ok('запущена форма, а не страница — файл не выдаётся', await call('runPickFile', {}).then(() => false, (e: Error) => /со своим экраном/.test(e.message)));
+  ok('действие «runPickFile» объявлено', ALL_ACTIONS.includes('runPickFile'));
 
   console.log(`\nПройдено: ${passed}`);
   fs.rmSync(temp, { recursive: true, force: true });

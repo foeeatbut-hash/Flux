@@ -43,6 +43,33 @@ export function openModuleWindow(moduleId: string, page: string, params: Record<
 }
 
 /**
+ * Файл пользователя для программы (flux.openFile). В Flux диалог показывает главный процесс; в браузере, где
+ * главного процесса нет, — обычное окно выбора файла браузера. Возвращается только имя и содержимое выбранного файла.
+ */
+export async function pickFileForProgram(program: string, accept: string[]): Promise<{ name: string; mime: string; bytes: Uint8Array } | 'cancelled' | 'limit'> {
+  const ipc = (window as any).electron?.ipcRenderer as { invoke: (channel: string, ...args: unknown[]) => Promise<any> } | undefined;
+  if (ipc) {
+    const reply = await ipc.invoke('modules:pick-file', { program, accept });
+    if (reply?.ok) return { name: String(reply.name), mime: '', bytes: new Uint8Array(reply.bytes) };
+    if (reply?.code === 'CANCELLED') return 'cancelled';
+    if (reply?.code === 'LIMIT') return 'limit';
+    throw new Error(String(reply?.code || 'FAILED'));
+  }
+  return new Promise(resolve => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    if (accept.length) input.accept = accept.join(',');
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file) { resolve('cancelled'); return; }
+      resolve(file.size > PAGE_LIMITS.openBytes ? 'limit' : { name: file.name, mime: file.type, bytes: new Uint8Array(await file.arrayBuffer()) });
+    });
+    input.addEventListener('cancel', () => resolve('cancelled'));
+    input.click();
+  });
+}
+
+/**
  * Файл пользователю: страница на диск не пишет. Flux спрашивает человека и отдаёт файл системному диалогу
  * сохранения (обычная загрузка в окне Flux).
  */

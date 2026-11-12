@@ -106,12 +106,12 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
         <button type="button" className="fx-btn fx-btn-quiet" onClick={onBack}><ArrowLeft />Мои программы</button>
         <div className="studio-project-title"><strong>{name}</strong><span className="code fx-hint" title={tree?.folder}>{tree?.folder}</span></div>
         <div className="studio-actions" role="toolbar" aria-label="Запуск, проверка, публикация">
-          {hasTs && <button type="button" className="fx-btn" disabled={busy === 'build'} onClick={() => void build()}><Hammer />{busy === 'build' ? 'Собираем…' : 'Собрать'}</button>}
           <button type="button" className="fx-btn" onClick={() => void run()}><Play />Запустить</button>
           <button type="button" className="fx-btn" disabled={busy === 'check'} onClick={() => void check()}><ShieldCheck />{busy === 'check' ? 'Проверяем…' : 'Проверить'}</button>
           <button type="button" className="fx-btn fx-btn-primary" disabled={busy === 'check'} onClick={() => void publish()}><Send />Опубликовать</button>
         </div>
         <div className="studio-project-tools">
+          {hasTs && <button type="button" className="fx-ibtn" aria-label="Собрать TypeScript" title={busy === 'build' ? 'Собираем…' : 'Собрать TypeScript: ошибки по файлам и строкам'} disabled={busy === 'build'} onClick={() => void build()}><Hammer /></button>}
           <button type="button" className="fx-ibtn" aria-label="Поиск по проекту" title="Поиск по проекту" onClick={() => setFind(find ? null : { q: '', hits: null })}><Search /></button>
           <button type="button" className="fx-ibtn" aria-label="Скачать проект архивом" title="Скачать проект архивом" onClick={() => void call('projectExport', { id }).then(r => setNote((r as { saved?: boolean }).saved ? 'Архив проекта сохранён.' : '')).catch(e => setError(e.message))}><Download /></button>
           <button type="button" className="fx-ibtn" aria-label="Папка проекта" title={tree?.folder} onClick={() => setNote(`Папка проекта: ${tree?.folder}. Любой редактор и git видят те же файлы.`)}><FolderOpen /></button>

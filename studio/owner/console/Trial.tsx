@@ -58,6 +58,8 @@ export default function Trial({ requestId }: { requestId: string }) {
       page: page ? {
         loadState: () => kept.current, keepState: state => { kept.current = state; },
         offerFile: async file => { setLogs(prev => [...prev.slice(-199), `файл: ${file.name} (${file.bytes.length} Б) — во Flux его предложат сохранить`]); return 'saved'; },
+        // В пробном запуске владельца диалога выбора файла нет: программа получает отказ человека, как при saveFile запись только в журнал
+        pickFile: async () => { setLogs(prev => [...prev.slice(-199), 'файл: программа просит файл пользователя — во Flux откроется диалог выбора; здесь ей отвечено отказом']); return 'cancelled'; },
         onBeat: () => undefined, openWindow: (name, params) => { setLogs(prev => [...prev.slice(-199), `окно: ${name} ${JSON.stringify(params)} — во Flux откроется обычным окном`]); return true; },
         params: () => ({}), broadcast: data => setLogs(prev => [...prev.slice(-199), `обмен: ${JSON.stringify(data).slice(0, 120)}`]),
       } : undefined,

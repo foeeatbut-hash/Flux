@@ -75,6 +75,8 @@ export type PageOp =
   | { op: 'state-load' }
   | { op: 'state-keep'; state: Record<string, unknown> }
   | { op: 'file-offer'; name: string; mime?: string; data: string; encoding: 'utf8' | 'base64' }
+  /** Файл пользователя (добавлено к v2): диалог показывает Flux, программа получает имя и содержимое только выбранного файла */
+  | { op: 'file-pick'; accept?: string[] }
   | { op: 'beat' }
   | { op: 'window-open'; page: string; params?: Record<string, unknown> }
   | { op: 'params-load' }

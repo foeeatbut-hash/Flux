@@ -27,6 +27,8 @@ export const PAGE_LIMITS = {
   stateBytes: 256 * 1024,
   /** Файл «отдать пользователю»: в пределах одного сообщения моста (1 МиБ) с запасом на base64 */
   saveChars: 700_000,
+  /** Файл пользователя для программы (flux.openFile): до 512 КиБ; в base64 это ~700 тысяч знаков, как и у saveFile */
+  openBytes: 512 * 1024,
   /** Страница шлёт сигнал раз в beatMs; нет сигнала дольше hangMs (30 с: фоновые таймеры и тяжёлый расчёт не должны давать ложную тревогу) — «программа не отвечает» */
   beatMs: 2000,
   hangMs: 30_000,
@@ -83,6 +85,21 @@ export const WINDOW_LIMITS = { windows: 5, messageBytes: 64 * 1024, paramsBytes:
  */
 export function pageHung(s: { beats: number; lastBeat: number; now: number; hidden: boolean; hangMs: number }): boolean {
   return s.beats > 0 && !s.hidden && s.now - s.lastBeat > s.hangMs;
+}
+
+/** Расширения в просьбе о файле: «.csv», до десяти, латиница и цифры. Список лишь подсказывает диалогу фильтр, выбор остаётся за человеком */
+export const OPEN_ACCEPT = /^\.[A-Za-z0-9]{1,10}$/;
+export const OPEN_ACCEPT_MAX = 10;
+/** Причина словами, почему список расширений не годится, либо '' */
+export function openAcceptProblem(accept: unknown): string {
+  if (accept === undefined) return '';
+  if (!Array.isArray(accept) || accept.length > OPEN_ACCEPT_MAX) return `accept — список до ${OPEN_ACCEPT_MAX} расширений`;
+  return accept.every(item => typeof item === 'string' && OPEN_ACCEPT.test(item)) ? '' : 'расширение пишется так: ".csv"';
+}
+/** Фильтры диалога выбора файла: «Нужные файлы» плюс «Все файлы», чтобы человек не оказался в тупике */
+export function openFilters(accept: readonly string[] | undefined): Array<{ name: string; extensions: string[] }> {
+  const extensions = [...new Set((accept || []).filter(item => OPEN_ACCEPT.test(item)).map(item => item.slice(1).toLowerCase()))];
+  return extensions.length ? [{ name: `Нужные файлы (${extensions.map(e => `*.${e}`).join('; ')})`, extensions }, { name: 'Все файлы (*.*)', extensions: ['*'] }] : [{ name: 'Все файлы (*.*)', extensions: ['*'] }];
 }
 
 /** Имя файла для «отдать пользователю»: без путей и управляющих знаков */

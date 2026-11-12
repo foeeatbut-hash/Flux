@@ -61,6 +61,7 @@ export const messageSchemas = {
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'state-keep' }, state: { type: 'object' } }),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'file-offer' }, name: { type: 'string', minLength: 1, maxLength: 100 },
       mime: { type: 'string', maxLength: 100 }, data: { type: 'string', maxLength: 700_000 }, encoding }, ['flux', 'v', 'session', 'id', 'type', 'op', 'name', 'data', 'encoding']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'file-pick' }, accept: { type: 'array', maxItems: 10, items: { type: 'string', pattern: '^\\.[A-Za-z0-9]{1,10}$' } } }, ['flux', 'v', 'session', 'id', 'type', 'op']),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'beat' } }),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'window-open' }, page: { type: 'string', maxLength: 160 }, params: { type: 'object' } }, ['flux', 'v', 'session', 'id', 'type', 'op', 'page']),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'params-load' } }),

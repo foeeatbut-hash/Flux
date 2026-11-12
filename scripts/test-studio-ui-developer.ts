@@ -23,6 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { chromium, type Page } from 'playwright-core';
 import { createControlsEngine } from '../studio/shared/controlsEngine';
+import { createTsBuilder } from '../studio/shared/tsBuildHost';
 import { DeveloperService } from '../studio/shell/developer';
 import { ALL_ACTIONS } from '../studio/shell/actions';
 
@@ -96,6 +97,7 @@ async function main() {
     dir: data, storage, version: '1.0.0', session: () => ({ origin, token: 'token-dev-long-enough', user: { id: 'dev', name: 'Разработчик' }, owner: false }),
     assets: { templatesRoot: path.join(built.app, 'templates'), runtimeDir: path.join(built.app, 'runtime') },
     engine: createControlsEngine({ workerFile: path.join(built.app, 'controls-worker.cjs'), timeoutMs: 5000 }),
+    tsBuilder: createTsBuilder({ workerFile: path.join(built.app, 'ts-build-worker.cjs'), wasmFile: path.join(built.app, 'esbuild.wasm') }),
     capture: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4, 5, 6, 7, 8]),
   });
   // Страницу и runtime запущенной программы отдаёт та же функция, что обслуживает flux-module://
@@ -195,6 +197,19 @@ async function main() {
       await page.locator('.studio-hits button').first().waitFor();
       ok(`${theme}: поиск по проекту находит строки с переходом к файлу`, (await page.locator('.studio-hits').innerText()).includes('manifest.json'));
       await page.getByRole('button', { name: 'Поиск по проекту' }).click();
+
+      // «Собрать»: TypeScript собирается внутри Studio, ошибка приходит с файлом и строкой, нажатие открывает файл на этой строке
+      await service.handle('draftSave', { id: projectId, path: 'logic/extra.ts', text: 'export const ok = 1;\nexport const bad: = 2;\n' });
+      await page.getByRole('button', { name: 'Собрать TypeScript' }).click();
+      await page.locator('.studio-problem').filter({ hasText: 'logic/extra.ts:2' }).first().waitFor({ timeout: 60000 });
+      ok(`${theme}: «Собрать» показала ошибку сборки с файлом и строкой во вкладке «Проблемы»`, (await page.locator('.studio-problem-src').first().innerText()) === 'Сборка');
+      await page.locator('.studio-problem').filter({ hasText: 'logic/extra.ts:2' }).first().click();
+      await page.getByRole('tablist', { name: 'Открытые файлы' }).getByRole('tab', { name: 'extra.ts' }).waitFor();
+      ok(`${theme}: нажатие на ошибку открыло файл во вкладке`, true);
+      await service.handle('draftRemoveFile', { id: projectId, path: 'logic/extra.ts' });
+      await page.getByRole('button', { name: 'Собрать TypeScript' }).click();
+      await page.getByText('Сборка прошла').waitFor({ timeout: 60000 });
+      ok(`${theme}: после исправления «Собрать» сообщает, что ошибок нет`, true);
 
       // Редакторы формы из #155 во вкладке form.json
       await page.getByRole('tab', { name: 'form.json' }).first().click();

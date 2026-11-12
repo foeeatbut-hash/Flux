@@ -5,7 +5,7 @@ export const DEVELOPER_ACTIONS = [
   'templates', 'drafts', 'draftCreate', 'draftImport', 'draftTree', 'draftFile', 'draftBinary', 'draftSave', 'draftRemoveFile', 'draftRemove', 'draftState',
   'projectOpenFolder', 'projectWatch', 'projectUnwatch', 'projectExport', 'projectImportArchive', 'fileMkdir', 'fileRename', 'fileSearch', 'fileImport', 'keyEnsure',
   'testBase', 'testBaseReset',
-  'build', 'runStart', 'runRead', 'runCompute', 'runShot',
+  'build', 'runStart', 'runRead', 'runCompute', 'runShot', 'runPickFile',
   'check', 'publish', 'requests', 'errors', 'errorFixed',
 ] as const;
 export type DeveloperAction = typeof DEVELOPER_ACTIONS[number];

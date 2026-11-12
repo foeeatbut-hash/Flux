@@ -59,6 +59,8 @@ declare const flux: {
   net: { fetch(connection: string, path: string, init?: { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; headers?: Record<string, string>; body?: string }): Promise<FluxHttpReply> };
   /** Отдать файл пользователю: Flux спросит и сохранит через системный диалог (до ~500 КБ) */
   saveFile(name: string, data: string | Uint8Array, mime?: string): Promise<'saved'>;
+  /** Попросить у пользователя файл: Flux покажет системный диалог; программа получает имя и содержимое только выбранного файла (до ${PAGE_LIMITS.openBytes / 1024} КиБ). Отказ человека — ошибка CANCELLED */
+  openFile(options?: { accept?: string[] }): Promise<{ name: string; size: number; mime: string; bytes(): Uint8Array; text(): string }>;
   /** Свои окна программы (до ${WINDOW_LIMITS.windows}): страница index.html или объявленная в manifest.json pages */
   windows: {
     open(page: string, params?: Record<string, unknown>): Promise<null>;

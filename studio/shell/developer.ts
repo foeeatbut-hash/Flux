@@ -21,6 +21,7 @@ import { FolderWatcher } from '../shared/workspace';
 import { unzipInto, zipProject } from '../shared/archive';
 import { DeveloperKeyring, KeyringFailure, type SafeStorageLike } from '../shared/keyring';
 import { buildRequest, PublishRefused } from '../shared/publish';
+import { pickForProgram } from '../../modules/page/pickFile';
 import { tsEntries, withBuilt, problemLine, type TsBuildResult } from '../shared/tsBuild';
 import type { TsBuilder } from '../shared/tsBuildHost';
 import { assembleRuntime, loadRuntimeTemplates, type RuntimeTemplates } from '../shared/runtime';
@@ -53,6 +54,8 @@ export interface DeveloperDeps {
   emit?: (channel: string, data: unknown) => void;
   /** Папка новых проектов по умолчанию (по умолчанию — «projects» в данных Studio) */
   home?: string;
+  /** Диалог «дайте программе файл» (flux.openFile в запуске): показывает главный процесс; путь или null, если человек отказался */
+  pickDataFile?: (options: { title: string; filters: Array<{ name: string; extensions: string[] }> }) => Promise<string | null>;
   /** Период запасного опроса папки, мс */
   pollMs?: number;
 }
@@ -82,6 +85,8 @@ interface Run {
   runtime: string; html: string; css: string; context: LaunchContext; resources: readonly string[];
   /** Страница программы (договор v2): файлы ui/ отдаются из проекта, а не из собранного runtime.js */
   page: boolean;
+  /** Название программы: в заголовке диалога выбора файла */
+  name: string;
 }
 
 export class DeveloperService {
@@ -272,6 +277,13 @@ export class DeveloperService {
       case 'runStart': return this.startRun(moduleId(args.id), args);
       case 'runRead': return this.runRead(args);
       case 'runCompute': return this.runCompute(args);
+      case 'runPickFile': {
+        // Тот же порядок, что у Flux (modules/page/pickFile.ts): диалог главного процесса, читается только выбранный файл
+        if (!this.run?.page) throw new StudioFailure('Программа со своим экраном не запущена.');
+        if (!this.deps.pickDataFile) return { ok: false, code: 'DENIED' };
+        const reply = await pickForProgram({ program: this.run.name, accept: args.accept }, this.deps.pickDataFile);
+        return reply.ok ? { ok: true, name: reply.name, data: Buffer.from(reply.bytes).toString('base64') } : reply;
+      }
       case 'runShot': return this.shoot(moduleId(args.id), text(args.theme, 5), args.rect);
 
       // ── Проверка и публикация ────────────────────────────────────────────────
@@ -326,7 +338,7 @@ export class DeveloperService {
     const t = this.runtimeTemplates();
     this.run = {
       id: randomUUID(), language: languageOf(manifest), files, logicPath: manifest.logic, runtime: built.runtime, html: t.html, css: t.css,
-      context: this.context(args), resources: manifest.reads || [], page,
+      context: this.context(args), resources: manifest.reads || [], page, name: manifest.name,
     };
     return { session: this.run.id, url: page ? 'flux-module://run/ui/index.html' : 'flux-module://run/index.html', language: this.run.language, manifest: { id: manifest.id, name: manifest.name, version: manifest.version, reads: manifest.reads, entries: manifest.entries, connections: manifest.connections || [], ui: manifest.ui, pages: manifest.pages }, context: this.run.context };
   }

@@ -177,6 +177,11 @@ export function startShell(sections: ShellSection[] = []): void {
         const r = await dialog.showOpenDialog(win, { title: 'Архив проекта', properties: ['openFile'], filters });
         return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
       },
+      pickDataFile: async options => {
+        if (!win) return null;
+        const picked = await dialog.showOpenDialog(win, { ...options, buttonLabel: 'Отдать программе', properties: ['openFile'] });
+        return picked.canceled || !picked.filePaths[0] ? null : picked.filePaths[0];
+      },
       pickFolder: async title => {
         if (!win) return null;
         const picked = await dialog.showOpenDialog(win, { title, properties: ['openDirectory', 'createDirectory'] });

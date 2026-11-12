@@ -11,7 +11,7 @@ import { createConnector, type GrantChoice } from '../../services/moduleConnecti
 import { journalEvent } from '../../services/moduleJournalClient';
 import { bridge as hostBridge } from '../../services/moduleReleaseService';
 import type { GrantAsk } from '../../../modules/connections/model';
-import { pageState, pageStateKey, joinPageBus, openModuleWindow, offerFileToUser, pageTimings } from '../../services/modulePage';
+import { pageState, pageStateKey, joinPageBus, openModuleWindow, offerFileToUser, pickFileForProgram, pageTimings } from '../../services/modulePage';
 import { pageHung } from '../../../modules/page/model';
 import { useStore } from '../../store/store';
 import ConnectionPrompt from './ConnectionPrompt';
@@ -96,6 +96,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
       page: isPage ? {
         loadState: () => pageState.load(stateKey), keepState: state => pageState.keep(stateKey, state),
         offerFile: file => offerFileToUser(manifest.name, file),
+        pickFile: request => pickFileForProgram(manifest.name, request.accept),
         onBeat: () => { beats.current++; lastBeat.current = Date.now(); setHung(false); },
         openWindow: (target, params) => openModuleWindow(manifest.id, target, params),
         params: () => paramsRef.current,

@@ -13,6 +13,7 @@ import { setupChatDownload } from './chatDownload';
 import { setupLogs, appendLog, appendLogNow, logsDir } from './logs';
 import { diagnosticsWriter, setupDiagnostics } from './diagnostics';
 import { setupOwnerLogin } from './ownerLogin';
+import { registerModulePickFile } from './modulePickFile';
 import { setupAuthStorage, trustedAuthSender, readNativeSession, secureStorageAvailable } from './authStorage';
 import { setupDisplayWorkspace } from './displays';
 import { setupDesktopShell } from './desktopShell';
@@ -314,6 +315,7 @@ app.whenReady().then(async () => {
 
   setupOwnerLogin(() => '');
   setupAuthStorage(() => '');
+  registerModulePickFile();
   const mainClose = setupMainWindowClose(() => mainWindow, trustedAuthSender);
   const displayWorkspace = setupDisplayWorkspace(() => mainWindow, trustedAuthSender,
     (event, fields) => diagnosticsWriter()?.record(event, fields as any));
