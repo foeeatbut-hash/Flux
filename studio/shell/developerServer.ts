@@ -39,7 +39,7 @@ export async function ownRequests(s: Session): Promise<RequestRow[]> {
 
 export const ownBundle = (s: Session, id: string) => studioBinary(s.origin, 'requestBundle', { token: s.token, params: { id } });
 
-/** Последний выпуск подпрограммы автора: от него владелец видит разницу; null — подпрограмма новая */
+/** Последний выпуск программы автора: от него владелец видит разницу; null — программа новая */
 export async function lastRelease(s: Session, moduleId: string): Promise<{ version: string; state: string } | null> {
   const reply = await studioRequest<{ releases?: any[] }>(s.origin, 'releases', { token: s.token, query: { moduleId } });
   const live = (Array.isArray(reply.releases) ? reply.releases : []).filter(r => r.state !== 'revoked' && MODULE_VERSION.test(String(r.version)));
@@ -53,7 +53,7 @@ export async function versionWarning(origin: string, studio: string): Promise<st
     const health = await studioRequest<{ version?: string }>(origin, 'health', { timeoutMs: 5000 });
     const flux = clip(health.version, 40);
     if (flux && compareVersions(studio, flux) < 0) {
-      return `Studio ${studio} старее Flux ${flux} в общей базе: договор подпрограмм мог измениться. Обновите Studio перед отправкой.`;
+      return `Studio ${studio} старее Flux ${flux} в общей базе: договор программ мог измениться. Обновите Studio перед отправкой.`;
     }
   } catch { /* версия не определилась — предупреждать не о чем */ }
   return '';
@@ -70,7 +70,7 @@ export async function ownErrors(s: Session, owner = false): Promise<ErrorsView> 
     studioRequest<{ data?: any[] }>(s.origin, 'crashes', { token: s.token }),
     ownModules(s.origin, s.token),
   ]);
-  // Сервер отдаёт счётчики администратору по всем подпрограммам; в Studio каждый видит только свои, владелец — все
+  // Сервер отдаёт счётчики администратору по всем программам; в Studio каждый видит только свои, владелец — все
   const mine = new Set(modules.map(m => m.moduleId));
   return {
     reports: (Array.isArray(reports.data) ? reports.data : []).slice(0, 100).map((r: any) => ({

@@ -29,6 +29,11 @@ jobs:
         run: npm run test:studio-owner
       - name: Пакет владельца
         run: npm run build:studio-owner
+      # Настоящий запуск: пакет доходит до экрана входа, как у разработчика
+      - name: Электрон для проверки запуска
+        run: node node_modules/electron/install.js
+      - name: Запуск собранной Studio — Владелец до экрана входа
+        run: node --import tsx scripts/test-studio-electron-start.ts owner
       - name: Portable FluxStudio-Владелец.exe
         run: node studio/build.cjs owner --pack
       - name: Версия и файл

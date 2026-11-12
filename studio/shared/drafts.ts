@@ -1,5 +1,5 @@
 /**
- * Черновики проектов подпрограмм: лежат на компьютере разработчика, в общую базу не уходят.
+ * Черновики проектов программ: лежат на компьютере разработчика, в общую базу не уходят.
  *
  * Каталог `drafts/<идентификатор>/project/…` — файлы проекта ровно в том виде, как они попадут в пакет;
  * `state.json` рядом — версия-основа, предыдущий запрос, «что нового», канал. Пути проверяются теми же
@@ -15,7 +15,7 @@ import type { ProjectFiles } from './templates';
 export interface DraftState {
   /** Запрос, который этот черновик исправляет: «исправить и отправить заново» */
   parentRequest: string | null;
-  /** Выпуск, от которого владелец видит разницу; null — подпрограмма новая */
+  /** Выпуск, от которого владелец видит разницу; null — программа новая */
   baseRelease: string | null;
   changelog: string; comment: string; channel: ModuleChannel;
   template: string; createdAt: number; updatedAt: number;
@@ -30,7 +30,7 @@ export class Drafts {
   constructor(dir: string) { this.root = path.join(dir, 'drafts'); }
 
   private dir(id: string): string {
-    if (!MODULE_ID.test(id)) throw new DraftFailure('Некорректный идентификатор подпрограммы.');
+    if (!MODULE_ID.test(id)) throw new DraftFailure('Некорректный идентификатор программы.');
     return path.join(this.root, id);
   }
   private projectDir(id: string) { return path.join(this.dir(id), 'project'); }

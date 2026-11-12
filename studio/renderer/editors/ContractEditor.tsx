@@ -1,5 +1,5 @@
 /**
- * Договор подпрограммы: что она читает у Flux, какие значения хранит (state) и отдаёт (calc.out).
+ * Договор программы: что она читает у Flux, какие значения хранит (state) и отдаёт (calc.out).
  * Отсюда берутся список привязок формы, типы для кода и проверка при выпуске.
  */
 import React from 'react';
@@ -52,9 +52,9 @@ function Values({ title, hint, values, onChange, id }: { title: string; hint: st
 export function ContractEditor({ contract, onChange }: { contract: ContractDraft; onChange: (contract: ContractDraft) => void }) {
   return (
     <div className="ed-contract" data-testid="contract-editor">
-      <section aria-label="Что читает подпрограмма">
-        <h3 className="ed-title">Что читает подпрограмма</h3>
-        <p className="ed-hint">Только отмеченное. Остальные данные Flux подпрограмма не получит, а привязка к ним не пройдёт проверку.</p>
+      <section aria-label="Что читает программа">
+        <h3 className="ed-title">Что читает программа</h3>
+        <p className="ed-hint">Только отмеченное. Остальные данные Flux программа не получит, а привязка к ним не пройдёт проверку.</p>
         <div className="ed-checks">
           {resources.map(resource => (
             <Check key={resource} label={RESOURCE_NAMES[resource]} checked={contract.reads.includes(resource)}
@@ -62,7 +62,7 @@ export function ContractEditor({ contract, onChange }: { contract: ContractDraft
           ))}
         </div>
       </section>
-      <Values id="state" title="Своё состояние (state)" hint="Ввод пользователя в окне подпрограммы. Во Flux не записывается." values={contract.state} onChange={state => onChange({ ...contract, state })} />
+      <Values id="state" title="Своё состояние (state)" hint="Ввод пользователя в окне программы. Во Flux не записывается." values={contract.state} onChange={state => onChange({ ...contract, state })} />
       <Values id="outputs" title="Результат расчёта (calc.out)" hint="Значения, которые код отдаёт форме." values={contract.outputs} onChange={outputs => onChange({ ...contract, outputs })} />
     </div>
   );

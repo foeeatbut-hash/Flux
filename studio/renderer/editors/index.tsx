@@ -1,5 +1,5 @@
 /**
- * Редакторы подпрограммы в Flux Studio: форма (визуально и текстом), код, договор, правила.
+ * Редакторы программы в Flux Studio: форма (визуально и текстом), код, договор, правила.
  *
  * Оболочка подключает раздел как `studio-editors` и передаёт файлы проекта по договору
  * studio/shared/editorContract.ts (здесь он повторён в shellContract.ts): <Editors moduleId draft onChange />.
@@ -152,7 +152,7 @@ export default function Editors({ moduleId, draft, onChange }: EditorProps) {
       }}>
       {!stylesOk && <p className="ed-error" role="alert">Редакторы не запустились: окно не поддерживает нужные стили (constructable stylesheets). Обновите Studio до свежей версии.</p>}
       {saveError && <p className="ed-error ed-save" role="alert" data-testid="save-error">Не сохранено: {saveError}</p>}
-      <div className="ed-tabs" role="tablist" aria-label="Редакторы подпрограммы" onKeyDown={event => tabKeys<Tab>(event, TAB_KEYS, tab, setTab)}>
+      <div className="ed-tabs" role="tablist" aria-label="Редакторы программы" onKeyDown={event => tabKeys<Tab>(event, TAB_KEYS, tab, setTab)}>
         {TABS.map(([key, title]) => (
           <button key={key} type="button" role="tab" className="ed-tab" aria-selected={tab === key} tabIndex={tab === key ? 0 : -1} id={`ed-tab-${key}`} aria-controls={`ed-panel-${key}`} onClick={() => setTab(key)}>
             {title}

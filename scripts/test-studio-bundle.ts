@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { checkBundle, OUTSIDE_MARKERS, OWNER_MARKERS } from './check-studio-bundle';
+import { checkBundle, OUTSIDE_MARKERS, OWNER_LOGIN_MARKERS, OWNER_MARKERS } from './check-studio-bundle';
 
 const { buildStudio, TARGETS } = require('../studio/build.cjs');
 const root = path.resolve(__dirname, '..');
@@ -42,6 +42,18 @@ async function main() {
       .map((name) => path.join(owner, 'app', name)).filter((file) => fs.statSync(file).isFile()).map((file) => fs.readFileSync(file, 'latin1')).join('\n');
     const dead = OWNER_MARKERS.filter((marker) => !ownerText.includes(marker));
     ok(`каждая метка есть в сборке владельца (нет: ${dead.join(', ') || '—'})`, dead.length === 0);
+
+    // Вход владельца файлом ключа — не код владельца: он есть в обеих сборках (решение владельца 11 ноября 2026), а его метки не запретны
+    const developerText = fs.readdirSync(path.join(developer, 'app'), { recursive: true, encoding: 'utf8' })
+      .map((name) => path.join(developer, 'app', name)).filter((file) => fs.statSync(file).isFile()).map((file) => fs.readFileSync(file, 'latin1')).join('\n');
+    for (const marker of Object.keys(OWNER_LOGIN_MARKERS)) {
+      ok(`вход владельца: метка «${marker}» есть в обеих сборках`, developerText.includes(marker) && ownerText.includes(marker));
+      ok(`вход владельца: метка «${marker}» не запретна у разработчика`, !OWNER_MARKERS.includes(marker) && !(marker in OUTSIDE_MARKERS));
+    }
+    const staleLogin = Object.entries(OWNER_LOGIN_MARKERS).filter(([marker, file]) => !fs.readFileSync(path.join(root, file), 'utf8').includes(marker));
+    ok(`метки входа владельца живы (устарели: ${staleLogin.map(([m]) => m).join(', ') || '—'})`, staleLogin.length === 0);
+    ok('но подписи и запись хранилища у разработчика по-прежнему запрещены: generateVaults, signUpdate, issueLicense ищутся по тексту',
+      ['generateVaults', 'signUpdate', 'issueLicense'].every((marker) => OWNER_MARKERS.includes(marker) && !developerText.includes(marker)));
 
     const stale = Object.entries(OUTSIDE_MARKERS).filter(([marker, file]) => !fs.readFileSync(path.join(root, file), 'utf8').includes(marker));
     ok(`метки кода владельца вне studio/owner живы (устарели: ${stale.map(([m]) => m).join(', ') || '—'})`, stale.length === 0);
@@ -86,6 +98,12 @@ async function main() {
     const asar = path.join(temp, 'app.asar');
     fs.writeFileSync(asar, Buffer.from('FLUXPUBLIC1'));
     ok('метка внутри app.asar ловится', checkBundle(developer, asar).some((p) => /asar.*FLUXPUBLIC1/.test(p)));
+    // Сборка без входа владельца тоже отказ: иначе владелец не сможет войти в Studio прежним файлом ключа
+    const noLogin = path.join(temp, 'no-login');
+    await buildStudio({ target: 'developer', outDir: noLogin });
+    const mainFile = path.join(noLogin, 'app/main.cjs');
+    fs.writeFileSync(mainFile, fs.readFileSync(mainFile, 'utf8').split('signOwnerChallenge').join('signSomethingElse'));
+    ok('в пакете разработчика нет входа владельца — проверка падает', checkBundle(noLogin).some((p) => /нет входа владельца.*signOwnerChallenge/.test(p)));
     const noMap = path.join(temp, 'no-map');
     fs.cpSync(developer, noMap, { recursive: true }); fs.rmSync(path.join(noMap, 'meta.json'));
     ok('без карты сборки проверка не молчит', checkBundle(noMap).some((p) => /meta\.json/.test(p)));

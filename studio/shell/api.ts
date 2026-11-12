@@ -9,6 +9,9 @@
  */
 const ROUTES = {
   login: { method: 'POST', path: '/api/login' },
+  /** Вход владельца файлом ключа: одноразовый запрос сервера и ответ с подписью — те же маршруты, что у Flux */
+  ownerChallenge: { method: 'GET', path: '/api/owner/challenge' },
+  ownerLogin: { method: 'POST', path: '/api/owner/login' },
   session: { method: 'GET', path: '/api/studio/session' },
   modules: { method: 'GET', path: '/api/studio/modules' },
   /** Версия Flux в общей базе: для предупреждения «обновите Studio»; без входа */
@@ -21,15 +24,15 @@ const ROUTES = {
   releases: { method: 'GET', path: '/api/studio/releases' },
   /** Единственная запись Studio в рабочую базу при публикации: подписанный запрос (сервер проверяет подпись и право) */
   submit: { method: 'POST', path: '/api/modules/requests' },
-  /** Ошибки: обращения по своим подпрограммам и счётчики сбоев — существующие маршруты Flux, сервер сам отбирает «свои» */
+  /** Ошибки: обращения по своим программам и счётчики сбоев — существующие маршруты Flux, сервер сам отбирает «свои» */
   reports: { method: 'GET', path: '/api/feedback/reports' },
   crashes: { method: 'GET', path: '/api/modules/crashes' },
-  /** Отметка «исправлено в версии»: смена состояния обращения по подпрограмме, право проверяет сервер */
+  /** Отметка «исправлено в версии»: смена состояния обращения по программе, право проверяет сервер */
   transition: { method: 'POST', path: '/api/feedback/reports/:id/transition' },
 } as const;
 export type StudioRoute = keyof typeof ROUTES;
 
-/** Ответ сервера Studio короткий; больше мегабайта — признак чужого или сломанного ответа. Пакет подпрограммы — отдельно */
+/** Ответ сервера Studio короткий; больше мегабайта — признак чужого или сломанного ответа. Пакет программы — отдельно */
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_BUNDLE_BYTES = 40 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 20_000;
@@ -131,16 +134,32 @@ export async function studioBinary(origin: string, route: StudioRoute, options: 
 export interface StudioUser { id: string; name: string }
 export interface StudioModule { moduleId: string; version: string; state: string; createdAt: string; requests: number }
 
+const checkToken = (token: unknown): string => {
+  if (typeof token !== 'string' || token.length < 8 || token.length > 10_000) throw new StudioFailure('Flux не выдал сессию. Повторите вход.');
+  return token;
+};
+
+/** Право входа проверяет сам сервер: владелец или пользователь с явным правом разработки */
+async function confirmSession(origin: string, token: string, signal?: AbortSignal): Promise<{ token: string; user: StudioUser; owner: boolean }> {
+  const session = await studioRequest<{ ok?: boolean; owner?: boolean; user?: StudioUser }>(origin, 'session', { token, signal });
+  if (session.ok !== true || !session.user) throw new StudioFailure('Flux не подтвердил право входа в Studio.');
+  return { token, user: { id: String(session.user.id), name: String(session.user.name || '') }, owner: session.owner === true };
+}
+
 /** Вход: логин и пароль из Flux, затем проверка права на самом сервере */
 export async function signIn(origin: string, symbol: string, password: string, signal?: AbortSignal): Promise<{ token: string; user: StudioUser; owner: boolean }> {
   if (typeof symbol !== 'string' || !symbol.trim() || symbol.length > 200 || typeof password !== 'string' || password.length > 1024) {
     throw new StudioFailure('Введите логин и пароль Flux.');
   }
   const login = await studioRequest<{ token?: string }>(origin, 'login', { body: { symbol: symbol.trim(), password }, signal });
-  if (typeof login.token !== 'string' || login.token.length < 8 || login.token.length > 10_000) throw new StudioFailure('Flux не выдал сессию. Повторите вход.');
-  const session = await studioRequest<{ ok?: boolean; owner?: boolean; user?: StudioUser }>(origin, 'session', { token: login.token, signal });
-  if (session.ok !== true || !session.user) throw new StudioFailure('Flux не подтвердил право входа в Studio.');
-  return { token: login.token, user: { id: String(session.user.id), name: String(session.user.name || '') }, owner: session.owner === true };
+  return confirmSession(origin, checkToken(login.token), signal);
+}
+
+/** Вход владельца: подпись одноразового запроса уже получена из главного процесса (studio/shell/ownerLogin.ts) */
+export async function ownerSignIn(origin: string, challenge: { nonce: string }, sig: string, signal?: AbortSignal): Promise<{ token: string; user: StudioUser; owner: boolean }> {
+  const login = await studioRequest<{ token?: string; success?: boolean }>(origin, 'ownerLogin', { body: { nonce: challenge.nonce, sig }, signal });
+  if (login.success !== true) throw new StudioFailure('Не удалось подтвердить ключ владельца.');
+  return confirmSession(origin, checkToken(login.token), signal);
 }
 
 export async function ownModules(origin: string, token: string, signal?: AbortSignal): Promise<StudioModule[]> {

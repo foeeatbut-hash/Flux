@@ -47,7 +47,7 @@ const text = (v: unknown, max: number): string => {
 };
 const moduleId = (v: unknown): string => {
   const id = text(v, 64);
-  if (!MODULE_ID.test(id)) throw new StudioFailure('Некорректный идентификатор подпрограммы.');
+  if (!MODULE_ID.test(id)) throw new StudioFailure('Некорректный идентификатор программы.');
   return id;
 };
 /** Текст в окне редактируется только у небольших текстовых файлов; остальное (wasm, снимки) показывается размером */
@@ -94,7 +94,7 @@ export class DeveloperService {
     try { return JSON.parse(Buffer.from(files['manifest.json'] || new Uint8Array()).toString('utf8')); } catch { throw new StudioFailure('manifest.json не читается как JSON.'); }
   }
 
-  /** Страница и файлы запущенной подпрограммы для протокола flux-module://run/…; чужих путей не отдаёт */
+  /** Страница и файлы запущенной программы для протокола flux-module://run/…; чужих путей не отдаёт */
   asset(url: string): { status: number; type: string; body: Uint8Array | string; headers: Record<string, string> } | null {
     let parsed: URL;
     try { parsed = new URL(url); } catch { return null; }
@@ -239,10 +239,10 @@ export class DeveloperService {
     return { session: this.run.id, url: page ? 'flux-module://run/ui/index.html' : 'flux-module://run/index.html', language: this.run.language, manifest: { id: manifest.id, name: manifest.name, version: manifest.version, reads: manifest.reads, entries: manifest.entries, connections: manifest.connections || [], ui: manifest.ui, pages: manifest.pages }, context: this.run.context };
   }
 
-  /** Чтение для запущенной подпрограммы — только объявленное в reads и только из тестовой базы */
+  /** Чтение для запущенной программы — только объявленное в reads и только из тестовой базы */
   private runRead(args: Record<string, any>) {
     const run = this.run;
-    if (!run) throw new StudioFailure('Подпрограмма не запущена.');
+    if (!run) throw new StudioFailure('Программа не запущена.');
     const resource = text(args.resource, 20) as Resource;
     if (!(resources as readonly string[]).includes(resource) || !run.resources.includes(resource)) throw new StudioFailure('DENIED');
     const entityId = typeof args.entityId === 'string' && args.entityId.length <= 160 ? args.entityId : undefined;
@@ -251,19 +251,19 @@ export class DeveloperService {
 
   private async runCompute(args: Record<string, any>) {
     const run = this.run;
-    if (!run) throw new StudioFailure('Подпрограмма не запущена.');
-    if (run.language === 'typescript') throw new StudioFailure('Логика на TypeScript считает сама подпрограмма.');
+    if (!run) throw new StudioFailure('Программа не запущена.');
+    if (run.language === 'typescript') throw new StudioFailure('Логика на TypeScript считает сама программа.');
     if (!args.input || typeof args.input !== 'object' || Array.isArray(args.input)) throw new StudioFailure('Некорректный вход расчёта.');
     try { return { output: await this.deps.engine.compute(run.language, run.files, run.logicPath, args.input) }; }
     catch (error: any) { return { code: String(error?.code || 'CRASH') }; }
   }
 
-  /** Снимок окна подпрограммы в выбранной теме → store/<тема>.png проекта и запись в manifest.store.screenshots */
+  /** Снимок окна программы в выбранной теме → store/<тема>.png проекта и запись в manifest.store.screenshots */
   private async shoot(id: string, theme: string, rect: any) {
     if (!this.deps.capture) throw new StudioFailure('Снимок экрана в этой сборке недоступен.');
     if (!['light', 'dark'].includes(theme)) throw new StudioFailure('Тема — светлая или тёмная.');
     const box = ['x', 'y', 'width', 'height'].every(k => Number.isFinite(rect?.[k]) && rect[k] >= 0 && rect[k] < 20_000) && rect.width >= 16 && rect.height >= 16;
-    if (!box) throw new StudioFailure('Не удалось определить область окна подпрограммы.');
+    if (!box) throw new StudioFailure('Не удалось определить область окна программы.');
     const png = await this.deps.capture({ x: Math.floor(rect.x), y: Math.floor(rect.y), width: Math.ceil(rect.width), height: Math.ceil(rect.height) });
     if (png.length > 2 * 1024 * 1024) throw new StudioFailure('Снимок больше 2 МиБ: уменьшите окно.');
     const name = `store/${theme}.png`;

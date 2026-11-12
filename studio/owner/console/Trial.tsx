@@ -1,10 +1,10 @@
 /**
- * «Проверить в работе»: запуск подпрограммы из запроса на публикацию на тестовой базе в изоляции.
+ * «Проверить в работе»: запуск программы из запроса на публикацию на тестовой базе в изоляции.
  *
- * Страница подпрограммы — вложенная изолированная (sandbox без доступа к сети, CSP как у Flux),
+ * Страница программы — вложенная изолированная (sandbox без доступа к сети, CSP как у Flux),
  * её отдаёт главный процесс из того же пакета, что открыт на экране. Данные для чтения — вымышленные,
  * записанные ниже: общая база компании не открывается, подключения к внешним программам отказывают
- * (разрешения у подпрограммы нет), записи некуда. Python и WebAssembly здесь не запускаются: их
+ * (разрешения у программы нет), записи некуда. Python и WebAssembly здесь не запускаются: их
  * исполняет окно Flux (modules/engine), а в разделе владельца такого хоста нет.
  */
 import React, { useEffect, useRef, useState } from 'react';
@@ -64,7 +64,7 @@ export default function Trial({ requestId }: { requestId: string }) {
   };
 
   if (!manifest) {
-    return <div className="scroll"><Empty title="Проверить в работе" text="Подпрограмма запустится в изоляции на тестовой базе: без сети, без доступа к общей базе компании, на вымышленных данных." />
+    return <div className="scroll"><Empty title="Проверить в работе" text="Программа запустится в изоляции на тестовой базе: без сети, без доступа к общей базе компании, на вымышленных данных." />
       <div className="pad" style={{ textAlign: 'center' }}><Btn tone="primary" onClick={() => void start()}>Запустить на тестовой базе</Btn></div><ErrorLine text={error} /></div>;
   }
   if (languageOf(manifest) !== 'typescript') {
@@ -73,11 +73,11 @@ export default function Trial({ requestId }: { requestId: string }) {
   return <div className="pane">
     <div className="bar"><span className="muted">Тестовая база: вымышленные данные, сети нет, подключения отказывают. Запуск — {manifest.name} {manifest.version}.</span>
       <span className="grow" /><Btn onClick={() => { setManifest(null); }}>Остановить</Btn></div>
-    {failure && <ErrorLine text={`Подпрограмма остановилась: ${failure}`} />}
+    {failure && <ErrorLine text={`Программа остановилась: ${failure}`} />}
     <div className="scroll" style={{ display: 'flex' }}>
       <iframe ref={frame} className="trial" title={manifest.name} data-testid="trial-frame" sandbox="allow-scripts" referrerPolicy="no-referrer"
         allow="camera 'none'; microphone 'none'; geolocation 'none'" src={`flux-module://trial/index.html#${session}`} />
     </div>
-    {logs.length > 0 && <pre className="code mono" style={{ flex: '0 0 auto', maxHeight: 120 }} aria-label="Журнал подпрограммы">{logs.join('\n')}</pre>}
+    {logs.length > 0 && <pre className="code mono" style={{ flex: '0 0 auto', maxHeight: 120 }} aria-label="Журнал программы">{logs.join('\n')}</pre>}
   </div>;
 }

@@ -1,5 +1,5 @@
 /**
- * Типы и справка из договора подпрограммы.
+ * Типы и справка из договора программы.
  *
  * Для TypeScript и JavaScript из договора создаётся настоящий файл `.d.ts`: он описывает только
  * разрешённые чтения и объявленные значения, поэтому опечатка в поле или чтение не разрешённых
@@ -52,15 +52,15 @@ const members = (values: ContractValue[], indent: string) => values.filter((valu
 /** Файл `.d.ts` для логики на TypeScript и JavaScript; в пакете лежит как `contract.d.ts` рядом с каталогом logic/ */
 export function generateContractDts(contract: ContractDraft): string {
   const reads = resources.filter(resource => contract.reads.includes(resource));
-  return `// Создано Studio из договора подпрограммы (версия ${contract.version}). Не правьте вручную: изменения пропадут.
+  return `// Создано Studio из договора программы (версия ${contract.version}). Не правьте вручную: изменения пропадут.
 export interface FluxData {
 ${reads.map(resource => `  ${resource}: ${schemaToTs(dataSchemas[resource], '  ')};`).join('\n')}
 }
-/** Своё состояние подпрограммы: ввод пользователя в её окне, во Flux не пишется */
+/** Своё состояние программы: ввод пользователя в её окне, во Flux не пишется */
 export interface State {
 ${members(contract.state, '  ')}
 }
-/** Результат расчёта: значения, которые подпрограмма отдаёт форме */
+/** Результат расчёта: значения, которые программа отдаёт форме */
 export interface CalcOut {
 ${members(contract.outputs, '  ')}
 }

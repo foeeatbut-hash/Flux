@@ -3,11 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; frame-src flux-module:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; frame-src flux-module:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Flux Studio</title>
+  <!--FAVICON-->
+  <link rel="stylesheet" href="flux.css">
+  <link rel="stylesheet" href="splash.css">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- Заставка — сиблинг #root, как во Flux: React её не пересоздаёт; разметку, стили и скрипт берёт из index.html Flux studio/build-renderer.cjs -->
+  <!--SPLASH-->
+  <script src="splash.js"></script>
   <div id="root"></div>
   <script src="renderer.js"></script>
 </body>

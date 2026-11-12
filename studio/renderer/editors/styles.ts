@@ -1,11 +1,11 @@
 /**
- * Оформление редакторов подпрограммы.
+ * Оформление редакторов программы.
  *
  * Окно Studio открывается с CSP `style-src 'self'`: ни <style>, ни style="" из разметки. Поэтому
  * стили лежат строкой и ставятся через constructable stylesheet (его CSP не блокирует) — так же
  * ставит стили CodeMirror. Цвета редакторов — токены Studio (--surface, --border…): светлая и
  * тёмная тема приходят от оболочки. Предпросмотр формы — отдельная область с токенами Flux
- * (--flux-*), чтобы проверить подпрограмму в обеих темах независимо от темы Studio.
+ * (--flux-*), чтобы проверить программу в обеих темах независимо от темы Studio.
  */
 const css = `
 .ed { --ed-gap: 8px; display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--text); font: 13px/20px system-ui, -apple-system, "Segoe UI", sans-serif; }
@@ -110,7 +110,7 @@ const css = `
 .ed-rules { flex: 1; overflow: auto; padding: 16px; max-width: 880px; display: flex; flex-direction: column; gap: 16px; }
 .ed-rules ul { margin: 0; padding-left: 20px; }
 
-/* Предпросмотр: токены Flux и классы, которыми рисует рендерер формы подпрограммы (modules/runtime/form.ts) */
+/* Предпросмотр: токены Flux и классы, которыми рисует рендерер формы программы (modules/runtime/form.ts) */
 .ed-pv { --flux-bg: oklch(97.8% 0.004 163); --flux-surface: #ffffff; --flux-line: oklch(91.2% 0.006 163); --flux-text: oklch(28.5% 0.014 163); --flux-text-muted: oklch(56.5% 0.012 163); --flux-accent: oklch(54% 0.115 163); --flux-row-h: 32px; --flux-cell-px: 10px;
   background: var(--flux-surface); color: var(--flux-text); border: 1px solid var(--flux-line); border-radius: 6px; font-size: 13px; line-height: 20px; overflow-x: hidden; }
 .ed-pv[data-pv-theme="dark"] { --flux-bg: oklch(21% 0.011 163); --flux-surface: oklch(16% 0.009 163); --flux-line: oklch(28.5% 0.016 163); --flux-text: oklch(92.9% 0.007 163); --flux-text-muted: oklch(70.5% 0.020 163); --flux-accent: oklch(76% 0.130 163); }
@@ -131,8 +131,7 @@ const css = `
 .ed-pv-frame[data-width="narrow"] { width: 360px; }
 .ed-pv-empty { padding: 12px; color: var(--flux-text-muted); }
 .ed { --tok-keyword: #6d28d9; --tok-string: #047857; --tok-number: #b45309; --tok-name: #0f172a; --tok-type: #0369a1; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ed { --tok-keyword: #c4b5fd; --tok-string: #6ee7b7; --tok-number: #fcd34d; --tok-name: #f1f5f9; --tok-type: #7dd3fc; } }
-:root[data-theme="dark"] .ed { --tok-keyword: #c4b5fd; --tok-string: #6ee7b7; --tok-number: #fcd34d; --tok-name: #f1f5f9; --tok-type: #7dd3fc; }
+:root.dark .ed { --tok-keyword: #c4b5fd; --tok-string: #6ee7b7; --tok-number: #fcd34d; --tok-name: #f1f5f9; --tok-type: #7dd3fc; }
 @media (max-width: 1000px) { .ed-form { grid-template-columns: 1fr; overflow: auto; } .ed-col + .ed-col { border-left: 0; border-top: 1px solid var(--border); } .ed-code { grid-template-columns: 1fr; } }
 `;
 

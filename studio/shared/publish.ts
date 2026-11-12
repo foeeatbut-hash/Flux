@@ -31,7 +31,7 @@ export function buildPackage(files: ProjectFiles, runtime: string): Uint8Array {
   // У страницы (договор v2) runtime.js нет: пакет — это ui/ как есть, и проверка выпуска требует его отсутствия
   if (runtime) entries['build/runtime.js'] = runtime;
   const bundle = packBundle(entries);
-  if (bundle.length > MODULE_BUNDLE_MAX) throw new PublishRefused('Пакет подпрограммы больше 32 МиБ.');
+  if (bundle.length > MODULE_BUNDLE_MAX) throw new PublishRefused('Пакет программы больше 32 МиБ.');
   return bundle;
 }
 

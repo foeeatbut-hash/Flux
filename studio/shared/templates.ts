@@ -1,5 +1,5 @@
 /**
- * Заготовки проекта подпрограммы под каждый язык, который исполняет Flux.
+ * Заготовки проекта программы под каждый язык, который исполняет Flux.
  *
  * Заготовка — рабочий пример «статистика числовых параметров» из modules/fixtures:
  * тот же расчёт, та же форма и те же контрольные примеры на всех языках, поэтому новый
@@ -34,7 +34,7 @@ export interface TemplateInfo {
 }
 
 export const TEMPLATES: readonly TemplateInfo[] = [
-  { id: 'typescript', title: 'JavaScript / TypeScript', language: 'typescript', note: 'Логика в одном файле logic/main.ts исполняется в изолированном окне подпрограммы.' },
+  { id: 'typescript', title: 'JavaScript / TypeScript', language: 'typescript', note: 'Логика в одном файле logic/main.ts исполняется в изолированном окне программы.' },
   { id: 'python', title: 'Python', language: 'python', note: 'Исполняется общей средой Python во Flux; контрольные примеры обязательны.' },
   { id: 'c', title: 'C', language: 'wasm', sourceLanguage: 'c', note: 'Исходник src/main.c; готовый logic/main.wasm собирается build.sh на вашем компьютере.' },
   { id: 'cpp', title: 'C++', language: 'wasm', sourceLanguage: 'cpp', note: 'Исходник src/main.cpp; готовый logic/main.wasm собирается build.sh на вашем компьютере.' },
@@ -58,7 +58,7 @@ const encode = (text: string) => new TextEncoder().encode(text);
 
 /**
  * Пример логики на TypeScript считает через `compute` (по ней идут контрольные примеры), а форму наполняет обработчик
- * `setup`: окно подпрограммы вызывает его при каждом изменении данных и берёт `calc.out` в привязки формы. На других
+ * `setup`: окно программы вызывает его при каждом изменении данных и берёт `calc.out` в привязки формы. На других
  * языках форму наполняет сам расчёт — окно Flux вызывает его само, поэтому обработчика там нет.
  */
 const TYPESCRIPT_SETUP = `

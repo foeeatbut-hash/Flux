@@ -127,7 +127,7 @@ function createConsoleActions(ctx, request = consoleRequest) {
     certificates: async () => ({ certificates: (await api('GET', '/api/modules/certificates')).certificates, requests: (await api('GET', '/api/modules/certificate-requests')).requests }),
     certify: async a => {
       const vault = need(), key = text(a.key, 64), userId = text(a.userId, 100), name = text(a.name || '', 200);
-      await confirm('Выдать сертификат разработчика?', `Профиль: ${userId}\nИмя: ${name || '—'}\nКлюч: ${key.slice(0, 16)}…\n\nС этим сертификатом разработчик сможет присылать подпрограммы на проверку.`);
+      await confirm('Выдать сертификат разработчика?', `Профиль: ${userId}\nИмя: ${name || '—'}\nКлюч: ${key.slice(0, 16)}…\n\nС этим сертификатом разработчик сможет присылать программы на проверку.`);
       await api('POST', '/api/modules/certificates', { signature: signModule(vault, { kind: 'certificate', key, userId, name }) });
       return { done: true };
     },
@@ -181,7 +181,7 @@ function createConsoleActions(ctx, request = consoleRequest) {
       // Страница рисуется отдельным кадром Flux; в окне владельца пробного запуска для неё пока нет — говорим прямо
       if (isPage) throw new Error('Это программа со своей страницей: пробный запуск страниц в Studio владельца пока не сделан. Файлы ui/ видны во вкладке «Файлы», а тестовый выпуск проверьте во Flux (канал «тестовый»).');
       const runtime = files[RUNTIME_FILE];
-      if (!runtime) throw new Error('В пакете нет собранной подпрограммы (build/runtime.js).');
+      if (!runtime) throw new Error('В пакете нет собранной программы (build/runtime.js).');
       trial = { id, runtime };
       return { manifest: JSON.parse(Buffer.from(files['manifest.json'] || '{}').toString('utf8')) };
     },

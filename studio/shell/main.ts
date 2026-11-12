@@ -6,7 +6,7 @@
  * владельца; в сборке разработчика этого параметра просто нет, и кода этих
  * разделов в бандле нет тоже (scripts/check-studio-bundle.ts).
  */
-import { app, BrowserWindow, dialog, ipcMain, protocol, safeStorage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, protocol, safeStorage } from 'electron';
 import path from 'node:path';
 import { startDatabaseRuntime } from '../shared/database-runtime.cjs';
 import { createControlsEngine } from '../shared/controlsEngine';
@@ -16,16 +16,22 @@ import { ownModules, signIn, StudioFailure, type StudioModule, type StudioUser }
 import { ALL_ACTIONS, SHELL_ACTIONS, type DeveloperAction } from './actions';
 import { DeveloperService } from './developer';
 import { RememberedBase } from './remembered';
+import { OwnerKeyLogin } from './ownerLogin';
 
 declare const __STUDIO_VERSION__: string;
 declare const __STUDIO_BUILD__: string;
+declare const __STUDIO_NAME__: string;
 
 export interface ShellSection { id: string; title: string; open: () => void | Promise<void> }
 
 const ACTIONS = ALL_ACTIONS;
+const PRODUCT_NAME = typeof __STUDIO_NAME__ === 'string' ? __STUDIO_NAME__ : 'Flux Studio';
+
+/** Значок окна и панели задач — тот же файл, что значок exe (studio/build.cjs кладёт его рядом с main.cjs) */
+const windowIcon = () => nativeImage.createFromPath(path.join(__dirname, process.platform === 'win32' ? 'icon.ico' : 'icon.png'));
 type ShellAction = typeof SHELL_ACTIONS[number];
 
-// Подпрограмма запускается в окне Studio тем же протоколом и в той же изоляции, что во Flux (modules/protocol.ts)
+// Программа запускается в окне Studio тем же протоколом и в той же изоляции, что во Flux (modules/protocol.ts)
 protocol.registerSchemesAsPrivileged([{ scheme: MODULE_SCHEME, privileges: { standard: true, secure: true, corsEnabled: true, supportFetchAPI: true } }]);
 
 /** Файл рабочего потока лежит рядом с программой; из app.asar поток не запустить, поэтому он распакован */
@@ -38,32 +44,45 @@ export function startShell(sections: ShellSection[] = []): void {
   let user: StudioUser | null = null;
   let owner = false;
   let operation: AbortController | null = null;
+  let pending: Promise<void> | null = null;
   let warning = '';
   let developer: DeveloperService | null = null;
   let remembered: RememberedBase | null = null;
+  const ownerKey = new OwnerKeyLogin(dialog);
 
   const snapshot = () => ({
-    version: __STUDIO_VERSION__, build: __STUDIO_BUILD__,
+    version: __STUDIO_VERSION__, build: __STUDIO_BUILD__, name: PRODUCT_NAME,
     connected: !!runtime, display: runtime?.display || '', user, warning,
     remembered: remembered?.display() || '',
-    sections: sections.map(({ id, title }) => ({ id, title })),
+    // Список разделов сборки; окно показывает его только вошедшему владельцем (флаг owner от сервера)
+    owner, sections: sections.map(({ id, title }) => ({ id, title })),
   });
   const push = () => { if (win && !win.isDestroyed()) win.webContents.send('studio:state', snapshot()); };
   const progress = (phase: string) => { if (win && !win.isDestroyed()) win.webContents.send('studio:progress', { phase }); };
 
-  const disconnect = async () => {
-    operation?.abort();
+  /** Сбрасывает соединение и вход, не трогая текущую операцию: подключение к другой базе начинается с этого сброса, внутри своей же операции */
+  const release = async () => {
     token = ''; user = null; owner = false; warning = '';
+    ownerKey.forget();
     const previous = runtime; runtime = null;
     if (previous) await previous.stop().catch(() => {});
+  };
+  /** Отключение по просьбе человека: заодно прерывает долгую операцию (иначе подключение продолжило бы работу над сброшенным состоянием) */
+  const disconnect = async () => {
+    operation?.abort();
+    // Прерванное подключение само гасит запущенный Flux в своём catch; закрытие окна не должно уйти раньше, чем процесс остановлен
+    if (pending) await Promise.race([pending, new Promise(resolve => setTimeout(resolve, 15_000))]);
+    await release();
   };
   /** Одна длинная операция за раз: второй щелчок не запускает вторую базу */
   const busy = async <T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> => {
     if (operation) throw new StudioFailure('Дождитесь завершения текущей операции или отмените её.');
     const controller = new AbortController();
     operation = controller;
-    try { return await fn(controller.signal); }
-    finally { operation = null; progress(''); }
+    const run = fn(controller.signal);
+    pending = run.then(() => undefined, () => undefined);
+    try { return await run; }
+    finally { operation = null; pending = null; progress(''); }
   };
   const text = (value: unknown, max: number): string => {
     if (typeof value !== 'string' || value.length > max) throw new StudioFailure('Некорректные данные формы.');
@@ -71,7 +90,8 @@ export function startShell(sections: ShellSection[] = []): void {
   };
 
   const connectTo = (uri: string, remember: boolean) => busy(async signal => {
-    await disconnect();
+    // Не disconnect(): он прерывает текущую операцию, то есть само это подключение, и человек видел «Подключение к общей базе отменено»
+    await release();
     runtime = await startDatabaseRuntime({
       uri, signal, dialog, parentWindow: win, onProgress: (phase: string) => progress(phase),
       onUnexpectedExit: () => { void disconnect().then(push); },
@@ -97,7 +117,17 @@ export function startShell(sections: ShellSection[] = []): void {
       token = signed.token; user = signed.user; owner = signed.owner;
       return snapshot();
     }),
-    logout: async () => { token = ''; user = null; owner = false; return snapshot(); },
+    ownerSelectKey: async () => {
+      if (!win) throw new StudioFailure('Окно недоступно.');
+      return ownerKey.select(win);
+    },
+    ownerLogin: async args => busy(async signal => {
+      if (!runtime) throw new StudioFailure('Сначала подключитесь к общей базе.');
+      const signed = await ownerKey.login(runtime.origin, text(args.password, 1024), signal);
+      token = signed.token; user = signed.user; owner = signed.owner;
+      return snapshot();
+    }),
+    logout: async () => { token = ''; user = null; owner = false; ownerKey.forget(); return snapshot(); },
     disconnect: async () => { await disconnect(); return snapshot(); },
     modules: async (): Promise<StudioModule[]> => {
       if (!runtime || !token) throw new StudioFailure('Войдите в Flux Studio.');
@@ -123,16 +153,29 @@ export function startShell(sections: ShellSection[] = []): void {
       capture: async rect => (await win!.webContents.capturePage(rect)).toPNG(),
     });
     win = new BrowserWindow({
-      width: 1180, height: 800, minWidth: 880, minHeight: 600, title: `Flux Studio ${__STUDIO_VERSION__}`,
-      backgroundColor: '#0f172a', autoHideMenuBar: true,
+      width: 1280, height: 800, minWidth: 960, minHeight: 620, title: `${PRODUCT_NAME} ${__STUDIO_VERSION__}`,
+      // Окно такое же, как у Flux: без системной рамки, кнопки окна рисует плавающая панелька (src/components/window)
+      backgroundColor: '#0f172a', autoHideMenuBar: true, frame: false, titleBarStyle: 'hidden', hasShadow: true, roundedCorners: true, show: false,
+      icon: windowIcon(),
       webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true },
     });
     win.setMenu(null);
+    // Показываем окно, когда страница готова: человек сразу видит стартовую заставку, а не белый экран
+    win.once('ready-to-show', () => win?.show());
+    win.on('maximize', () => win?.webContents.send('window:maximized-changed', true));
+    win.on('unmaximize', () => win?.webContents.send('window:maximized-changed', false));
+    const fromWindow = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) => (win && event.sender === win.webContents ? win : null);
+    for (const channel of ['window:minimize', 'window:maximize', 'window:close']) ipcMain.removeAllListeners(channel);
+    ipcMain.removeHandler('window:is-maximized');
+    ipcMain.on('window:minimize', event => { fromWindow(event)?.minimize(); });
+    ipcMain.on('window:maximize', event => { const w = fromWindow(event); if (w) (w.isMaximized() ? w.unmaximize() : w.maximize()); });
+    ipcMain.on('window:close', event => { fromWindow(event)?.close(); });
+    ipcMain.handle('window:is-maximized', event => !!fromWindow(event)?.isMaximized());
     hardenModuleContents(win.webContents);
     hardenModuleSession(win.webContents.session);
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
-    // CSP ограничивает ресурсы, но не самостоятельный переход iframe подпрограммы по ссылке
+    // CSP ограничивает ресурсы, но не самостоятельный переход iframe программы по ссылке
     // Страницы программы-приложения (договор v2) переходят друг на друга внутри пакета — как во Flux
     win.webContents.on('will-frame-navigate', event => { if (event.frame?.url.startsWith(`${MODULE_SCHEME}:`) && !pageNavigationAllowed(event.frame.url, event.url)) event.preventDefault(); });
     protocol.handle(MODULE_SCHEME, request => {
@@ -153,6 +196,16 @@ export function startShell(sections: ShellSection[] = []): void {
       } catch (error: any) { return { ok: false, error: error instanceof StudioFailure ? error.message : String(error?.message || 'Операция не выполнена.').slice(0, 400) }; }
     });
     void win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+    // Отметка для scripts/test-studio-electron-start.ts: настоящий запуск дошёл до экрана входа (заставка погасла, рамка окна на месте)
+    if (process.env.FLUX_START_SMOKE) {
+      const poll = setInterval(async () => {
+        if (!win || win.isDestroyed()) { clearInterval(poll); return; }
+        try {
+          const shown = await win.webContents.executeJavaScript("!!document.querySelector('#login-screen-root') && !document.getElementById('boot-splash') && !!document.querySelector('[role=toolbar]') && document.getElementById('login-screen-root').innerText");
+          if (shown) { clearInterval(poll); console.log(`[smoke] studio-login-screen ${JSON.stringify({ build: __STUDIO_BUILD__, text: String(shown).replace(/\s+/g, ' ').slice(0, 120) })}`); }
+        } catch { /* страница ещё загружается */ }
+      }, 300);
+    }
     win.on('closed', () => { win = null; });
   });
   app.on('window-all-closed', () => { void disconnect().finally(() => app.quit()); });
