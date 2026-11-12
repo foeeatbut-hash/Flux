@@ -11,7 +11,7 @@
 - [x] 2. Окно: слежение за указателем (`src/lib/deskPointer.ts`, метка
   `data-flux-desk` на области стола), выключатель в «Параметры → Мониторы»,
   стенд `desk-focus-ui` и проверка `test-desk-focus-ui.ts` (21, обе темы)
-- [ ] 3. Документы: `shell.md`, `windows-layer.md`, `studio-next.md`
+- [x] 3. Документы: `shell.md`, `windows-layer.md`, `studio-next.md`
 
 Проверки «до» (наборы shell/displays/security/architecture): все без UI
 проходят; UI-наборы (`*-ui`) в этой среде без `FLUX_CHROME` не запускаются.
@@ -22,4 +22,4 @@ display-workspace, security, architecture — зелёные.
 Chromium в среде: /opt/pw-browsers/chromium-1243/chrome-linux64/chrome, Vite на 5231.
 test-desktop-creation-ui падает и без моих правок (заголовок «Проводник» не появляется) — не мое.
 
-Следующее: шаг 3 (документы).
+Шаг 3 готов; осталось удалить файл хода финальным коммитом.
