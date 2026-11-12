@@ -124,7 +124,7 @@ async function main() {
       ok(`${theme}: новое поле появилось в структуре`, (await rows.count()) === before + 1);
       ok(`${theme}: новое поле встало после выбранного`, (await draft()).form.groups[0].fields[2].label === 'Новое поле');
       await page.getByLabel('Подпись', { exact: true }).fill('Давление');
-      await page.getByLabel('Привязка', { exact: true }).selectOption('calc.out.pressure');
+      await page.getByLabel('Источник', { exact: true }).selectOption('calc.out.pressure');
       await page.getByLabel('Единица', { exact: true }).fill('Па');
       await page.getByRole('tab', { name: 'form.json' }).click();
       await page.waitForFunction(() => document.querySelector('[data-testid=form-json]')?.shadowRoot?.querySelector('.cm-content')?.textContent?.includes('Давление'));
@@ -196,11 +196,11 @@ async function main() {
       await page.waitForFunction(() => !document.querySelector('[data-testid=preview]')?.textContent?.includes('Расход воздуха'));
       ok(`${theme}: условие «когда пусто» скрыло поле в предпросмотре`, true);
       await page.getByLabel('Показывать').selectOption('filled');
-      await page.getByLabel('Привязка', { exact: true }).selectOption('');
+      await page.getByLabel('Источник', { exact: true }).selectOption('');
       await page.locator('.ed-item-findings, [data-testid=item-findings]').waitFor();
-      ok(`${theme}: пустая привязка названа в замечаниях`, (await page.getByTestId('item-findings').innerText()).includes('Привязка не выбрана'));
+      ok(`${theme}: пустой источник значения назван в замечаниях`, (await page.getByTestId('item-findings').innerText()).includes('Источник значения не выбран'));
       ok(`${theme}: у строки красная точка`, (await page.locator('.ed-row[aria-selected=true] .ed-dot').count()) === 1);
-      await page.getByLabel('Привязка', { exact: true }).selectOption('state.airflow');
+      await page.getByLabel('Источник', { exact: true }).selectOption('state.airflow');
 
       // Предпросмотр: обе темы и узкое окно
       const pv = page.getByTestId('preview');
@@ -236,20 +236,20 @@ async function main() {
       await page.locator('.ed-row', { hasText: 'Мгновенный' }).click();
       await page.getByLabel('Подпись', { exact: true }).fill('Режим');
 
-      // --- Договор
-      await page.getByRole('tab', { name: 'Договор' }).click();
+      // --- Данные
+      await page.getByRole('tab', { name: 'Данные' }).click();
       await page.getByLabel('Оборудование').uncheck();
       await page.getByRole('tab', { name: 'Форма' }).click();
-      ok(`${theme}: договор без «Оборудования» помечает привязки красной точкой`, (await page.locator('.ed-dot').count()) >= 3);
+      ok(`${theme}: описание данных без «Оборудования» помечает источники значений красной точкой`, (await page.locator('.ed-dot').count()) >= 3);
       await page.getByRole('tab', { name: 'form.json' }).click();
-      ok(`${theme}: и в тексте привязки названы`, (await page.getByTestId('text-problems').innerText()).includes('не разрешены'));
-      await page.getByRole('tab', { name: 'Договор' }).click();
+      ok(`${theme}: и в тексте источники значений названы`, (await page.getByTestId('text-problems').innerText()).includes('не разрешены'));
+      await page.getByRole('tab', { name: 'Данные' }).click();
       await shot('7-contract');
       await page.getByRole('button', { name: 'Добавить значение' }).first().click();
       await page.getByLabel('Своё состояние (state): имя 4').fill('extra');
-      ok(`${theme}: новое значение попало в договор`, (await draft()).contract.state.some((v: any) => v.name === 'extra'));
+      ok(`${theme}: новое значение попало в описание данных`, (await draft()).contract.state.some((v: any) => v.name === 'extra'));
       await page.getByLabel('Оборудование').check();
-      await measure(page, `${theme}/договор`);
+      await measure(page, `${theme}/данные`);
 
 
       // --- Устойчивость: отмена, блокировка при ошибке в тексте, история и курсор, вкладки, ошибка сохранения
@@ -351,7 +351,7 @@ async function main() {
       await page.getByRole('tab', { name: 'Код' }).click();
       await page.locator('[data-testid="code-view-logic/main.ts"] .cm-content').waitFor();
       ok(`${theme}: подсветка кода есть`, (await page.locator('[data-testid="code-view-logic/main.ts"] .cm-tok-keyword').count()) > 0);
-      ok(`${theme}: образцовый код совпадает с договором`, (await page.getByTestId('code-status').innerText()).includes('совпадают'));
+      ok(`${theme}: образцовый код совпадает с описанием данных`, (await page.getByTestId('code-status').innerText()).includes('совпадают'));
       await page.locator('[data-testid="code-view-logic/main.ts"] .cm-content').click();
       await page.keyboard.press('ControlOrMeta+End');
       await page.keyboard.type("\nconst x = await flux.read('");
@@ -366,11 +366,11 @@ async function main() {
       await page.getByRole('tab', { name: 'contract.d.ts' }).click();
       await page.locator('[data-testid=types-view] .cm-content').waitFor();
       const dts = await cmText('types-view');
-      ok(`${theme}: типы из договора показаны`, dts.includes('interface FluxData') && dts.includes('equipType: string'));
+      ok(`${theme}: типы из описания данных показаны`, dts.includes('interface FluxData') && dts.includes('equipType: string'));
       await page.getByRole('tab', { name: 'logic/main.ts' }).click();
       await page.getByLabel('Язык файла').selectOption('python');
       await page.waitForFunction(() => /JSON/.test(document.querySelector('.ed-code-side')?.textContent ?? ''));
-      ok(`${theme}: для Python — справка по договору`, (await page.getByTestId('contract-reference').innerText()).includes('compute(input)'));
+      ok(`${theme}: для Python — справка по данным`, (await page.getByTestId('contract-reference').innerText()).includes('compute(input)'));
       await measure(page, `${theme}/код`);
       // CodeMirror пытается поставить style="" (tab-size, скрытая распорка номеров); CSP окна это отклоняет,
       // а те же правила лежат в styles.ts — проверяем, что они действуют, и отделяем это от настоящих ошибок
