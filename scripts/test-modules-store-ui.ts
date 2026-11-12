@@ -179,7 +179,8 @@ async function run() {
     await snap('page-compact');
     await page.locator('.stx-scroll').evaluate((e) => { e.scrollTop = 0; });
     await page.locator('.stx-shot').first().click();
-    check('снимок открывается на весь экран', await page.locator('.stx-lightbox img').isVisible());
+    // Окно снимка появляется после клика не мгновенно: isVisible() не ждёт, и в CI опережал отрисовку (нестабильный провал)
+    check('снимок открывается на весь экран', await page.locator('.stx-lightbox img').waitFor({ state: 'visible', timeout: 3000 }).then(() => true, () => false));
     await page.keyboard.press('Escape');
     await page.locator('.stx-lightbox').click({ position: { x: 5, y: 5 } }).catch(() => {});
     await noOverflow('страница');
