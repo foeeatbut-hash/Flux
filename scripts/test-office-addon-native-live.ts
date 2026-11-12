@@ -12,7 +12,7 @@ import JSZip from 'jszip';
 import { chromium } from 'playwright-core';
 import { makeDocxWithTable, makeXlsxWithBlankFormula, makeXlsxWithManualRow, loginPage } from './officeHarness';
 import { captureNativeDefinedNameEvidence, runNativeSheetCellActions } from './officeNativeCellActionsScenarios';
-import { createNativeCheck, waitFor } from './officeNativeTestRuntime';
+import { createNativeCheck, waitFor, requestPanel } from './officeNativeTestRuntime';
 import { runNativeWordCellActions } from './officeNativeWordCellActionsScenarios';
 import { runNativePreflightModes } from './officeNativeSaveInPlaceScenario';
 void (async () => {
@@ -134,18 +134,7 @@ const openPanel = async (page: any, title: string) => {
     console.error('NATIVE_FRAME_OPEN_DIAGNOSTIC', JSON.stringify({ ...diagnostic, error: String(error), screenshot: path }));
     throw error;
   }
-  // До загрузки содержимого кадр — заглушка с origin 'null', и postMessage с таким origin
-  // родитель не принимает: ждём, пока в кадре откроется настоящий редактор.
-  const frameLoadedDeadline = Date.now() + 30000;
-  for (;;) {
-    const loaded = await frame.locator('body').evaluate(() => location.origin !== 'null' && /\/genoffice\//.test(location.href) && document.readyState === 'complete').catch(() => false);
-    if (loaded) break;
-    if (Date.now() > frameLoadedDeadline) throw new Error(`Кадр "${title}" не загрузил содержимое за 30 с (origin остался заглушкой)`);
-    await page.waitForTimeout(200);
-  }
-  await frame.locator('body').evaluate((body: HTMLElement) => {
-    window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin);
-  });
+  await requestPanel(page, frame, title);
   await page.getByRole('complementary', { name: 'Flux Office' }).waitFor({ timeout: 10000 });
   return frame;
 };
