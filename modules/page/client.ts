@@ -19,6 +19,8 @@ const waiting = new Map<string, Waiter>();
 const listeners = { message: new Set<(data: unknown) => void>(), change: new Set<(event: ChangeEvent) => void>(), theme: new Set<(theme: ThemeInfo) => void>(), resize: new Set<(size: SizeInfo) => void>() };
 export interface ThemeInfo { tokens: ThemeTokens; mode: 'light' | 'dark' }
 export interface SizeInfo { width: number; height: number }
+/** Параметры flux.net.fetch */
+export interface NetInit { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; headers?: Record<string, string>; body?: string }
 export type ChangeEvent = 'opened' | 'project-changed' | 'changed';
 export class FluxError extends Error {
   constructor(public code: string, message: string) { super(message); this.name = 'FluxError'; }
@@ -126,14 +128,21 @@ const api = {
     call: (connection: string, call: ConnectCall) => request<unknown>('connect', { connection, call }, 40_000),
   },
   /**
-   * Интернет и локальные серверы — только через мост и только по объявленному в manifest.json подключению (kind http):
-   * адрес, пределы, защиту от внутренних адресов и журнал держит главный процесс Flux; кадр сам в сеть не ходит.
+   * Сеть — только через мост; кадр сам в сеть не ходит, а адрес, пределы, защиту и журнал держит главный процесс Flux.
+   * Две формы:
+   * - `fetch(connection, path, init)` — по подключению kind http, объявленному в manifest.json (локальные серверы, адрес в манифесте);
+   * - `fetch(url, init)` — по полному адресу `http(s)://…`: нужно разрешение `internet` (публичные адреса) или `lan` (частная сеть)
+   *   в `permissions` манифеста. Петля, адрес метаданных облака и «этот компьютер» закрыты всегда.
    */
   net: {
-    async fetch(connection: string, path: string, init: { method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; headers?: Record<string, string>; body?: string } = {}) {
-      const reply = await request<{ status: number; headers: Record<string, string>; body: string; encoding: 'utf8' | 'base64' }>('connect', {
-        connection, call: { op: 'http', method: init.method || 'GET', path, ...(init.headers ? { headers: init.headers } : {}), ...(init.body !== undefined ? { body: init.body, encoding: 'utf8' } : {}) },
-      }, 40_000);
+    async fetch(first: string, second?: string | NetInit, third?: NetInit) {
+      const byUrl = /^https?:\/\//i.test(first);
+      const init: NetInit = (byUrl ? second : third) as NetInit | undefined ?? {};
+      const send = { method: init.method || 'GET', ...(init.headers ? { headers: init.headers } : {}), ...(init.body !== undefined ? { body: init.body, encoding: 'utf8' } : {}) };
+      const reply = await request<{ status: number; headers: Record<string, string>; body: string; encoding: 'utf8' | 'base64' }>(
+        byUrl ? 'net' : 'connect',
+        byUrl ? { call: { url: first, ...send } } : { connection: first, call: { op: 'http', path: second as string, ...send } },
+        40_000);
       const bytes = () => reply.encoding === 'base64' ? Uint8Array.from(atob(reply.body), c => c.charCodeAt(0)) : new TextEncoder().encode(reply.body);
       const text = () => reply.encoding === 'utf8' ? reply.body : new TextDecoder().decode(bytes());
       return { status: reply.status, ok: reply.status >= 200 && reply.status < 300, headers: reply.headers, text, json: () => JSON.parse(text()) as unknown, bytes };

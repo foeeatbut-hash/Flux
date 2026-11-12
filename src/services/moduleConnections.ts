@@ -5,7 +5,7 @@
  * и проверка адреса — не здесь: окно только передаёт вызов и показывает вопрос,
  * поэтому ни программа, ни ошибка окна не могут «разрешить» себе подключение.
  */
-import type { ConnectCall, ConnectErrorCode, GrantAsk } from '../../modules/connections/model';
+import type { ConnectCall, ConnectErrorCode, GrantAsk, NetCall } from '../../modules/connections/model';
 import { bridge } from './moduleReleaseService';
 
 /** `later` — окно программы закрыто, человек не отвечал: ничего не запоминается, спросим при следующем обращении */
@@ -60,6 +60,15 @@ export function createConnector(options: ConnectorOptions) {
         options.onDenied?.({ connection, app: options.apps?.[connection] || connection });
       }
       return reply?.ok ? { ok: true, data: reply.data } : { ok: false, code: (reply?.code as ConnectErrorCode) || 'FAILED' };
+    },
+    /** Обращение по полному адресу: разрешение дано при установке, вопроса человеку нет; отказ политики — NOT_ALLOWED */
+    async net(call: NetCall): Promise<ConnectResult> {
+      const ipc = bridge();
+      if (!ipc) return { ok: false, code: 'UNAVAILABLE' };
+      try {
+        const reply: any = await ipc.invoke('modules:net', { moduleId: options.moduleId, version: options.version, session: options.session, call });
+        return reply?.ok ? { ok: true, data: reply.data } : { ok: false, code: (reply?.code as ConnectErrorCode) || 'FAILED' };
+      } catch { return { ok: false, code: 'FAILED' }; }
     },
     /** Окно программы закрыто */
     close() { void bridge()?.invoke('modules:connect-close', { session: options.session }).catch(() => null); },

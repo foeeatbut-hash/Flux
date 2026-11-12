@@ -53,6 +53,10 @@ export const messageSchemas = {
   log: object({ ...envelope, type: { const: 'log' }, level: { enum: ['info', 'warn', 'error'] }, text: { type: 'string', maxLength: 200 } }),
   // Подключение к внешней программе (этап 3б): подключение названо по `id` из манифеста, сквозной вызов идёт как есть
   connect: object({ ...envelope, id, type: { const: 'connect' }, connection: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,31}$' }, call: { oneOf: connectCallSchemas } }),
+  // Обращение по полному адресу (flux.net.fetch(url)): нужен `internet` или `lan` в манифесте; какой именно — решает адрес, в который разрешилось имя
+  // Метод лежит внутри `call`, как у connect: верхний уровень с POST/PUT мост принял бы за запись в данные Flux
+  net: object({ ...envelope, id, type: { const: 'net' }, call: object({ url: { type: 'string', minLength: 8, maxLength: 2048 }, method: { enum: [...HTTP_METHODS] },
+    headers: { type: 'object', maxProperties: 32 }, body: { type: 'string', maxLength: 700_000 }, encoding }, ['url', 'method']) }),
   'connect-result': object({ ...envelope, id, type: { const: 'connect-result' }, data: {} }),
   'connect-error': object({ ...envelope, id, type: { const: 'connect-error' }, code: { enum: [...CONNECT_ERROR_CODES] } }),
   'compute-error': object({ ...envelope, id, type: { const: 'compute-error' }, code: { enum: [...COMPUTE_ERROR_CODES] } }),

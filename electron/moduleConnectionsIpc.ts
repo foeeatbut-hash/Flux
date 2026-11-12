@@ -48,6 +48,12 @@ export function registerConnectionsIpc(host: ConnectionsHost) {
     await host.ready;
     return host.service.call(ownerOf(event), { moduleId: str(data?.moduleId, 64), version: str(data?.version, 40), session: str(data?.session, 160), connection: str(data?.connection, 40), call: data?.call });
   });
+  /** Обращение по полному адресу (flux.net.fetch(url)): разрешение — `permissions` проверенного манифеста, решает главный процесс */
+  ipcMain.handle('modules:net', async (event, data: any) => {
+    if (!trusted(event)) return { ok: false, code: 'DENIED' };
+    await host.ready;
+    return host.service.net(ownerOf(event), { moduleId: str(data?.moduleId, 64), version: str(data?.version, 40), session: str(data?.session, 160), call: data?.call });
+  });
   ipcMain.handle('modules:connect-close', async (event, data: any) => {
     if (!trusted(event)) return refuse;
     await host.service.closeSession(ownerOf(event), str(data?.session));

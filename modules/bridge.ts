@@ -5,7 +5,8 @@ import type {
 import { validMessage } from './schemas';
 import { ComputeError, codeOf, type ComputeErrorCode } from './engine/types';
 import { encodeJson } from './engine/json';
-import type { ConnectCall, ConnectErrorCode } from './connections/model';
+import type { ConnectCall, ConnectErrorCode, NetCall } from './connections/model';
+import { hasNetPermission } from './permissions/registry';
 import { openAcceptProblem, PAGE_LIMITS, saveNameProblem, WINDOW_LIMITS } from './page/model';
 
 export interface ModuleBridgeOptions {
@@ -29,6 +30,8 @@ export interface ModuleBridgeOptions {
    * разрешение, адрес и пределы проверяет главный процесс по подписанному манифесту выпуска.
    */
   connect?: (connection: string, call: ConnectCall) => Promise<{ ok: true; data: unknown } | { ok: false; code: ConnectErrorCode }>;
+  /** Обращение по полному адресу (flux.net.fetch(url)); окончательно решает главный процесс */
+  net?: (call: NetCall) => Promise<{ ok: true; data: unknown } | { ok: false; code: ConnectErrorCode }>;
   /** Программа закрыта: подключения, которые она открыла, закрываются (главный процесс сам держит их список) */
   onClose?: () => void;
   /** Строка из flux.log программы; окно пишет её в журнал */
@@ -110,6 +113,26 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       fail(code);
       options.onComputeError?.(code);
     } finally { computing.delete(message.id); }
+  }
+  /** Обращение по полному адресу: то же, что runConnect, но без названного подключения — в манифесте должен быть `internet` или `lan` */
+  async function runNet(message: { id: string; call: NetCall }) {
+    const fail = (code: ConnectErrorCode) => {
+      if (code === 'LIMIT' || code === 'TIMEOUT' || code === 'DENIED') options.onFailure?.('connection');
+      post({ flux: 'module', v: 1, session: options.session, type: 'connect-error', id: message.id, code });
+    };
+    if (!options.net) { fail('UNAVAILABLE'); return; }
+    if (!hasNetPermission(options.manifest, 'internet') && !hasNetPermission(options.manifest, 'lan')) { fail('DENIED'); return; }
+    if (connecting.size >= 8 || connecting.has(message.id)) { fail('LIMIT'); return; }
+    connecting.add(message.id);
+    try {
+      const reply = await options.net(message.call);
+      if (disposed) return;
+      if ('code' in reply) { fail(reply.code); return; }
+      const result: ConnectHostMessage = { flux: 'module', v: 1, session: options.session, type: 'connect-result', id: message.id, data: (reply as { data: unknown }).data };
+      if (messageBytes(result) > 1024 * 1024 || !validMessage('connect-result', result)) fail('LIMIT');
+      else post(result);
+    } catch (_) { if (!disposed) fail('FAILED'); }
+    finally { connecting.delete(message.id); }
   }
   async function runConnect(message: { id: string; connection: string; call: ConnectCall }) {
     const fail = (code: ConnectErrorCode) => {
@@ -241,6 +264,15 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       if (validMessage('connect', message)) void runConnect(message);
       else {
         // Чужая форма вызова (адрес внутри вызова, неизвестная операция) — явный отказ, а не молчание до таймаута
+        options.onFailure?.('connection');
+        post({ flux: 'module', v: 1, session: options.session, type: 'connect-error', id: message.id, code: 'DENIED' });
+      }
+      return;
+    }
+    if (message.type === 'net' && typeof message.id === 'string' && message.id.length > 0 && message.id.length <= 160) {
+      if (validMessage('net', message)) {
+        void runNet(message as { id: string; call: NetCall });
+      } else {
         options.onFailure?.('connection');
         post({ flux: 'module', v: 1, session: options.session, type: 'connect-error', id: message.id, code: 'DENIED' });
       }

@@ -118,6 +118,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
         }
       },
       connect: (connection, call) => connector.connect(connection, call),
+      net: call => connector.net(call),
       onLog: (level, text) => journalEvent({ ...base, category: 'log', level, event: 'message', detail: text }),
       onFailure: kind => { journalEvent({ ...base, category: 'failure', level: 'error', event: kind, outcome: kind }); recordModuleCrash(manifest.id, manifest.version, kind); setFailure(kind); },
       compute: language === 'typescript' ? undefined : async input => {

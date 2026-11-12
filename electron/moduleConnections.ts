@@ -22,10 +22,15 @@ import type { ModuleManifest } from '../modules/contract';
 import type { ModuleJournal } from './moduleJournal';
 import type { ModuleGrants } from './moduleGrants';
 import type { ComBackend } from './moduleCom';
-import { WsSession, httpCall, systemLookup, type Lookup } from './moduleNet';
+import { hasNetPermission } from '../modules/permissions/registry';
+import { WsSession, fetchUrl, httpCall, systemLookup, type Lookup } from './moduleNet';
 
 export interface VerifiedModule { manifest: ModuleManifest; version: string; author: string; verifiedAt: number }
 export interface ConnectRequest { moduleId: string; version: string; session: string; connection: string; call: unknown }
+/** Вызов `flux.net.fetch(url)`: полный адрес, а не объявленное подключение */
+export interface NetRequest { moduleId: string; version: string; session: string; call: unknown }
+/** Имена «подключений» для политики администратора: начинаются с «@», поэтому с объявленными в манифесте не совпадают */
+export const NET_POLICY = { internet: '@internet', lan: '@lan' } as const;
 export interface ConnectionDeps {
   /** Проверенный выпуск установленной программы; null — такого нет или он не запускается */
   resolve: (moduleId: string, version: string) => Promise<VerifiedModule | null>;
@@ -169,6 +174,52 @@ export class ModuleConnections {
       const code = error instanceof ConnectError ? error.code : 'FAILED';
       return refuse(code, decl, verified.version, label);
     } finally { if (!isCom && !waits) slot.inFlight--; }
+  }
+
+  /**
+   * Обращение по полному адресу (`flux.net.fetch(url)`). Порядок тот же, что у `call`, но разрешение — не подключение, а
+   * объявленное в подписанном манифесте `permissions` (`internet`, `lan`): человек согласился с ним при установке.
+   * Какое именно нужно, решает адрес, В КОТОРЫЙ РАЗРЕШИЛОСЬ ИМЯ (все адреса имени), а не написанное в вызове.
+   */
+  async net(owner: string, request: NetRequest): Promise<ConnectReply> {
+    const started = this.now();
+    const user = this.deps.userId();
+    const call = request.call as { url?: unknown; method?: string };
+    const record = (version: string, label: string, outcome: string, io: { inn?: number; out?: number } = {}, level: 'info' | 'warn' | 'error' = 'info') => {
+      if (!/^[a-z][a-z0-9-]{0,63}$/.test(request.moduleId) || !/^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(version)) return;
+      this.deps.journal.add({ moduleId: request.moduleId, version, userId: user, category: 'connection', level, event: 'call', detail: `адрес в сети · ${label}`, outcome,
+        ms: this.now() - started, bytesIn: io.inn || 0, bytesOut: io.out || 0 });
+    };
+    const refuse = (code: ConnectErrorCode, version: string, label: string): ConnectReply => {
+      record(version, label, OUTCOME[code], {}, code === 'NOT_ALLOWED' ? 'info' : 'warn');
+      return { ok: false, code };
+    };
+    // В журнал — только метод и имя сервера: путь и запрос могут нести данные проекта
+    const hostOf = (url: unknown) => { try { return new URL(String(url)).hostname.slice(0, 80); } catch { return '?'; } };
+    const label = `${String(call?.method || '?').slice(0, 8)} ${hostOf(call?.url)}`;
+    const envelope = { flux: 'module', v: 1, session: String(request.session), id: 'main', type: 'net', call: request.call };
+    if (!request.call || typeof request.call !== 'object' || !validMessage('net', envelope)) return refuse('DENIED', String(request.version), 'bad-call');
+    const verified = await this.deps.resolve(request.moduleId, request.version);
+    if (!verified) return refuse('DENIED', String(request.version), 'unknown-module');
+    const declared = { internet: hasNetPermission(verified.manifest, 'internet'), lan: hasNetPermission(verified.manifest, 'lan') };
+    if (!declared.internet && !declared.lan) return refuse('DENIED', verified.version, label);
+    // Политика администратора сильнее объявления: запрет роли действует, даже если человек уже согласился при установке
+    const grants = {
+      internet: declared.internet && !this.deps.grants.isDeniedByPolicy(request.moduleId, NET_POLICY.internet),
+      lan: declared.lan && !this.deps.grants.isDeniedByPolicy(request.moduleId, NET_POLICY.lan),
+    };
+    if (!grants.internet && !grants.lan) return refuse('NOT_ALLOWED', verified.version, label);
+    const slot = this.slot(request.moduleId), now = this.now();
+    if (now - slot.windowAt >= 1000) { slot.windowAt = now; slot.calls = 0; }
+    if (++slot.calls > CONNECTION_LIMITS.callsPerSecond || slot.inFlight >= CONNECTION_LIMITS.inFlight) return refuse('LIMIT', verified.version, label);
+    slot.inFlight++;
+    try {
+      const done = await fetchUrl(request.call as Parameters<typeof fetchUrl>[0], grants, this.lookup);
+      record(verified.version, label, 'ok', { inn: done.inn, out: done.out });
+      return { ok: true, data: done.value };
+    } catch (error) {
+      return refuse(error instanceof ConnectError ? error.code : 'FAILED', verified.version, label);
+    } finally { slot.inFlight--; }
   }
 
   private async run(owner: string, request: ConnectRequest, decl: ConnectionDecl, call: ConnectCall, slot: Slot): Promise<{ data: unknown; io: { inn?: number; out?: number } }> {

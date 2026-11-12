@@ -29,6 +29,7 @@ export const INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   'modules:controls-reset',
   // Подключения программ к внешним программам, решения человека и журнал (electron/moduleConnectionsIpc.ts)
   'modules:connect',
+  'modules:net',
   'modules:connect-close',
   'modules:grant',
   'modules:grants',
