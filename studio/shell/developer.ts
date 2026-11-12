@@ -370,7 +370,7 @@ export class DeveloperService {
     if (manifest.id !== id || !MODULE_VERSION.test(String(manifest.version))) throw new StudioFailure('Идентификатор и версия в manifest.json не сходятся с проектом.');
     // Отчёт строится заново в момент отправки: «прошло вчера» не считается, а отчёт из окна не принимается вовсе
     const report = await runChecks({ files, changelog: state.changelog, studioVersion: this.deps.version, engine: this.deps.engine });
-    if (!report.ok) throw new StudioFailure('Проверка перед отправкой не пройдена: отправка недоступна. Откройте раздел «Проверка перед отправкой».');
+    if (!report.ok) throw new StudioFailure('Проверка перед отправкой не пройдена: отправка недоступна. Нажмите «Проверить» и посмотрите вкладку «Проблемы».');
     // У страницы нет runtime.js: пакет несёт ui/ как есть, и подписывается ровно он
     const built = manifest.ui === 'page' ? { runtime: '', problem: pageProblem(files, manifest.pages) } : assembleRuntime(this.runtimeTemplates(), manifest, files);
     if (built.problem) throw new StudioFailure(built.problem);

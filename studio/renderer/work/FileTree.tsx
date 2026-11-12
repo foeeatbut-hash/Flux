@@ -68,6 +68,16 @@ export default function FileTree({ id, entries, active, problems, onOpen, onChan
     });
   };
 
+  // Скачать файл: текст берётся у главного процесса и отдаётся браузерным сохранением окна
+  const download = async (path: string) => {
+    try {
+      const f = await call<{ text: string | null }>('draftFile', { id, path });
+      if (f.text === null) { onError('Этот файл не текстовый: скачайте проект архивом.'); return; }
+      const url = URL.createObjectURL(new Blob([f.text], { type: 'text/plain;charset=utf-8' }));
+      const a = document.createElement('a'); a.href = url; a.download = baseOf(path); a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) { onError((e as Error).message); }
+  };
   const hiddenBy = (p: string) => [...collapsed].some(c => p.startsWith(`${c}/`));
   return (
     <div className="studio-tree" aria-label="Файлы проекта" role="tree">
@@ -76,8 +86,8 @@ export default function FileTree({ id, entries, active, problems, onOpen, onChan
         <button type="button" className="fx-ibtn" aria-label="Новая папка" title="Новая папка" onClick={() => setPrompt({ kind: 'folder', base: targetDir, value: '' })}><FolderPlus /></button>
         <button type="button" className="fx-ibtn" aria-label="Загрузить файлы" title="Загрузить файлы" onClick={() => upload.current?.click()}><Upload /></button>
         <button type="button" className="fx-btn fx-btn-quiet" onClick={() => uploadDir.current?.click()}>Папку…</button>
-        <input ref={upload} type="file" multiple hidden onChange={e => { void files(e.target.files, false); e.target.value = ''; }} />
-        <input ref={uploadDir} type="file" hidden {...({ webkitdirectory: '', directory: '' } as object)} onChange={e => { void files(e.target.files, true); e.target.value = ''; }} />
+        <input ref={upload} type="file" multiple hidden aria-label="Выбор файлов для загрузки" onChange={e => { void files(e.target.files, false); e.target.value = ''; }} />
+        <input ref={uploadDir} type="file" hidden aria-label="Выбор папки для загрузки" {...({ webkitdirectory: '', directory: '' } as object)} onChange={e => { void files(e.target.files, true); e.target.value = ''; }} />
       </div>
       <div className="studio-tree-list"
         onDragOver={e => { e.preventDefault(); }} onDrop={e => { e.preventDefault(); const from = e.dataTransfer.getData('text/x-studio-path'); if (from) void move(from, ''); else void files(e.dataTransfer.files, false); }}>
@@ -98,6 +108,7 @@ export default function FileTree({ id, entries, active, problems, onOpen, onChan
               <span className="studio-node-name">{baseOf(e.path)}</span>
               {selected === e.path && (
                 <span className="studio-node-acts">
+                  {!e.dir && e.text !== false && <button type="button" className="fx-btn fx-btn-quiet" onClick={ev => { ev.stopPropagation(); void download(e.path); }}>Скачать</button>}
                   <button type="button" className="fx-btn fx-btn-quiet" onClick={ev => { ev.stopPropagation(); setPrompt({ kind: 'rename', base: e.path, value: baseOf(e.path) }); }}>Переименовать</button>
                   <button type="button" className="fx-btn fx-btn-quiet" onClick={ev => { ev.stopPropagation(); setRemoving(e.path); }}>Удалить</button>
                 </span>)}

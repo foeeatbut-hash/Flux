@@ -72,11 +72,7 @@
         "studio/build-assets.cjs",
         "server/routes/studioDeveloper.ts",
         "studio/renderer/call.ts",
-        "studio/renderer/sections/Projects.tsx",
         "studio/renderer/sections/Run.tsx",
-        "studio/renderer/sections/Editor.tsx",
-        "studio/renderer/sections/Check.tsx",
-        "studio/renderer/sections/Publish.tsx",
         "studio/renderer/sections/Errors.tsx",
         "studio/owner/src/console.cjs",
         "studio/owner/src/consoleApi.cjs",
@@ -112,7 +108,20 @@
         "src/components/auth/OwnerLoginPanel.tsx",
         "src/components/auth/DatabaseUriForm.tsx",
         "src/components/window/FloatingFrame.tsx",
-        "src/components/ui/controls.tsx"
+        "src/components/ui/controls.tsx",
+        "studio/renderer/work/BottomPanel.tsx",
+        "studio/renderer/work/EditorArea.tsx",
+        "studio/renderer/work/FileTree.tsx",
+        "studio/renderer/work/Home.tsx",
+        "studio/renderer/work/Modal.tsx",
+        "studio/renderer/work/NewProgram.tsx",
+        "studio/renderer/work/ProjectWindow.tsx",
+        "studio/renderer/work/PublishDialog.tsx",
+        "studio/renderer/work/helpers.ts",
+        "studio/renderer/work/useKey.tsx",
+        "studio/shared/workspace.ts",
+        "studio/shared/archive.ts",
+        "studio/shared/conflict.ts"
       ]
     }
   ],
@@ -242,6 +251,17 @@
     {
       "id": "studio-project",
       "path": "scripts/test-studio-project.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
+      "id": "studio-workspace",
+      "path": "scripts/test-studio-workspace.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [
@@ -663,10 +683,10 @@
       "sources": [
         "studio/shared/keyring.ts",
         "studio/shell/developer.ts",
-        "studio/renderer/sections/Publish.tsx"
+        "studio/renderer/work/useKey.tsx"
       ],
       "triggers": [
-        "кнопки «Создать ключ», «Запросить сертификат у владельца»"
+        "кнопка «Запросить право публиковать»"
       ],
       "risk": "critical",
       "expected": [
@@ -734,10 +754,10 @@
       "sources": [
         "studio/shared/testBase.ts",
         "studio/shell/developer.ts",
-        "studio/renderer/sections/Projects.tsx"
+        "studio/renderer/work/NewProgram.tsx"
       ],
       "triggers": [
-        "раздел «Проект подпрограммы»",
+        "стартовый экран «Мои программы» и «Новая программа»",
         "«Сбросить тестовую базу»"
       ],
       "risk": "normal",
@@ -771,11 +791,13 @@
         "studio/shared/drafts.ts",
         "studio/shared/runtime.ts",
         "studio/shell/developer.ts",
-        "studio/renderer/sections/Projects.tsx",
-        "studio/renderer/sections/Run.tsx"
+        "studio/renderer/sections/Run.tsx",
+        "studio/renderer/work/NewProgram.tsx",
+        "studio/renderer/work/Home.tsx",
+        "studio/renderer/work/ProjectWindow.tsx"
       ],
       "triggers": [
-        "раздел «Проект подпрограммы»"
+        "стартовый экран «Мои программы» и «Новая программа»"
       ],
       "risk": "critical",
       "expected": [
@@ -800,7 +822,14 @@
           "suite": "studio-ui-developer",
           "layer": "browser-live",
           "claims": [
-            "Настоящий iframe sandbox с настоящим runtime показывает данные тестовой базы; журнал моста; снимки обеих тем"
+            "Стартовый экран, диалог «Новая программа», дерево и вкладки, поиск, запуск в нижней панели с настоящим iframe sandbox, «Опубликовать» с проверкой и окном версии, ключ сам и запрос права, «Сбои у пользователей» — в обеих темах"
+          ]
+        },
+        {
+          "suite": "studio-workspace",
+          "layer": "unit",
+          "claims": [
+            "Проект — папка на диске: выход за папку, ссылки, служебные каталоги, исключения, слежение за внешними изменениями, конфликт с несохранённым, перенос прежних черновиков"
           ]
         }
       ],
@@ -858,10 +887,11 @@
       "sources": [
         "studio/shared/checks.ts",
         "studio/shared/controlsEngine.ts",
-        "studio/renderer/sections/Check.tsx"
+        "studio/renderer/work/ProjectWindow.tsx",
+        "studio/renderer/work/BottomPanel.tsx"
       ],
       "triggers": [
-        "раздел «Проверка перед отправкой»"
+        "кнопка «Проверить» и вкладка «Проблемы»"
       ],
       "risk": "critical",
       "expected": [
@@ -903,10 +933,10 @@
         "studio/shell/developerServer.ts",
         "server/routes/studioDeveloper.ts",
         "server/routes/modulePublishing.ts",
-        "studio/renderer/sections/Publish.tsx"
+        "studio/renderer/work/PublishDialog.tsx"
       ],
       "triggers": [
-        "кнопка «Отправить на публикацию»",
+        "кнопка «Опубликовать»",
         "«Исправить и отправить заново»"
       ],
       "risk": "critical",
@@ -947,7 +977,7 @@
         "studio/renderer/sections/Errors.tsx"
       ],
       "triggers": [
-        "раздел «Ошибки»",
+        "вкладка «Сбои у пользователей»",
         "«Отметить»"
       ],
       "risk": "normal",

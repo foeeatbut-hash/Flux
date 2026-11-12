@@ -7,7 +7,7 @@
  * runtime.js и настоящим мостом — только адрес страницы http://127.0.0.1 вместо flux-module:// (Chromium без Electron
  * не знает эту схему), для чего в копии index.html расширен frame-src.
  *
- * Что проверяется: навигация шести разделов; создание проекта и его файлы; запуск на тестовой базе (данные позиции
+ * Что проверяется: стартовый экран, диалог «Новая программа», дерево файлов и вкладки, поиск; запуск на тестовой базе (данные позиции
  * видны в окне программы, журнал моста пишет чтения); непройденная и пройденная проверка; ключ, запрос сертификата,
  * отправка, статусы и замечания владельца, «исправить и отправить заново»; ошибки и отметка «исправлено»;
  * заглушка редактора; в обеих темах — сплошной фон, нет горизонтальной прокрутки (1180 и 1024), поля подписаны,
@@ -45,6 +45,7 @@ async function measure(page: Page, label: string) {
       return { bg: rgb(body.backgroundColor), color: rgb(body.color), overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         unlabeled: [...document.querySelectorAll('input:not([type=checkbox]), select, textarea')].filter(i => !i.labels?.length && !i.getAttribute('aria-label')).length, small };
     })()`) as { bg: number[]; color: number[]; overflowX: number; unlabeled: number; small: number };
+    if (!(info.bg[3] === 1 && info.overflowX <= 0 && info.unlabeled === 0 && info.small === 0)) console.log(JSON.stringify(info), await page.evaluate(`[...document.querySelectorAll('input:not([type=checkbox]), select, textarea')].filter(i => !i.labels?.length && !i.getAttribute('aria-label')).map(i => i.outerHTML.slice(0, 120)).concat([...document.querySelectorAll('main *')].filter(e => [...e.childNodes].some(n => n.nodeType === 3 && n.textContent.trim()) && parseFloat(getComputedStyle(e).fontSize) < 12).map(e => e.outerHTML.slice(0, 120)))`));
     ok(`${label} (${width}): фон сплошной, нет горизонтальной прокрутки, поля подписаны, текст не мельче 12 px`, info.bg[3] === 1 && info.overflowX <= 0 && info.unlabeled === 0 && info.small === 0);
     if (width === 1180) ok(`${label}: контраст текста не ниже 4.5:1`, contrast(info.color.slice(0, 3), info.bg.slice(0, 3)) >= 4.5);
   }
@@ -71,7 +72,8 @@ async function main() {
     { id: 'req-1', moduleId: 'equipment-inspector', version: '1.1.0', state: 'pending', parentId: null, changelog: 'Новое', channel: 'test', createdAt: '2026-11-09T09:00:00Z', decidedAt: null, review: null },
   ];
   flux.get('/api/health', (_q, r) => r.json({ version: '1.0.0' }));
-  flux.get('/api/studio/certificate', (_q, r) => r.json({ status: 'none', name: '' }));
+  const certificate = { status: 'none' };
+  flux.get('/api/studio/certificate', (_q, r) => r.json({ status: certificate.status, name: '' }));
   // Тот же договор, что у маршрута из PR владельца (server/routes/moduleCertRequests.ts): тело {key, name}, профиль из входа
   const certRequests: any[] = [];
   flux.post('/api/modules/certificate-requests', (q, r) => { certRequests.push(q.body); r.json({ ok: true }); });
@@ -111,6 +113,7 @@ async function main() {
     for (const theme of ['light', 'dark'] as const) {
       console.log(theme === 'light' ? 'Светлая тема' : 'Тёмная тема');
       fs.rmSync(path.join(data, 'drafts'), { recursive: true, force: true });
+      fs.rmSync(path.join(data, 'projects'), { recursive: true, force: true });
       fs.rmSync(path.join(data, 'developer-key.json'), { force: true });
       const page = await browser.newPage({ viewport: { width: 1180, height: 800 } });
       await page.addInitScript((value: string) => { try { localStorage.setItem('theme', value); } catch { /* приватный режим */ } }, theme);
@@ -131,131 +134,142 @@ async function main() {
           return { ok: true, value };
         } catch (e: any) { return { ok: false, error: String(e?.message || e) }; }
       });
-      await page.addInitScript(`window.studio = { onState: () => () => {}, onProgress: () => () => {}, call: (a, g) => window.__studioCall(a, g) };`);
+      await page.addInitScript(`window.studio = { onState: () => () => {}, onProgress: () => () => {}, onProject: () => () => {}, call: (a, g) => window.__studioCall(a, g) };`);
       await page.goto('file://' + path.join(renderer, 'index.html'));
-      const nav = page.getByRole('navigation', { name: 'Разделы Studio' });
-      await page.getByRole('heading', { name: 'Программы' }).waitFor();
-      const names = ['Программы', 'Проект программы', 'Редактор', 'Проверка перед отправкой', 'Публикация', 'Ошибки'];
-      ok(`${theme}: в навигации шесть разделов в нужном порядке`, (await nav.getByRole('button').allInnerTexts()).filter(t => names.includes(t)).join('|') === names.join('|') );
-      await measure(page, `${theme}/программы`);
+      const nav = page.getByRole('navigation', { name: 'Flux Studio' });
+      await page.getByRole('heading', { name: 'Мои программы' }).waitFor();
+      ok(`${theme}: в меню один пункт «Мои программы», прежних шести разделов нет`, (await nav.getByRole('button', { name: 'Мои программы' }).count()) === 1
+        && (await nav.innerText()).split('\n').every(t => !['Проект программы', 'Редактор', 'Проверка перед отправкой', 'Публикация', 'Ошибки'].includes(t.trim())));
+      // Отправленные раньше программы, которых нет на этом компьютере, видны в списке и открываются как проект
+      await page.getByText('equipment-inspector').waitFor();
+      ok(`${theme}: отправленные программы видны и без папки на этом компьютере`, (await page.getByRole('button', { name: 'Открыть как проект' }).count()) === 2);
+      ok(`${theme}: подсказка «путь за 5 шагов» показана при первом запуске`, (await page.getByLabel('Как пройти путь за 5 шагов').locator('li').count()) === 5);
+      await measure(page, `${theme}/мои-программы`);
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-1-home.png`), fullPage: true });
 
-      // Проект
-      await nav.getByRole('button', { name: 'Проект программы' }).click();
-      await page.getByRole('heading', { name: 'Проект программы' }).waitFor();
-      await page.getByText('Проектов пока нет').waitFor();
-      ok(`${theme}: в списке заготовок семь языков и пример «Переводчик»`, (await page.locator('#tpl option').count()) === 8);
-      await page.selectOption('#tpl', 'typescript');
-      await page.fill('#pid', 'demo-ui'); await page.fill('#pname', 'Пример для окна');
-      await page.getByRole('button', { name: 'Создать проект' }).click();
-      await page.getByRole('heading', { name: 'Файлы проекта «demo-ui»' }).waitFor();
-      ok(`${theme}: файлы проекта видны, логика и контрольные примеры на месте`, (await page.locator('table', { hasText: 'Размер' }).innerText()).includes('logic/main.ts') && (await page.locator('table', { hasText: 'Размер' }).innerText()).includes('examples/controls.json'));
-      await measure(page, `${theme}/проект`);
-      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-1-project.png`), fullPage: true });
+      // «Новая программа»: один диалог
+      await page.getByRole('button', { name: 'Новая программа' }).first().click();
+      const dialog = page.getByRole('dialog');
+      await dialog.waitFor();
+      ok(`${theme}: в диалоге семь языков расчётов и три примера`, (await dialog.locator('#np-lang option').count()) === 7 && (await dialog.locator('#np-sample option').count()) === 3);
+      await dialog.locator('#np-sample').selectOption('none');
+      await dialog.locator('#np-lang').selectOption('typescript');
+      await dialog.getByLabel('Название').fill('Пример для окна');
+      await measure(page, `${theme}/новая-программа`);
+      await dialog.getByRole('button', { name: 'Создать', exact: true }).click();
+      await page.getByRole('toolbar', { name: 'Запуск, проверка, публикация' }).waitFor();
+      const tree = page.getByRole('tree', { name: 'Файлы проекта' });
+      await tree.getByText('main.ts').waitFor();
+      ok(`${theme}: рабочее окно открылось сразу, в дереве логика и контрольные примеры`, (await tree.innerText()).includes('manifest.json') && (await tree.innerText()).includes('controls.json'));
+      ok(`${theme}: три кнопки сверху и четыре вкладки внизу`, (await page.getByRole('toolbar', { name: 'Запуск, проверка, публикация' }).getByRole('button').allInnerTexts()).join('|') === 'Запустить|Проверить|Опубликовать'
+        && (await page.getByRole('tablist', { name: 'Нижняя панель' }).getByRole('tab').allInnerTexts()).map(t => t.replace(/\d+$/, '').trim()).join('|') === 'Запуск|Проблемы|Публикация|Сбои у пользователей');
+      const projectId = fs.readdirSync(path.join(data, 'projects'))[0];
+      ok(`${theme}: проект — папка на диске`, fs.existsSync(path.join(data, 'projects', projectId, 'manifest.json')));
 
-      // Запуск на тестовой базе: настоящий iframe с настоящим runtime
+      // Файлы: вкладки, создать, переименовать, удалить с подтверждением
+      await tree.getByText('manifest.json').click();
+      await page.getByRole('tablist', { name: 'Открытые файлы' }).getByRole('tab', { name: 'manifest.json' }).waitFor();
+      await tree.getByText('form.json').click();
+      ok(`${theme}: открытые файлы — вкладки`, (await page.getByRole('tablist', { name: 'Открытые файлы' }).getByRole('tab').count()) >= 2);
+      await page.getByRole('button', { name: 'Новый файл' }).click();
+      await page.getByLabel('Имя').fill('notes.txt'); await page.getByRole('button', { name: 'Готово' }).click();
+      await tree.getByText('notes.txt').waitFor();
+      await tree.getByText('notes.txt').click();
+      await page.getByRole('button', { name: 'Переименовать' }).click();
+      await page.getByLabel('Новое имя').fill('readme.txt'); await page.getByRole('button', { name: 'Готово' }).click();
+      await tree.getByText('readme.txt').waitFor();
+      ok(`${theme}: файл создан и переименован на диске`, await (async () => { const f = fs.readdirSync(path.join(data, 'projects', projectId), { recursive: true }).map(String); return f.some(x => x.endsWith('readme.txt')) && !f.some(x => x.endsWith('notes.txt')); })());
+      await tree.getByText('readme.txt').click();
+      await page.getByRole('button', { name: 'Удалить', exact: true }).click();
+      await page.getByRole('dialog').getByText('будет удалён').waitFor();
+      await page.getByRole('dialog').getByRole('button', { name: 'Отмена' }).click();
+      ok(`${theme}: удаление спрашивает подтверждение, отмена оставляет файл`, (await tree.getByText('readme.txt').count()) === 1);
+      await page.getByRole('button', { name: 'Удалить', exact: true }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Удалить' }).click();
+      await tree.getByText('readme.txt').waitFor({ state: 'detached' });
+      ok(`${theme}: после подтверждения файл удалён`, true);
+
+      // Поиск по проекту
+      await page.getByRole('button', { name: 'Поиск по проекту' }).click();
+      await page.getByRole('textbox', { name: 'Поиск по проекту' }).fill('version');
+      await page.locator('.studio-hits button').first().waitFor();
+      ok(`${theme}: поиск по проекту находит строки с переходом к файлу`, (await page.locator('.studio-hits').innerText()).includes('manifest.json'));
+      await page.getByRole('button', { name: 'Поиск по проекту' }).click();
+
+      // Редакторы формы из #155 во вкладке form.json
+      await page.getByRole('tab', { name: 'form.json' }).first().click();
+      await page.getByTestId('editors').waitFor();
+      ok(`${theme}: вкладка form.json — настоящие редакторы, заглушки нет`, (await page.getByTestId('editors-stub').count()) === 0);
+      await measure(page, `${theme}/рабочее-окно`);
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-2-workspace.png`), fullPage: true });
+
+      // «Запустить»: настоящий iframe с настоящим runtime в нижней панели
+      await page.getByRole('button', { name: 'Запустить' }).first().click();
+      await page.locator('#run-entity').waitFor();
       await page.selectOption('#run-entity', 'p1-e-fan');
-      await page.getByRole('button', { name: 'Запустить' }).click();
+      await page.locator('#run-title').locator('xpath=..').getByRole('button', { name: /Запустить|Перезапустить/ }).click();
       const frame = page.frameLocator('[data-testid="studio-module-frame"]');
       await frame.getByText('Вентилятор радиальный').waitFor();
-      await frame.getByText('Статистика числовых параметров').waitFor();
       const shown = async () => (await frame.locator('#module-root').innerText()).replace(/\s+/g, ' ');
-      // Расчёт идёт в Worker программы после первой отрисовки: ждём результат по состоянию окна, а не по таймеру
       for (let i = 0; i < 100 && !/Значений 4/.test(await shown()); i++) await page.waitForTimeout(50);
       const text = await shown();
-      ok(`${theme}: программа показала позицию из тестовой базы и свой расчёт (${text.slice(0, 120)})`, text.includes('ВР-80-75') && /Значений 4/.test(text) && /Сумма 6031\.5/.test(text));
+      ok(`${theme}: программа показала позицию из тестовой базы и свой расчёт (${text.slice(0, 100)})`, text.includes('ВР-80-75') && /Значений 4/.test(text) && /Сумма 6031\.5/.test(text));
       ok(`${theme}: окно программы изолировано (sandbox без allow-same-origin)`, (await page.locator('[data-testid="studio-module-frame"]').getAttribute('sandbox')) === 'allow-scripts');
       ok(`${theme}: журнал моста записал чтение`, (await page.locator('table.log').innerText()).includes('equipment'));
-      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-2-run.png`), fullPage: true });
-      ok(`${theme}: файл тестовой базы лежит в каталоге данных`, fs.existsSync(path.join(data, 'test-base.sqlite')));
-      await page.getByRole('button', { name: 'Сбросить тестовую базу' }).click();
-      await page.getByText('Проекты: 2').waitFor();
-      ok(`${theme}: сброс тестовой базы возвращает образцы`, true);
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-3-run.png`), fullPage: true });
 
-      // Редактор
-      await nav.getByRole('button', { name: 'Редактор' }).click();
-      await page.getByTestId('editors').waitFor();
-      ok(`${theme}: раздел «Редактор» — настоящие редакторы, заглушки нет`, (await page.getByTestId('editors-stub').count()) === 0);
-      await page.getByRole('tab', { name: 'form.json' }).waitFor();
-      // Правка формы → сохранилось в черновик (файл на диске), и текст в редакторе совпадает
-      const draftForm = async () => JSON.parse(((await service.handle('draftFile', { id: 'demo-ui', path: 'form.json' })) as any).text);
-      await page.getByRole('button', { name: 'Добавить: Группа', exact: true }).click();
-      await page.getByLabel('Заголовок группы').fill('Из редактора');
-      for (let i = 0; i < 100 && !(await draftForm()).groups.some((g: any) => g.title === 'Из редактора'); i++) await page.waitForTimeout(50);
-      ok(`${theme}: правка формы сохранилась в черновик проекта`, (await draftForm()).groups.some((g: any) => g.title === 'Из редактора'));
-      await page.getByRole('tab', { name: 'form.json' }).click();
-      ok(`${theme}: текст form.json в редакторе показывает ту же правку`, (await page.locator('[data-testid=form-json]').evaluate(el => el.shadowRoot?.querySelector('.cm-content')?.textContent ?? '')).includes('Из редактора'));
-      await page.getByRole('tab', { name: 'Договор' }).click();
-      await page.getByRole('button', { name: 'Добавить значение' }).first().click();
-      await page.getByLabel('Своё состояние (state): имя 1').fill('shown');
-      for (let i = 0; i < 100 && !fs.existsSync(path.join(data, 'drafts', 'demo-ui', 'project', 'contract.json')); i++) await page.waitForTimeout(50);
-      ok(`${theme}: договор сохранён файлом contract.json в проекте`, fs.existsSync(path.join(data, 'drafts', 'demo-ui', 'project', 'contract.json')));
-      await page.getByRole('tab', { name: 'Форма' }).click();
-      await measure(page, `${theme}/редактор`);
-      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-3-editor.png`) });
-
-      // Проверка: сначала не пройдена
-      await nav.getByRole('button', { name: 'Проверка перед отправкой' }).click();
-      await page.fill('#changelog', 'Первая версия');
-      await page.getByRole('button', { name: 'Проверить' }).click();
-      await page.getByText('Проверка не пройдена').waitFor();
-      ok(`${theme}: без снимков проверка не пройдена, отправка недоступна`, (await page.locator('tbody').innerText()).includes('Не прошло') && (await page.getByRole('button', { name: 'Перейти к публикации' }).count()) === 0);
-      ok(`${theme}: границы проверки названы («не проверяется автоматически»)`, (await page.locator('tbody').innerText()).includes('Не проверяется автоматически'));
-      await measure(page, `${theme}/проверка-не-пройдена`);
-      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-4-check-failed.png`), fullPage: true });
-
-      // Снять обе темы и проверить снова
-      await nav.getByRole('button', { name: 'Проект программы' }).click();
-      await page.getByRole('button', { name: 'Запустить' }).waitFor();
-      await page.selectOption('#run-entity', 'p1-e-fan');
-      await page.getByRole('button', { name: 'Запустить' }).click();
-      await frame.getByText('Вентилятор радиальный').waitFor();
+      // «Опубликовать» сама проверяет: без снимков — «Проблемы», окно версии не открывается
+      await page.getByRole('button', { name: 'Опубликовать' }).click();
+      await page.locator('.studio-problem').first().waitFor();
+      ok(`${theme}: без снимков «Опубликовать» остановилась на проблемах и не открыла окно версии`, (await page.getByRole('dialog').count()) === 0 && (await page.locator('.studio-problems').innerText()).length > 0);
+      await measure(page, `${theme}/проблемы`);
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-4-problems.png`), fullPage: true });
+      await page.getByRole('tab', { name: 'Запуск' }).click();
       await page.getByRole('button', { name: 'Снять обе темы' }).click();
       await page.getByText('Снимки обеих тем сохранены').waitFor();
-      await nav.getByRole('button', { name: 'Проверка перед отправкой' }).click();
-      await page.getByRole('button', { name: 'Проверить' }).click();
-      await page.getByText('Проверка пройдена').waitFor();
-      ok(`${theme}: после снимков проверка пройдена, видна кнопка перехода к публикации`, (await page.getByRole('button', { name: 'Перейти к публикации' }).count()) === 1);
-      await measure(page, `${theme}/проверка-пройдена`);
-      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-5-check-ok.png`), fullPage: true });
 
-      // Публикация
-      await page.getByRole('button', { name: 'Перейти к публикации' }).click();
-      await page.getByRole('heading', { name: 'Публикация' }).waitFor();
-      await page.getByRole('button', { name: 'Создать ключ' }).click();
-      await page.getByTestId('public-key').waitFor();
-      ok(`${theme}: показана открытая часть ключа; закрытой на странице нет`, /^[0-9a-f]{64}$/.test(await page.getByTestId('public-key').innerText()) && !(await page.content()).includes('PRIVATE KEY'));
-      ok(`${theme}: статус сертификата — «запросите его у владельца»`, (await page.locator('.facts').innerText()).includes('Сертификата нет'));
-      await page.getByRole('button', { name: 'Отправить владельцу' }).click();
-      await page.getByText('Запрос отправлен владельцу, ждём сертификат').waitFor();
-      ok(`${theme}: запрос ушёл в очередь владельца с ключом и именем, профиль — из сессии, статус виден`, certRequests.length >= 1 && /^[0-9a-f]{64}$/.test(certRequests.at(-1).key) && !('userId' in certRequests.at(-1)) && (await page.getByRole('button', { name: 'Отправить владельцу' }).isDisabled()));
-      await page.getByRole('button', { name: 'Показать текст запроса' }).click();
-      await page.locator('#cert-request').waitFor();
-      ok(`${theme}: запрос сертификата показан для передачи владельцу`, (await page.locator('#cert-request').inputValue()).startsWith('FLUXDEVCERTREQ1.'));
-      ok(`${theme}: замечания владельца и комментарий к строке видны`, (await page.locator('tbody').last().innerText()).includes('Подпись длиннее 60 знаков'));
-      ok(`${theme}: «Исправить и отправить заново» только у возвращённой`, (await page.getByRole('button', { name: 'Исправить и отправить заново' }).count()) === 1);
-      await page.getByRole('button', { name: 'Отправить на публикацию' }).click();
-      await page.getByRole('alert').filter({ hasText: 'сертификата' }).waitFor();
+      // Ключ создан сам; одна кнопка запроса права
+      await page.getByRole('tab', { name: 'Публикация' }).click();
+      ok(`${theme}: ключ создан сам (файл есть), на странице закрытой части нет`, fs.existsSync(path.join(data, 'developer-key.json')) && !(await page.content()).includes('PRIVATE KEY'));
+      await page.getByRole('button', { name: 'Запросить право публиковать' }).first().click();
+      await page.getByText('Запрос отправлен владельцу').first().waitFor();
+      ok(`${theme}: запрос права ушёл в очередь владельца с ключом и именем, профиль — из сессии`, certRequests.length >= 1 && /^[0-9a-f]{64}$/.test(certRequests.at(-1).key) && !('userId' in certRequests.at(-1)));
+
+      // Окно «Опубликовать» при праве «ждём»: версия предложена, отправка закрыта
+      await page.getByRole('button', { name: 'Опубликовать' }).click();
+      const pub = page.getByRole('dialog', { name: 'Опубликовать' });
+      await pub.waitFor({ timeout: 8000 }).catch(async e => { console.log(await page.locator('.studio-bottom').innerText(), await page.locator('main').innerText().then(t => t.slice(0, 300))); throw e; });
+      ok(`${theme}: проверка пройдена, предложен номер версии`, /^\d+\.\d+\.\d+$/.test(await pub.getByLabel('Номер версии').inputValue()));
+      ok(`${theme}: пока права нет, отправка закрыта`, await pub.getByRole('button', { name: 'Отправить владельцу' }).isDisabled());
+      await pub.getByRole('button', { name: 'Отмена' }).click();
+
+      // Владелец выдал право (сервер теперь отвечает «выдан») — отправка открывается, сервер всё равно проверяет сам
+      certificate.status = 'issued';
+      await page.reload();
+      await page.getByRole('heading', { name: 'Мои программы' }).waitFor();
+      await page.getByRole('button', { name: 'Пример для окна' }).click();
+      await page.getByRole('toolbar', { name: 'Запуск, проверка, публикация' }).waitFor();
+      await page.getByRole('button', { name: 'Опубликовать' }).click();
+      await pub.waitFor();
+      await pub.getByLabel('Что нового').fill('Первая версия');
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-5-publish.png`), fullPage: true });
+      await pub.getByRole('button', { name: 'Отправить владельцу' }).click();
+      await pub.getByRole('alert').waitFor();
       ok(`${theme}: отказ сервера показан текстом, запрос подписан и дошёл до сервера`, submitted.length >= 1 && typeof submitted.at(-1).signature === 'string' && submitted.at(-1).signature.startsWith('FLUXMODREQ1.'));
-      await measure(page, `${theme}/публикация`);
-      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-6-publish.png`), fullPage: true });
+      await pub.getByRole('button', { name: 'Отмена' }).click();
+      certificate.status = 'none';
 
-      // Исправить и отправить заново: проект возвращается из пакета запроса. Заглушка не хранит пакеты — ошибка называется
-      await page.getByRole('button', { name: 'Исправить и отправить заново' }).click();
-      await page.getByRole('alert').filter({ hasText: /Flux ответил|Запрос не найден|не найден/ }).first().waitFor();
-      ok(`${theme}: «исправить и отправить заново» идёт за пакетом запроса и честно сообщает, если его нет`, true);
-
-      // Ошибки
-      await nav.getByRole('button', { name: 'Ошибки' }).click();
+      // Сбои у пользователей
+      await page.getByRole('tab', { name: 'Сбои у пользователей' }).click();
       await page.getByRole('cell', { name: 'Расчёт зависает на больших позициях' }).waitFor();
       ok(`${theme}: обращения и счётчики сбоев по своей программе`, (await page.locator('tbody').nth(1).innerText()).includes('Не уложилась во время') && (await page.locator('tbody').first().innerText()).includes('Не могу продолжить'));
       ok(`${theme}: отметка недоступна, пока версия не вида 1.2.3`, await page.getByRole('button', { name: 'Отметить' }).isDisabled());
       await page.fill(`#fix-${reportId}`, '1.2.0');
       await page.getByRole('button', { name: 'Отметить' }).click();
-      await page.waitForFunction(() => true);
       ok(`${theme}: «исправлено в версии» ушло на сервер`, await (async () => { for (let i = 0; i < 50 && !transitions.length; i++) await new Promise(r => setTimeout(r, 100)); return transitions[0]?.resolvedVersion === '1.2.0' && transitions[0].to === 'VERIFY'; })());
       transitions.length = 0;
-      await measure(page, `${theme}/ошибки`);
-      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-7-errors.png`), fullPage: true });
+      await measure(page, `${theme}/сбои`);
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-6-failures.png`), fullPage: true });
 
       ok(`${theme}: окно вызывало только перечисленные действия`, requested.every(a => ALL_ACTIONS.includes(a)));
       ok(`${theme}: ошибок страницы нет`, errors.length === 0);

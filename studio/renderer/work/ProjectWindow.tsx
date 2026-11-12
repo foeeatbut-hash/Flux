@@ -59,12 +59,13 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
     if (!(await area.current?.saveAll())) return;
     setPanel('run'); setPanelOpen(true); setRunSignal(n => n + 1);
   };
-  const check = async (): Promise<CheckReport | null> => {
+  const check = async (forPublish = false): Promise<CheckReport | null> => {
     if (!(await area.current?.saveAll())) return null;
     setBusy('check'); setNote('');
     try {
       const report = await call<CheckReport>('check', { id });
-      const list = problemsOf(report);
+      // Перед публикацией «что нового» не считается проблемой: его вводят в окне публикации, а отправка перепроверит всё
+      const list = problemsOf(forPublish ? { items: report.items.filter(i => i.id !== 'changelog') } : report);
       setProblems(list);
       setPanelOpen(true);
       if (list.length) setPanel('problems');
@@ -75,8 +76,8 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
   };
   // «Опубликовать» сама запускает проверку: есть проблемы — список, нет — окно «что нового»
   const publish = async () => {
-    const report = await check();
-    if (report?.ok) setPublishing(true);
+    const report = await check(true);
+    if (report && report.items.every(i => i.status !== 'fail' || i.id === 'changelog')) setPublishing(true);
   };
 
   const doFind = async (q: string) => {
@@ -87,7 +88,7 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
   const bad = new Set(problems.map(p => p.path).filter(Boolean) as string[]);
 
   return (
-    <section aria-label={`Программа ${id}`} className="studio-project">
+    <section aria-label={`Программа ${id}`} className="studio-project studio-body">
       <header className="studio-project-bar">
         <button type="button" className="fx-btn fx-btn-quiet" onClick={onBack}><ArrowLeft />Мои программы</button>
         <div className="studio-project-title"><strong>{name}</strong><span className="code fx-hint" title={tree?.folder}>{tree?.folder}</span></div>

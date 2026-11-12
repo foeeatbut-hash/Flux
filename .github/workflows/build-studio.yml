@@ -73,6 +73,7 @@ jobs:
         run: |
           node --import tsx scripts/test-studio-keyring.ts
           node --import tsx scripts/test-studio-project.ts
+          node --import tsx scripts/test-studio-workspace.ts
           node --import tsx scripts/test-studio-page.ts
           node --import tsx scripts/test-studio-translator.ts
       - name: Две сборки и проверка бандла разработчика (с мутациями)

@@ -248,7 +248,7 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
     !log ? 'Заполните «что нового»: без него пользователь в Flux Store не поймёт, зачем обновляться' : log.length > 4000 ? 'Не длиннее 4000 знаков' : `${log.length} знаков`));
   const shots = manifest.store?.screenshots || [];
   const shotProblems: string[] = [];
-  if (!shots.length) shotProblems.push('снимите окно программы в светлой и тёмной теме (раздел «Редактор» → «Запуск» → «Снять обе темы»)');
+  if (!shots.length) shotProblems.push('снимите окно программы в светлой и тёмной теме (нижняя панель «Запуск» → «Снять обе темы»)');
   for (const shot of shots) {
     const bytes = files[shot];
     if (!bytes) shotProblems.push(`нет файла ${shot}`);

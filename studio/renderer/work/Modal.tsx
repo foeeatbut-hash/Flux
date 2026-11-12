@@ -12,7 +12,7 @@ export default function Modal({ title, onClose, children, wide }: { title: strin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
-    <div className="studio-modal-back" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="studio-modal-back studio-body" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={box} className={`studio-modal${wide ? ' wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
         <h2 className="studio-modal-title">{title}</h2>
         {children}

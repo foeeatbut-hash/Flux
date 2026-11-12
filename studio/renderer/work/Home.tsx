@@ -37,6 +37,10 @@ export default function Home({ onOpen }: { onOpen: (id: string) => void }) {
     setError('');
     try { const r = await call<{ id: string; canceled?: boolean }>('projectOpenFolder'); if (!r.canceled) onOpen(r.id); } catch (e) { fail(e); }
   };
+  const importArchive = async () => {
+    setError('');
+    try { const r = await call<{ id: string; canceled?: boolean }>('projectImportArchive'); if (!r.canceled) onOpen(r.id); } catch (e) { fail(e); }
+  };
   const importRequest = async (row: RequestRow) => {
     setError('');
     try { onOpen((await call<{ id: string }>('draftImport', { requestId: row.id })).id); } catch (e) { fail(e); }
@@ -50,6 +54,7 @@ export default function Home({ onOpen }: { onOpen: (id: string) => void }) {
       <SectionHead title="Мои программы" count={drafts ? `${drafts.length + remote.length}` : undefined}
         actions={<>
           <button type="button" className="fx-btn" onClick={() => void openFolder()}><FolderOpen />Открыть папку…</button>
+          <button type="button" className="fx-btn" onClick={() => void importArchive()}>Импортировать архив…</button>
           <button type="button" className="fx-btn fx-btn-primary" onClick={() => setCreating(true)}><Plus />Новая программа</button>
         </>} />
       <div className="fx-page-body">
