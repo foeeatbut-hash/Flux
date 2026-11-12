@@ -14,6 +14,8 @@ import { PAGE_LIMITS } from './model';
 // Сессию Flux задаёт и в имени кадра: переход не по ссылке (location.href, свой #якорь) не теряет мост
 const session = window.name || location.hash.slice(1);
 let nextId = 0;
+/** Диалог ждёт человека: ограничение — только чтобы запрос не висел вечно */
+const DIALOG_WAIT_MS = 600_000;
 type Waiter = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout>; keep?: boolean };
 const waiting = new Map<string, Waiter>();
 const listeners = { message: new Set<(data: unknown) => void>(), change: new Set<(event: ChangeEvent) => void>(), theme: new Set<(theme: ThemeInfo) => void>(), resize: new Set<(size: SizeInfo) => void>() };
@@ -178,12 +180,33 @@ const api = {
   },
   /** Окна программы: каждое — обычное окно Flux с этой же страницей пакета либо другой, объявленной в manifest.json (pages) */
   windows: {
-    open: (page: string, params: Record<string, unknown> = {}) => request<null>('page', { op: 'window-open', page, params }, 5000),
+    /** `options` (добавлено к v2) — заголовок (до 80 знаков, виден после названия программы) и размер окна: не меньше 320×240, не больше рабочей области */
+    open: (page: string, params: Record<string, unknown> = {}, options?: { title?: string; width?: number; height?: number }) =>
+      request<null>('page', { op: 'window-open', page, params, ...(options ? { options } : {}) }, 5000),
     /** Параметры, с которыми открыто это окно */
     params: () => request<Record<string, unknown>>('page', { op: 'params-load' }, 5000),
     /** Сообщение всем остальным окнам этой программы (до 64 КБ) */
     send: (data: unknown) => request<null>('page', { op: 'channel-send', data }, 5000),
     onMessage: (listener: (data: unknown) => void) => subscribe(listeners.message, listener),
+  },
+  /** Своё окно (добавлено к v2) */
+  window: {
+    /** Заголовок окна: Flux показывает «Программа — заголовок»; пустая строка возвращает название программы. До 80 знаков */
+    setTitle: (text: string) => request<null>('page', { op: 'window-title', text: String(text) }, 5000),
+    /** В окне есть несохранённое: при закрытии Flux сам спросит «Закрыть без сохранения?» (с вашим текстом до 200 знаков). Закрытие программа не блокирует */
+    setUnsaved: (unsaved: boolean, text?: string) => request<null>('page', { op: 'window-unsaved', unsaved: !!unsaved, ...(text ? { text: String(text) } : {}) }, 5000),
+  },
+  /**
+   * Диалоги Flux (добавлено к v2): рисует Flux своим окном с названием программы, вы даёте простой текст (заголовок до 80 знаков, текст до 600, кнопки до 30).
+   * Один диалог на окно за раз (второй — LIMIT), не чаще раза в секунду. Закрытие окна программы закрывает диалог без ответа.
+   */
+  dialogs: {
+    confirm: (options: { title: string; text: string; ok?: string; cancel?: string; danger?: boolean }) =>
+      request<boolean>('page', { op: 'dialog-confirm', title: options.title, text: options.text, ...(options.ok ? { ok: options.ok } : {}), ...(options.cancel ? { cancel: options.cancel } : {}), ...(options.danger ? { danger: true } : {}) }, DIALOG_WAIT_MS),
+    alert: (options: { title: string; text: string }) => request<null>('page', { op: 'dialog-alert', title: options.title, text: options.text }, DIALOG_WAIT_MS),
+    /** Строка или null, если человек отказался */
+    prompt: (options: { title: string; text?: string; label: string; value?: string; maxLength?: number }) =>
+      request<string | null>('page', { op: 'dialog-prompt', title: options.title, label: options.label, ...(options.text ? { text: options.text } : {}), ...(options.value !== undefined ? { value: options.value } : {}), ...(options.maxLength ? { maxLength: options.maxLength } : {}) }, DIALOG_WAIT_MS),
   },
   onChange: (listener: (event: ChangeEvent) => void) => subscribe(listeners.change, listener),
   onTheme: (listener: (theme: ThemeInfo) => void) => subscribe(listeners.theme, listener),

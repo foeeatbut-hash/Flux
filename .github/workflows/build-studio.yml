@@ -96,6 +96,7 @@ jobs:
           node --import tsx scripts/test-studio-ui.ts
           node --import tsx scripts/test-studio-ui-developer.ts
           node --import tsx scripts/test-modules-openfile.ts
+          node --import tsx scripts/test-modules-windows.ts
       - name: Редакторы программы (модель) и в браузере, обе темы
         env:
           FLUX_CHROME: /usr/bin/google-chrome

@@ -6,7 +6,7 @@
 import { resources, themeKeys } from '../contract';
 import { COMPUTE_ERROR_CODES } from '../engine/types';
 import { PROGRAM_ERROR_CODES, PROGRAM_LIMITS } from '../programs/model';
-import { PAGE_ERROR_CODES, PAGE_LIMITS, WINDOW_LIMITS } from './model';
+import { DIALOG_LIMITS, PAGE_ERROR_CODES, PAGE_LIMITS, WINDOW_LIMITS, WINDOW_OPTION_LIMITS } from './model';
 
 const union = (items: readonly string[]) => items.map(item => `'${item}'`).join(' | ');
 
@@ -80,10 +80,28 @@ declare const flux: {
   openFile(options?: { accept?: string[] }): Promise<{ name: string; size: number; mime: string; bytes(): Uint8Array; text(): string }>;
   /** Свои окна программы (до ${WINDOW_LIMITS.windows}): страница index.html или объявленная в manifest.json pages */
   windows: {
-    open(page: string, params?: Record<string, unknown>): Promise<null>;
+    /** options: заголовок (до ${WINDOW_OPTION_LIMITS.title} знаков, виден после названия программы: «Программа — заголовок») и размер окна, не меньше ${WINDOW_OPTION_LIMITS.minWidth}×${WINDOW_OPTION_LIMITS.minHeight} и не больше рабочей области. Старый Flux отвечает DENIED */
+    open(page: string, params?: Record<string, unknown>, options?: { title?: string; width?: number; height?: number }): Promise<null>;
     params(): Promise<Record<string, unknown>>;
     send(data: unknown): Promise<null>;
     onMessage(listener: (data: unknown) => void): () => void;
+  };
+  /** Своё окно */
+  window: {
+    /** Заголовок окна: «Программа — заголовок», до ${WINDOW_OPTION_LIMITS.title} знаков; пустая строка возвращает название программы */
+    setTitle(text: string): Promise<null>;
+    /** В окне есть несохранённое: при закрытии (крестик, закрытие всех окон, выход из Flux) Flux сам спрашивает «Закрыть без сохранения?» с вашим текстом до ${WINDOW_OPTION_LIMITS.unsavedText} знаков. Закрытие программа не блокирует и заранее о нём не узнаёт; зависшая программа закрывается без вопроса */
+    setUnsaved(unsaved: boolean, text?: string): Promise<null>;
+  };
+  /**
+   * Диалоги Flux: простой текст, разметку рисует Flux своим окном с названием программы. Заголовок до ${DIALOG_LIMITS.title} знаков, текст до ${DIALOG_LIMITS.text}, кнопки до ${DIALOG_LIMITS.button}.
+   * Один диалог на окно за раз (второй — LIMIT), не чаще раза в секунду; закрытие окна программы закрывает диалог без ответа. Старый Flux отвечает DENIED.
+   */
+  dialogs: {
+    confirm(options: { title: string; text: string; ok?: string; cancel?: string; danger?: boolean }): Promise<boolean>;
+    alert(options: { title: string; text: string }): Promise<null>;
+    /** Строка либо null, если человек отказался; maxLength — до ${DIALOG_LIMITS.maxLength}, по умолчанию ${DIALOG_LIMITS.defaultMaxLength} */
+    prompt(options: { title: string; text?: string; label: string; value?: string; maxLength?: number }): Promise<string | null>;
   };
   onChange(listener: (event: 'opened' | 'project-changed' | 'changed') => void): () => void;
   onTheme(listener: (theme: FluxTheme) => void): () => void;

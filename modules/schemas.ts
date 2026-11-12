@@ -9,6 +9,7 @@ import { text, id, nullableId, array, object, dataSchemas } from './dataSchemas'
 export { dataSchemas };
 const envelope = { flux: { const: 'module' }, v: { const: 1 }, session: id };
 const encoding = { enum: ['utf8', 'base64'] };
+const dlgText = (max: number) => ({ type: 'string', minLength: 1, maxLength: max });
 const socketId = { type: 'string', minLength: 1, maxLength: 64 };
 const memberName = { type: 'string', pattern: '^[A-Za-z_][A-Za-z0-9_]{0,127}$' };
 const comArgs = { type: 'array', maxItems: 32 };
@@ -74,7 +75,17 @@ export const messageSchemas = {
       mime: { type: 'string', maxLength: 100 }, data: { type: 'string', maxLength: 700_000 }, encoding }, ['flux', 'v', 'session', 'id', 'type', 'op', 'name', 'data', 'encoding']),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'file-pick' }, accept: { type: 'array', maxItems: 10, items: { type: 'string', pattern: '^\\.[A-Za-z0-9]{1,10}$' } } }, ['flux', 'v', 'session', 'id', 'type', 'op']),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'beat' } }),
-    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'window-open' }, page: { type: 'string', maxLength: 160 }, params: { type: 'object' } }, ['flux', 'v', 'session', 'id', 'type', 'op', 'page']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'window-open' }, page: { type: 'string', maxLength: 160 }, params: { type: 'object' },
+      options: object({ title: { type: 'string', maxLength: 80 }, width: { type: 'integer', minimum: 320, maximum: 16_384 }, height: { type: 'integer', minimum: 240, maximum: 16_384 } }, []) }, ['flux', 'v', 'session', 'id', 'type', 'op', 'page']),
+    // Диалоги и заголовок окна (добавлено к v2). Пределы длины — DIALOG_LIMITS / WINDOW_OPTION_LIMITS в modules/page/model.ts
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'dialog-confirm' }, title: dlgText(80), text: { type: 'string', maxLength: 600 },
+      ok: dlgText(30), cancel: dlgText(30), danger: { type: 'boolean' } }, ['flux', 'v', 'session', 'id', 'type', 'op', 'title', 'text']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'dialog-alert' }, title: dlgText(80), text: { type: 'string', maxLength: 600 } },
+      ['flux', 'v', 'session', 'id', 'type', 'op', 'title', 'text']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'dialog-prompt' }, title: dlgText(80), text: { type: 'string', maxLength: 600 }, label: dlgText(80),
+      value: { type: 'string', maxLength: 1000 }, maxLength: { type: 'integer', minimum: 1, maximum: 1000 } }, ['flux', 'v', 'session', 'id', 'type', 'op', 'title', 'label']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'window-title' }, text: { type: 'string', maxLength: 80 } }, ['flux', 'v', 'session', 'id', 'type', 'op', 'text']),
+    object({ ...envelope, id, type: { const: 'page' }, op: { const: 'window-unsaved' }, unsaved: { type: 'boolean' }, text: { type: 'string', maxLength: 200 } }, ['flux', 'v', 'session', 'id', 'type', 'op', 'unsaved']),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'params-load' } }),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'channel-send' }, data: {} }),
   ] },

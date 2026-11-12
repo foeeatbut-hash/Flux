@@ -80,6 +80,27 @@ export const PAGE_ERROR_NOTES: Record<PageErrorCode, string> = {
 export const WINDOW_LIMITS = { windows: 5, messageBytes: 64 * 1024, paramsBytes: 8 * 1024 } as const;
 
 /**
+ * Заголовок и размер окна (добавлено к v2): третий аргумент `flux.windows.open`, `flux.window.setTitle` и `setUnsaved`.
+ * Верхний предел размера — рабочая область экрана, её знает окно Flux, а не договор: мост пропускает до `maxSize`, окно обрезает по столу.
+ */
+export const WINDOW_OPTION_LIMITS = { title: 80, minWidth: 320, minHeight: 240, maxSize: 16_384, unsavedText: 200 } as const;
+export interface WindowOptions { title?: string; width?: number; height?: number }
+
+/**
+ * Диалоги через Flux (добавлено к v2): программа даёт простой текст, разметку рисует Flux. Пределы длины — по таблице ниже.
+ * Один диалог на окно за раз, не чаще раза в секунду.
+ */
+export const DIALOG_LIMITS = { title: 80, text: 600, button: 30, label: 80, value: 1000, maxLength: 1000, defaultMaxLength: 200 } as const;
+export type PageDialog =
+  | { kind: 'confirm'; title: string; text: string; ok?: string; cancel?: string; danger?: boolean }
+  | { kind: 'alert'; title: string; text: string }
+  | { kind: 'prompt'; title: string; text?: string; label: string; value?: string; maxLength: number };
+/** Ответ диалога: confirm — true/false, alert — null, prompt — строка либо null (отказ) */
+export type PageDialogAnswer = boolean | string | null;
+/** Управляющие знаки в тексте для человека не нужны (перевод строки и табуляция допустимы); ими подделывают вид окна */
+export const hasControlChars = (text: string, allowBreaks = false) => (allowBreaks ? /[\u0000-\u0008\u000b-\u001f\u007f]/ : /[\u0000-\u001f\u007f]/).test(text);
+
+/**
  * «Не отвечает»: считаем только страницу, которая уже подала сигнал (без клиента flux.v1.js сигнала нет и не будет),
  * и только пока окно видно — у скрытого и свёрнутого окна таймеры замедляются, тишина там ничего не значит.
  */

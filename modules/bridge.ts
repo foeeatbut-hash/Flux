@@ -8,7 +8,7 @@ import { encodeJson } from './engine/json';
 import type { ConnectCall, ConnectErrorCode, NetCall } from './connections/model';
 import { hasNetPermission, hasProgramPermission } from './permissions/registry';
 import { PROGRAM_LIMITS, type ProgramCall, type ProgramCallErrorCode, type ProgramReply } from './programs/model';
-import { openAcceptProblem, PAGE_LIMITS, saveNameProblem, WINDOW_LIMITS } from './page/model';
+import { DIALOG_LIMITS, hasControlChars, openAcceptProblem, PAGE_LIMITS, saveNameProblem, WINDOW_LIMITS, WINDOW_OPTION_LIMITS, type PageDialog, type PageDialogAnswer, type WindowOptions } from './page/model';
 
 export interface ModuleBridgeOptions {
   frame: () => Window | null;
@@ -58,7 +58,17 @@ export interface ModuleBridgeOptions {
     pickFile?: (request: { accept: string[] }) => Promise<{ name: string; mime: string; bytes: Uint8Array } | 'cancelled' | 'limit'>;
     onBeat: () => void;
     /** Свои окна программы: Flux открывает обычное окно с этой страницей пакета; false — предел или страницы нет */
-    openWindow: (page: string, params: Record<string, unknown>) => boolean;
+    openWindow: (page: string, params: Record<string, unknown>, options?: WindowOptions) => boolean;
+    /**
+     * Диалог Flux (flux.dialogs, добавлено к v2): окно Flux рисует свой диалог с названием программы; ответ — по виду
+     * (confirm — true/false, alert — null, prompt — строка или null). Окно программы закрылось — диалог закрыт без ответа.
+     * Нет поля — хост этого не умеет, программе отвечают DENIED.
+     */
+    dialog?: (request: PageDialog) => Promise<PageDialogAnswer>;
+    /** Заголовок своего окна (flux.window.setTitle); пустая строка — вернуть название программы */
+    setTitle?: (text: string) => void;
+    /** Пометка «в окне есть несохранённое» (flux.window.setUnsaved): при закрытии Flux спросит сам, программа закрытие не блокирует */
+    setUnsaved?: (unsaved: boolean, text: string) => void;
     /** Параметры, с которыми открыто это окно */
     params: () => Record<string, unknown>;
     /** Сообщение остальным окнам этой же программы (чужим не доходит) */
@@ -180,6 +190,8 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     finally { connecting.delete(message.id); }
   }
   let offering = false;
+  let dialogOpen = false;
+  let dialogAt = 0;
   let picking = false;
   let pickedAt = 0;
   let offeredAt = 0;
@@ -197,12 +209,49 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       if (messageBytes(message.data) > WINDOW_LIMITS.messageBytes) { answer({ code: 'LIMIT' }); return; }
       page.broadcast(message.data); answer({ data: null }); return;
     }
+    if (message.op === 'window-title' || message.op === 'window-unsaved') {
+      if (!page.setTitle && message.op === 'window-title' || !page.setUnsaved && message.op === 'window-unsaved') { answer({ code: 'DENIED' }); return; }
+      const text = message.op === 'window-title' ? message.text : message.text ?? '';
+      if (hasControlChars(text)) { answer({ code: 'DENIED' }); return; }
+      if (message.op === 'window-title') page.setTitle!(text.trim().slice(0, WINDOW_OPTION_LIMITS.title));
+      else page.setUnsaved!(message.unsaved, message.unsaved ? text.trim().slice(0, WINDOW_OPTION_LIMITS.unsavedText) : '');
+      answer({ data: null }); return;
+    }
+    if (message.op === 'dialog-confirm' || message.op === 'dialog-alert' || message.op === 'dialog-prompt') {
+      if (!page.dialog) { answer({ code: 'DENIED' }); return; }
+      // Только простой текст: управляющих знаков нет, пустых надписей нет (схема), длина по DIALOG_LIMITS
+      const texts = [message.title, message.text, message.op === 'dialog-confirm' ? message.ok : undefined, message.op === 'dialog-confirm' ? message.cancel : undefined,
+        message.op === 'dialog-prompt' ? message.label : undefined, message.op === 'dialog-prompt' ? message.value : undefined];
+      if (texts.some(item => item !== undefined && hasControlChars(item, true))) { answer({ code: 'DENIED' }); return; }
+      let request: PageDialog;
+      if (message.op === 'dialog-confirm') request = { kind: 'confirm', title: message.title, text: message.text, ...(message.ok ? { ok: message.ok } : {}), ...(message.cancel ? { cancel: message.cancel } : {}), ...(message.danger ? { danger: true } : {}) };
+      else if (message.op === 'dialog-alert') request = { kind: 'alert', title: message.title, text: message.text };
+      else {
+        const maxLength = message.maxLength ?? DIALOG_LIMITS.defaultMaxLength;
+        if ((message.value ?? '').length > maxLength) { answer({ code: 'DENIED' }); return; }
+        request = { kind: 'prompt', title: message.title, ...(message.text ? { text: message.text } : {}), label: message.label, ...(message.value !== undefined ? { value: message.value } : {}), maxLength };
+      }
+      // Один диалог на окно за раз и не чаще раза в секунду: программа не заваливает человека окнами
+      if (dialogOpen || Date.now() - dialogAt < 1000) { answer({ code: 'LIMIT' }); return; }
+      dialogOpen = true; dialogAt = Date.now();
+      try {
+        const reply = await page.dialog(request);
+        if (request.kind === 'confirm') answer({ data: reply === true });
+        else if (request.kind === 'alert') answer({ data: null });
+        else answer({ data: typeof reply === 'string' ? reply.slice(0, request.maxLength) : null });
+      } catch { answer({ code: 'FAILED' }); }
+      finally { dialogOpen = false; }
+      return;
+    }
     if (message.op === 'window-open') {
       // Страница обязана быть главной либо объявленной в подписанном манифесте; параметры невелики
       const allowed = message.page === 'index.html' || (options.manifest.pages || []).includes(message.page);
       if (!allowed) { answer({ code: 'DENIED' }); return; }
       if (messageBytes(message.params ?? {}) > WINDOW_LIMITS.paramsBytes) { answer({ code: 'LIMIT' }); return; }
-      answer(page.openWindow(message.page, message.params ?? {}) ? { data: null } : { code: 'LIMIT' }); return;
+      const windowOptions = message.options;
+      if (windowOptions?.title !== undefined && hasControlChars(windowOptions.title)) { answer({ code: 'DENIED' }); return; }
+      answer(page.openWindow(message.page, message.params ?? {}, windowOptions ? { ...(windowOptions.title?.trim() ? { title: windowOptions.title.trim() } : {}), ...(windowOptions.width ? { width: windowOptions.width } : {}), ...(windowOptions.height ? { height: windowOptions.height } : {}) } : undefined)
+        ? { data: null } : { code: 'LIMIT' }); return;
     }
     if (message.op === 'state-load') { answer({ data: page.loadState() }); return; }
     if (message.op === 'state-keep') {

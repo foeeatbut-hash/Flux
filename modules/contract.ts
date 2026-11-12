@@ -94,7 +94,15 @@ export type PageOp =
   /** Файл пользователя (добавлено к v2): диалог показывает Flux, программа получает имя и содержимое только выбранного файла */
   | { op: 'file-pick'; accept?: string[] }
   | { op: 'beat' }
-  | { op: 'window-open'; page: string; params?: Record<string, unknown> }
+  /** `options` — добавлено к v2: заголовок и размер нового окна */
+  | { op: 'window-open'; page: string; params?: Record<string, unknown>; options?: { title?: string; width?: number; height?: number } }
+  /** Диалоги через Flux (добавлено к v2): рисует Flux, программа даёт только простой текст */
+  | { op: 'dialog-confirm'; title: string; text: string; ok?: string; cancel?: string; danger?: boolean }
+  | { op: 'dialog-alert'; title: string; text: string }
+  | { op: 'dialog-prompt'; title: string; text?: string; label: string; value?: string; maxLength?: number }
+  /** Заголовок своего окна и пометка «есть несохранённое» (добавлено к v2) */
+  | { op: 'window-title'; text: string }
+  | { op: 'window-unsaved'; unsaved: boolean; text?: string }
   | { op: 'params-load' }
   | { op: 'channel-send'; data: unknown };
 export type PageHostMessage =
