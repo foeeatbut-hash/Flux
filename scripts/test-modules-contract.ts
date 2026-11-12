@@ -1,5 +1,5 @@
 import { createModuleBridge } from '../modules/bridge';
-import { bundledModules } from '../modules/bundled';
+import { sampleModules as bundledModules } from '../modules/sampleModules';
 import { themeKeys, type Resource, type ReadData, type ThemeTokens } from '../modules/contract';
 import { validManifest, validMessage } from '../modules/schemas';
 import { moduleAssetPath } from '../modules/protocol';

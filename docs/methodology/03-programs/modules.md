@@ -279,3 +279,5 @@ PR 1, а не реализованная квота. Внешних подклю
 сертификаты и отзывы проверяют `test-modules-trust` и `test-modules-publishing`; права, каналы и откат — `test-modules-channels`, перевод выпуска — `test-modules-promotion`; Store (сервер, выбор установленного, возврат без связи) — `test-modules-store`, экран — `test-modules-store-ui` (нужен свой Vite и `FLUX_CHROME`).
 
 `form.json` проверяется при сборке по схемам данных договора: неизвестный ресурс, поле или колонка останавливают сборку с указанием пути. Динамические state/calc.out принадлежат модулю. Наборы `modules-worker`, `modules-form`, `modules-refresh` проверяют жизненный цикл, ошибки формы и общий кэш/события. Жёсткая квота heap браузерного Worker не заявляется.
+
+Встроенных программ у пользователя Flux нет (`modules/bundled.ts` пуст): учебная «Параметры позиции» осталась образцом в Studio и фикстурой проверок (`modules/sampleModules.ts`); проверка — `scripts/test-modules-no-bundled.ts`. Прежнее слово не возвращаем — храповик `scripts/test-program-naming.ts`.

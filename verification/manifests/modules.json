@@ -415,6 +415,24 @@
         }
       ],
       "timeoutMs": 600000
+    },
+    {
+      "id": "modules-naming",
+      "path": "scripts/test-program-naming.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "modules-no-bundled",
+      "path": "scripts/test-modules-no-bundled.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 300000
     }
   ],
   "actions": [

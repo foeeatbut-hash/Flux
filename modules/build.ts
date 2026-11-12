@@ -2,7 +2,7 @@ import { build } from 'esbuild';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import { bundledModules } from './bundled';
+import { sampleModules } from './sampleModules';
 import { validManifest } from './schemas';
 import { validateModuleForm } from './validateForm';
 import Ajv from 'ajv';
@@ -57,7 +57,7 @@ export async function buildModuleRuntime(dir: string, manifest: ModuleManifest, 
 export async function buildModuleAssets(css: string, fonts: Record<string, string | Uint8Array>) {
   const assets: Record<string, string | Uint8Array> = {};
   const staticValidation = staticValidators();
-  for (const manifest of bundledModules) {
+  for (const manifest of sampleModules) {
     if (!validManifest(manifest)) throw new Error('Манифест фикстуры не соответствует договору v1');
     assets[`modules/${manifest.id}/runtime.js`] = await buildModuleRuntime(path.resolve('modules/fixtures', manifest.id), manifest, staticValidation);
     shellAssets(assets, `modules/${manifest.id}/`, css, fonts);

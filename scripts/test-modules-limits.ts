@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createModuleBridge } from '../modules/bridge';
-import { bundledModules } from '../modules/bundled';
+import { sampleModules as bundledModules } from '../modules/sampleModules';
 import { themeKeys, type ThemeTokens } from '../modules/contract';
 import { MODULE_CSP } from '../modules/protocol';
 
