@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, screen, type IpcMainInvokeEvent } from 'electron';
-import fs from 'node:fs';
 import path from 'node:path';
+import { readDisplayPrefs, writeDisplayPrefs } from './displayPrefs';
 import { recoverRect, sameRect, workspaceFrame, type DisplayWorkspace, type WorkspaceDisplay } from '../workspace/displays';
 
 /** Один renderer сохраняет несохранённые редакторы при переносе между экранами. */
@@ -10,11 +10,7 @@ export function setupDisplayWorkspace(getMainWindow: () => BrowserWindow | null,
   record: (event: 'display.layout', fields: Record<string, unknown>) => void = () => {}) {
   const preference = path.join(app.getPath('userData'), 'display-workspace.json');
   let enabled = false;
-  let requested = false;
-  try {
-    const saved = JSON.parse(fs.readFileSync(preference, 'utf8'));
-    requested = saved?.allMonitors === true;
-  } catch {}
+  let requested = readDisplayPrefs(preference).allMonitors;
   let attachedId = 0;
   let previous: { bounds: Electron.Rectangle; maximized: boolean; movable: boolean; resizable: boolean; minimum: number[] } | null = null;
   let adjusting = false;
@@ -135,7 +131,7 @@ export function setupDisplayWorkspace(getMainWindow: () => BrowserWindow | null,
     }
     requested = value;
     // Ошибка записи настроек не должна удерживать пользователя в этом режиме.
-    try { fs.writeFileSync(preference, JSON.stringify({ allMonitors: value }), { mode: 0o600 }); } catch {}
+    writeDisplayPrefs(preference, { allMonitors: value });
     broadcast();
     return snapshot();
   };
