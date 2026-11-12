@@ -16,6 +16,7 @@ import { moduleAssetPath, moduleHeaders, pageNavigationAllowed, PAGE_CSP } from 
 import { PAGE_ENTRY, pageProblem, pageTypeOf, PAGE_LIMITS, pageHung, saveNameProblem, PAGE_MIN_FLUX } from '../modules/page/model';
 import { permissionAllowed, hardenModuleSession } from '../modules/page/harden';
 import { pageState, pageStateKey } from '../src/lib/pageStateMemory';
+import { compareVersions } from '../shared/versionCompare';
 import { unmetRequirements } from '../modules/store/model';
 import { packBundle, splitChunks, type BundleFiles } from '../modules/trust/bundle';
 import { sealEnvelope } from '../modules/trust/envelope';
@@ -148,7 +149,12 @@ async function moreUnits() {
   ok('обработчик проверки отказывает кадру', check!(null, 'geolocation', 'flux-module://calc', { requestingUrl: 'flux-module://calc/ui/index.html' }) === false);
   const old = { ...base, contractVersion: 2, store: { category: 'calc', summary: 'x', requires: { flux: PAGE_MIN_FLUX } } } as any;
   ok('Store прячет страницу на Flux ниже первой версии со страницами', unmetRequirements(old, { fluxVersion: '1.20.20', windows: true }).length === 1);
+  ok('на старом Flux причина — «обновите Flux» с нужной версией', unmetRequirements(old, { fluxVersion: '1.20.20', windows: true })[0].includes(`Нужен Flux ${PAGE_MIN_FLUX} или новее`));
   ok('на подходящем Flux страница ставится', unmetRequirements(old, { fluxVersion: PAGE_MIN_FLUX, windows: true }).length === 0);
+  // Сама сборка обязана быть не старше первой версии со страницами: иначе Store спрятал бы страницы от самой себя
+  const appVersion = JSON.parse(fs.readFileSync('package.json', 'utf8')).version as string;
+  ok(`версия приложения ${appVersion} не ниже ${PAGE_MIN_FLUX}: Store показывает и ставит программы-страницы`, compareVersions(appVersion, PAGE_MIN_FLUX) >= 0 && unmetRequirements(old, { fluxVersion: appVersion, windows: true }).length === 0);
+  ok('Flux 1.20.x страницу не ставит', ['1.20.0', '1.20.20', '1.20.99'].every(v => unmetRequirements(old, { fluxVersion: v, windows: true }).length === 1));
 }
 
 interface LiveResult { report: any; leaks: string[]; saved: any[]; windows: any[]; beats: number; log: string[]; second: any; shot: Record<string, string> }
