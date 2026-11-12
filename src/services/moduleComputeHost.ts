@@ -9,6 +9,7 @@ import { loadWasm, MemoryCompileCache } from '../../modules/engine/wasm';
 import { SerialLane } from '../../modules/engine/serial';
 import { ModuleCompute, type PythonRunner, type WasmRunner } from './moduleCompute';
 import { recordModuleCrash } from './moduleCrashQueue';
+import { createTsRunner } from './moduleComputeTsHost';
 
 /** Настройка «выгружать Python после N минут без вызовов»; хранится на компьютере человека */
 export const PYTHON_IDLE_KEY = 'flux.modules.pythonIdleMinutes';
@@ -149,6 +150,7 @@ export function moduleCompute(): ModuleCompute {
     }),
     wasm: createWasmRunner(),
     python: createPythonRunner(),
+    ts: createTsRunner(),
     fetchFile: async (moduleId, file) => {
       const response = await fetch(`flux-module://${encodeURIComponent(moduleId)}/${file}`);
       if (!response.ok) throw new Error(String(response.status));

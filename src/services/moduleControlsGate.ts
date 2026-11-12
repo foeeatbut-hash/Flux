@@ -6,6 +6,7 @@
  * перестаёт отдавать код выпуска (electron/moduleControls.ts).
  */
 import { languageOf } from '../../modules/engine/types';
+import { needsControls } from '../../modules/programs/model';
 import type { ModuleManifest } from '../../modules/contract';
 import { moduleCompute } from './moduleComputeHost';
 import { bridge } from './moduleReleaseService';
@@ -20,7 +21,8 @@ export async function resetControls(manifest: ModuleManifest): Promise<void> {
 
 export async function ensureControls(manifest: ModuleManifest): Promise<ControlsGate> {
   const language = languageOf(manifest);
-  if (language === 'typescript') return 'ok';
+  // Форма на TypeScript считает сама и контрольных примеров не имеет; с методами для других программ — имеет, как Python и WebAssembly
+  if (!needsControls(manifest)) return 'ok';
   const ipc = bridge();
   const known = ipc ? await ipc.invoke('modules:controls', { moduleId: manifest.id }).catch(() => null) : null;
   if (known?.ok && known.version === manifest.version) {

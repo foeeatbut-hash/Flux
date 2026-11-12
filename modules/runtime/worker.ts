@@ -2,6 +2,7 @@ import * as logic from 'module-logic';
 import type { ModuleApi, ReadData, Resource } from '../contract';
 import type { ConnectCall } from '../connections/model';
 import { checkedOutput } from './output';
+import { withDeterminism } from './deterministic';
 
 let nextId = 0;
 let initialized = false;
@@ -67,19 +68,14 @@ const api: ModuleApi = {
  * На время расчёта часы стоят, а случайность идёт только от зерна: тот же вход даёт тот же выход.
  */
 async function computeOnce(data: { id?: string; input: string; seed?: number }) {
-  const RealDate = Date, realRandom = Math.random, realNow = performance.now.bind(performance);
-  let a = (Number(data.seed) | 0) >>> 0;
-  Math.random = () => { a = (a + 0x9e3779b9) >>> 0; let t = a ^ (a >>> 16); t = Math.imul(t, 0x21f0aaad); t ^= t >>> 15; t = Math.imul(t, 0x735a2d97); return ((t ^ (t >>> 15)) >>> 0) / 4294967296; };
-  (globalThis as any).Date = class extends RealDate { constructor(...args: any[]) { if (args.length === 0) super(0); else super(...(args as [any])); } static now() { return 0; } };
-  performance.now = () => 0;
   try {
     const compute = (logic as Record<string, unknown>).compute;
     if (typeof compute !== 'function') throw new Error('HANDLER_MISSING');
-    const output = await compute(JSON.parse(data.input));
+    const output = await withDeterminism(data.seed, () => compute(JSON.parse(data.input)));
     postMessage({ type: 'computed', id: data.id, output: JSON.stringify(output) });
   } catch (error) {
     postMessage({ type: 'failed', id: data.id, code: 'WORKER_FAILED' });
-  } finally { Math.random = realRandom; (globalThis as any).Date = RealDate; performance.now = realNow; }
+  }
 }
 
 onmessage = async ({ data }) => {

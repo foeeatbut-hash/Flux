@@ -3,8 +3,8 @@ import { hardenModuleContents, hardenModuleSession } from '../modules/page/harde
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { bundledModules } from '../modules/bundled';
-import { MODULE_COMPUTE_HOST, MODULE_SCHEME, MODULE_SHELL_DIR, moduleAssetPath, moduleHeaders, pageNavigationAllowed } from '../modules/protocol';
-import { CONTROLS_FILE, LOGIC_FILES } from '../modules/engine/types';
+import { MODULE_COMPUTE_HOST, MODULE_SCHEME, MODULE_SHELL_DIR, TS_HOST_FILE, moduleAssetPath, moduleHeaders, pageNavigationAllowed } from '../modules/protocol';
+import { CONTROLS_FILE, LOGIC_BUILD_FILE, LOGIC_FILES } from '../modules/engine/types';
 import { RUNTIME_FILE } from '../modules/trust/bundle';
 import { FLUX_ASSET_DIR, FLUX_ASSET_FILE, PAGE_URL_FILE, pageTypeOf } from '../modules/page/model';
 import type { RunnableRelease } from '../modules/trust/verify';
@@ -99,7 +99,8 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
       }
       if (asset.id === MODULE_COMPUTE_HOST) {
         const data = await fs.readFile(path.join(distRoot, 'modules', MODULE_COMPUTE_HOST, asset.file));
-        return new Response(data, { headers: moduleHeaders(contentType(asset.file), true) });
+        // Хост логики TypeScript — со строгим CSP без сети; хост Python (Pyodide читает свои файлы) — с COMPUTE_CSP
+        return new Response(data, { headers: moduleHeaders(contentType(asset.file), !TS_HOST_FILE.test(asset.file)) });
       }
       const release = runnable.get(asset.id);
       // Выпуск, чьи контрольные примеры не сошлись на этом компьютере, не отдаёт ни код, ни файлы логики
@@ -110,7 +111,8 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
       }
       if (asset.file.startsWith('logic.') || asset.file === 'controls.json') {
         // Файлы логики — только из проверенного пакета; у встроенных примеров их нет
-        const name = asset.file === 'controls.json' ? CONTROLS_FILE : Object.values(LOGIC_FILES).find(f => f.endsWith(asset.file.slice(5)));
+        // logic.js — собранный TypeScript (build/logic.js): он есть только у программы с exports, у остальных 404
+        const name = asset.file === 'controls.json' ? CONTROLS_FILE : asset.file === 'logic.js' ? LOGIC_BUILD_FILE : Object.values(LOGIC_FILES).find(f => f.endsWith(asset.file.slice(5)));
         const bytes = release && name ? release.files[name] : undefined;
         if (!bytes) return new Response(null, { status: 404 });
         return new Response(Buffer.from(bytes), { headers: moduleHeaders(contentType(asset.file)) });

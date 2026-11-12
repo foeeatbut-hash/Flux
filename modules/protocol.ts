@@ -24,6 +24,11 @@ export const COMPUTE_CSP = MODULE_CSP
   .replace("script-src 'self'", "script-src 'self' 'wasm-unsafe-eval'")
   .replace("connect-src 'none'", "connect-src 'self'");
 /**
+ * Страница и скрипт хоста логики TypeScript (modules/compute/tsHostFrame.ts) лежат рядом с хостом Python, но отдаются с обычным
+ * `MODULE_CSP`: `connect-src 'none'` и без `wasm-unsafe-eval` — у кода метода сети нет совсем, а Worker из blob: наследует эту политику.
+ */
+export const TS_HOST_FILE = /^ts(?:\.html|-host\.js)$/;
+/**
  * CSP страницы программы (договор v2). Скрипты, стили, шрифты и картинки — только из пакета; сети нет, eval нет.
  * В отличие от формы нет 'unsafe-inline' для стилей: стили страницы лежат файлами (CSSOM из скрипта работает,
  * атрибут style и тег style — нет). data: и blob: разрешены для картинок и воркеров — рисовать canvas/SVG/WebGL
@@ -45,13 +50,13 @@ export function moduleAssetPath(rawUrl: string, moduleIds: readonly string[]): {
     const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
     if (url.protocol !== `${MODULE_SCHEME}:` || url.username || url.password || url.port || !moduleIds.includes(url.hostname)) return null;
     if (url.hostname === MODULE_COMPUTE_HOST) {
-      // Хост Python отдаёт только свою страницу, скрипт и файлы Pyodide
-      return /^(?:index\.html|host\.js|pyodide\/[a-zA-Z0-9_.-]{1,64})$/.test(file) ? { id: url.hostname, file } : null;
+      // Общий адрес отдаёт страницу и скрипт хоста Python, файлы Pyodide и страницу и скрипт хоста логики TypeScript
+      return /^(?:index\.html|host\.js|ts\.html|ts-host\.js|pyodide\/[a-zA-Z0-9_.-]{1,64})$/.test(file) ? { id: url.hostname, file } : null;
     }
     // Файлы логики и контрольные примеры отдаются из проверенного пакета (electron/modules.ts)
     // Страница программы (договор v2): файлы ui/… из проверенного пакета и клиент/набор Flux из _flux/
     if (PAGE_URL_FILE.test(file) && pageTypeOf(file) || FLUX_ASSET_FILE.test(file)) return { id: url.hostname, file };
-    if (!/^(?:index\.html|runtime\.js|flux\.css|logic\.py|logic\.wasm|controls\.json|[a-zA-Z0-9_-]+\.woff2)$/.test(file)) return null;
+    if (!/^(?:index\.html|runtime\.js|flux\.css|logic\.py|logic\.wasm|logic\.js|controls\.json|[a-zA-Z0-9_-]+\.woff2)$/.test(file)) return null;
     return { id: url.hostname, file };
   } catch (_) { return null; }
 }

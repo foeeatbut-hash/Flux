@@ -21,8 +21,8 @@
 Главный процесс: moduleAssetPath (logic.js, ts.html, ts-host.js), electron/modules.ts, ModuleControls.required.
 
 ## Шаги
-- [ ] 1. Разведка, проверки «до», план (этот файл)
-- [ ] 2. Исполнитель TS в ModuleCompute + хост + окно
+- [x] 1. Разведка, проверки «до», план (этот файл)
+- [x] 2. Исполнитель TS в ModuleCompute + хост (modules/compute/tsHostFrame.ts, tsWorker.ts) + окно (src/services/moduleComputeTsHost.ts); tsc 0 ошибок
 - [ ] 3. Пакет, сборка (modules/build.ts), executionProblem, главный процесс
 - [ ] 4. Studio (сборка logic.js, publish, programChecks/checks)
 - [ ] 5. Проверки, мутации, Chromium, документы
@@ -32,4 +32,5 @@
 test-modules-windows-ui (нет Vite на 5173). Остальные, включая test-modules-programs, прошли.
 
 ## Остановился
-Шаг 1 закончен, дальше шаг 2.
+Шаг 2 и код шага 3 (executionProblem, protocol, electron/modules.ts, ModuleControls.required, ModuleFrame, build.ts buildModuleLogic) написаны, tsc чист; test-modules-programs ожидаемо красный (старая проверка отказа TS) — перепишу в шаге 5.
+Дальше: шаг 4 (Studio: runtime.ts assembleLogic, publish.buildPackage, developer.ts, programChecks, checks), затем тесты (chromium-набор test-modules-ts-host.ts, programs, compute, executionProblem), документы.

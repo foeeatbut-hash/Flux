@@ -1,6 +1,6 @@
 /**
- * Исполнение логики программ на Python и WebAssembly — одна очередь, одни
- * пределы и один путь ошибок на все программы окна Flux.
+ * Исполнение логики программ на Python, WebAssembly и (как метод для других программ) TypeScript — одна очередь,
+ * одни пределы и один путь ошибок на все программы окна Flux.
  *
  * Кто что делает:
  * - программа (iframe) присылает ВХОД по мосту, язык и исходник она не
@@ -9,6 +9,8 @@
  * - очередь (`ComputeScheduler`) держит «ядра − 1, не больше 4» расчётов;
  * - WebAssembly исполняется в Worker окна (модуль не имеет доступа ни к чему,
  *   кроме импортов Flux), Python — в общем Worker изолированного хоста;
+ * - TypeScript — только функция `compute` из собранного `build/logic.js` пакета, по Worker на каждый вызов в своём
+ *   изолированном хосте без сети (логика формы TypeScript по-прежнему живёт в окне программы и сюда не попадает);
  * - превышение времени останавливает Worker, сбой записывается в счётчики
  *   сбоев с видом (не текстом), следующий расчёт получает чистую среду;
  * - пока расчётов нет, живут только отложенные выгрузки (по одному таймеру на
@@ -36,6 +38,13 @@ export interface WasmRunner {
   /** Сколько раз модуль компилировался и сколько раз взят готовым: проверка «компиляция один раз на выпуск» */
   readonly stats?: { compiled: number; cached: number };
 }
+/** Хост логики TypeScript: Worker на вызов, без состояния между вызовами, останавливается по времени */
+export interface TsRunner {
+  run(source: string, input: string, seed: number, timeoutMs: number): Promise<{ output: string }>;
+  /** Выгрузить хост целиком (останавливает идущие вызовы) */
+  unload(): void;
+  readonly loaded: boolean;
+}
 /** Общая среда Python */
 export interface PythonRunner {
   run(key: string, source: string, input: string, seed: number, timeoutMs: number): Promise<{ output: string; bootMs: number }>;
@@ -49,12 +58,15 @@ export interface ComputeDeps {
   scheduler: ComputeScheduler;
   wasm: WasmRunner;
   python: PythonRunner;
-  /** Файл логики из проверенного выпуска (`logic.wasm`, `logic.py`, `controls.json`) */
-  fetchFile(moduleId: string, file: 'logic.wasm' | 'logic.py' | 'controls.json'): Promise<Uint8Array>;
+  /** Нет — логика TypeScript здесь не исполняется (`UNAVAILABLE`): так устроены проверки, которым она не нужна */
+  ts?: TsRunner;
+  /** Файл логики из проверенного выпуска (`logic.wasm`, `logic.py`, `logic.js` — собранный TypeScript, `controls.json`) */
+  fetchFile(moduleId: string, file: 'logic.wasm' | 'logic.py' | 'logic.js' | 'controls.json'): Promise<Uint8Array>;
   sha256(bytes: Uint8Array): Promise<string>;
   /** Минуты простоя Python до выгрузки (настройка, по умолчанию 5) */
   pythonIdleMinutes(): number;
   wasmIdleMs?: number;
+  tsIdleMs?: number;
   onFailure(moduleId: string, version: string, kind: 'crash' | 'timeout' | 'memory' | 'controls'): void;
   setTimer?(fn: () => void, ms: number): unknown;
   clearTimer?(handle: unknown): void;
@@ -66,6 +78,7 @@ export class ModuleCompute {
   private sources = new Map<string, Promise<Source>>();
   private idlePython: unknown = null;
   private idleWasm: unknown = null;
+  private idleTs: unknown = null;
   private disposed = false;
 
   constructor(private deps: ComputeDeps) {}
@@ -77,11 +90,11 @@ export class ModuleCompute {
     const key = `${target.moduleId}@${target.version}:${target.language}`;
     let found = this.sources.get(key);
     if (!found) {
-      const file = target.language === 'python' ? 'logic.py' : 'logic.wasm';
+      const file = target.language === 'python' ? 'logic.py' : target.language === 'typescript' ? 'logic.js' : 'logic.wasm';
       found = (async () => {
         let bytes: Uint8Array;
         try { bytes = await this.deps.fetchFile(target.moduleId, file); } catch { throw new ComputeError('UNAVAILABLE', 'файл логики недоступен'); }
-        return { bytes, fingerprint: await this.deps.sha256(bytes), text: target.language === 'python' ? new TextDecoder().decode(bytes) : undefined };
+        return { bytes, fingerprint: await this.deps.sha256(bytes), text: target.language === 'wasm' ? undefined : new TextDecoder().decode(bytes) };
       })();
       // Неудачная загрузка не запоминается: следующая попытка попробует снова
       found.catch(() => this.sources.delete(key));
@@ -105,12 +118,14 @@ export class ModuleCompute {
   }
 
   private async execute(target: ComputeTarget, input: unknown, priority: Priority, options: RunOptions): Promise<ModuleOutput> {
-    if (target.language !== 'python' && target.language !== 'wasm') throw new ComputeError('UNAVAILABLE', 'язык исполняется в окне программы');
+    if (target.language === 'typescript' && !this.deps.ts) throw new ComputeError('UNAVAILABLE', 'логика TypeScript здесь не исполняется');
     // Числа и размер проверяются до очереди: заведомо неверный вход не занимает слот
     const text = encodeJson(input);
     const seed = Number.isSafeInteger(options.seed) ? options.seed! : seedOf(input);
     const timeoutMs = Math.min(LIMITS.timeoutMs, Math.max(20, options.timeoutMs ?? LIMITS.timeoutMs));
     const source = await this.source(target);
+    // Файл логики TypeScript — собранный JS из подписанного пакета; больше предела Flux его не запускает (хост проверяет то же ещё раз)
+    if (target.language === 'typescript' && source.bytes.length > LIMITS.tsFileBytes) throw new ComputeError('ABI', 'файл логики больше 1 МиБ');
     const lane = target.language === 'python' ? 'python' : '';
     const raw = await this.deps.scheduler.run(priority, target.moduleId, async () => {
       if (this.disposed) throw new ComputeError('DENIED', 'окно закрыто');
@@ -119,6 +134,10 @@ export class ModuleCompute {
         try {
           return (await this.deps.python.run(`${target.moduleId}@${target.version}`, source.text!, text, seed, timeoutMs)).output;
         } finally { this.armPythonIdle(); }
+      }
+      if (target.language === 'typescript') {
+        this.untimer(this.idleTs); this.idleTs = null;
+        try { return (await this.deps.ts!.run(source.text!, text, seed, timeoutMs)).output; } finally { this.armTsIdle(); }
       }
       this.untimer(this.idleWasm); this.idleWasm = null;
       try {
@@ -136,6 +155,12 @@ export class ModuleCompute {
     const minutes = Math.max(1, this.deps.pythonIdleMinutes());
     // Один отложенный вызов, а не опрос: до него процессор не просыпается
     this.idlePython = this.timer(() => { this.idlePython = null; this.deps.python.unload(); }, minutes * 60_000);
+  }
+  private armTsIdle() {
+    if (this.disposed || !this.deps.ts?.loaded) return;
+    this.untimer(this.idleTs);
+    // Хост без Worker'ов почти ничего не стоит, но пустой кадр в окне держать незачем
+    this.idleTs = this.timer(() => { this.idleTs = null; this.deps.ts?.unload(); }, this.deps.tsIdleMs ?? 60_000);
   }
   private armWasmIdle() {
     if (this.disposed || !this.deps.wasm.workers) return;
@@ -178,8 +203,8 @@ export class ModuleCompute {
   /** Закрытие окна или выход: останавливает среды и отменяет ожидающих */
   dispose() {
     this.disposed = true;
-    this.untimer(this.idlePython); this.untimer(this.idleWasm);
-    this.deps.wasm.stopAll(); this.deps.python.unload();
+    this.untimer(this.idlePython); this.untimer(this.idleWasm); this.untimer(this.idleTs);
+    this.deps.wasm.stopAll(); this.deps.python.unload(); this.deps.ts?.unload();
   }
 }
 

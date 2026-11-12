@@ -24,6 +24,12 @@ export const LOGIC_FILES: Record<ModuleLanguage, string> = {
 };
 /** Контрольные примеры в пакете: обязательны для Python и WebAssembly */
 export const CONTROLS_FILE = 'examples/controls.json';
+/**
+ * Собранный JavaScript логики TypeScript — лежит в пакете, только когда у программы непустой `exports`: Flux сам TypeScript не
+ * компилирует, метод для других программ исполняет именно этот файл (его кладут сборка Flux и Studio). Формат: скрипт, который
+ * кладёт функции логики в `globalThis.__fluxLogic` (modules/compute/tsWorker.ts вызывает `compute`).
+ */
+export const LOGIC_BUILD_FILE = 'build/logic.js';
 
 export const languageOf = (m: { language?: ModuleLanguage }): ModuleLanguage => m.language ?? 'typescript';
 export const platformOf = (m: { platform?: ModulePlatform }): ModulePlatform => m.platform ?? 'any';
@@ -44,6 +50,8 @@ export const LIMITS = {
   jsonDepth: 32,
   wasmFileBytes: 8 * 1024 * 1024,
   pythonFileBytes: 1024 * 1024,
+  /** Собранный JS логики TypeScript (build/logic.js): тот же предел, что у файла Python */
+  tsFileBytes: 1024 * 1024,
   controlsFileBytes: 64 * 1024,
   controlCases: 8,
 } as const;

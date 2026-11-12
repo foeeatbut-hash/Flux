@@ -5,6 +5,7 @@ import { subscribeModuleRefresh } from '../../services/moduleRefresh';
 import { recordModuleCrash } from '../../services/moduleCrashQueue';
 import { MODULE_SANDBOX } from '../../../modules/protocol';
 import { languageOf } from '../../../modules/engine/types';
+import { needsControls } from '../../../modules/programs/model';
 import { cancelModuleCompute, moduleCompute } from '../../services/moduleComputeHost';
 import { ensureControls, resetControls, type ControlsGate } from '../../services/moduleControlsGate';
 import { createConnector, type GrantChoice } from '../../services/moduleConnections';
@@ -46,7 +47,7 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
   const [session] = useState(() => crypto.randomUUID());
   const [failure, setFailure] = useState<ModuleFailureKind | null>(null);
   const language = languageOf(manifest);
-  const [gate, setGate] = useState<ControlsGate | 'checking'>(language === 'typescript' ? 'ok' : 'checking');
+  const [gate, setGate] = useState<ControlsGate | 'checking'>(needsControls(manifest) ? 'checking' : 'ok');
   const [recheck, setRecheck] = useState(0);
   const isPage = manifest.ui === 'page';
   // Страница шлёт сигнал «жива»; тишина дольше предела — зависла (кадр отдельный процесс, Flux при этом работает)
@@ -72,7 +73,8 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
   const [asking, setAsking] = useState<{ ask: GrantAsk; resolve: (choice: GrantChoice) => void } | null>(null);
   const [denied, setDenied] = useState<{ connection: string; app: string } | null>(null);
   useEffect(() => {
-    if (language === 'typescript') return;
+    // TypeScript без методов для других программ контрольных примеров не имеет; с методами — проверяется, как Python и WebAssembly
+    if (!needsControls(manifest)) return;
     let current = true;
     setGate('checking');
     void ensureControls(manifest).then(result => { if (current) setGate(result); });

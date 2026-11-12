@@ -1,7 +1,7 @@
 /**
  * Обращение программы к другой программе (`flux.programs.call`) — главный процесс.
  *
- * Расчёт метода идёт в окне Flux тем же движком, что `compute` (Python, WebAssembly), поэтому вызов делится на два шага:
+ * Расчёт метода идёт в окне Flux тем же движком, что `compute` (Python, WebAssembly, а у TypeScript — собранный `build/logic.js` в изолированном хосте), поэтому вызов делится на два шага:
  * `begin` — ВСЕ проверки и место в очереди пределов, `end` — итог и журнал. Решает только этот файл по проверенным
  * выпускам (подпись владельца, кэш), а не окно и не слова программы:
  * 1. вызывающая — установленная, проверенная; в её подписанном манифесте есть разрешение `program` на этот идентификатор;
@@ -94,8 +94,6 @@ export class ModuleProgramCalls {
     const callee = await this.deps.current(program);
     if (!callee) return refuse('NOT_INSTALLED');
     if (!exportsOf(callee.manifest).some(e => e.method === method)) return refuse('NO_METHOD');
-    // У движка TypeScript нет пути вне окна программы (логика — обработчики страницы с состоянием, не функция): честный отказ, а не молчание
-    if (languageOf(callee.manifest) === 'typescript') return refuse('FAILED');
     const ticket = `pc-${++this.counter}`;
     slot.inFlight++;
     this.serving.set(program, (this.serving.get(program) || 0) + 1);

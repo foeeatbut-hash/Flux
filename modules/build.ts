@@ -11,6 +11,7 @@ import { messageSchemas } from './schemas';
 import { MODULE_COMPUTE_HOST, MODULE_SHELL_DIR } from './protocol';
 import type { ModuleManifest } from './contract';
 import { languageOf } from './engine/types';
+import { needsLogicBuild } from './programs/model';
 import { FLUX_ASSET_DIR } from './page/model';
 
 function staticValidators() {
@@ -52,6 +53,20 @@ export async function buildModuleRuntime(dir: string, manifest: ModuleManifest, 
     } }],
   });
   return frame.outputFiles[0].text;
+}
+
+/**
+ * `build/logic.js` пакета: логика TypeScript, собранная в один скрипт, который кладёт функции логики в `globalThis.__fluxLogic`.
+ * Нужен только программе с `exports` (modules/programs/model.ts, `needsLogicBuild`): метод для других программ исполняет
+ * изолированный хост окна Flux (modules/compute/tsHostFrame.ts) этим файлом, а не форма в iframe программы.
+ */
+export async function buildModuleLogic(dir: string, manifest: ModuleManifest): Promise<string> {
+  if (!needsLogicBuild(manifest)) throw new Error('build/logic.js нужен только программе на TypeScript с exports');
+  const built = await build({
+    entryPoints: [path.join(dir, manifest.logic)], bundle: true, write: false, platform: 'browser', format: 'iife', target: 'es2022',
+    globalName: '__fluxLogicBundle',
+  });
+  return `${built.outputFiles[0].text}\nglobalThis.__fluxLogic = __fluxLogicBundle;\n`;
 }
 
 export async function buildModuleAssets(css: string, fonts: Record<string, string | Uint8Array>) {
@@ -105,6 +120,14 @@ export async function buildComputeAssets(): Promise<Record<string, string | Uint
     entryPoints: ['modules/compute/hostFrame.ts'], bundle: true, write: false, platform: 'browser', format: 'iife', minify: true,
     define: { __PYTHON_WORKER__: JSON.stringify(worker.outputFiles[0].text) },
   });
+  // Хост логики TypeScript (метод для других программ): Worker метода собирается в строку, как Worker Python
+  const tsWorker = await build({ entryPoints: ['modules/compute/tsWorker.ts'], bundle: true, write: false, platform: 'browser', format: 'iife', minify: true });
+  const tsHost = await build({
+    entryPoints: ['modules/compute/tsHostFrame.ts'], bundle: true, write: false, platform: 'browser', format: 'iife', minify: true,
+    define: { __TS_WORKER__: JSON.stringify(tsWorker.outputFiles[0].text) },
+  });
+  assets[`${prefix}ts-host.js`] = tsHost.outputFiles[0].text;
+  assets[`${prefix}ts.html`] = '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Среда TypeScript</title></head><body><script src="./ts-host.js"></script></body></html>';
   assets[`${prefix}host.js`] = host.outputFiles[0].text;
   assets[`${prefix}index.html`] = '<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Среда Python</title></head><body><script src="./host.js"></script></body></html>';
   const pyodide = path.dirname(path.resolve('node_modules/pyodide/package.json'));
