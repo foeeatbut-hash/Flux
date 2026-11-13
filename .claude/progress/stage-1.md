@@ -5,12 +5,12 @@
 После каждого принятого шага — коммит, отметка здесь, push.
 
 - [ ] 1. Находки ручной проверки владельца на Windows — на начало сессии не присланы
-- [ ] 2. Долги PR 165
+- [x] 2. Долги PR 165 (кроме 2г — не нужен)
   - [x] 2а. методы `flux.programs.call` на TypeScript (отказ в `modules/trust/execution.ts`)
   - [x] 2б. запрет администратором обращения к программам (образец — @internet/@lan)
   - [x] 2в. `test-modules-programs` на настоящих Pyodide и WebAssembly
   - [ ] 2г. WebSocket по полному адресу — только если нужен
-- [ ] 3. Хвосты рабочего окна Studio: [ ] типы при сборке TypeScript; [x] пробный запуск владельца (файл, диалоги); [x] окно «Лицензии»
+- [x] 3. Хвосты рабочего окна Studio: [x] типы при сборке TypeScript; [x] пробный запуск владельца (файл, диалоги); [x] окно «Лицензии»
 - [ ] 4. Функции «как в GitHub»: история версий, сравнение, откат, замечания к строкам, список выпусков
 - [ ] 5. Нестабильные проверки CI: office-native, полный Flux на Windows (FLUX_LOAD_*), test-modules-restart-ui, молча пропускающие себя наборы
 
@@ -34,3 +34,5 @@
 - 13.11: `program-policy` принят (561dc544, a124de0f, a3961c0a): запрет администратором `@program:<id>` (главный процесс, сервер, экран политики; подпись «Локальная сеть» исправлена), набор test-modules-programs-engines на настоящих Pyodide/WebAssembly/TypeScript в Chromium, наборы programs/permissions/engines включены в манифест и verify-modules.yml, 4 случая вызова в test-modules-compute-native. Руководитель сам прогнал на вершине: engines 28, programs 120. Исполнитель прогнал native-набор под Xvfb в контейнере (43) — Electron в контейнере ЕСТЬ. Ждёт Windows-CI. Не сделано: запрет и TIMEOUT в настоящем Electron.
 - 2г (WebSocket по полному адресу) — не нужен ни одной программе, не делается; остаётся строкой в плане.
 - В работе: `studio-typecheck` (шаг 1 запушен c831b035).
+- 13.11: `studio-typecheck` принят (c831b035, daed884e): сверка типов настоящим компилятором в потоке ts-type-worker.cjs, strict, ошибки в «Проблемы», +5,2 МБ к сборке Studio. Руководитель прогнал test-studio-tsbuild на вершине: 82. НЕ проверено: поток из asarUnpack в упакованной Studio на Windows, время первой сверки на реальном ПК.
+- 13.11: пункт 4 «как в GitHub» — устройство записано в studio-next.md («Очередь до выпуска», п. 2); исполнитель `studio-history` (файл хода `.claude/progress/studio-history.md`). В работе также `ci-flaky-3`.
