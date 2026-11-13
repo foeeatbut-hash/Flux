@@ -21,6 +21,7 @@ import { ALL_ACTIONS, SHELL_ACTIONS, type DeveloperAction } from './actions';
 import { DeveloperService } from './developer';
 import { RememberedBase } from './remembered';
 import { OwnerKeyLogin } from './ownerLogin';
+import { showDataFileDialog } from './programFile';
 
 declare const __STUDIO_VERSION__: string;
 declare const __STUDIO_BUILD__: string;
@@ -179,8 +180,7 @@ export function startShell(sections: ShellSection[] = []): void {
       },
       pickDataFile: async options => {
         if (!win) return null;
-        const picked = await dialog.showOpenDialog(win, { ...options, buttonLabel: 'Отдать программе', properties: ['openFile'] });
-        return picked.canceled || !picked.filePaths[0] ? null : picked.filePaths[0];
+        return showDataFileDialog(dialog, win, options);
       },
       pickFolder: async title => {
         if (!win) return null;

@@ -11,6 +11,7 @@ import { call } from '../call';
 import { trialProgramCall } from '../../shared/trialPrograms';
 import type { PageDialog, PageDialogAnswer } from '../../../modules/page/model';
 import RunDialog from './RunDialog';
+import { dialogAnswerLine, dialogStartLine, pickedFromWire } from '../work/programDialog';
 
 interface Started {
   session: string; url: string; language: string;
@@ -89,16 +90,7 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
         loadState: () => kept.current, keepState: state => { kept.current = state; },
         offerFile: async file => { add('файл', `${file.name} (${file.bytes.length} Б) — во Flux Flux спросит и сохранит через диалог`); return 'saved'; },
         // Файл пользователя: диалог показывает главный процесс Studio, как Flux в настоящем запуске; программа получает только выбранный файл
-        pickFile: async request => {
-          const reply = await call<{ ok: boolean; code?: string; name?: string; data?: string }>('runPickFile', { accept: request.accept });
-          if (reply.ok && reply.name !== undefined && reply.data !== undefined) {
-            const bytes = Uint8Array.from(atob(reply.data), c => c.charCodeAt(0));
-            add('файл', `${reply.name} (${bytes.length} Б) выдан программе`); return { name: reply.name, mime: '', bytes };
-          }
-          if (reply.code === 'CANCELLED') { add('файл', 'человек отказался выбирать файл'); return 'cancelled'; }
-          if (reply.code === 'LIMIT') { add('файл', 'файл больше 512 КиБ — программе не выдан', 'warn'); return 'limit'; }
-          throw new Error(reply.code || 'FAILED');
-        },
+        pickFile: async request => pickedFromWire(await call('runPickFile', { accept: request.accept }), (text, level) => add('файл', text, level)),
         onBeat: () => undefined,
         openWindow: (page, params, options) => {
           const extra = options ? ` (${[options.title && `заголовок «${options.title}»`, options.width && `ширина ${options.width}`, options.height && `высота ${options.height}`].filter(Boolean).join(', ')})` : '';
@@ -106,8 +98,8 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
         },
         // Диалоги Flux: в Studio показывает диалог Studio, ответ человека идёт программе как во Flux; закрытие запуска закрывает диалог без ответа
         dialog: request => new Promise<PageDialogAnswer>(resolve => {
-          add('диалог', `${request.kind}: «${request.title}»`);
-          setDialog({ request, resolve: answer => { add('диалог', `ответ: ${request.kind === 'prompt' ? (answer === null ? 'отказ' : `строка, ${String(answer).length} зн.`) : request.kind === 'confirm' ? (answer ? 'да' : 'нет') : 'прочитано'}`); resolve(answer); } });
+          add('диалог', dialogStartLine(request));
+          setDialog({ request, resolve: answer => { add('диалог', dialogAnswerLine(request, answer)); resolve(answer); } });
         }),
         setTitle: text => add('заголовок окна', text ? `«${text}» — во Flux окно зовётся «${started.manifest.name} — ${text}»` : 'возвращено название программы'),
         setUnsaved: (unsaved, text) => add('несохранённое', unsaved ? `есть${text ? `: «${text}»` : ''} — во Flux при закрытии окна спросят «Закрыть без сохранения?»` : 'нет'),

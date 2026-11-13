@@ -4,7 +4,8 @@
  * Страница программы — вложенная изолированная (sandbox без доступа к сети, CSP как у Flux),
  * её отдаёт главный процесс из того же пакета, что открыт на экране. Данные для чтения — вымышленные,
  * записанные ниже: общая база компании не открывается, подключения к внешним программам отказывают
- * (разрешения у программы нет), записи некуда. Python и WebAssembly здесь не запускаются: их
+ * (разрешения у программы нет), записи некуда. Файл пользователя (flux.openFile) и диалоги (flux.dialogs) настоящие, как в запуске
+ * разработчика (общая часть — studio/shell/programFile.ts). Python и WebAssembly здесь не запускаются: их
  * исполняет окно Flux (modules/engine), а в разделе владельца такого хоста нет.
  */
 import React, { useEffect, useRef, useState } from 'react';
@@ -12,6 +13,9 @@ import { createModuleBridge } from '../../../modules/bridge';
 import { languageOf } from '../../../modules/engine/types';
 import { themeKeys, type ModuleManifest, type ReadData, type Resource, type ThemeTokens } from '../../../modules/contract';
 import { call } from './api';
+import { dialogAnswerLine, dialogStartLine, pickedFromWire } from '../../renderer/work/programDialog';
+import type { PageDialog, PageDialogAnswer } from '../../../modules/page/model';
+import TrialDialog from './TrialDialog';
 import { Btn, Empty, ErrorLine } from './ui';
 
 /** Тестовая база: небольшая, но с данными во всех пяти ресурсах договора */
@@ -44,6 +48,8 @@ export default function Trial({ requestId }: { requestId: string }) {
   const [session] = useState(() => crypto.randomUUID());
   const frame = useRef<HTMLIFrameElement>(null);
   const kept = useRef<Record<string, unknown>>({});
+  const [dialog, setDialog] = useState<{ request: PageDialog; resolve: (answer: PageDialogAnswer) => void } | null>(null);
+  const log = (text: string) => setLogs(prev => [...prev.slice(-199), text]);
 
   useEffect(() => { setManifest(null); setError(''); setFailure(''); setLogs([]); }, [requestId]);
 
@@ -58,10 +64,13 @@ export default function Trial({ requestId }: { requestId: string }) {
       page: page ? {
         loadState: () => kept.current, keepState: state => { kept.current = state; },
         offerFile: async file => { setLogs(prev => [...prev.slice(-199), `файл: ${file.name} (${file.bytes.length} Б) — во Flux его предложат сохранить`]); return 'saved'; },
-        // В пробном запуске владельца диалога выбора файла нет: программа получает отказ человека, как при saveFile запись только в журнал
-        pickFile: async () => { setLogs(prev => [...prev.slice(-199), 'файл: программа просит файл пользователя — во Flux откроется диалог выбора; здесь ей отвечено отказом']); return 'cancelled'; },
-        // Диалоги Flux, заголовок и несохранённое: в пробном запуске владельца диалогов нет — программе отвечено отказом, строка в журнал
-        dialog: async request => { setLogs(prev => [...prev.slice(-199), `диалог: ${request.kind} «${request.title}» — во Flux его покажет окно Flux; здесь отвечено отказом`]); return request.kind === 'confirm' ? false : null; },
+        // Файл пользователя: диалог показывает главный процесс Studio, как Flux в настоящем запуске; программа получает только выбранный файл
+        pickFile: async request => pickedFromWire(await call('trialPickFile', { accept: request.accept }), text => log(`файл: ${text}`)),
+        // Диалоги Flux: показывает диалог Studio, ответ человека идёт программе как во Flux; остановка запуска закрывает диалог без ответа
+        dialog: request => new Promise<PageDialogAnswer>(resolve => {
+          log(`диалог: ${dialogStartLine(request)}`);
+          setDialog({ request, resolve: answer => { log(`диалог: ${dialogAnswerLine(request, answer)}`); resolve(answer); } });
+        }),
         setTitle: text => setLogs(prev => [...prev.slice(-199), `заголовок окна: ${text || 'название программы'}`]),
         setUnsaved: (unsaved, text) => setLogs(prev => [...prev.slice(-199), `несохранённое: ${unsaved ? `есть ${text}`.trim() : 'нет'}`]),
         onBeat: () => undefined, openWindow: (name, params) => { setLogs(prev => [...prev.slice(-199), `окно: ${name} ${JSON.stringify(params)} — во Flux откроется обычным окном`]); return true; },
@@ -72,7 +81,7 @@ export default function Trial({ requestId }: { requestId: string }) {
     });
     const listener = (event: MessageEvent) => { void bridge.handle(event); };
     window.addEventListener('message', listener);
-    return () => { window.removeEventListener('message', listener); bridge.dispose(); };
+    return () => { window.removeEventListener('message', listener); bridge.dispose(); setDialog(current => { current?.resolve(null); return null; }); };
   }, [manifest, session]);
 
   const start = async () => {
@@ -96,6 +105,7 @@ export default function Trial({ requestId }: { requestId: string }) {
       <iframe ref={frame} className="trial" title={manifest.name} data-testid="trial-frame" sandbox="allow-scripts" referrerPolicy="no-referrer"
         allow="camera 'none'; microphone 'none'; geolocation 'none'" src={`flux-module://trial/${isPage(manifest) ? 'ui/index.html' : 'index.html'}#${session}`} />
     </div>
+    {dialog && manifest && <TrialDialog program={manifest.name} request={dialog.request} onAnswer={answer => { setDialog(null); dialog.resolve(answer); }} />}
     {logs.length > 0 && <pre className="code mono" style={{ flex: '0 0 auto', maxHeight: 120 }} aria-label="Журнал программы">{logs.join('\n')}</pre>}
   </div>;
 }

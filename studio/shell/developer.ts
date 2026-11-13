@@ -21,7 +21,7 @@ import { FolderWatcher } from '../shared/workspace';
 import { unzipInto, zipProject } from '../shared/archive';
 import { DeveloperKeyring, KeyringFailure, type SafeStorageLike } from '../shared/keyring';
 import { buildRequest, PublishRefused } from '../shared/publish';
-import { pickForProgram } from '../../modules/page/pickFile';
+import { pickForWire } from './programFile';
 import { tsEntries, withBuilt, problemLine, type TsBuildResult } from '../shared/tsBuild';
 import type { TsBuilder } from '../shared/tsBuildHost';
 import { assembleRuntime, loadRuntimeTemplates, type RuntimeTemplates } from '../shared/runtime';
@@ -286,9 +286,7 @@ export class DeveloperService {
       case 'runPickFile': {
         // Тот же порядок, что у Flux (modules/page/pickFile.ts): диалог главного процесса, читается только выбранный файл
         if (!this.run?.page) throw new StudioFailure('Программа со своим экраном не запущена.');
-        if (!this.deps.pickDataFile) return { ok: false, code: 'DENIED' };
-        const reply = await pickForProgram({ program: this.run.name, accept: args.accept }, this.deps.pickDataFile);
-        return reply.ok ? { ok: true, name: reply.name, data: Buffer.from(reply.bytes).toString('base64') } : reply;
+        return pickForWire(this.run.name, args.accept, this.deps.pickDataFile);
       }
       case 'runNet': return this.runNet(args);
       case 'runShot': return this.shoot(moduleId(args.id), text(args.theme, 5), args.rect);

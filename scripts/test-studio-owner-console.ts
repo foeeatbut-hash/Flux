@@ -89,7 +89,11 @@ async function main() {
     vault: () => vaultValue, token: () => who, origin: () => origin, user: () => (who ? { id: sessions[who]?.id, name: sessions[who]?.name } : null),
     confirm: async (message: string, detail: string) => { asked.push({ message, detail }); return answer; },
     forward: {},
+    // Диалог выбора файла главного процесса подставляется проверкой (в программе его показывает Electron)
+    pickDataFile: async (options: { title: string; filters: unknown[] }) => { pickDialogs.push(options); return pickedPath; },
   } as any);
+  const pickDialogs: Array<{ title: string; filters: unknown[] }> = [];
+  let pickedPath: string | null = null;
   const owner = make('owner');
   const count = async (table: string) => Number((await db.$queryRawUnsafe(`SELECT COUNT(*) AS n FROM "${table}"`))[0].n);
 
@@ -179,7 +183,18 @@ async function main() {
   if (pageSent.status === 200) {
     const pageTrial = await owner.trialLoad({ id: pageSent.body.id });
     ok('пробный запуск страницы: берутся файлы ui/ из пакета', pageTrial.manifest.ui === 'page' && Object.keys(consoleApi.trialState()?.page || {}).sort().join() === 'ui/app.js,ui/index.html' && !consoleApi.trialState()?.runtime);
+    // Файл пользователя (flux.openFile): диалог главного процесса, программа получает только имя и содержимое, как в запуске разработчика
+    const dataFile = path.join(dir, 'выбранный.csv'); fs.writeFileSync(dataFile, 'a;b');
+    pickedPath = dataFile;
+    const gave = await owner.trialPickFile({ accept: ['.csv'] });
+    ok('файл в пробном запуске: имя и содержимое выбранного файла, путь не передаётся', gave.ok === true && gave.name === 'выбранный.csv' && Buffer.from(gave.data, 'base64').toString() === 'a;b' && !JSON.stringify(gave).includes(dir) && /просит файл/.test(pickDialogs[0].title));
+    pickedPath = null;
+    ok('отказ человека в диалоге — CANCELLED', (await owner.trialPickFile({})).code === 'CANCELLED');
+    ok('неверное расширение — DENIED, диалог не показан', (await owner.trialPickFile({ accept: ['csv'] })).code === 'DENIED' && pickDialogs.length === 2);
+    const big = path.join(dir, 'большой.bin'); fs.writeFileSync(big, Buffer.alloc(600 * 1024)); pickedPath = big;
+    ok('файл больше предела (512 КиБ) не выдаётся — LIMIT', (await owner.trialPickFile({})).code === 'LIMIT');
     await owner.trialLoad({ id: sent.body.id });
+    await rejects('запущена форма, а не страница — файл не выдаётся', owner.trialPickFile({}), /Страница программы не запущена/);
   } else console.log('  (страница не принята сервером в этом наборе:', pageSent.status, JSON.stringify(pageSent.body).slice(0, 200), ')');
 
   console.log('Выпуск подписывает владелец');

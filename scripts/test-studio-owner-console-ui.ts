@@ -70,7 +70,8 @@ const bridge = () => `(() => {
         case 'rejectRequest': requests = requests.map(r => r.id === args.id ? { ...r, state: 'rejected' } : r); return ok({ done: true });
         case 'release': requests = requests.map(r => r.id === args.id ? { ...r, state: 'released' } : r); return ok({ release: { id: 'rel-1' } });
         case 'ownerEdit': return ok({ id: 'req-owner' });
-        case 'trialLoad': return ok({ manifest: { id: 'x', name: 'Расчёт', version: '1.1.0', language: 'python', entries: ['start'], reads: [] } });
+        case 'trialLoad': return ok({ manifest: window.__page ? { id: 'x', name: 'Страница', version: '1.1.0', ui: 'page', entries: ['start'], reads: [] } : { id: 'x', name: 'Расчёт', version: '1.1.0', language: 'python', entries: ['start'], reads: [] } });
+        case 'trialPickFile': return ok(args.accept && args.accept[0] === '.none' ? { ok: false, code: 'CANCELLED' } : { ok: true, name: 'данные.csv', data: btoa('a;b') });
         case 'releases': return ok({ releases: [{ id: 'rel-1', moduleId: 'connections-http', version: '1.0.0', channel: 'test', state: 'published', signature: 's', size: 1, chunkCount: 1, createdAt: new Date().toISOString() }] });
         case 'testers': return ok({ testers: ['u1'], users: [{ id: 'u1', name: 'Иван Первый', role: 'ENGINEER' }, { id: 'u2', name: 'Пётр Второй', role: 'ENGINEER' }] });
         case 'promote': case 'pin': case 'revoke': case 'saveTesters': return ok({ done: true, testers: args.testers });
@@ -85,6 +86,20 @@ const bridge = () => `(() => {
     },
   };
 })();`;
+
+/**
+ * Программа-страница для пробного запуска: настоящий протокол flux-module:// в браузере недоступен, поэтому адрес кадра подменяется
+ * документом с тем же обменом сообщениями, что у клиента flux.v1.js (ready → запросы op → ответы). Бросать запросы из него будет проверка.
+ */
+const PROBE = `<!doctype html><meta charset=utf-8><body><script>
+const session = location.hash.slice(1), waiting = {}; let n = 0;
+window.addEventListener('message', e => { const m = e.data; if (m && m.session === session && waiting[m.id]) { waiting[m.id](m); delete waiting[m.id]; } });
+window.ask = (op, body) => new Promise(res => { const id = 'p-' + (++n); waiting[id] = res; parent.postMessage({ flux: 'module', v: 1, session, id, type: 'page', op, ...body }, '*'); });
+parent.postMessage({ flux: 'module', v: 1, session, type: 'ready' }, '*');
+<\/script>`;
+const frameInit = `(() => { const set = Element.prototype.setAttribute; Element.prototype.setAttribute = function (name, value) {
+  if (this.tagName === 'IFRAME' && name === 'src' && String(value).startsWith('flux-module://trial/')) value = 'data:text/html;charset=utf-8,' + encodeURIComponent(${JSON.stringify(PROBE)}) + '#' + String(value).split('#')[1];
+  return set.call(this, name, value); }; })();`;
 
 const luminance = (rgb: number[]) => { const [r, g, b] = rgb.map(v => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
 const contrast = (a: number[], b: number[]) => { const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
@@ -123,6 +138,7 @@ async function main() {
       page.on('pageerror', e => errors.push(e.message));
       page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
       await page.addInitScript(bridge());
+      await page.addInitScript(frameInit);
       await page.goto(url);
 
       // Вход в хранилище и подключение
@@ -164,6 +180,46 @@ async function main() {
       await page.getByRole('tab', { name: /Замечания и проверки/ }).click();
       ok(`${theme}: отчёт проверок виден и помечен «заявлено автором»`, (await page.getByText('контрольные примеры').count()) > 0 && (await page.getByText('заявлено автором').count()) > 0);
       await page.getByRole('tab', { name: 'Проверить в работе' }).click();
+
+      // Страница программы: настоящие файл и диалоги (не отказ), как в запуске разработчика
+      await page.evaluate('window.__page = true');
+      await page.getByRole('button', { name: 'Запустить на тестовой базе' }).click();
+      const probe = await (async () => { for (let i = 0; i < 100; i++) { const f = page.frames().find(x => x.url().startsWith('data:text/html')); if (f && await f.evaluate('typeof window.ask').catch(() => '') === 'function') return f; await page.waitForTimeout(100); } throw new Error('страница пробного запуска не загрузилась: ' + JSON.stringify(page.frames().map(x => x.url().slice(0, 60))) + await page.evaluate('document.querySelector("iframe")?.outerHTML.slice(0, 200)')); })();
+      await page.waitForTimeout(300);
+      const picked: any = await probe.evaluate(`ask('file-pick', { accept: ['.csv'] })`);
+      ok(`${theme}: flux.openFile в пробном запуске выдал выбранный файл, а не отказ`, picked.type === 'page-result' && picked.data.name === 'данные.csv' && atob(picked.data.data) === 'a;b' && picked.data.size === 3);
+      ok(`${theme}: главный процесс получил просьбу о файле с подсказкой расширений`, (await calls(page, 'trialPickFile')).some(c => c[1].accept?.[0] === '.csv'));
+      await page.waitForTimeout(1100);
+      const refused: any = await probe.evaluate(`ask('file-pick', { accept: ['.none'] })`);
+      ok(`${theme}: отказ человека в диалоге выбора файла — CANCELLED`, refused.type === 'page-error' && refused.code === 'CANCELLED');
+      const confirmed = probe.evaluate(`ask('dialog-confirm', { title: 'Удалить расчёт?', text: 'Это нельзя отменить.', ok: 'Удалить', danger: true })`);
+      const dialog = page.getByRole('dialog');
+      await dialog.getByRole('button', { name: 'Удалить' }).waitFor();
+      ok(`${theme}: вопрос показан настоящим диалогом Studio: заголовок с названием программы, текст, свои подписи кнопок`, /Страница — Удалить расчёт\?/.test(await dialog.innerText()) && /Это нельзя отменить/.test(await dialog.innerText()) && (await dialog.getByRole('button', { name: 'Отмена' }).count()) === 1);
+      await measure(page, `${tag}/диалог программы`);
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-2a-program-dialog.png`) });
+      await dialog.getByRole('button', { name: 'Удалить' }).click();
+      const yes: any = await confirmed;
+      ok(`${theme}: «Удалить» — программе пришло true`, yes.type === 'page-result' && yes.data === true);
+      await page.waitForTimeout(1100);
+      const typed = probe.evaluate(`ask('dialog-prompt', { title: 'Имя', label: 'Название расчёта', value: 'Новый', maxLength: 20 })`);
+      await page.getByLabel('Название расчёта').fill('Мой расчёт');
+      await page.getByTestId('trial-dialog-ok').click();
+      const text: any = await typed;
+      ok(`${theme}: ввод строки доходит до программы`, text.data === 'Мой расчёт');
+      await page.waitForTimeout(1100);
+      const closed = probe.evaluate(`ask('dialog-confirm', { title: 'Закрыть?', text: 'Вопрос' })`);
+      await dialog.waitFor();
+      await page.keyboard.press('Escape');
+      const no: any = await closed;
+      ok(`${theme}: закрытие диалога без ответа — программе false, диалог убран`, no.data === false && (await dialog.count()) === 0);
+      await page.waitForTimeout(1100);
+      const note = probe.evaluate(`ask('dialog-alert', { title: 'Готово', text: 'Расчёт сохранён' })`);
+      await dialog.getByRole('button', { name: 'Понятно' }).click();
+      ok(`${theme}: сообщение закрывается кнопкой «Понятно»`, (await note as any).data === null && (await dialog.getByRole('button', { name: 'Отмена' }).count()) === 0);
+      ok(`${theme}: в журнале запуска нет слов об отказе`, !/отвечено отказом|отвечено/.test(await page.getByLabel('Журнал программы').innerText()));
+      await page.evaluate('window.__page = false');
+      await page.getByRole('button', { name: 'Остановить' }).click();
       await page.getByRole('button', { name: 'Запустить на тестовой базе' }).click();
       await page.getByText('Пробный запуск для этого языка — во Flux').waitFor();
       ok(`${theme}: Python: понятная надпись «пробный запуск для этого языка — во Flux»`, true);

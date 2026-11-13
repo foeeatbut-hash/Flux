@@ -17,6 +17,7 @@ const { signCampaign, CAMPAIGN_MAX_TARGETS } = require('./campaigns.ts');
 const { unpackBundle, packBundle, bundleText, RUNTIME_FILE } = require('../../../modules/trust/bundle.ts');
 const { describeBundle } = require('../../../modules/trust/verify.ts');
 const { PAGE_URL_FILE, PAGE_ENTRY, FLUX_ASSET_FILE, pageTypeOf } = require('../../../modules/page/model.ts');
+const { pickForWire, showDataFileDialog } = require('../../shell/programFile.ts');
 const { ownerMayEdit, ownerEditViolations, OWNER_EDIT_REFUSAL } = require('../../../modules/trust/ownerEdit.ts');
 
 const b64 = bytes => Buffer.from(bytes).toString('base64');
@@ -188,13 +189,19 @@ function createConsoleActions(ctx, request = consoleRequest) {
         const page = {};
         for (const [name, bytes] of Object.entries(files)) if (PAGE_URL_FILE.test(name) && pageTypeOf(name)) page[name] = bytes;
         if (!page[PAGE_ENTRY]) throw new Error('В пакете нет страницы ui/index.html.');
-        trial = { id, page };
+        trial = { id, page, name: typeof manifest.name === 'string' ? manifest.name : '' };
         return { manifest };
       }
       const runtime = files[RUNTIME_FILE];
       if (!runtime) throw new Error('В пакете нет собранной программы (build/runtime.js).');
       trial = { id, runtime };
       return { manifest };
+    },
+    // Файл пользователя для страницы пробного запуска: диалог главного процесса и те же пределы, что в пробном запуске разработчика
+    trialPickFile: async a => {
+      if (!trial?.page) throw new Error('Страница программы не запущена.');
+      const show = ctx.pickDataFile || (options => showDataFileDialog(require('electron').dialog, consoleWindow, options));
+      return pickForWire(trial.name || 'без названия', a.accept, show);
     },
   };
   return actions;
@@ -239,7 +246,7 @@ const TABS = new Set(['programs', 'updates', 'licenses']);
 /** Прежние адреса разделов (до сведения в три пункта) ведут в «Программы на проверку»; внутри — свой подраздел */
 const LEGACY_TABS = { requests: 'programs', releases: 'programs', certificates: 'programs' };
 const ALLOWED = ['state', 'unlock', 'connect', 'disconnect', 'lock', 'cancel', 'requests', 'request', 'returnRequest', 'rejectRequest', 'release', 'ownerEdit',
-  'releases', 'testers', 'saveTesters', 'promote', 'pin', 'revoke', 'certificates', 'certify', 'declineCertificate', 'devices', 'assignUpdate', 'trialLoad', 'openLicenses'];
+  'releases', 'testers', 'saveTesters', 'promote', 'pin', 'revoke', 'certificates', 'certify', 'declineCertificate', 'devices', 'assignUpdate', 'trialLoad', 'trialPickFile', 'openLicenses'];
 
 async function openConsole(ctx, tab = 'programs') {
   const electron = require('electron');
