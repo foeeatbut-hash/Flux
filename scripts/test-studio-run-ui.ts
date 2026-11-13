@@ -181,6 +181,8 @@ async function main() {
       await page.locator('#run-title').locator('xpath=..').getByRole('button', { name: /Запустить|Перезапустить/ }).click();
       // При провале шага: что видел человек и что записал журнал
       const dump = async (error: unknown) => { try { await page.screenshot({ path: path.join(shots, `studio-run-${theme}-FAIL.png`), fullPage: true }); console.log('STATUS', await page.frameLocator('[data-testid="studio-module-frame"]').locator('#status').innerText({ timeout: 2000 }).catch(() => '?'), '\nLOG', await page.locator('table.log').innerText({ timeout: 2000 }).catch(() => '?')); } catch { /* страница закрыта */ } throw error; };
+      // Кнопки внутри кадров нажимаются событием: окно Studio прокручивается и меняет раскладку при закрытии окон программы,
+      // и нажатие по координатам иногда попадало мимо; ответ самой программы проверяется как обычно
       const main = page.frameLocator('[data-testid="studio-module-frame"]');
       await main.locator('#status').filter({ hasText: 'готово' }).waitFor();
       const mainBox = page.locator('[data-window="main"]');
@@ -191,10 +193,10 @@ async function main() {
       try {
       // Два окна, заголовок, размер, параметры
       ok(`${theme}: главное окно названо программой`, (await titleOf('main')) === 'Окна');
-      await main.locator('#title').click();
+      await main.locator('#title').dispatchEvent('click');
       await page.locator('[data-window="main"] [data-testid="program-window-title"]').filter({ hasText: 'Окна — Главное 1' }).waitFor();
       ok(`${theme}: setTitle даёт «Программа — заголовок»`, (await titleOf('main')) === 'Окна — Главное 1');
-      await main.locator('#open').click();
+      await main.locator('#open').dispatchEvent('click');
       const w1 = frameOf('w1');
       await w1.locator('#status').filter({ hasText: 'готово' }).waitFor();
       ok(`${theme}: второе окно открылось с заголовком из параметров «Окна — Строка 5»`, (await titleOf('w1')) === 'Окна — Строка 5');
@@ -204,18 +206,18 @@ async function main() {
       await page.screenshot({ path: path.join(shots, `studio-run-${theme}-1-two-windows.png`), fullPage: true });
 
       // Обмен: сообщение получают остальные окна, но не отправитель
-      await main.locator('#send').click();
+      await main.locator('#send').dispatchEvent('click');
       await w1.locator('#got li').filter({ hasText: '"from":"main"' }).waitFor();
       ok(`${theme}: сообщение главного окна дошло до второго, а самому себе — нет`, (await main.locator('#got li').count()) === 0);
-      await w1.locator('#reply').click();
+      await w1.locator('#reply').dispatchEvent('click');
       await main.locator('#got li').filter({ hasText: '"from":"detail"' }).waitFor();
       ok(`${theme}: ответ второго окна дошёл до главного`, (await w1.locator('#got li').count()) === 1);
-      await w1.locator('#title').click();
+      await w1.locator('#title').dispatchEvent('click');
       await page.locator('[data-window="w1"] [data-testid="program-window-title"]').filter({ hasText: 'Окна — Деталь' }).waitFor();
       ok(`${theme}: заголовок второго окна сменился, главного — нет`, (await titleOf('main')) === 'Окна — Главное 1');
 
       // Диалог — в своём окне; соседнее окно работает
-      await w1.locator('#confirm').click();
+      await w1.locator('#confirm').dispatchEvent('click');
       const dlg = page.locator('[data-window="w1"] [data-testid="studio-run-dialog"]');
       await dlg.waitFor();
       const inside = await page.evaluate(() => {
@@ -224,7 +226,7 @@ async function main() {
       });
       ok(`${theme}: диалог программы лежит внутри своего окна, в чужом его нет`, inside && (await page.locator('[data-window="main"] [role="dialog"]').count()) === 0);
       ok(`${theme}: в шапке диалога название программы и заголовок вопроса`, (await page.locator('[data-window="w1"] [role="dialog"]').getAttribute('aria-label')) === 'Окна — Удалить строку?');
-      await main.locator('#title2').click();
+      await main.locator('#title2').dispatchEvent('click');
       await page.locator('[data-window="main"] [data-testid="program-window-title"]').filter({ hasText: 'Окна — Главное 2' }).waitFor();
       ok(`${theme}: пока диалог открыт, главное окно работает`, true);
       await page.screenshot({ path: path.join(shots, `studio-run-${theme}-2-dialog.png`), fullPage: true });
@@ -233,7 +235,7 @@ async function main() {
       ok(`${theme}: ответ человека дошёл до программы`, true);
 
       // Несохранённое
-      await w1.locator('#dirty').click();
+      await w1.locator('#dirty').dispatchEvent('click');
       await page.locator('table.log').getByText('несохранённое').first().waitFor();
       await page.getByRole('button', { name: /Закрыть окно/ }).click();
       const closeDlg = page.locator('[data-window="w1"] [data-testid="studio-run-dialog"]');
@@ -242,23 +244,23 @@ async function main() {
         && (await closeDlg.innerText()).includes('Есть правки таблицы'));
       await closeDlg.getByRole('button', { name: 'Отмена' }).click();
       ok(`${theme}: «Отмена» оставляет окно`, (await page.locator('[data-window="w1"]').count()) === 1 && (await closeDlg.count()) === 0);
-      await w1.locator('#clean').click();
+      await w1.locator('#clean').dispatchEvent('click');
       await page.getByRole('button', { name: /Закрыть окно/ }).click();
       ok(`${theme}: без несохранённого окно закрывается без вопроса`, await page.locator('[data-window="w1"]').waitFor({ state: 'detached' }).then(() => true));
-      await main.locator('#open').click();
-      await frameOf('w2').locator('#dirty').click();
+      await main.locator('#open').dispatchEvent('click');
+      await frameOf('w2').locator('#dirty').dispatchEvent('click');
       await page.getByRole('button', { name: /Закрыть окно/ }).click();
       await page.locator('[data-window="w2"] [data-testid="studio-run-dialog"]').getByRole('button', { name: 'Закрыть', exact: true }).click();
       ok(`${theme}: «Закрыть» в вопросе закрывает окно`, await page.locator('[data-window="w2"]').waitFor({ state: 'detached' }).then(() => true));
 
       // Диалог ввода
-      await main.locator('#confirm').click();
+      await main.locator('#confirm').dispatchEvent('click');
       await page.locator('[data-window="main"] [data-testid="studio-run-dialog"]').getByRole('button', { name: 'Оставить' }).click();
       await main.locator('#status').filter({ hasText: 'confirm false' }).waitFor();
 
       // Подключение: три ответа, тексты те же, что у Flux
       ok(`${theme}: подсказка, что политики администратора в Studio нет`, (await page.getByTestId('studio-admin-hint').innerText()).includes('Политики администратора в Studio нет'));
-      await main.locator('#connect').click();
+      await main.locator('#connect').dispatchEvent('click');
       const prompt = page.getByTestId('studio-grant-prompt');
       await prompt.waitFor();
       const askNow = ask('api') as any;
@@ -277,20 +279,20 @@ async function main() {
       await page.locator('table.log').getByText(/http, api, NOT_ALLOWED, \d+ мс/).waitFor();
       ok(`${theme}: журнал: «подключение: вид, имя, итог, мс»`, (await page.locator('table.log tr', { hasText: 'подключение' }).first().innerText()).includes('http, api, NOT_ALLOWED'));
       stub.grants.clear();
-      await main.locator('#connect').click();
+      await main.locator('#connect').dispatchEvent('click');
       await page.getByTestId('grant-once').click();
       await main.locator('#status').filter({ hasText: '"status":200' }).waitFor();
       ok(`${theme}: «Только сейчас» — вызов прошёл, решение не запомнено`, stub.answers.at(-1) === 'once' && !stub.grants.has('api'));
-      await main.locator('#connect').click();
+      await main.locator('#connect').dispatchEvent('click');
       await page.getByTestId('grant-always').click();
       await main.locator('#status').filter({ hasText: /"status":200/ }).waitFor();
       const before = stub.asked.length;
-      await main.locator('#connect').click();
+      await main.locator('#connect').dispatchEvent('click');
       await page.locator('table.log tr', { hasText: 'подключение' }).nth(3).waitFor();
       ok(`${theme}: «Разрешить всегда» — следующий вызов не спрашивает`, stub.answers.at(-1) === 'always' && stub.asked.length === before && (await page.getByTestId('studio-grant-prompt').count()) === 0);
       // Закрыть окно запроса без выбора — «Не разрешать»
       stub.grants.clear();
-      await main.locator('#connect').click();
+      await main.locator('#connect').dispatchEvent('click');
       await page.getByTestId('studio-grant-prompt').waitFor();
       await page.keyboard.press('Escape');
       await main.locator('#status').filter({ hasText: 'NOT_ALLOWED' }).waitFor();
@@ -299,23 +301,23 @@ async function main() {
       // Вторая программа в тестовой базе
       const programs = page.getByTestId('studio-test-programs');
       ok(`${theme}: в запуске список своих программ с методами`, (await programs.innerText()).includes('Помощник расчётов') && (await programs.innerText()).includes('double'));
-      await main.locator('#program').click();
+      await main.locator('#program').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: 'NOT_INSTALLED' }).waitFor();
       ok(`${theme}: пока помощник не поставлен — NOT_INSTALLED`, true);
       await programs.getByRole('button', { name: /Поставить в тестовую базу/ }).click();
       await programs.getByText('Поставлена').waitFor();
-      await main.locator('#program').click();
+      await main.locator('#program').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: '"doubled":42' }).waitFor();
       ok(`${theme}: после «Поставить в тестовую базу» вызов вернул ответ метода`, true);
       ok(`${theme}: журнал: строка «программа» с итогом`, (await page.locator('table.log').innerText()).includes('helper.double: ответ получен'));
       await programs.getByRole('button', { name: /Убрать/ }).click();
       await programs.getByText('Нет', { exact: true }).waitFor();
-      await main.locator('#program').click();
+      await main.locator('#program').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: 'NOT_INSTALLED' }).waitFor();
       ok(`${theme}: после «Убрать» снова NOT_INSTALLED`, stub.calls.length === 3);
 
       // Файл
-      await main.locator('#save').click();
+      await main.locator('#save').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: 'файл saved' }).waitFor();
       ok(`${theme}: «Сохранить файл» дошёл до главного процесса с именем и содержимым, программа получила «saved»`, stub.saved.length === 1 && stub.saved[0].name === 'a.csv' && stub.saved[0].size === 3);
       ok(`${theme}: журнал: строка «файл» с итогом`, (await page.locator('table.log').innerText()).includes('a.csv (3 Б) — сохранён'));
@@ -323,7 +325,7 @@ async function main() {
       await page.screenshot({ path: path.join(shots, `studio-run-${theme}-4-programs.png`), fullPage: true });
 
       // Предел числа окон: вместе с главным их пять, как у окон Flux
-      await main.locator('#many').click();
+      await main.locator('#many').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: /открыто \d+, отказ/ }).waitFor();
       ok(`${theme}: предел числа окон — ${WINDOW_LIMITS.windows} вместе с главным (дополнительных ${WINDOW_LIMITS.windows - 1})`,
         (await page.locator('[data-testid="program-window"]').count()) === WINDOW_LIMITS.windows && (await status(main)).startsWith(`открыто ${WINDOW_LIMITS.windows - 1}, отказ`));
@@ -334,13 +336,13 @@ async function main() {
       // «Программа не отвечает»: страница занята дольше порога, Studio при этом работает; «Перезапустить» поднимает окно
       const child = page.frames().find(f => f.url().includes('/ui/index.html'));
       assert.ok(child, 'кадр главного окна найден');
-      const busy = child.evaluate(() => { const t = Date.now(); while (Date.now() - t < 20000) { /* занята */ } }).catch(() => undefined);
+      // Страница «зависла»: её таймеры останавливаются, сигнал «жива» (beat) больше не идёт. Настоящий бесконечный цикл в кадре здесь
+      // блокирует и само окно Studio (в Chromium без Electron кадр делит с ним процесс), поэтому останавливаем сигнал
+      await child.evaluate(() => { for (let i = 1; i < 2000; i++) clearInterval(i); });
       await page.getByTestId('module-hung').first().waitFor({ timeout: 15000 });
       ok(`${theme}: «Программа не отвечает» появилась после молчания страницы, остальная Studio отвечает`, (await page.getByTestId('module-hung').first().innerText()).includes('не отвечает') && await page.getByRole('button', { name: 'Снять обе темы' }).isEnabled());
-      await page.screenshot({ path: path.join(shots, `studio-run-${theme}-6-hung.png`), fullPage: true });
-      // Нажимаем, пока страница ещё занята: оттаявшая страница сама подала бы сигнал и убрала плашку
+      await page.screenshot({ path: path.join(shots, `studio-run-${theme}-6-hung.png`) });
       await page.getByTestId('module-hung').first().getByRole('button', { name: 'Перезапустить' }).click();
-      await busy;
       await main.locator('#status').filter({ hasText: 'готово' }).waitFor();
       ok(`${theme}: «Перезапустить» поднимает страницу заново, плашка ушла`, (await page.getByTestId('module-hung').count()) === 0);
       await mainBox.waitFor();

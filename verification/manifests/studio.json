@@ -350,6 +350,23 @@
       "timeoutMs": 300000
     },
     {
+      "id": "studio-run-ui",
+      "path": "scripts/test-studio-run-ui.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files",
+        "loopback-http"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_CHROME"
+        }
+      ],
+      "timeoutMs": 300000
+    },
+    {
       "id": "studio-owner-console",
       "path": "scripts/test-studio-owner-console.ts",
       "layer": "api-db",
@@ -934,6 +951,44 @@
           "scenario": "Запустить заготовку в FluxStudio.exe на Windows, снять обе темы",
           "expected": [
             "Программа открывается под flux-module://, снимки сохраняются (capturePage)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "studio.full-run",
+      "program": "studio",
+      "label": "Полный запуск программы: окна, подключения, вторая программа, файл",
+      "sources": [
+        "studio/renderer/sections/Run.tsx",
+        "studio/renderer/sections/run/ProgramWindow.tsx",
+        "studio/renderer/sections/run/model.ts",
+        "studio/renderer/sections/run/RunConnectPrompt.tsx",
+        "studio/renderer/sections/run/TestPrograms.tsx",
+        "studio/renderer/sections/RunDialog.tsx"
+      ],
+      "triggers": [
+        "«Запустить» в рабочем окне проекта"
+      ],
+      "risk": "normal",
+      "expected": [
+        "Окна программы со своим кадром и мостом, обмен между ними, вопрос о несохранённом, диалог в своём окне, согласие на подключение тремя ответами, вызов второй программы из тестовой базы, сохранение файла, «Программа не отвечает»"
+      ],
+      "checks": [
+        {
+          "suite": "studio-run-ui",
+          "layer": "browser-live",
+          "claims": [
+            "Два окна и обмен, заголовок и размер, диалог в своём окне, «Закрыть без сохранения?», предел окон, «не отвечает» с перезапуском, три ответа на подключение, вызов второй программы, сохранение файла, обе темы (действия главного процесса — заглушка стенда)"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "В FluxStudio.exe на Windows запустить программу с окнами, подключением и сохранением файла",
+          "expected": [
+            "Системный диалог сохранения, согласие на подключение и ответ второй программы работают в упакованной сборке"
           ]
         }
       ]

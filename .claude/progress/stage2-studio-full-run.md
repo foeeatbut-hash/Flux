@@ -41,8 +41,9 @@ WebAssembly, тестовая база, диалоги (`RunDialog`), `flux.open
 - [x] A (оболочка): `runConnect`, `runProgram` и тестовые программы,
       `runSaveFile`; набор на всех языках (TypeScript, C, C++, Rust, Go, C#)
       через движок Studio и сверка пределов с Flux
-- [ ] B (окно): окна программы, подключения и согласие, вторая программа в
+- [x] B (окно): окна программы, подключения и согласие, вторая программа в
       тестовой базе, сохранение файла, «не отвечает»; набор интерфейса
+      `scripts/test-studio-run-ui.ts` (84 проверки, обе темы; действия A в стенде — заглушка по `studio/shared/runActions.ts`)
 - [ ] приёмка, документы (`studio.md`, `modules.md`, `module-api.md`,
       `studio-next.md`), CI на итоговой голове
 
@@ -80,3 +81,9 @@ WebAssembly, тестовая база, диалоги (`RunDialog`), `flux.open
 - Набор `scripts/test-studio-run-full.ts` (+ `scripts/fixtures/studioRunBatteries.ts`), в `verification/manifests/studio.json` и `build-studio.yml`.
 - Добавлено к договору: у отказов `runConnect` и `runProgram` есть необязательная `line` — строка только для журнала запуска (в программу её передавать нельзя).
 - Открыто: настоящий COM (PowerShell) и системные диалоги Electron — только Windows; контрольные примеры вызываемой программы в Studio не гоняются (это кнопка «Проверить»); TypeScript в форме считает окно программы, а не оболочка.
+
+## Исполнитель B: сделано/открыто
+
+- Окна: `studio/renderer/sections/run/` (`ProgramWindow`, `model`, `RunConnectPrompt`, `TestPrograms`), `Run.tsx` собирает общий хост. Тексты запроса подключения общие с Flux: `src/components/modules/connectionPromptText.ts`.
+- Порог «не отвечает» в окне можно сократить адресом `?hang=<мс>` (не меньше 1000) — только для проверок.
+- От A: набор B гоняет действия A как заглушку стенда; нужна сверка на настоящей службе (`runConnect` с событием `onRun`, `testPrograms*`, `runSaveFile`) и на Windows.
