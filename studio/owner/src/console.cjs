@@ -28,6 +28,9 @@ const channelOf = value => { if (!CHANNEL[value]) throw new Error('Неизве�
 const sha256Of = bytes => describeBundle(bytes).sha256;
 const when = ms => (ms ? new Date(ms).toLocaleString('ru') : 'сразу');
 
+/** Действия бывшего окна лицензий, которые главный процесс (main.cjs) выполняет без изменений */
+const MAIN_ACTIONS = ['reportDiagnostic', 'exportDiagnostics', 'chooseSetupFolder', 'setup', 'verifySetup', 'showSetupFolder', 'openBackup', 'import', 'export', 'changePassword', 'publicExport', 'publicApply', 'issue', 'copy', 'chooseExe', 'signUpdate', 'publish', 'publishRevocation', 'withdrawUpdate', 'openFlux'];
+
 /**
  * Действия разделов. `ctx` даёт состояние главного процесса (хранилище, токен, подтверждение);
  * `request` подменяется проверками, настоящий — consoleRequest.
@@ -48,6 +51,7 @@ function createConsoleActions(ctx, request = consoleRequest) {
   // Окно показывало пакет с этим хешем: если на сервере он стал другим, подписывать нельзя
   const sameBundle = (bundle, expected) => { if (sha256Of(bundle) !== text(expected, 100)) throw new Error('Пакет на сервере изменился после того, как вы его открыли. Откройте запрос заново.'); };
 
+  const main = name => { if (!ctx.actions?.[name]) throw new Error('Недоступное действие.'); return ctx.actions[name]; };
   const actions = {
     ...Object.fromEntries(['state', 'unlock', 'connect', 'disconnect', 'lock', 'cancel'].map(name => [name, async a => ctx.forward[name](a)])),
 
@@ -174,8 +178,12 @@ function createConsoleActions(ctx, request = consoleRequest) {
       return { ids };
     },
 
-    // ---- Окно лицензий и выпуска Flux: то же хранилище и то же подключение, пароль второй раз не спрашивается
-    openLicenses: async a => { await ctx.openLicenses(a.tab === 'updates' ? 'updates' : 'licenses'); return { opened: true }; },
+    // ---- Лицензии, ключи и выпуск Flux (бывшее окно лицензий): те же действия главного процесса, то же хранилище и то же подключение.
+    // «Запрос» и «отзыв» у лицензий называются иначе, чтобы не путаться с запросами на публикацию и отзывом выпусков программ
+    licensesState: async () => main('state')({}),
+    licenseRequest: async a => main('request')(a),
+    licenseRevoke: async a => main('revoke')(a),
+    ...Object.fromEntries(MAIN_ACTIONS.map(name => [name, async a => main(name)(a)])),
 
     // ---- Пробный запуск: страница программы из пакета запроса, который сейчас на экране
     trialLoad: async a => {
@@ -245,8 +253,8 @@ const FORWARDED = ['state', 'unlock', 'connect', 'disconnect', 'lock', 'cancel']
 const TABS = new Set(['programs', 'updates', 'licenses']);
 /** Прежние адреса разделов (до сведения в три пункта) ведут в «Программы на проверку»; внутри — свой подраздел */
 const LEGACY_TABS = { requests: 'programs', releases: 'programs', certificates: 'programs' };
-const ALLOWED = ['state', 'unlock', 'connect', 'disconnect', 'lock', 'cancel', 'requests', 'request', 'returnRequest', 'rejectRequest', 'release', 'ownerEdit',
-  'releases', 'testers', 'saveTesters', 'promote', 'pin', 'revoke', 'certificates', 'certify', 'declineCertificate', 'devices', 'assignUpdate', 'trialLoad', 'trialPickFile', 'openLicenses'];
+const ALLOWED = ['licensesState', 'licenseRequest', 'licenseRevoke', 'state', 'unlock', 'connect', 'disconnect', 'lock', 'cancel', 'requests', 'request', 'returnRequest', 'rejectRequest', 'release', 'ownerEdit',
+  'releases', 'testers', 'saveTesters', 'promote', 'pin', 'revoke', 'certificates', 'certify', 'declineCertificate', 'devices', 'assignUpdate', 'trialLoad', 'trialPickFile', ...MAIN_ACTIONS];
 
 async function openConsole(ctx, tab = 'programs') {
   const electron = require('electron');
@@ -264,10 +272,18 @@ async function openConsole(ctx, tab = 'programs') {
   const win = new BrowserWindow({ width: 1280, height: 860, minWidth: 900, minHeight: 600, title: `Flux Studio — Владелец ${ctx.version}`, backgroundColor: '#101722',
     webPreferences: { preload: path.join(__dirname, 'console-preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
   consoleWindow = win;
+  ctx.setWindow?.(win);
+  // Сбои окна — в журнал диагностики (его раньше вело окно лицензий)
+  for (const name of ['did-finish-load', 'did-fail-load', 'render-process-gone', 'unresponsive', 'responsive', 'preload-error']) {
+    win.webContents.on(name, (...args) => ctx.journal().record(`window.${name}`, { details: args.slice(1).map(v => (typeof v === 'object' && v !== null ? { reason: v.reason, exitCode: v.exitCode } : v)) },
+      ['did-fail-load', 'render-process-gone', 'preload-error', 'unresponsive'].includes(name) ? 'error' : 'info'));
+  }
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', event => event.preventDefault());
   const handler = async (event, action, args = {}) => {
     if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || !ALLOWED.includes(action) || !Object.hasOwn(actions, action)) return { ok: false, error: 'Недоступное действие.' };
+    // Сбой страницы пишется в журнал без отдельной операции; отказ записи окну не показывается
+    if (action === 'reportDiagnostic') { try { return { ok: true, value: await actions.reportDiagnostic(args || {}) }; } catch { return { ok: false, error: 'Событие не записано.' }; } }
     const span = ctx.journal().beginOperation(`console.${action}`);
     try {
       ctx.touch(); ctx.setParent(win);
@@ -288,9 +304,9 @@ async function openConsole(ctx, tab = 'programs') {
   win.on('closed', () => {
     clearInterval(timer); ipcMain.removeHandler('console:action');
     ctx.listeners.locked.delete(onLocked); ctx.listeners.disconnected.delete(onDisconnected);
-    consoleWindow = null; trial = null;
-    // Окно лицензий уже закрыто — хранилище больше никому не нужно
-    if (!ctx.licensesOpen?.()) void ctx.lockAll?.();
+    consoleWindow = null; trial = null; ctx.setWindow?.(null);
+    // Окно закрыто — хранилище больше никому не нужно
+    void ctx.lockAll?.();
   });
   await win.loadFile(path.join(__dirname, '..', 'ui', 'console', 'index.html'), { query: { tab: startTab, ...(section ? { section } : {}) } });
 }

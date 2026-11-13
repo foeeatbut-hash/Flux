@@ -6,6 +6,7 @@ declare global {
       onLocked: (fn: () => void) => () => void;
       onDisconnected: (fn: () => void) => () => void;
       onTab: (fn: (tab: string) => void) => () => void;
+      onProgress: (fn: (progress: { phase: string; current: number; total: number }) => void) => () => void;
     };
   }
 }

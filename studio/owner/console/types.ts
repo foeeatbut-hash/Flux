@@ -26,6 +26,17 @@ export interface Snapshot {
   version: string; unlocked: boolean; vaultExists: boolean; backupSession: boolean; kind: string;
   connected: boolean; display: string; user: { id: string; name: string } | null;
 }
+/** Полное состояние хранилища для раздела «Лицензии» (действие licensesState): реестры и открытые ключи; закрытых ключей здесь нет */
+export interface LicenseRow { id: string; inst: string; org: string; logins: string[]; exp: number; code: string }
+export interface FluxUpdateRow { version: string; published: boolean; iat: number; name: string; size: number; signature: string; server: string }
+export interface LicensesState {
+  version: string; unlocked: boolean; vaultExists: boolean; vaultPath: string; backupSession: boolean; kind: string;
+  setupKitPath: string; publicFilePath: string; previousVaultPath: string; setupVerified: boolean;
+  publicKeys: Record<string, string>; backupOwnerPublic: string;
+  licenses: LicenseRow[]; updates: FluxUpdateRow[]; revocations: Array<{ inst: string; ids: string[] }>;
+  server: string; connected: boolean; exe: { name: string; size: number; sha256: string } | null;
+}
+export type LicenseSection = 'licenses' | 'publish' | 'keys';
 /** Три пункта Studio — Владелец; «programs» делится на подразделы */
 export type Tab = 'programs' | 'updates' | 'licenses';
 export type Section = 'certificates' | 'requests' | 'releases' | 'testers';

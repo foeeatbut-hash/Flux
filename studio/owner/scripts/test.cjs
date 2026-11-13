@@ -161,17 +161,17 @@ async function main() {
     };
     new Function('require', 'module', '__dirname', `${await fs.readFile(path.join(root, 'src/main.cjs'), 'utf8')}\nmodule.exports = actions;`)(testRequire, testModule, path.join(root, 'src'));
     const ownerActions = testModule.exports;
-    // Реальный preload оставляет в мосту только allowlist и передаёт разрешённые действия в IPC.
+    // Реальный preload окна разделов оставляет в мосту только allowlist и передаёт разрешённые действия в IPC.
     let exposedOwnerApi;
     const invokedActions = [];
     const preloadElectron = {
-      contextBridge: { exposeInMainWorld: (name, api) => { assert.equal(name, 'owner'); exposedOwnerApi = api; } },
+      contextBridge: { exposeInMainWorld: (name, api) => { assert.equal(name, 'ownerConsole'); exposedOwnerApi = api; } },
       ipcRenderer: {
         invoke: async (_channel, action, args) => { invokedActions.push({ action, args }); return { ok: true, value: action }; },
         on() {}, removeListener() {},
       },
     };
-    new Function('require', await fs.readFile(path.join(root, 'src/preload.cjs'), 'utf8'))(name => {
+    new Function('require', await fs.readFile(path.join(root, 'src/console-preload.cjs'), 'utf8'))(name => {
       if (name === 'electron') return preloadElectron;
       return nativeRequire(name);
     });

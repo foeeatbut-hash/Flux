@@ -11,7 +11,7 @@
 html, body, #root { margin: 0; height: 100%; }
 body { background: var(--flux-surface); color: var(--flux-text); font-family: var(--font-sans); font-size: 13px; line-height: 20px; }
 .app { display: flex; flex-direction: column; height: 100%; }
-.top { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.top { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-height: 44px; padding: 4px 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
 .top h1 { margin: 0; font-size: 15px; line-height: 20px; font-weight: 600; letter-spacing: -0.012em; }
 .spacer { flex: 1; }
 .tabs { display: flex; gap: 4px; padding: 0 16px; background: var(--surface); border-bottom: 1px solid var(--border); }
@@ -78,3 +78,9 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .segs.sub { margin: 10px 16px; align-self: flex-start; flex: 0 0 auto; }
 .segs.sub .count { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); font-size: 11px; color: var(--text); }
 .segs.sub button[aria-pressed="true"] .count { border-color: transparent; }
+
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+.cols > .sect { border-right: 1px solid var(--border); }
+.people { max-height: 220px; overflow: auto; margin-bottom: 8px; }
+.person { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+progress { height: 8px; width: 160px; }

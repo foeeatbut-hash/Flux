@@ -53,9 +53,15 @@ const bridge = () => `(() => {
   let state = { version: '9.9.9', unlocked: false, vaultExists: true, backupSession: false, kind: '', connected: false, display: '', user: null };
   let requests = [data.request, data.other], certificates = [{ keyHex: 'ab'.repeat(32), userId: 'developer', name: 'Разработчик', createdAt: new Date().toISOString() }];
   let certRequests = [{ key: 'cd'.repeat(32), userId: 'dev2', name: 'Второй разработчик', at: Date.now() }];
+  const now = Date.now();
+  let licenses = [{ id: 'LIC-0001', inst: 'inst-aaaa-1111', org: 'ООО «Север»', logins: ['ivanov', 'petrov'], exp: now + 200 * 86400000, code: 'FLUX2.aaa' }, { id: 'LIC-0002', inst: 'inst-bbbb-2222', org: 'АО «Юг»', logins: ['sidorov'], exp: now - 5 * 86400000, code: 'FLUX2.bbb' }];
+  let revocations = [], exe = null, setupKit = false;
+  const updates = [{ version: '1.20.20', published: true, iat: now - 86400000, name: 'Flux-1.20.20.exe', size: 90 * 1048576, signature: 'FLUXUPD1.x', server: 'MariaDB / MySQL · db.example:3306/Flux' }];
+  const full = () => ({ ...state, vaultPath: 'C:/Users/owner/.flux-owner/vault.flux-owner', setupKitPath: setupKit ? 'C:/копии/комплект' : '', publicFilePath: '', previousVaultPath: setupKit ? 'C:/старое.flux-owner' : '', setupVerified: false,
+    publicKeys: { license: 'ab'.repeat(32), update: 'cd'.repeat(32), owner: 'ef'.repeat(32) }, backupOwnerPublic: '12'.repeat(32), licenses, updates, revocations, server: state.display, exe });
   window.__calls = [];
   window.ownerConsole = {
-    onLocked: () => () => {}, onDisconnected: () => () => {}, onTab: () => () => {},
+    onLocked: () => () => {}, onDisconnected: () => () => {}, onTab: () => () => {}, onProgress: () => () => {},
     call: async (action, args = {}) => {
       window.__calls.push([action, args]);
       const ok = value => ({ ok: true, value });
@@ -80,7 +86,15 @@ const bridge = () => `(() => {
         case 'declineCertificate': certRequests = certRequests.filter(r => r.key !== args.key); return ok({ done: true });
         case 'devices': return ok({ inst: 'company', devices: data.devices, releases: [{ version: '2.0.0', generation: 'g', signature: 's', sha256: 'a' }] });
         case 'assignUpdate': return ok({ ids: ['cmd'] });
-        case 'openLicenses': return ok({ opened: true });
+        case 'licensesState': return ok(full());
+        case 'licenseRequest': return ok({ inst: 'inst-cccc-3333', org: 'ООО «Запад»', people: [{ login: 'ivanov', name: 'Иван Иванов' }, { login: 'kuznetsov', name: 'Пётр Кузнецов' }, { login: 'smirnov', name: 'Анна Смирнова' }] });
+        case 'issue': licenses = [...licenses, { id: 'LIC-0003', inst: 'inst-cccc-3333', org: args.org, logins: args.logins, exp: args.expiresAt, code: 'FLUX2.ccc' }]; return ok({ code: 'FLUX2.ccc' });
+        case 'licenseRevoke': revocations = [...revocations, { inst: args.inst, ids: args.ids }]; return ok({ code: 'FLUXREV1.zzz' });
+        case 'publishRevocation': case 'copy': case 'publicExport': case 'publicApply': case 'export': case 'changePassword': case 'signUpdate': case 'publish': case 'withdrawUpdate': case 'exportDiagnostics': case 'openFlux': case 'showSetupFolder': return ok({ done: true });
+        case 'chooseExe': exe = { name: 'Flux-1.21.0.exe', size: 91 * 1048576, sha256: '9f'.repeat(32) }; return ok({ ...full() });
+        case 'chooseSetupFolder': return ok({ folderPath: 'C:/копии' });
+        case 'setup': setupKit = true; state = { ...state, unlocked: true, kind: 'main' }; return ok({ ...full() });
+        case 'verifySetup': return args.password === 'правильный-пароль' ? ok({ ...full(), setupVerified: true }) : { ok: false, error: 'Неверный пароль хранилища.' };
       }
       return { ok: false, error: 'Недоступное действие.' };
     },
@@ -148,6 +162,18 @@ async function main() {
       await page.getByRole('heading', { name: 'Хранилище владельца' }).waitFor();
       await measure(page, `${tag}/хранилище`);
       await page.screenshot({ path: path.join(shots, `owner-console-${tag}-1-vault.png`) });
+      // Создание новых ключей — внутри окна, тремя шагами (раньше — отдельное окно лицензий)
+      await page.getByRole('button', { name: 'Создать новые ключи' }).click();
+      await page.getByRole('heading', { name: 'Создайте хранилище владельца' }).waitFor();
+      await measure(page, `${tag}/создание хранилища`);
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-1a-vault-setup.png`) });
+      await page.fill('#setup-password', 'новая-фраза-пароль-1'); await page.fill('#setup-confirm', 'другая-фраза-пароль-2');
+      await page.getByRole('button', { name: 'Выбрать папку для копий' }).click();
+      await page.getByRole('button', { name: 'Создать ключи' }).click();
+      await page.getByRole('alert').waitFor();
+      ok(`${theme}: разные пароли не создают ключи`, /не совпадают/.test(await page.getByRole('alert').innerText()) && (await calls(page, 'setup')).length === 0);
+      await page.getByRole('button', { name: 'Назад' }).click();
+      await page.getByRole('heading', { name: 'Хранилище владельца' }).waitFor();
       await page.fill('#vault-password', 'неверный-пароль-хранилища');
       await page.getByRole('button', { name: 'Открыть хранилище' }).click();
       await page.getByRole('alert').waitFor();
@@ -294,14 +320,65 @@ async function main() {
       ok(`${theme}: назначение ушло только для устаревшего устройства, срок и версия на месте`, assigned.action === 'schedule' && assigned.version === '2.0.0' && assigned.minutes === 10
         && assigned.devices.length === 1 && assigned.devices[0] === 'aaaaaaaa-0000-0000-0000-000000000001:u1');
       await page.getByRole('button', { name: /Опубликовать новую версию Flux/ }).click();
-      ok(`${theme}: выпуск новой версии Flux открывает окно лицензий на нужной вкладке`, (await calls(page, 'openLicenses')).some(c => c[1].tab === 'updates'));
+      await page.getByRole('heading', { name: 'Выпуск для сотрудников' }).waitFor();
+      ok(`${theme}: выпуск новой версии Flux открывается в «Лицензиях», отдельного окна нет`, (await page.getByRole('tab', { name: 'Лицензии' }).getAttribute('aria-selected')) === 'true' && (await calls(page, 'openLicenses')).length === 0);
+      await measure(page, `${tag}/выпуск Flux`);
+      await page.getByRole('button', { name: 'Выбрать EXE' }).click();
+      await page.getByTestId('exe-details').getByText(/Flux-1\.21\.0\.exe/).waitFor();
+      await page.fill('#pub-version', '1.21.0'); await page.fill('#pub-changelog', 'Исправления');
+      await page.getByRole('button', { name: 'Подписать и опубликовать' }).click();
+      await page.getByText('Обновление опубликовано через БД.').waitFor();
+      ok(`${theme}: публикация ушла с версией и описанием`, (await calls(page, 'publish'))[0][1].version === '1.21.0' && (await calls(page, 'publish'))[0][1].changelog === 'Исправления');
+      ok(`${theme}: реестр выпусков показывает подписанный выпуск`, /1\.20\.20 · Опубликована/.test(await page.getByTestId('update-registry').innerText()));
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-8b-flux-publish.png`) });
 
-      // Лицензии
-      await page.getByRole('tab', { name: 'Лицензии' }).click();
-      await page.getByRole('button', { name: 'Открыть лицензии' }).click();
+      // Лицензии: выпуск, реестр, отзыв
+      await page.getByRole('group', { name: 'Лицензии' }).getByRole('button', { name: 'Лицензии компаний' }).click();
+      await page.getByRole('heading', { name: 'Выпустить лицензию' }).waitFor();
       await measure(page, `${tag}/лицензии`);
       await page.screenshot({ path: path.join(shots, `owner-console-${tag}-8-licenses.png`) });
-      ok(`${theme}: «Лицензии» открывают окно лицензий, пароль второй раз не спрашивается`, (await calls(page, 'openLicenses')).some(c => c[1].tab === 'licenses') && (await calls(page, 'unlock')).length === 2 && (await page.getByLabel('Пароль хранилища').count()) === 0);
+      await page.fill('#lic-code', 'FLUXREQ1.abc');
+      await page.getByRole('button', { name: 'Прочитать запрос' }).click();
+      await page.getByTestId('license-request').waitFor();
+      ok(`${theme}: запрос прочитан: компания и все сотрудники выбраны`, (await page.inputValue('#lic-company')) === 'ООО «Запад»' && /3 из 3/.test(await page.getByTestId('license-request').innerText()));
+      await page.getByRole('button', { name: 'Снять выбор' }).click();
+      ok(`${theme}: без сотрудников ключ не выпускается`, await page.getByRole('button', { name: 'Выпустить ключ' }).isDisabled());
+      await page.getByLabel('Выбрать Иван Иванов').check(); await page.fill('#lic-expiration', '2030-01-31');
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-8a-license-request.png`) });
+      await page.getByRole('button', { name: 'Выпустить ключ' }).click();
+      await page.getByText('Лицензия выпущена и сохранена в зашифрованном реестре.').waitFor();
+      const issued = (await calls(page, 'issue'))[0][1];
+      ok(`${theme}: выпуск ушёл с кодом запроса, выбранным сотрудником, компанией и концом дня даты`, issued.code === 'FLUXREQ1.abc' && issued.logins.join() === 'ivanov' && issued.org === 'ООО «Запад»' && new Date(issued.expiresAt).getFullYear() === 2030 && new Date(issued.expiresAt).getHours() === 23);
+      ok(`${theme}: готовый ключ показан, в реестре появилась строка`, (await page.getByRole('textbox', { name: 'Готовый ключ' }).inputValue()) === 'FLUX2.ccc' && (await page.getByTestId('license-registry').getByText('ООО «Запад»').count()) === 1);
+      await page.getByRole('button', { name: 'Скопировать', exact: true }).click();
+      ok(`${theme}: ключ копируется через главный процесс`, (await calls(page, 'copy')).some(c => c[1].text === 'FLUX2.ccc'));
+      ok(`${theme}: истёкшая лицензия помечена`, (await page.getByTestId('license-registry').getByText('Истекла').count()) === 1);
+      await page.getByLabel('Выбрать лицензию LIC-0001').check();
+      await page.getByLabel('Выбрать лицензию LIC-0003').check();
+      await page.getByRole('button', { name: 'Отозвать выбранные' }).click();
+      await page.getByText('Для одного списка отзыва выберите лицензии одной установки.').waitFor();
+      ok(`${theme}: отзыв из разных установок отклонён, главный процесс не вызывался`, (await calls(page, 'licenseRevoke')).length === 0);
+      await page.getByLabel('Выбрать лицензию LIC-0003').uncheck();
+      await page.getByRole('button', { name: 'Отозвать выбранные' }).click();
+      await page.getByRole('button', { name: 'Отправить отзыв в общую БД' }).waitFor();
+      ok(`${theme}: список отзыва подписан и показан готовым ключом, лицензия помечена «Отозвана»`, (await page.getByRole('textbox', { name: 'Готовый ключ' }).inputValue()) === 'FLUXREV1.zzz' && (await page.getByTestId('license-registry').getByText('Отозвана').count()) === 1);
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-8c-license-revoked.png`) });
+
+      // Ключи и резервная копия
+      await page.getByRole('group', { name: 'Лицензии' }).getByRole('button', { name: 'Ключи и резервная копия' }).click();
+      await page.getByRole('heading', { name: 'Открытые ключи для Flux' }).waitFor();
+      ok(`${theme}: открытые ключи показаны, закрытых нет`, (await page.getByTestId('public-keys').locator('tr').count()) === 4 && !/PRIVATE/.test(await page.getByTestId('public-keys').innerText()));
+      await measure(page, `${tag}/ключи и копия`);
+      await page.fill('#keys-new', 'новый-пароль-хранилища'); await page.fill('#keys-again', 'другой-пароль-хранилища');
+      await page.getByRole('button', { name: 'Сменить пароль хранилища' }).click();
+      await page.getByText('Пароли не совпадают.').waitFor();
+      ok(`${theme}: разные пароли не меняют хранилище`, (await calls(page, 'changePassword')).length === 0);
+      await page.fill('#keys-export-password', 'пароль-копии-12345');
+      await page.getByRole('button', { name: 'Экспортировать резервную копию' }).click();
+      await page.getByText('Резервная копия сохранена.').waitFor();
+      ok(`${theme}: пароль копии очищен после экспорта`, (await page.inputValue('#keys-export-password')) === '' && (await calls(page, 'export'))[0][1].password === 'пароль-копии-12345');
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-8d-license-keys.png`) });
+      ok(`${theme}: «Лицензии» не открывают отдельного окна, пароль второй раз не спрашивается`, (await calls(page, 'openLicenses')).length === 0 && (await calls(page, 'unlock')).length === 2);
       ok(`${theme}: ошибок страницы нет`, errors.length === 0);
       await page.close();
     }

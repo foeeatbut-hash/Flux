@@ -2,7 +2,7 @@
  * Обновления Flux: назначение выпуска компьютерам сотрудников и отмена назначения.
  * Перенесено из Flux (вкладка «Обновления» в «Сотрудниках», UpdateCampaignPanel): администратору это
  * больше не доступно, назначает только владелец. Само назначение собирает и подписывает главный
- * процесс (studio/owner/src/campaigns.ts); выпуск обновления подписывается в окне лицензий (кнопка «Опубликовать новую версию Flux»).
+ * процесс (studio/owner/src/campaigns.ts); выпуск обновления подписывается в разделе «Лицензии» → «Выпуск Flux» (кнопка «Опубликовать новую версию Flux»).
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { isNewer } from '../../../shared/versionCompare';
@@ -17,7 +17,7 @@ const STATES: Record<string, string> = {
 const key = (d: UpdateDevice) => `${d.deviceId}:${d.userId}`;
 const PAGE = 25;
 
-export default function Updates() {
+export default function Updates({ onPublish }: { onPublish: () => void }) {
   const [devices, setDevices] = useState<UpdateDevice[]>([]);
   const [releases, setReleases] = useState<UpdateRelease[]>([]);
   const [version, setVersion] = useState('');
@@ -63,7 +63,7 @@ export default function Updates() {
         {[5, 10, 15, 30, 60].map(n => <option key={n} value={n}>{n} мин</option>)}<option value="custom">Другое…</option></select></label>
       {!['5', '10', '15', '30', '60'].includes(minutes) && <input type="number" min={5} max={1440} value={minutes} onChange={e => setMinutes(e.target.value)} aria-label="Минут до обновления" style={{ width: 90 }} />}
       <span className="grow" />
-      <Btn title="Подписать и опубликовать новый выпуск Flux" onClick={() => void call('openLicenses', { tab: 'updates' }).catch(() => {})}>Опубликовать новую версию Flux…</Btn>
+      <Btn title="Подписать и опубликовать новый выпуск Flux" onClick={onPublish}>Опубликовать новую версию Flux…</Btn>
       <Btn disabled={!version || !old.length} onClick={() => setSelected(new Set(old.map(key)))}>Выбрать всех устаревших · {old.length}</Btn>
       {!!selected.size && <Btn tone="ghost" onClick={() => setSelected(new Set())}>Снять выбор</Btn>}
       <Btn disabled={action.busy || !cancellable.length} onClick={() => setConfirm('cancel')}>Отменить выбранные назначения</Btn>

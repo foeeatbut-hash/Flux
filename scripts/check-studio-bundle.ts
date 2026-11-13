@@ -19,7 +19,7 @@ import path from 'node:path';
 /** Метки, которых нет и не должно быть в коде разработчика. Каждая обязана встречаться в сборке владельца: scripts/test-studio-bundle.ts */
 export const OWNER_MARKERS = [
   'signUpdate', 'issueLicense', 'publicConfig', 'publishRevocation', 'withdrawUpdate',
-  'FLUXPUBLIC1', 'owner:action', 'generateVaults',
+  'FLUXPUBLIC1', 'generateVaults',
   // Разделы владельца, перешедшие из Flux (этап 4в): подпись выпусков и сертификатов, назначение обновлений, окно разделов
   'moduleClaimFor', 'signModule', 'signCampaign', 'console:action', 'FLUXUPDCMD1', 'FLUXUPDAUTH1',
 ];
