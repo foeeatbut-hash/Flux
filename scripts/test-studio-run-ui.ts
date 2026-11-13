@@ -4,7 +4,7 @@
  * Окно Studio собрано по-настоящему, служба разработчика (studio/shell/developer.ts) — настоящая: проект, запуск, тестовая
  * база, runtime.js. Программа открывается в настоящем <iframe sandbox> с настоящим мостом (modules/bridge.ts) — только адрес
  * http://127.0.0.1 вместо flux-module://, которой Chromium без Electron не знает. ЗАГЛУШКА стенда — действия главного
- * процесса, которые делает исполнитель A: runConnect (и событие-вопрос о подключении), runProgram, testPrograms /
+ * процесса исполнителя A (форма — studio/shared/runActions.ts, сам код главного процесса здесь не запускается): runConnect (и событие-вопрос о подключении), runProgram, testPrograms /
  * testProgramInstall / testProgramRemove, runSaveFile. Что проверено здесь, а что нет — в конце вывода.
  *
  * Что проверяется: два окна программы и обмен между ними (но не себе), заголовок «Программа — заголовок», размер из
@@ -131,9 +131,11 @@ async function main() {
         try {
           if (action === 'state') return { ok: true, value: { version: '1.0.0', build: 'developer', name: 'Flux Studio', owner: false, sections: [], connected: true, display: 'MariaDB / MySQL · db:3306/Flux', warning: '', remembered: '', user: { id: 'dev', name: 'Разработчик' } } };
           if (action === 'modules') return { ok: true, value: [] };
-          if (action === 'testPrograms') return { ok: true, value: [{ id: 'helper', name: 'Помощник расчётов', version: '1.0.0', methods: ['double'], installed: stub.installed }] };
-          if (action === 'testProgramInstall') { stub.installed = true; return { ok: true, value: {} }; }
-          if (action === 'testProgramRemove') { stub.installed = false; return { ok: true, value: {} }; }
+          const rows = () => [{ id: 'helper', name: 'Помощник расчётов', version: '1.0.0', language: 'typescript', exports: [{ method: 'double', does: 'Удваивает число' }], installed: stub.installed }];
+          if (action === 'runStop') return { ok: true, value: { stopped: true } };
+          if (action === 'testPrograms') return { ok: true, value: rows() };
+          if (action === 'testProgramInstall') { stub.installed = true; return { ok: true, value: rows() }; }
+          if (action === 'testProgramRemove') { stub.installed = false; return { ok: true, value: rows() }; }
           if (action === 'runProgram') { stub.calls.push(args.call); return { ok: true, value: stub.installed ? { ok: true, data: { doubled: args.call.data.n * 2 } } : { ok: false, code: 'NOT_INSTALLED' } }; }
           if (action === 'runSaveFile') { stub.saved.push({ name: args.name, mime: args.mime, size: Object.keys(args.bytes).length }); return { ok: true, value: 'saved' }; }
           if (action === 'runConnect') {
@@ -143,20 +145,20 @@ async function main() {
             if (remembered !== 'always') {
               const id = `ask-${stub.asked.length + 1}`;
               stub.asked.push(id);
-              const choice = await new Promise<string>(resolve => { stub.resolvers.set(id, resolve); void page.evaluate(`window.__askFn && window.__askFn(${JSON.stringify({ id, ask: ask(args.connection) })})`); });
+              const choice = await new Promise<string>(resolve => { stub.resolvers.set(id, resolve); void page.evaluate(`window.__askFn && window.__askFn(${JSON.stringify({ kind: 'connectAsk', id, ask: ask(args.connection) })})`); });
               stub.answers.push(choice);
               if (choice === 'always' || choice === 'never') stub.grants.set(args.connection, choice);
               if (choice === 'never' || choice === 'later') return { ok: true, value: { ok: false, code: 'NOT_ALLOWED' } };
             }
             return { ok: true, value: { ok: true, data: { status: 200 } } };
           }
-          if (action === 'runConnectAnswer') { stub.resolvers.get(args.id)?.(args.choice); return { ok: true, value: {} }; }
+          if (action === 'runConnectAnswer') { stub.resolvers.get(args.id)?.(args.decision); return { ok: true, value: {} }; }
           const value: any = await service.handle(action as any, args || {});
           if (action === 'runStart') value.url = `${assetsOrigin}/ui/index.html`;
           return { ok: true, value };
         } catch (e: any) { return { ok: false, error: String(e?.message || e) }; }
       });
-      await page.addInitScript(`window.studio = { onState: () => () => {}, onProgress: () => () => {}, onProject: () => () => {}, onConnectAsk: fn => { window.__askFn = fn; return () => { window.__askFn = null; }; }, call: (a, g) => window.__studioCall(a, g) };`);
+      await page.addInitScript(`window.studio = { onState: () => () => {}, onProgress: () => () => {}, onProject: () => () => {}, onRun: fn => { window.__askFn = fn; return () => { window.__askFn = null; }; }, call: (a, g) => window.__studioCall(a, g) };`);
       // Порог «не отвечает» сокращён адресом: полминуты в наборе не ждём
       await page.goto('file://' + path.join(renderer, 'index.html') + '?hang=6000');
       await page.getByRole('heading', { name: 'Мои программы' }).waitFor();

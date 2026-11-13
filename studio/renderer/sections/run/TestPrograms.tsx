@@ -5,8 +5,9 @@
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { call } from '../../call';
+import type { TestProgramRow } from '../../../shared/runActions';
 
-export interface TestProgram { id: string; name: string; version: string; methods: string[]; installed: boolean; /** Почему поставить нельзя (например, метод на Python) */ note?: string }
+type TestProgram = TestProgramRow;
 
 export default function TestPrograms({ id, onChange }: { id: string; onChange?: (line: string) => void }) {
   const [rows, setRows] = useState<TestProgram[] | null>(null);
@@ -17,14 +18,13 @@ export default function TestPrograms({ id, onChange }: { id: string; onChange?: 
   const act = async (row: TestProgram) => {
     setBusy(row.id); setError('');
     try {
-      await call(row.installed ? 'testProgramRemove' : 'testProgramInstall', { id: row.id });
+      setRows(await call<TestProgram[]>(row.installed ? 'testProgramRemove' : 'testProgramInstall', { id: row.id }));
       onChange?.(`${row.name}: ${row.installed ? 'убрана из тестовой базы' : 'поставлена в тестовую базу'}`);
-      await load();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(''); }
   };
   // Саму запускаемую программу вызывать у себя нельзя: список — только остальные
-  const others = (rows || []).filter(r => r.id !== id);
+  const others = (rows || []).filter(r => r.id !== id && r.exports.length > 0);
   return (
     <div data-testid="studio-test-programs" role="group" aria-labelledby="test-programs-title">
       <h4 id="test-programs-title">Другие программы в тестовой базе</h4>
@@ -37,8 +37,8 @@ export default function TestPrograms({ id, onChange }: { id: string; onChange?: 
           <tbody>{others.map(r => (
             <tr key={r.id} data-testid="test-program">
               <td>{r.name} <span className="code">{r.id}</span></td>
-              <td className="code">{r.methods.join(', ') || '—'}</td>
-              <td><span className={`dot ${r.installed ? 'ok' : ''}`} />{r.installed ? 'Поставлена' : 'Нет'}{r.note ? ` — ${r.note}` : ''}</td>
+              <td className="code">{r.exports.map(e => e.method).join(', ') || '—'}</td>
+              <td><span className={`dot ${r.installed ? 'ok' : ''}`} />{r.installed ? 'Поставлена' : 'Нет'}{r.language === 'python' && !r.installed ? ' — Python во Flux' : ''}</td>
               <td><button className="fx-btn" disabled={busy === r.id} onClick={() => void act(r)} aria-label={`${r.installed ? 'Убрать' : 'Поставить в тестовую базу'}: ${r.name}`}>{r.installed ? 'Убрать' : 'Поставить в тестовую базу'}</button></td>
             </tr>))}</tbody>
         </table>

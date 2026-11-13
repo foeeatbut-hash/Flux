@@ -7,8 +7,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { themeKeys, type LaunchContext, type ModuleManifest, type ThemeTokens } from '../../../modules/contract';
 import { kindOfOp, type ConnectCall, type GrantAsk } from '../../../modules/connections/model';
 import { PAGE_LIMITS, type WindowOptions } from '../../../modules/page/model';
-import type { ProgramCall, ProgramReply } from '../../../modules/programs/model';
+import type { ProgramCall } from '../../../modules/programs/model';
 import { call } from '../call';
+import type { RunConnectReply, RunProgramReply } from '../../shared/runActions';
 import RunDialog from './RunDialog';
 import ProgramWindow, { type RunHost } from './run/ProgramWindow';
 import RunConnectPrompt, { type RunGrantChoice } from './run/RunConnectPrompt';
@@ -51,28 +52,30 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
   const [restartAsk, setRestartAsk] = useState<{ text: string; resolve: (allowed: boolean) => void } | null>(null);
   // Вопросы о подключении идут по одному, как во Flux: следующий — после ответа на прежний
   const [asks, setAsks] = useState<Array<{ id: string; ask: GrantAsk }>>([]);
-  const asksRef = useRef(asks); asksRef.current = asks;
   latest.current = pick;
 
   const add = (kind: string, text: string, level: LogRow['level'] = 'info') =>
     setLog(rows => [...rows.slice(-199), { at: new Date().toLocaleTimeString('ru-RU'), kind, text, level }]);
   const setWindowList = (list: WindowSpec[]) => { windowsRef.current = list; setWindows(list); };
 
-  useEffect(() => { attempt.current++; setStarted(null); setWindowList([]); setLog([]); setError(''); void call<{ context: BaseContext[] }>('testBase').then(b => setContexts(b.context)).catch(() => {}); }, [id]);
+  // Закрытие запуска (другая программа, уход из раздела) закрывает его подключения и снимает вопросы — это делает главный процесс
+  const stopRun = () => call('runStop').catch(() => undefined);
+  useEffect(() => () => { void stopRun(); }, []);
+  useEffect(() => { attempt.current++; setStarted(null); setWindowList([]); setLog([]); setError(''); void stopRun(); void call<{ context: BaseContext[] }>('testBase').then(b => setContexts(b.context)).catch(() => {}); }, [id]);
 
   // Вопрос о подключении присылает главный процесс событием; ответ человека уходит ему же. Закрытие запуска без ответа — «позже»
   useEffect(() => {
     if (!started) return;
-    const off = window.studio.onConnectAsk?.(data => setAsks(list => [...list, data]));
-    return () => {
-      off?.();
-      for (const item of asksRef.current) void call('runConnectAnswer', { id: item.id, choice: 'later' }).catch(() => undefined);
-      setAsks([]);
-    };
+    const off = window.studio.onRun?.(event => {
+      if (event.kind === 'connectAsk') setAsks(list => [...list, { id: event.id, ask: event.ask }]);
+      else setAsks(list => list.filter(x => x.id !== event.id));
+    });
+    // Незакрытые вопросы снимает runStop главного процесса: connectAskClose придёт сам
+    return () => { off?.(); setAsks([]); };
   }, [started]);
   const answerAsk = (item: { id: string; ask: GrantAsk }, choice: RunGrantChoice) => {
     setAsks(list => list.filter(x => x.id !== item.id));
-    void call('runConnectAnswer', { id: item.id, choice }).catch(e => add('подключение', `ответ не доставлен: ${(e as Error).message}`, 'error'));
+    void call('runConnectAnswer', { id: item.id, decision: choice }).catch(e => add('подключение', `ответ не доставлен: ${(e as Error).message}`, 'error'));
   };
 
   const bus = useMemo(() => createPageBus(), [started]);
@@ -105,16 +108,18 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
       // Подключение по объявлению манифеста: объявление, пределы и память решений — у главного процесса Studio; вопрос человеку — окно ниже
       connect: async (connection: string, request: ConnectCall) => {
         const t = Date.now();
-        const reply = await call<{ ok: boolean; data?: unknown; code?: string }>('runConnect', { connection, call: request }).catch(() => ({ ok: false, code: 'FAILED' } as const));
+        const reply = await call<RunConnectReply & { code?: string; line?: string; data?: unknown }>('runConnect', { connection, call: request }).catch(() => ({ ok: false, code: 'FAILED' } as RunConnectReply & { code?: string; line?: string; data?: unknown }));
         add('подключение', `${kindOfOp(request.op)}, ${connection}, ${reply.ok ? 'выполнено' : reply.code}, ${Date.now() - t} мс`, reply.ok ? 'info' : 'warn');
-        return reply.ok ? { ok: true, data: (reply as { data: unknown }).data } : { ok: false, code: (reply.code || 'FAILED') as never };
+        if (!reply.ok && reply.line) add('подключение', reply.line, 'warn');
+        return reply.ok ? { ok: true, data: reply.data } : { ok: false, code: (reply.code || 'FAILED') as never };
       },
       // Другая программа: та, что поставлена в тестовую базу; остальные отвечают NOT_INSTALLED, как у человека без неё
       program: async (request: ProgramCall) => {
         const t = Date.now();
-        const reply = await call<ProgramReply>('runProgram', { call: request }).catch(() => ({ ok: false, code: 'FAILED' } as ProgramReply));
-        add('программа', `${request.program}.${request.method}: ${reply.ok ? 'ответ получен' : (reply as { code: string }).code}, ${Date.now() - t} мс`, reply.ok ? 'info' : 'warn');
-        return reply;
+        const reply = await call<RunProgramReply & { code?: string; data?: unknown }>('runProgram', { call: request }).catch(() => ({ ok: false, code: 'FAILED' } as RunProgramReply & { code?: string }));
+        add('программа', `${request.program}.${request.method}: ${reply.ok ? 'ответ получен' : reply.code}, ${Date.now() - t} мс`, reply.ok ? 'info' : 'warn');
+        if (reply.line) add('программа', reply.line, 'warn');
+        return reply.ok ? { ok: true, data: reply.data } : { ok: false, code: reply.code as never };
       },
       onComputeError: code => add('сбой', `расчёт остановлен: ${code}`, 'error'),
       onLog: (level, text) => add('flux.log', text, level),
@@ -153,6 +158,8 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
       if (!allowed) return;
     }
     const mine = ++attempt.current;
+    // Прежний запуск закрывается до нового: иначе его подключения и вопросы дожили бы до ответа нового
+    await stopRun();
     setError(''); setLog([]); setStarted(null); setWindowList([]); unsaved.current.clear();
     try {
       const reply = await call<Started>('runStart', { id, ...pick, entityId: pick.entry === 'start' ? '' : pick.entityId });

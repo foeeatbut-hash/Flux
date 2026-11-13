@@ -6,12 +6,13 @@
 import React, { useState } from 'react';
 import Modal from '../../work/Modal';
 import type { GrantAsk } from '../../../../modules/connections/model';
+import type { ConnectDecision } from '../../../shared/runActions';
 import {
   ALLOWED_TITLE, AUTHOR_TITLE, CHOICES, MORE_CLOSE, MORE_OPEN, NOT_GIVEN, NOT_GIVEN_TITLE, PROMPT_LABEL, REMEMBER_STUDIO, TECH_LABEL,
   allowedText, authorText, promptTitle, technicalText,
 } from '../../../../src/components/modules/connectionPromptText';
 
-export type RunGrantChoice = 'always' | 'once' | 'never' | 'later';
+export type RunGrantChoice = ConnectDecision;
 
 export default function RunConnectPrompt({ ask, onChoose }: { ask: GrantAsk; onChoose: (choice: RunGrantChoice) => void }) {
   const [more, setMore] = useState(false);
