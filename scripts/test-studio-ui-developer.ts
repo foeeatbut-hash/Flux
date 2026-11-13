@@ -206,6 +206,15 @@ async function main() {
       await page.locator('.studio-problem').filter({ hasText: 'logic/extra.ts:2' }).first().click();
       await page.getByRole('tablist', { name: 'Открытые файлы' }).getByRole('tab', { name: 'extra.ts' }).waitFor();
       ok(`${theme}: нажатие на ошибку открыло файл во вкладке`, true);
+      // Ошибка типов (синтаксис верный): настоящий компилятор TypeScript называет файл, строку и код в той же вкладке
+      await service.handle('draftSave', { id: projectId, path: 'logic/extra.ts', text: "export const ok = 1;\nexport const bad: number = 'не число';\n" });
+      await page.getByRole('button', { name: 'Собрать TypeScript' }).click();
+      const typed = page.locator('.studio-problem').filter({ hasText: 'logic/extra.ts:2' }).filter({ hasText: 'TS2322' }).first();
+      await typed.waitFor({ timeout: 60000 });
+      ok(`${theme}: ошибка типов видна во вкладке «Проблемы» с файлом, строкой и кодом`, (await typed.innerText()).includes('не может быть присвоен') || (await typed.innerText()).includes('is not assignable'));
+      await typed.click();
+      await page.getByRole('tablist', { name: 'Открытые файлы' }).getByRole('tab', { name: 'extra.ts' }).waitFor();
+      ok(`${theme}: нажатие на ошибку типов открыло файл`, true);
       await service.handle('draftRemoveFile', { id: projectId, path: 'logic/extra.ts' });
       await page.getByRole('button', { name: 'Собрать TypeScript' }).click();
       await page.getByText('Сборка прошла').waitFor({ timeout: 60000 });
