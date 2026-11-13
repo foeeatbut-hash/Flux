@@ -47,6 +47,9 @@ $enc = New-Object System.Text.UTF8Encoding($false)
 [Console]::InputEncoding = $enc
 [Console]::OutputEncoding = $enc
 Add-Type -AssemblyName Microsoft.VisualBasic
+# Строка готовности: по ней Flux отличает «помощник ещё стартует» от «помощник не отвечает на запрос»
+[Console]::Out.WriteLine('{"id":0,"ok":true,"ready":true}')
+[Console]::Out.Flush()
 $script:objects = @{}
 $script:next = 0
 $script:deny = @()
@@ -191,7 +194,17 @@ export class PowerShellComBackend implements ComBackend {
   private ids = new Map<number, number>();
   private nextId = 0;
   private listeners: Array<() => void> = [];
+  /** Сведения для разбора TIMEOUT: когда запущен, когда пришёл первый байт и готовность, сколько ответов, хвост stderr */
+  private diag = { spawnedAt: 0, firstByteAt: 0, readyAt: 0, replies: 0, stderr: '', sent: 0, starts: 0 };
   constructor(private timeoutMs = 20_000) {}
+
+  private diagLine(what: string, child: ChildProcessWithoutNullStreams | null) {
+    const d = this.diag; const now = Date.now();
+    const at = (t: number) => t ? `${now - t} мс назад (через ${t - d.spawnedAt} мс после запуска)` : 'нет';
+    return `[com] ${what}: помощник ${child && child.exitCode === null && !child.killed ? 'жив' : 'не жив'}, запусков ${d.starts}, `
+      + `первый байт: ${at(d.firstByteAt)}, готов: ${at(d.readyAt)}, запросов ${d.sent}, ответов ${d.replies}, `
+      + `stderr: ${JSON.stringify(d.stderr.slice(-300))}`;
+  }
 
   available() { return process.platform === 'win32'; }
   onExit(listener: () => void) { this.listeners.push(listener); }
@@ -205,16 +218,18 @@ export class PowerShellComBackend implements ComBackend {
       await writeFile(script, '﻿' + COM_HELPER_SCRIPT, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
       const child = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', script], { windowsHide: true });
       this.child = child;
+      this.diag = { spawnedAt: Date.now(), firstByteAt: 0, readyAt: 0, replies: 0, stderr: '', sent: 0, starts: this.diag.starts + 1 };
       child.stdout.setEncoding('utf8');
       child.stdout.on('data', (chunk: string) => this.onData(chunk));
-      child.stderr.on('data', () => { /* ошибки приходят ответом; stderr только предупреждения PowerShell */ });
-      child.on('exit', () => this.onExit2(child));
-      child.on('error', () => this.onExit2(child));
+      child.stderr.on('data', (chunk: Buffer) => { this.diag.stderr = (this.diag.stderr + chunk.toString('utf8')).slice(-600); });
+      child.on('exit', (code) => { console.error(this.diagLine(`помощник завершился (код ${code})`, child)); this.onExit2(child); });
+      child.on('error', (e) => { console.error(this.diagLine(`помощник не запустился (${e.message})`, child)); this.onExit2(child); });
     })().finally(() => { this.starting = null; });
     await this.starting;
   }
 
   private onData(chunk: string) {
+    if (!this.diag.firstByteAt) this.diag.firstByteAt = Date.now();
     this.buffer += chunk;
     let index: number;
     while ((index = this.buffer.indexOf('\n')) >= 0) {
@@ -222,7 +237,9 @@ export class PowerShellComBackend implements ComBackend {
       this.buffer = this.buffer.slice(index + 1);
       if (!line) continue;
       try {
-        const reply = JSON.parse(line) as { id: number; ok: boolean; value?: ComValue; error?: string };
+        const reply = JSON.parse(line) as { id: number; ok: boolean; ready?: boolean; value?: ComValue; error?: string };
+        if (reply.ready) { this.diag.readyAt = Date.now(); continue; }
+        this.diag.replies++;
         const item = this.pending.get(reply.id);
         if (!item) continue;
         this.pending.delete(reply.id);
@@ -253,8 +270,13 @@ export class PowerShellComBackend implements ComBackend {
     const id = ++this.seq;
     return new Promise((resolve, reject) => {
       // Зависший вызов COM (E3 занята диалогом) не держит программу вечно: помощник этой программы перезапускается, других это не касается
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new ConnectError('TIMEOUT')); child.kill(); }, this.timeoutMs);
+      const timer = setTimeout(() => {
+        // Без этой строки TIMEOUT не отличить «долго стартует» от «не ответил на запрос»
+        console.error(this.diagLine(`таймер вызова ${this.timeoutMs} мс (операция ${String(message.op)})`, child));
+        this.pending.delete(id); reject(new ConnectError('TIMEOUT')); child.kill();
+      }, this.timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
+      this.diag.sent++;
       child.stdin.write(`${JSON.stringify({ id, ...message })}\n`);
     });
   }

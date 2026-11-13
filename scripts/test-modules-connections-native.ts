@@ -99,6 +99,8 @@ async function main() {
   const url = `http://127.0.0.1:${(server.address() as any).port}`;
   const electron = await _electron.launch({ args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), path.join(temp, 'main.cjs')],
     env: { ...process.env, FLUX_MODULE_FIXTURE_DIR: temp, FLUX_MODULE_FIXTURE_URL: `${url}/`, FLUX_TEST_ROOT: rootHex, FLUX_TEST_DIR: data, ...(process.platform === 'win32' ? {} : { FLUX_FAKE_COM: '1' }) }, timeout: 60000 });
+  // Диагностика помощника COM (строки «[com]») идёт в журнал шага: по ней разбирают TIMEOUT на Windows
+  for (const stream of [electron.process().stdout, electron.process().stderr]) stream?.on('data', (d: Buffer) => { for (const l of d.toString('utf8').split('\n')) if (l.includes('[com]')) console.log(l.trim()); });
   const page = await electron.firstWindow();
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
