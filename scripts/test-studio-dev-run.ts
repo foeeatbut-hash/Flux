@@ -23,6 +23,11 @@ import { DeveloperKeyring, type SafeStorageLike } from '../studio/shared/keyring
 import { createFromTemplate, TEMPLATE_IDS, type ProjectFiles } from '../studio/shared/templates';
 import { DevRunFolder, DevRunRefused, findFluxDataDir, prepareDevRun, renewLease, sweepOrphans } from '../studio/shared/devRun';
 import { DEV_LEASE_RENEW_MS, DEV_LEASE_TTL_MS, DEV_RUN_FILES, verifyDevRun, type DevRunFile } from '../modules/trust/devRun';
+import http from 'node:http';
+import { DevRunHost } from '../studio/shell/devRunHost';
+import { DeveloperService } from '../studio/shell/developer';
+import { createControlsEngine } from '../studio/shared/controlsEngine';
+import { ALL_ACTIONS } from '../studio/shell/actions';
 import { buildPackage } from '../studio/shared/publish';
 import { describeBundle } from '../modules/trust/verify';
 import { hexOf, newKey, certificateEnvelope } from './fixtures/moduleTrust';
@@ -182,6 +187,106 @@ async function main() {
   ok('осиротевшая папка убрана', removed.includes('orphan') && !fs.existsSync(dead));
   ok('папка живого чужого экземпляра Studio, без отметки и с недопустимым именем — на месте', fs.existsSync(alive) && fs.existsSync(unmarked) && fs.existsSync(path.join(dataDir, 'dev-run', 'Bad Name')) && !removed.includes('alive-other'));
   ok('нет папки dev-run — уборка молчит', sweepOrphans(path.join(temp, 'no-such')).length === 0);
+
+
+  console.log('Главный процесс: аренда и уборка (DevRunHost)');
+  {
+    const hostDir = path.join(temp, 'host-flux');
+    fs.mkdirSync(hostDir, { recursive: true });
+    let clock = NOW;
+    const host = new DevRunHost({ keyring, dataDir: () => hostDir, now: () => clock, renewMs: 40 });
+    const input = { certificate, userId: 'dev-1', moduleId: 'page-rust', version: '0.1.0', files: pageFiles('rust', 'page-rust'), runtime: '' };
+    const state = host.start(input);
+    ok('состояние после запуска', state.running && state.moduleId === 'page-rust' && state.version === '0.1.0' && state.builtAt === NOW && state.problem === '');
+    const leaseFile = path.join(hostDir, 'dev-run', 'page-rust', 'lease.txt');
+    const first = fs.readFileSync(leaseFile, 'utf8');
+    clock += 30_000;
+    await new Promise(r => setTimeout(r, 200));
+    const renewed = fs.readFileSync(leaseFile, 'utf8');
+    ok('аренда продлевается по таймеру', renewed !== first);
+    const folderNow = path.join(hostDir, 'dev-run', 'page-rust');
+    const onDisk2 = { run: JSON.parse(fs.readFileSync(path.join(folderNow, 'run.json'), 'utf8')).run, bundle: new Uint8Array(fs.readFileSync(path.join(folderNow, 'package.bin'))) };
+    const at = (now: number) => verifyDevRun({ ...onDisk2, lease: renewed, certificate, rootHex, revoked: noRevoked, now, userId: 'dev-1' }).ok;
+    ok('продлённая аренда свежа спустя 30 с после первой и протухает через срок', at(clock + 1000) && !at(clock + DEV_LEASE_TTL_MS + 1));
+    host.start({ ...input, moduleId: 'page-go', files: pageFiles('go', 'page-go') });
+    ok('другая программа заменяет запуск: старая папка убрана, новая на месте', !fs.existsSync(folderNow) && fs.existsSync(path.join(hostDir, 'dev-run', 'page-go', 'lease.txt')));
+    fs.rmSync(path.join(hostDir, 'dev-run', 'page-go'), { recursive: true, force: true });
+    await new Promise(r => setTimeout(r, 150));
+    ok('Flux убрал папку — продление сообщает о проблеме, а не падает', host.state().running && host.state().problem.length > 0);
+    host.stop();
+    ok('stop: состояние «не запущено», таймер остановлен, повторный stop безвреден', !host.state().running && (() => { host.stop(); return true; })());
+    host.start(input);
+    host.dispose();
+    ok('dispose (выход из Studio) убирает папку', !fs.existsSync(folderNow));
+    // Вылет Studio: папка осталась с отметкой мёртвого процесса — следующий старт её убирает
+    host.start(input);
+    fs.writeFileSync(path.join(folderNow, 'studio.pid'), '999999999');
+    const next = new DevRunHost({ keyring, dataDir: () => hostDir });
+    ok('при старте Studio осиротевшая папка прежнего запуска убирается', next.sweep().includes('page-rust') && !fs.existsSync(folderNow));
+    host.stop();
+  }
+
+  console.log('Служба разработчика: действия devRunStart / devRunStop / devRunState');
+  {
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url || '/', 'http://x');
+      res.setHeader('Content-Type', 'application/json');
+      if (url.pathname === '/api/studio/certificate' && url.searchParams.get('key') === devHex && served.cert) res.end(JSON.stringify({ status: 'issued', name: 'Разработчик', certificate: served.cert }));
+      else res.end(JSON.stringify({ status: 'none', name: '' }));
+    });
+    const served = { cert: certificate };
+    await new Promise<void>(r => server.listen(0, '127.0.0.1', () => r()));
+    const origin = `http://127.0.0.1:${(server.address() as any).port}`;
+    const fluxHome = path.join(temp, 'svc-flux');
+    fs.mkdirSync(fluxHome, { recursive: true });
+    fs.writeFileSync(path.join(fluxHome, 'config.json'), '{"current_db_type":"REMOTE"}');
+    const state: { user: { id: string; name: string } | null; flux: boolean } = { user: { id: 'dev-1', name: 'Разработчик' }, flux: true };
+    const service = new DeveloperService({
+      dir: keyDir, storage: storageFor('windows-user-1'), version: '1.0.0',
+      session: () => state.user ? { origin, token: 'token-dev-long-enough', user: state.user, owner: false } : null,
+      assets: { templatesRoot, runtimeDir: path.join(app, 'runtime') },
+      engine: createControlsEngine({ workerFile: path.join(app, 'controls-worker.cjs'), timeoutMs: 5000 }),
+      home: path.join(temp, 'projects'),
+      fluxDataDir: () => { if (!state.flux) throw new DevRunRefused('Flux на этом компьютере не найден: запустите Flux хотя бы раз, затем повторите.'); return fluxHome; },
+    });
+    const call = (action: string, args: Record<string, unknown> = {}): Promise<any> => service.handle(action as never, args);
+    const fails = async (action: string, args: Record<string, unknown>, pattern: RegExp) => { try { await call(action, args); } catch (e: any) { return pattern.test(e.message); } return false; };
+    ok('действия объявлены в списке окна', ['devRunStart', 'devRunStop', 'devRunState'].every(a => ALL_ACTIONS.includes(a)));
+    await call('draftCreate', { template: 'python', id: 'svc-py', name: 'Питон', kind: 'page' });
+    const folder = path.join(fluxHome, 'dev-run', 'svc-py');
+    const started = await call('devRunStart', { id: 'svc-py' });
+    ok('запуск: состояние и три файла в папке Flux', started.running && started.moduleId === 'svc-py' && ['run.json', 'lease.txt', 'package.bin'].every(n => fs.existsSync(path.join(folder, n))));
+    const file = JSON.parse(fs.readFileSync(path.join(folder, 'run.json'), 'utf8')) as DevRunFile;
+    const verdict = verifyDevRun({ run: file.run, lease: fs.readFileSync(path.join(folder, 'lease.txt'), 'utf8'), certificate: file.certificate, bundle: new Uint8Array(fs.readFileSync(path.join(folder, 'package.bin'))), rootHex, revoked: noRevoked, now: Date.now(), userId: 'dev-1' });
+    ok(`Python проходит проверку Flux (${verdict.ok ? 'ok' : (verdict as any).why})`, verdict.ok);
+    ok('состояние читается отдельно', (await call('devRunState')).running === true);
+    await call('draftSave', { id: 'svc-py', path: 'README.md', content: 'правка' }).catch(() => {});
+    const again = await call('devRunStart', { id: 'svc-py' });
+    ok('повторный запуск (пересборка) заменяет пакет', again.running && again.builtAt >= started.builtAt);
+    await call('projectUnwatch');
+    ok('закрытие проекта убирает папку', !fs.existsSync(folder) && (await call('devRunState')).running === false);
+    await call('devRunStart', { id: 'svc-py' });
+    ok('«Убрать» убирает папку', (await call('devRunStop')).running === false && !fs.existsSync(folder));
+    await call('devRunStart', { id: 'svc-py' });
+    service.dispose();
+    ok('выход из Studio (dispose) убирает папку', !fs.existsSync(folder));
+
+    state.user = null;
+    ok('не вошёл — отказ словами', await fails('devRunStart', { id: 'svc-py' }, /Войдите/));
+    state.user = { id: 'dev-1', name: 'Разработчик' };
+    state.flux = false;
+    ok('Flux не найден — отказ словами', await fails('devRunStart', { id: 'svc-py' }, /Flux на этом компьютере не найден/));
+    state.flux = true;
+    served.cert = '';
+    ok('сертификата нет — отказ словами', await fails('devRunStart', { id: 'svc-py' }, /нет сертификата владельца/));
+    served.cert = certificate;
+    state.user = { id: 'dev-2', name: 'Другой' };
+    ok('вошёл другой человек — отказ словами', await fails('devRunStart', { id: 'svc-py' }, /другому человеку/));
+    state.user = { id: 'dev-1', name: 'Разработчик' };
+    ok('ничего не осталось в папке Flux после отказов', !fs.existsSync(folder));
+    ok('config.json Flux не тронут', fs.readFileSync(path.join(fluxHome, 'config.json'), 'utf8') === '{"current_db_type":"REMOTE"}');
+    server.close();
+  }
 
   fs.rmSync(temp, { recursive: true, force: true });
   console.log(`\nПройдено проверок: ${passed}`);

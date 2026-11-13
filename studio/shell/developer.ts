@@ -36,9 +36,11 @@ import { hasNetPermission } from '../../modules/permissions/registry';
 import { ConnectError } from '../../modules/connections/model';
 import { fetchUrl, systemLookup } from '../../electron/moduleNet';
 import type { DeveloperAction } from './actions';
+import { DevRunHost } from './devRunHost';
+import { DevRunRefused } from '../shared/devRun';
 import { studioRequest, StudioFailure, type StudioUser } from './api';
 import {
-  certificateStatus, lastRelease, markFixed, ownBundle, ownErrors, ownReleases, ownRequests, versionWarning, type Session,
+  certificateEnvelope, certificateStatus, lastRelease, markFixed, ownBundle, ownErrors, ownReleases, ownRequests, versionWarning, type Session,
 } from './developerServer';
 
 export interface DeveloperDeps {
@@ -65,6 +67,9 @@ export interface DeveloperDeps {
   pickDataFile?: (options: { title: string; filters: Array<{ name: string; extensions: string[] }> }) => Promise<string | null>;
   /** Период запасного опроса папки, мс */
   pollMs?: number;
+  /** Папка данных Flux для «Запустить во Flux»; по умолчанию ищется по правилам Flux. Проверки подставляют свою */
+  fluxDataDir?: () => string;
+  now?: () => number;
 }
 
 const text = (v: unknown, max: number): string => {
@@ -106,6 +111,7 @@ export class DeveloperService {
   private watching: { id: string; watcher: FolderWatcher } | null = null;
   private run: Run | null = null;
   private readonly requested: RequestedMarker;
+  readonly devRun: DevRunHost;
 
   constructor(private readonly deps: DeveloperDeps) {
     this.keyring = new DeveloperKeyring(deps.dir, deps.storage);
@@ -114,6 +120,9 @@ export class DeveloperService {
     try { this.drafts.migrate(); } catch { /* останутся открываемыми по-старому */ }
     this.testBase = new TestBase(deps.dir);
     this.requested = new RequestedMarker(deps.dir);
+    this.devRun = new DevRunHost({ keyring: this.keyring, dataDir: deps.fluxDataDir, now: deps.now });
+    // Папки прежнего запуска, не дожившего до «Убрать» (вылет, выключение питания), убираются при старте
+    this.devRun.sweep();
   }
 
   private session(): Session & { user: StudioUser; owner: boolean } {
@@ -211,12 +220,14 @@ export class DeveloperService {
       case 'projectWatch': {
         const id = moduleId(args.id);
         this.unwatch();
+        if (this.devRun.state().moduleId !== id) this.devRun.stop();
         const watcher = new FolderWatcher(this.drafts.space(id), changes => this.deps.emit?.('studio:project', { id, changes }), this.deps.pollMs);
         watcher.start();
         this.watching = { id, watcher };
         return { watching: true };
       }
-      case 'projectUnwatch': { this.unwatch(); return { watching: false }; }
+      // Окно проекта закрыто — запуск во Flux из него снимается
+      case 'projectUnwatch': { this.unwatch(); this.devRun.stop(); return { watching: false }; }
       // Скачать проект архивом: место сохранения выбирает человек
       case 'projectExport': {
         const id = moduleId(args.id), target = await this.deps.pickArchive?.('save', `${id}.zip`);
@@ -292,6 +303,9 @@ export class DeveloperService {
         return pickForWire(this.run.name, args.accept, this.deps.pickDataFile);
       }
       case 'runNet': return this.runNet(args);
+      case 'devRunStart': return this.startDevRun(moduleId(args.id));
+      case 'devRunStop': { this.devRun.stop(); return this.devRun.state(); }
+      case 'devRunState': return this.devRun.state();
       case 'runShot': return this.shoot(moduleId(args.id), text(args.theme, 5), args.rect);
 
       // ── Проверка и публикация ────────────────────────────────────────────────
@@ -349,7 +363,7 @@ export class DeveloperService {
 
   private unwatch() { this.watching?.watcher.stop(); this.watching = null; }
   /** Закрытие окна: слежение останавливается */
-  dispose() { this.unwatch(); }
+  dispose() { this.unwatch(); this.devRun.dispose(); }
 
   private guard<T>(fn: () => T): T {
     try { return fn(); } catch (error) { if (error instanceof KeyringFailure) throw new StudioFailure(error.message); throw error; }
@@ -390,6 +404,28 @@ export class DeveloperService {
       context: this.context(args), resources: manifest.reads || [], page, name: manifest.name, manifest,
     };
     return { session: this.run.id, url: page ? 'flux-module://run/ui/index.html' : 'flux-module://run/index.html', language: this.run.language, manifest: { id: manifest.id, name: manifest.name, version: manifest.version, reads: manifest.reads, entries: manifest.entries, connections: manifest.connections || [], permissions: manifest.permissions || [], ui: manifest.ui, pages: manifest.pages }, context: this.run.context };
+  }
+
+  /**
+   * «Запустить во Flux»: тот же пакет, что уходит владельцу, но без Store и проверки владельцем (modules/trust/devRun.ts).
+   * Отказы — словами для человека; поэтому порядок такой: вошёл ли, есть ли Flux, собирается ли, есть ли сертификат.
+   */
+  private async startDevRun(id: string) {
+    const s = this.session();
+    const refuse = <T>(fn: () => T): T => { try { return fn(); } catch (e) { if (e instanceof DevRunRefused) throw new StudioFailure(e.message); throw e; } };
+    refuse(() => this.devRun.checkFlux());
+    const draft = this.drafts.files(id), manifest = this.manifestOf(draft);
+    if (manifest.id !== id || !MODULE_VERSION.test(String(manifest.version))) throw new StudioFailure('Идентификатор и версия в manifest.json не сходятся с проектом.');
+    const compiled = await this.compiled(draft);
+    if (compiled && !compiled.ok) throw new StudioFailure(`Сборка не прошла: ${problemLine(compiled.problems[0])}`);
+    const files = compiled ? withBuilt(draft, compiled) : draft;
+    const built = manifest.ui === 'page' ? { runtime: '', problem: pageProblem(files, manifest.pages) } : assembleRuntime(this.runtimeTemplates(), manifest, files);
+    if (built.problem) throw new StudioFailure(`Сборка не прошла: ${built.problem}`);
+    const builtLogic = assembleLogic(manifest, files);
+    if (builtLogic.problem) throw new StudioFailure(`Сборка не прошла: логика на TypeScript не собралась: ${builtLogic.problem}`);
+    const info = this.keyring.info();
+    const certificate = info.exists ? await certificateEnvelope(s, info.publicKey) : '';
+    return refuse(() => this.devRun.start({ certificate, userId: s.user.id, moduleId: id, version: String(manifest.version), files, runtime: built.runtime, logic: builtLogic.logic }));
   }
 
   /**

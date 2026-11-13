@@ -67,6 +67,8 @@ export function startShell(sections: ShellSection[] = []): void {
 
   /** Сбрасывает соединение и вход, не трогая текущую операцию: подключение к другой базе начинается с этого сброса, внутри своей же операции */
   const release = async () => {
+    // Вход сброшен — запуск во Flux, привязанный к этому человеку, не должен его пережить
+    developer?.devRun.stop();
     token = ''; user = null; owner = false; warning = '';
     ownerKey.forget();
     const previous = runtime; runtime = null;
@@ -144,7 +146,7 @@ export function startShell(sections: ShellSection[] = []): void {
       token = signed.token; user = signed.user; owner = signed.owner;
       return snapshot();
     }),
-    logout: async () => { token = ''; user = null; owner = false; ownerKey.forget(); return snapshot(); },
+    logout: async () => { developer?.devRun.stop(); token = ''; user = null; owner = false; ownerKey.forget(); return snapshot(); },
     disconnect: async () => { await disconnect(); return snapshot(); },
     modules: async (): Promise<StudioModule[]> => {
       if (!runtime || !token) throw new StudioFailure('Войдите в Flux Studio.');
@@ -247,5 +249,7 @@ export function startShell(sections: ShellSection[] = []): void {
     }
     win.on('closed', () => { developer?.dispose(); win = null; });
   });
+  // Выход из Studio любым путём убирает папку обмена: аренда без Studio всё равно протухла бы, но следов быть не должно
+  app.on('before-quit', () => { developer?.dispose(); });
   app.on('window-all-closed', () => { void disconnect().finally(() => app.quit()); });
 }
