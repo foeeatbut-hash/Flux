@@ -38,7 +38,7 @@ WebAssembly, тестовая база, диалоги (`RunDialog`), `flux.open
 
 ## Шаги
 
-- [ ] A (оболочка): `runConnect`, `runProgram` и тестовые программы,
+- [x] A (оболочка): `runConnect`, `runProgram` и тестовые программы,
       `runSaveFile`; набор на всех языках (TypeScript, C, C++, Rust, Go, C#)
       через движок Studio и сверка пределов с Flux
 - [ ] B (окно): окна программы, подключения и согласие, вторая программа в
