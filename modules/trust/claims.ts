@@ -129,6 +129,27 @@ export function parseCertificateClaim(v: unknown): CertificateClaim | null {
   return v as unknown as CertificateClaim;
 }
 
+/**
+ * Пакет разработки: «я, разработчик `author`, запускаю у себя (`userId`) эту сборку». Подписан ключом разработчика.
+ * Выпуском не является: работает только у `userId` и только пока Studio продлевает аренду (DevLeaseClaim).
+ */
+export interface DevRunClaim extends BundleDigest { v: 1; moduleId: string; version: string; author: string; userId: string; iat: number }
+/** Аренда пакета разработки: Studio переподписывает её, пока открыта; устаревшая аренда останавливает запуск */
+export interface DevLeaseClaim { v: 1; sha256: string; author: string; iat: number }
+
+export function parseDevRunClaim(v: unknown): DevRunClaim | null {
+  if (!isObject(v) || !exactKeys(v, ['v', 'moduleId', 'version', 'author', 'userId', 'iat', 'size', 'sha256', 'chunks'])) return null;
+  if (v.v !== 1 || typeof v.moduleId !== 'string' || !MODULE_ID.test(v.moduleId) || typeof v.version !== 'string' || !MODULE_VERSION.test(v.version)
+    || typeof v.author !== 'string' || !HEX64.test(v.author) || typeof v.userId !== 'string' || !REF.test(v.userId) || !time(v.iat) || !digest(v)) return null;
+  return v as unknown as DevRunClaim;
+}
+
+export function parseDevLeaseClaim(v: unknown): DevLeaseClaim | null {
+  if (!isObject(v) || !exactKeys(v, ['v', 'sha256', 'author', 'iat'])) return null;
+  if (v.v !== 1 || typeof v.sha256 !== 'string' || !HEX64.test(v.sha256) || typeof v.author !== 'string' || !HEX64.test(v.author) || !time(v.iat)) return null;
+  return v as unknown as DevLeaseClaim;
+}
+
 export function parseRevocationClaim(v: unknown): RevocationClaim | null {
   if (!isObject(v) || !exactKeys(v, ['v', 'kind', 'target', 'reason', 'iat'])) return null;
   if (v.v !== 1 || (v.kind !== 'release' && v.kind !== 'key') || !str(v.reason, 2000) || !time(v.iat)) return null;
