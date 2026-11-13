@@ -13,7 +13,7 @@ import { ComputeError, codeOf, type ModuleLanguage } from '../../modules/engine/
 import { createProgramCallerWith } from '../../modules/programs/caller';
 import { ModuleProgramCalls } from '../../electron/moduleProgramCalls';
 import type { ModuleManifest } from '../../modules/contract';
-import type { ProgramCall, ProgramCallErrorCode } from '../../modules/programs/model';
+import { PROGRAM_LIMITS, type ProgramCall, type ProgramCallErrorCode } from '../../modules/programs/model';
 import { validMessage } from '../../modules/schemas';
 import type { ControlsEngine } from '../shared/controlsEngine';
 import type { RunProgramReply } from '../shared/runActions';
@@ -79,6 +79,10 @@ export class RunPrograms {
     if (!validMessage('program', envelope)) return { ok: false, code: 'FAILED', line: 'flux.programs.call: вызов неверной формы (нужны program и method, как в справочнике flux.*)' };
     const call = args.call as ProgramCall;
     const version = String(run.manifest.version);
+    // Мост окна отказывает слишком большим данным раньше, но оболочка окну не верит: общая последовательность вызывающей стороны
+    // ответила бы на такой вход «не удалось», а это предел
+    const size = new TextEncoder().encode(JSON.stringify(call.data ?? null)).byteLength;
+    if (size > PROGRAM_LIMITS.bytes) return { ok: false, code: 'LIMIT', line: programLine('LIMIT', call) };
     let detail = '';
     let python = false;
     const caller = createProgramCallerWith({ moduleId: run.manifest.id, version }, () => ({

@@ -71,3 +71,12 @@ WebAssembly, тестовая база, диалоги (`RunDialog`), `flux.open
 - `{ kind: 'connectAsk', id, ask: GrantAsk }` — вопрос о подключении (тексты из манифеста запущенного проекта: `app`, `does`, `access`, `technical`, `kind`, `moduleName`, `author`); окно показывает три ответа и вызывает `runConnectAnswer`;
 - `{ kind: 'connectAskClose', id }` — снять диалог (запуск закрыт, время ожидания 5 минут вышло, ответ уже дан).
 `runConnect` не возвращается, пока человек не ответил (или вопрос не снят: тогда `NOT_ALLOWED`, решение не запоминается). Решение хранится в памяти оболочки до закрытия Studio и привязано к тексту разрешения; «только сейчас» живёт до `runStop`/нового запуска.
+
+### Сделано (A), шаг 2
+
+- Действия оболочки: `studio/shell/runHost.ts` (входная точка), `runConnections.ts`, `runPrograms.ts`, `runSaveFile.ts`, `runJournal.ts`; склейка в `developer.ts` (`stopRun`, `buildProgram` — общая сборка для «Запустить во Flux» и «установить»).
+- Общее с Flux: `ModuleConnections`/`ModuleProgramCalls` используются как есть (в их `deps` журнал сужен до `Pick<ModuleJournal,'add'>`, `ModuleGrants` принимает `file = null` — решения только в памяти); последовательность вызывающей стороны вынесена в `modules/programs/caller.ts` (окно Flux берёт её оттуда, поведение то же; мутанты `test-modules-programs` переведены на новый файл).
+- Движок Studio: пределы в `COMPUTE_LIMITS` (время — `LIMITS.timeoutMs`), предел файла логики TypeScript как у Flux, логика TypeScript исполняется в пустом контексте `vm` (без process, require, fetch, import()).
+- Набор `scripts/test-studio-run-full.ts` (+ `scripts/fixtures/studioRunBatteries.ts`), в `verification/manifests/studio.json` и `build-studio.yml`.
+- Добавлено к договору: у отказов `runConnect` и `runProgram` есть необязательная `line` — строка только для журнала запуска (в программу её передавать нельзя).
+- Открыто: настоящий COM (PowerShell) и системные диалоги Electron — только Windows; контрольные примеры вызываемой программы в Studio не гоняются (это кнопка «Проверить»); TypeScript в форме считает окно программы, а не оболочка.

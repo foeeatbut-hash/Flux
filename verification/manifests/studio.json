@@ -298,6 +298,18 @@
       "timeoutMs": 900000
     },
     {
+      "id": "studio-run-full",
+      "path": "scripts/test-studio-run-full.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files",
+        "loopback-http"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 2400000
+    },
+    {
       "id": "studio-translator",
       "path": "scripts/test-studio-translator.ts",
       "layer": "unit",
