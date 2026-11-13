@@ -8,7 +8,7 @@
 Ветка: claude/flux-stage-1-pjmxgt. Ревизия старта: 3bb4472d (rebase на 8c3fa356).
 
 - [x] Шаг 1: общий код (studio/shell/programFile.ts, studio/renderer/work/programDialog.ts), trialPickFile, TrialDialog, серверные случаи в test-studio-owner-console.ts (110 проверок зелёные)
-- [ ] Шаг 1б: UI-случай в test-studio-owner-console-ui.ts (CSP frame-src flux-module: блокирует data: кадр, нужен обход в тесте)
+- [x] Шаг 1б: UI-случай диалогов и файла (кадр-проба вместо flux-module://), 300 проверок UI, снимки в обеих темах
 - [ ] Шаг 2: раздел «Лицензии» в консоли, удалить старое окно
 - [ ] Шаг 3: документы, снимки
 

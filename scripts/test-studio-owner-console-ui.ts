@@ -128,7 +128,10 @@ async function main() {
   const browser = await chromium.launch({ ...(process.env.FLUX_CHROME ? { executablePath: process.env.FLUX_CHROME } : {}), args: ['--no-sandbox'] });
   try {
     const built = await buildStudio({ target: 'owner', outDir: path.join(temp, 'owner') });
-    const url = 'file://' + path.join(built.app, 'ui', 'console', 'index.html');
+    const indexFile = path.join(built.app, 'ui', 'console', 'index.html');
+    // Протокол flux-module:// в браузере недоступен: в копии страницы кадру разрешён data: (и встроенный скрипт: кадр наследует политику страницы), чтобы подставить программу-пробу (PROBE)
+    fs.writeFileSync(indexFile, fs.readFileSync(indexFile, 'utf8').replace('frame-src flux-module:', 'frame-src flux-module: data:').replace("script-src 'self'", "script-src 'self' 'unsafe-inline'"));
+    const url = 'file://' + indexFile;
     for (const [theme, width] of [['light', 1180], ['dark', 1180], ['light', 1024], ['dark', 1024]] as const) {
       console.log(`Тема: ${theme}, ширина ${width}`);
       const tag = `${theme}${width === 1180 ? '' : `-${width}`}`;
@@ -184,7 +187,7 @@ async function main() {
       // Страница программы: настоящие файл и диалоги (не отказ), как в запуске разработчика
       await page.evaluate('window.__page = true');
       await page.getByRole('button', { name: 'Запустить на тестовой базе' }).click();
-      const probe = await (async () => { for (let i = 0; i < 100; i++) { const f = page.frames().find(x => x.url().startsWith('data:text/html')); if (f && await f.evaluate('typeof window.ask').catch(() => '') === 'function') return f; await page.waitForTimeout(100); } throw new Error('страница пробного запуска не загрузилась: ' + JSON.stringify(page.frames().map(x => x.url().slice(0, 60))) + await page.evaluate('document.querySelector("iframe")?.outerHTML.slice(0, 200)')); })();
+      const probe = await (async () => { for (let i = 0; i < 100; i++) { const f = page.frames().find(x => x.url().startsWith('data:text/html')); if (f && await f.evaluate('typeof window.ask').catch((e: Error) => { (globalThis as any).__probeErr = e.message; return ''; }) === 'function') return f; await page.waitForTimeout(100); } throw new Error('страница пробного запуска не загрузилась: ' + (globalThis as any).__probeErr + JSON.stringify(page.frames().map(x => x.url().slice(0, 60))) + await page.evaluate('document.querySelector("iframe")?.outerHTML.slice(0, 200)')); })();
       await page.waitForTimeout(300);
       const picked: any = await probe.evaluate(`ask('file-pick', { accept: ['.csv'] })`);
       ok(`${theme}: flux.openFile в пробном запуске выдал выбранный файл, а не отказ`, picked.type === 'page-result' && picked.data.name === 'данные.csv' && atob(picked.data.data) === 'a;b' && picked.data.size === 3);

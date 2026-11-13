@@ -189,10 +189,10 @@ async function main() {
     const gave = await owner.trialPickFile({ accept: ['.csv'] });
     ok('файл в пробном запуске: имя и содержимое выбранного файла, путь не передаётся', gave.ok === true && gave.name === 'выбранный.csv' && Buffer.from(gave.data, 'base64').toString() === 'a;b' && !JSON.stringify(gave).includes(dir) && /просит файл/.test(pickDialogs[0].title));
     pickedPath = null;
-    ok('отказ человека в диалоге — CANCELLED', (await owner.trialPickFile({})).code === 'CANCELLED');
-    ok('неверное расширение — DENIED, диалог не показан', (await owner.trialPickFile({ accept: ['csv'] })).code === 'DENIED' && pickDialogs.length === 2);
+    ok('отказ человека в диалоге — CANCELLED', (await owner.trialPickFile({}) as any).code === 'CANCELLED');
+    ok('неверное расширение — DENIED, диалог не показан', (await owner.trialPickFile({ accept: ['csv'] }) as any).code === 'DENIED' && pickDialogs.length === 2);
     const big = path.join(dir, 'большой.bin'); fs.writeFileSync(big, Buffer.alloc(600 * 1024)); pickedPath = big;
-    ok('файл больше предела (512 КиБ) не выдаётся — LIMIT', (await owner.trialPickFile({})).code === 'LIMIT');
+    ok('файл больше предела (512 КиБ) не выдаётся — LIMIT', (await owner.trialPickFile({}) as any).code === 'LIMIT');
     await owner.trialLoad({ id: sent.body.id });
     await rejects('запущена форма, а не страница — файл не выдаётся', owner.trialPickFile({}), /Страница программы не запущена/);
   } else console.log('  (страница не принята сервером в этом наборе:', pageSent.status, JSON.stringify(pageSent.body).slice(0, 200), ')');
