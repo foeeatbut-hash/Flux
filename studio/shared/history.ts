@@ -188,15 +188,7 @@ export class History {
     const { stored } = this.scan();
     const last = stored[stored.length - 1];
     // Одинаковый с предыдущим снимок не создаётся; но причина «важнее» (отправка, ручная) и версия не теряются
-    if (last && last.tree === tree && this.info(last).complete) {
-      const stronger = REASON_RANK[reason] > REASON_RANK[last.reason];
-      if (stronger || (version && !last.version) || (note && !last.note && reason === last.reason)) {
-        const next: Stored = { ...last, reason: stronger ? reason : last.reason, version: last.version || version, note: last.note || note };
-        this.put(this.snapshotPath(last.id), JSON.stringify(next));
-        return { snapshot: this.info(next), created: false, evicted: 0 };
-      }
-      return { snapshot: this.info(last), created: false, evicted: 0 };
-    }
+    if (last && last.tree === tree && this.info(last).complete) return { snapshot: this.info(this.upgrade(last, reason, version, note)), created: false, evicted: 0 };
     this.store(true);
     // Время строго растёт: порядок снимков — порядок id
     const time = Math.max(this.now(), (last?.time ?? 0) + 1);
@@ -206,6 +198,19 @@ export class History {
     this.put(this.snapshotPath(id), JSON.stringify(value)); // снимок появляется последним: без него объекты — просто мусор
     const evicted = this.enforce([id, ...(meta.protect ?? [])]);
     return { snapshot: this.info(value), created: true, evicted };
+  }
+
+  /** Снимок получает более важную причину, версию или заметку, если их не было; менее важная причина его не «понижает» */
+  private upgrade(last: Stored, reason: SnapshotReason, version: string | null, note: string): Stored {
+    const stronger = REASON_RANK[reason] > REASON_RANK[last.reason];
+    if (!stronger && !(version && !last.version) && !(note && !last.note)) return last;
+    const next: Stored = { ...last, reason: stronger ? reason : last.reason, version: last.version || version, note: last.note || note };
+    this.put(this.snapshotPath(last.id), JSON.stringify(next));
+    return next;
+  }
+  /** Уже сохранённый снимок становится «отправкой» с версией: файлы, которые ушли, — именно этот снимок, даже если после отправки их правили */
+  promote(id: string, reason: SnapshotReason, meta: { note?: string; version?: string | null } = {}): SnapshotInfo {
+    return this.info(this.upgrade(this.find(id), reason, meta.version ? String(meta.version).slice(0, 40) : null, String(meta.note ?? '').trim().slice(0, NOTE_MAX)));
   }
 
   /** Пределы: число снимков и объём объектов. Первыми уходят сборки, затем «перед откатом», последними ручные и отправки */
@@ -284,7 +289,7 @@ export class History {
     let restore: SaveResult;
     try {
       // Без снимка «перед откатом» файлы не трогаются: иначе вернуть текущее состояние будет нечем
-      restore = this.save('before-rollback', { note: `Перед откатом к версии от ${new Date(plan.snapshot.time).toLocaleString('ru-RU')}`, protect: [id], include: plan.shadowed });
+      restore = this.save('before-rollback', { note: `Перед откатом к версии от ${new Date(plan.snapshot.time).toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' })}`, protect: [id], include: plan.shadowed });
       this.files(restore.snapshot.id);
     } catch (e) { throw new HistoryFailure(`Откат отменён: не удалось сохранить текущее состояние (${(e as Error).message}). Файлы не изменены.`, 'failed'); }
     try {

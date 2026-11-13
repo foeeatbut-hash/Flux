@@ -66,7 +66,7 @@ export function reviewProblems(review: { note: string; comments: Array<{ path: s
 export const isTsSource = (path: string) => /\.(ts|tsx)$/.test(path) && !/\.d\.ts$/.test(path);
 
 /** Ответ действия «build» главного процесса */
-export interface BuildReport { ok: boolean; files: string[]; problems: Array<{ path: string; line: number; column: number; text: string }>; built: string[] }
+export interface BuildReport { ok: boolean; files: string[]; problems: Array<{ path: string; line: number; column: number; text: string }>; built: string[]; historyError?: string }
 
 /** Ошибки сборки → строки «Проблем»: файл и строка открывают редактор на месте ошибки */
 export function buildProblems(list: BuildReport['problems']): Problem[] {

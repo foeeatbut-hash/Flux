@@ -6,6 +6,7 @@ export const DEVELOPER_ACTIONS = [
   'projectOpenFolder', 'projectWatch', 'projectUnwatch', 'projectExport', 'projectImportArchive', 'fileMkdir', 'fileRename', 'fileSearch', 'fileImport', 'keyEnsure',
   'testBase', 'testBaseReset',
   'build', 'runStart', 'runRead', 'runCompute', 'runShot', 'runPickFile', 'runNet',
+  'historyList', 'historySave', 'historyCompare', 'historyPlan', 'historyRollback', 'historyRemove',
   'check', 'publish', 'requests', 'errors', 'errorFixed',
 ] as const;
 export type DeveloperAction = typeof DEVELOPER_ACTIONS[number];

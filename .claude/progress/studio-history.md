@@ -8,7 +8,7 @@
 
 ## Шаги
 - [x] 1. `studio/shared/history.ts` + `scripts/test-studio-history.ts` (58 проверок, 11 мутаций), `.flux` скрыт в workspace.ts и архиве, набор в manifest и build-studio.yml
-- [ ] 2. Действия главного процесса и окно: вкладка «История», автоснимки при сборке и отправке
+- [x] 2. Действия historyList/Save/Compare/Plan/Rollback/Remove в developer.ts, вкладка «История» (History.tsx, HistoryDialogs.tsx, DiffView.tsx), автоснимки при сборке и перед отправкой (promote после приёма); UI-случаи добавлены в test-studio-ui-developer (125 проверок, обе темы, снимки смотрены)
 - [ ] 3. Замечания владельца в редакторе
 - [ ] 4. Список выпусков и «Сравнить с текущим»
 - [ ] 5. UI-проверки, journey, манифест, studio.md, убрать из плана сделанное
@@ -23,4 +23,5 @@ test-verification-coverage падает только из-за симлинка 
 - Пакет/архив защищены и validBundlePath (имя `.flux`), и HIDDEN_DIRS: мутируется только скрытие в дереве.
 
 ## На чём остановился
-Шаг 1 готов, дальше шаг 2 (studio/shell/developer.ts, api.ts, ProjectWindow.tsx).
+Шаг 2 готов. Дальше шаг 3: замечания владельца в редакторе (CodeView `marks` умеет метки в полях; список — BottomPanel, вкладка «Публикация»; данные — requests[].review.comments).
+Браузер: scripts/chromePath.ts (findChrome) — после rebase проверить, нужен ли в test-studio-ui-developer.

@@ -163,8 +163,8 @@ async function main() {
       const tree = page.getByRole('tree', { name: 'Файлы проекта' });
       await tree.getByText('main.ts').waitFor();
       ok(`${theme}: рабочее окно открылось сразу, в дереве логика и контрольные примеры`, (await tree.innerText()).includes('manifest.json') && (await tree.innerText()).includes('controls.json'));
-      ok(`${theme}: три кнопки сверху и четыре вкладки внизу`, (await page.getByRole('toolbar', { name: 'Запуск, проверка, публикация' }).getByRole('button').allInnerTexts()).join('|') === 'Запустить|Проверить|Опубликовать'
-        && (await page.getByRole('tablist', { name: 'Нижняя панель' }).getByRole('tab').allInnerTexts()).map(t => t.replace(/\d+$/, '').trim()).join('|') === 'Запуск|Проблемы|Публикация|Сбои у пользователей');
+      ok(`${theme}: три кнопки сверху и пять вкладок внизу`, (await page.getByRole('toolbar', { name: 'Запуск, проверка, публикация' }).getByRole('button').allInnerTexts()).join('|') === 'Запустить|Проверить|Опубликовать'
+        && (await page.getByRole('tablist', { name: 'Нижняя панель' }).getByRole('tab').allInnerTexts()).map(t => t.replace(/\d+$/, '').trim()).join('|') === 'Запуск|Проблемы|Публикация|История|Сбои у пользователей');
       const projectId = fs.readdirSync(path.join(data, 'projects'))[0];
       ok(`${theme}: проект — папка на диске`, fs.existsSync(path.join(data, 'projects', projectId, 'manifest.json')));
 
@@ -219,6 +219,66 @@ async function main() {
       await page.getByRole('button', { name: 'Собрать TypeScript' }).click();
       await page.getByText('Сборка прошла').waitFor({ timeout: 60000 });
       ok(`${theme}: после исправления «Собрать» сообщает, что ошибок нет`, true);
+
+      // История версий: успешная сборка сама сохранила версию; сохранить вручную, изменить, сравнить, откатить (в том числе с несохранённой правкой)
+      await page.getByRole('tab', { name: 'История' }).click();
+      const history = page.getByTestId('history-panel');
+      await history.locator('tbody tr').first().waitFor();
+      ok(`${theme}: успешная «Собрать» сама сохранила версию «Сборка»`, (await history.locator('tbody tr').first().innerText()).includes('Сборка'));
+      await history.getByLabel('Заметка к версии').fill('До правки');
+      await history.getByRole('button', { name: 'Сохранить версию' }).click();
+      await history.getByText('Сохранена вручную').waitFor();
+      ok(`${theme}: «Сохранить версию» с заметкой — строка с заметкой, лишней версии при тех же файлах нет`, (await history.locator('tbody tr').count()) === 1 && (await history.locator('tbody tr').first().innerText()).includes('До правки'));
+      ok(`${theme}: в дереве проекта нет служебной папки .flux`, (await tree.getByText('.flux', { exact: true }).count()) === 0 && fs.existsSync(path.join(data, 'projects', projectId, '.flux', 'history')));
+      const mainBefore = fs.readFileSync(path.join(data, 'projects', projectId, 'logic/main.ts'), 'utf8');
+      await service.handle('draftSave', { id: projectId, path: 'docs/extra.md', text: 'новый файл\n' });
+      await service.handle('draftSave', { id: projectId, path: 'logic/main.ts', text: `${mainBefore}\n// правка после версии\n` });
+      await history.getByRole('button', { name: /^Сравнить версию/ }).click();
+      const compare = page.getByRole('dialog', { name: 'Сравнение версий' });
+      await compare.getByRole('list', { name: 'Изменённые файлы' }).waitFor();
+      ok(`${theme}: «Сравнить» с текущими файлами: добавленный и изменённый файлы, построчная разница`, await (async () => {
+        const list = await compare.getByRole('list', { name: 'Изменённые файлы' }).innerText();
+        await compare.getByRole('listitem').filter({ hasText: 'logic/main.ts' }).click();
+        return list.includes('docs/extra.md') && list.includes('Добавлен') && list.includes('Изменён') && (await compare.getByTestId('diff-code').innerText()).includes('+ // правка после версии');
+      })());
+      await measure(page, `${theme}/сравнение`);
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-7-compare.png`), fullPage: true });
+      await compare.getByRole('button', { name: 'Закрыть' }).click();
+      // Несохранённая правка в редакторе: окно отката говорит о ней и предлагает сохранить
+      await tree.getByText('main.ts').click();
+      const editor = page.getByRole('textbox', { name: 'Файл logic/main.ts' });
+      await editor.click();
+      await page.keyboard.press('Control+End');
+      await page.keyboard.type('// не сохранено');
+      await page.locator('.studio-dirty').first().waitFor();
+      await page.getByRole('tab', { name: 'История' }).click();
+      await history.getByRole('button', { name: /^Откатить к версии/ }).click();
+      const back = page.getByRole('dialog', { name: 'Откатить к версии' });
+      await back.getByText('Изменится файлов: 1, появится: 0, исчезнет: 1').waitFor();
+      ok(`${theme}: предпросмотр отката: изменится, исчезнет, остальные не тронуты; сам откат ещё ничего не записал`, (await back.innerText()).includes('Остальные') && fs.existsSync(path.join(data, 'projects', projectId, 'docs/extra.md')));
+      ok(`${theme}: несохранённая правка названа в окне отката`, (await back.innerText()).includes('несохранённые правки'));
+      await back.getByRole('button', { name: 'Сохранить правки в проект' }).click();
+      await back.getByText('Есть несохранённые правки').waitFor({ state: 'detached' });
+      ok(`${theme}: правка сохранена в проект, предупреждение исчезло`, fs.readFileSync(path.join(data, 'projects', projectId, 'logic/main.ts'), 'utf8').includes('// не сохранено'));
+      await measure(page, `${theme}/откат`);
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-8-rollback.png`), fullPage: true });
+      await back.getByRole('button', { name: 'Откатить', exact: true }).click();
+      await back.waitFor({ state: 'detached' });
+      ok(`${theme}: после отката файлы как в версии, лишний файл исчез`, fs.readFileSync(path.join(data, 'projects', projectId, 'logic/main.ts'), 'utf8') === mainBefore && !fs.existsSync(path.join(data, 'projects', projectId, 'docs')));
+      await history.getByText('Перед откатом', { exact: true }).waitFor();
+      ok(`${theme}: появилась версия «Перед откатом» — прежнее состояние можно вернуть`, await (async () => {
+        await history.getByRole('button', { name: /^Откатить к версии/ }).first().click();
+        const undo = page.getByRole('dialog', { name: 'Откатить к версии' });
+        await undo.getByText('Изменится файлов').waitFor();
+        await undo.getByRole('button', { name: 'Откатить', exact: true }).click();
+        await undo.waitFor({ state: 'detached' });
+        const text = fs.readFileSync(path.join(data, 'projects', projectId, 'logic/main.ts'), 'utf8');
+        return text.includes('// не сохранено') && fs.existsSync(path.join(data, 'projects', projectId, 'docs/extra.md'));
+      })());
+      // Возвращаем проект в исходное состояние для следующих шагов
+      await service.handle('draftRemoveFile', { id: projectId, path: 'docs/extra.md' });
+      await service.handle('draftSave', { id: projectId, path: 'logic/main.ts', text: mainBefore });
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-9-history.png`), fullPage: true });
 
       // Редакторы формы из #155 во вкладке form.json
       await page.getByRole('tab', { name: 'form.json' }).first().click();

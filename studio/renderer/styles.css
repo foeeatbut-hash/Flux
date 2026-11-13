@@ -117,6 +117,28 @@ tr[aria-selected="true"] td { background: var(--flux-sel); }
 .studio-modal-back { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgb(0 0 0 / 0.45); }
 .studio-modal { width: 100%; max-width: 520px; max-height: 100%; overflow: auto; padding: 16px 20px; border: 1px solid var(--flux-line-strong); border-radius: var(--flux-radius-sm, 4px); background: var(--flux-surface); color: var(--flux-text); }
 .studio-modal.wide { max-width: 760px; }
+.studio-modal.huge { max-width: 1040px; }
 .studio-modal-title { margin: 0 0 8px; font-size: 14px; line-height: 20px; font-weight: 600; }
 .studio-modal-actions { margin-top: 12px; }
+
+/* История версий: список в нижней панели, сравнение и откат в окне */
+.studio-history-bar { display: flex; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--flux-line); }
+.studio-history-bar .fx-input { flex: 1; min-width: 0; max-width: 420px; }
+.studio-history-acts { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+.studio-diff-split { display: flex; gap: 12px; min-height: 0; margin-top: 8px; }
+.studio-diff-files { width: 260px; flex-shrink: 0; max-height: 380px; overflow: auto; display: flex; flex-direction: column; }
+.studio-diff-pane { flex: 1; min-width: 0; max-height: 380px; overflow: auto; border: 1px solid var(--flux-line); border-radius: var(--flux-radius-sm, 4px); }
+.studio-diff { margin: 0; padding: 4px 0; font-size: 12px; line-height: 18px; white-space: pre; tab-size: 2; }
+.studio-diff-line { display: block; padding: 0 8px; }
+.studio-diff-line.add { background: var(--flux-accent-soft); }
+.studio-diff-line.del { background: var(--flux-bad-soft); }
+.studio-diff-n { display: inline-block; width: 4ch; margin-right: 8px; text-align: right; color: var(--flux-text-faint); user-select: none; }
+.studio-diff-binary { padding: 8px 12px; margin: 0; }
+.studio-diff-file { all: unset; box-sizing: border-box; display: flex; gap: 8px; align-items: center; width: 100%; min-height: 28px; padding: 0 8px; cursor: pointer; font-size: 12px; }
+.studio-diff-file:hover { background: var(--flux-hover); }
+.studio-diff-file[aria-current="true"] { background: var(--flux-sel); }
+.studio-diff-file:focus-visible { outline: 2px solid var(--flux-focus); outline-offset: -2px; }
+.studio-diff-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-compare-pick { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+@media (max-width: 760px) { .studio-diff-split { flex-direction: column; } .studio-diff-files { width: 100%; max-height: 140px; } }
 @media (max-width: 760px) { .studio-side { width: 180px; } }

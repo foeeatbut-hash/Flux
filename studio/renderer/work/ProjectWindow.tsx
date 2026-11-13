@@ -13,6 +13,7 @@ import BottomPanel, { type PanelTab } from './BottomPanel';
 import PublishDialog from './PublishDialog';
 import { buildProblems, isTsSource, problemsOf, type BuildReport, type Problem } from './helpers';
 import { RIGHT_TEXT, RIGHT_TONE, type useKey } from './useKey';
+import { formatTime, REASON_TEXT } from './historyText';
 
 type Key = ReturnType<typeof useKey>;
 interface Tree { folder: string; entries: Entry[] }
@@ -29,6 +30,7 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
   const [publishing, setPublishing] = useState(false);
   const [busy, setBusy] = useState('');
   const [requestsVersion, setRequestsVersion] = useState(0);
+  const [historyVersion, setHistoryVersion] = useState(0);
   const [dirty, setDirty] = useState<string[]>([]);
   const [find, setFind] = useState<{ q: string; hits: Hit[] | null } | null>(null);
   const [name, setName] = useState(id);
@@ -68,7 +70,8 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
       const r = await call<BuildReport>('build', { id });
       setProblems(buildProblems(r.problems));
       setPanelOpen(true);
-      if (r.problems.length) setPanel('problems'); else setNote(`Сборка прошла: файлов TypeScript — ${r.files.length}, ошибок нет.`);
+      setHistoryVersion(n => n + 1); // успешная сборка сама сохраняет версию
+      if (r.problems.length) setPanel('problems'); else setNote(`Сборка прошла: файлов TypeScript — ${r.files.length}, ошибок нет.${r.historyError ? ` ${r.historyError}` : ' Версия сохранена в истории.'}`);
     } catch (e) { setProblems([{ source: 'Сборка', title: (e as Error).message, detail: '' }]); setPanel('problems'); setPanelOpen(true); }
     finally { setBusy(''); }
   };
@@ -137,9 +140,11 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
         </div>
       </div>
       <BottomPanel id={id} tab={panel} onTab={setPanel} open={panelOpen} onToggle={() => setPanelOpen(o => !o)} runSignal={runSignal}
-        problems={problems} onProblems={setProblems} onGo={goto} right={keyState.right} onRequestRight={() => void keyState.request()} rightError={keyState.error} requestsVersion={requestsVersion} />
+        problems={problems} onProblems={setProblems} onGo={goto} right={keyState.right} onRequestRight={() => void keyState.request()} rightError={keyState.error} requestsVersion={requestsVersion}
+        history={{ version: historyVersion, getDirty: () => area.current?.dirty() ?? [], saveAll: async () => (await area.current?.saveAll()) ?? false, onNote: setNote,
+          onRolledBack: restorePoint => { setNote(`Проект возвращён к выбранной версии. Прежнее состояние сохранено: «${REASON_TEXT[restorePoint.reason]}» от ${formatTime(restorePoint.time)}.`); setHistoryVersion(n => n + 1); void reload(); } }} />
       {publishing && <PublishDialog id={id} right={keyState.right} onRequestRight={() => void keyState.request()} onClose={() => setPublishing(false)}
-        onDone={message => { setPublishing(false); setNote(message); setPanel('publication'); setPanelOpen(true); setRequestsVersion(n => n + 1); void keyState.refresh(); void saved(); }} />}
+        onDone={message => { setPublishing(false); setNote(message); setPanel('publication'); setPanelOpen(true); setRequestsVersion(n => n + 1); setHistoryVersion(n => n + 1); void keyState.refresh(); void saved(); }} />}
     </section>
   );
 }

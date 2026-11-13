@@ -43,8 +43,8 @@ export default function PublishDialog({ id, right, onRequestRight, onClose, onDo
       const parsed = JSON.parse(manifest.text || '{}');
       if (parsed.version !== version) await call('draftSave', { id, path: 'manifest.json', text: `${JSON.stringify({ ...parsed, version }, null, 2)}\n` });
       await call('draftState', { id, changelog: state.changelog, comment: state.comment, channel: state.channel });
-      const done = await call<{ id: string; warning: string }>('publish', { id });
-      onDone(`Запрос отправлен владельцу.${done.warning ? ` ${done.warning}` : ''}`);
+      const done = await call<{ id: string; warning: string; historyError?: string }>('publish', { id });
+      onDone(`Запрос отправлен владельцу.${done.warning ? ` ${done.warning}` : ''}${done.historyError ? ` ${done.historyError}` : ''}`);
     } catch (e) { setError((e as Error).message); }
     setBusy(false);
   };

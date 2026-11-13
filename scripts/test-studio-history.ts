@@ -66,6 +66,10 @@ async function battery(H: HistoryModule, W: WorkspaceModule, tag: string): Promi
   put(dir, 'assets/pic.png', new Uint8Array([0x89, 0x50, 0xff, 0xfe, 0x00, 0x01, 0x02, 0x03, 0x04]));
   const s2 = h.save('build');
   check('изменённое состояние — новый снимок', () => s2.created && h.list().snapshots.length === 2 && h.list().snapshots[0].id === s2.snapshot.id);
+  check('отправка: снимок помечается версией, причина не понижается', () => {
+    const a = h.promote(s2.snapshot.id, 'publish', { version: '0.1.1', note: 'Запрос r1' }), b = h.promote(s2.snapshot.id, 'build');
+    return a.reason === 'publish' && a.version === '0.1.1' && a.note === 'Запрос r1' && b.reason === 'publish' && h.get(s2.snapshot.id).version === '0.1.1' && fails(() => h.promote('1700000000999-abcdef', 'publish'), 'missing');
+  });
   const cmp = h.compare(s1.snapshot.id, s2.snapshot.id), by = (p: string) => cmp.files.find(f => f.path === p);
   check('сравнение: добавлен, удалён, изменён, не тронутое не в списке', () => by('docs/readme.md')?.status === 'added' && by('form.json')?.status === 'removed' && by('logic/main.ts')?.status === 'changed' && !by('manifest.json') && cmp.same === 2);
   check('сравнение: построчная разница', () => { const l = by('logic/main.ts')!.lines; return l.some(x => x.op === '-' && x.text === 'строка 5') && l.some(x => x.op === '+' && x.text === 'строка пять') && l.some(x => x.op === '+' && x.text === 'новая строка'); });

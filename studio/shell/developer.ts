@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Drafts, TEXT_FILE } from '../shared/drafts';
 import { FolderWatcher } from '../shared/workspace';
+import { History, type SnapshotInfo } from '../shared/history';
 import { unzipInto, zipProject } from '../shared/archive';
 import { DeveloperKeyring, KeyringFailure, type SafeStorageLike } from '../shared/keyring';
 import { buildRequest, PublishRefused } from '../shared/publish';
@@ -292,6 +293,13 @@ export class DeveloperService {
       case 'runShot': return this.shoot(moduleId(args.id), text(args.theme, 5), args.rect);
 
       // ── Проверка и публикация ────────────────────────────────────────────────
+      // ── История версий: снимки в .flux/history проекта (studio/shared/history.ts) ──
+      case 'historyList': return this.history(moduleId(args.id)).list();
+      case 'historySave': { const r = this.history(moduleId(args.id)).save('manual', { note: text(args.note ?? '', 400) }); return { snapshot: r.snapshot, created: r.created, evicted: r.evicted }; }
+      case 'historyCompare': return this.history(moduleId(args.id)).compare(text(args.from, 40), text(args.to, 40));
+      case 'historyPlan': return this.history(moduleId(args.id)).plan(text(args.snapshot, 40));
+      case 'historyRollback': { const r = this.history(moduleId(args.id)).rollback(text(args.snapshot, 40), text(args.token, 100)); return { restorePoint: r.restorePoint, changed: r.entries.length }; }
+      case 'historyRemove': { this.history(moduleId(args.id)).remove(text(args.snapshot, 40)); return { removed: true }; }
       case 'check': return this.check(moduleId(args.id));
       case 'publish': return this.publish(moduleId(args.id));
       case 'requests': return ownRequests(this.session());
@@ -301,6 +309,13 @@ export class DeveloperService {
         return { marked: true };
       }
     }
+  }
+
+  private history(id: string): History { return new History(this.drafts.space(id)); }
+  /** Автоматический снимок: сбой истории (папка занята, предел) не должен ломать сборку и публикацию, он только сообщается */
+  private autoSnapshot(id: string): { snapshot: SnapshotInfo | null; error: string } {
+    try { return { snapshot: this.history(id).save('build').snapshot, error: '' }; }
+    catch (e) { return { snapshot: null, error: `Версия не сохранена в истории: ${(e as Error).message}` }; }
   }
 
   private unwatch() { this.watching?.watcher.stop(); this.watching = null; }
@@ -412,7 +427,9 @@ export class DeveloperService {
     const files = this.drafts.files(id);
     if (!this.deps.tsBuilder) throw new StudioFailure('Сборка TypeScript в этой сборке Studio недоступна.');
     const result = await this.deps.tsBuilder.build(files);
-    return { ok: result.ok, files: result.entries, problems: result.problems, built: Object.keys(result.outputs) };
+    // Успешная сборка — повод для автоматического снимка: к такой версии можно вернуться
+    const auto = result.ok ? this.autoSnapshot(id) : null;
+    return { ok: result.ok, files: result.entries, problems: result.problems, built: Object.keys(result.outputs), historyError: auto?.error || '' };
   }
 
   private async check(id: string): Promise<CheckReport> {
@@ -453,13 +470,20 @@ export class DeveloperService {
       if (error instanceof KeyringFailure || error instanceof PublishRefused) throw new StudioFailure(error.message);
       throw error;
     }
+    // Снимок берётся ДО отправки: за время загрузки человек продолжает править файлы, а снимок должен быть ровно тем, что ушло
+    const sent = this.autoSnapshot(id);
     const reply = await studioRequest<{ id?: string; duplicate?: boolean }>(s.origin, 'submit', {
       token: s.token, body: { signature: request.signature, bundle: Buffer.from(request.bundle).toString('base64') }, timeoutMs: 180_000,
     });
     if (typeof reply.id !== 'string') throw new StudioFailure('Flux не подтвердил приём запроса.');
     // Следующая отправка этого проекта продолжает историю: прежний запрос станет «заменён новой отправкой»
     this.drafts.setState(id, { parentRequest: reply.id });
-    return { id: reply.id, duplicate: reply.duplicate === true, warning: await versionWarning(s.origin, this.deps.version) };
+    let historyError = sent.error;
+    if (sent.snapshot) {
+      try { this.history(id).promote(sent.snapshot.id, 'publish', { version: String(manifest.version), note: `Запрос ${reply.id}` }); }
+      catch (e) { historyError = `Версия отправки не отмечена в истории: ${(e as Error).message}`; }
+    }
+    return { id: reply.id, duplicate: reply.duplicate === true, warning: await versionWarning(s.origin, this.deps.version), historyError };
   }
 
   /** Предупреждение для главного окна */
