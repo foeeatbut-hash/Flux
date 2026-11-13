@@ -198,6 +198,8 @@ async function main() {
     await ipc('modules:grant', { moduleId: 'connections-com', version: '1.0.0', connection: 'fso', session: 'x', decision: 'always' });
     await open('connections-com');
     const com = await frameText('connections-com', 'схема-12');
+    // Провал на Windows без текста окна не разобрать: настоящий COM отвечает своим кодом, и он виден только здесь
+    if (!com.includes('C:\\Проекты\\схема-12.dwg')) console.log(`ДИАГНОСТИКА COM: текст окна программы: ${JSON.stringify(com.slice(0, 800))}`);
     check(`COM-пример (${process.platform === 'win32' ? 'настоящий Scripting.FileSystemObject' : 'поддельный COM'}): имя без расширения и собранный путь`,
       com.includes('схема-12') && com.includes('C:\\Проекты\\схема-12.dwg'));
 
