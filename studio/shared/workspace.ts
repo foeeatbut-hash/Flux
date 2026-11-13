@@ -14,8 +14,9 @@ import type { ProjectFiles } from './templates';
 export class WorkspaceFailure extends Error {}
 
 export const MAX_FILES = 400;
-/** Каталоги, которые не показываются в дереве совсем: служебные чужих инструментов */
-const HIDDEN_DIRS = new Set(['.git', 'node_modules', '.hg', '.svn']);
+/** Каталоги, которые не показываются в дереве совсем: служебные чужих инструментов и своя история версий (`.flux/history`) */
+export const FLUX_DIR = '.flux';
+const HIDDEN_DIRS = new Set(['.git', 'node_modules', '.hg', '.svn', FLUX_DIR]);
 /** В пакет не попадают никогда: сборочные каталоги и мусор систем */
 const PACK_DIRS = new Set(['build', 'dist', 'out', 'target', '.vscode', '.idea', '__pycache__']);
 const PACK_FILES = /^(?:\.DS_Store|Thumbs\.db|desktop\.ini)$|\.(?:tmp|log|swp|bak)$|~$/i;
@@ -39,6 +40,16 @@ export function parseIgnore(text: string): Array<(rel: string, isDir: boolean) =
   return rules;
 }
 
+/** Разбор относительного пути без обращения к диску: общий для Workspace и истории версий, чтобы правила не разошлись */
+export function relativeParts(rel: string, allowRoot = false): string[] {
+  if (typeof rel !== 'string' || rel.length > 400 || rel.includes('\0') || rel.includes('\\') || rel.startsWith('/') || /^[A-Za-z]:/.test(rel)) throw new WorkspaceFailure(`Недопустимое имя файла: ${String(rel).slice(0, 80)}`);
+  const parts = rel.split('/').filter(Boolean);
+  if (!allowRoot && !parts.length) throw new WorkspaceFailure('Не указан файл.');
+  if (parts.some(p => p === '..' || p === '.' || /[<>:"|?*]/.test(p) || /[. ]$/.test(p))) throw new WorkspaceFailure(`Недопустимое имя файла: ${rel}`);
+  if (parts.some(p => HIDDEN_DIRS.has(p))) throw new WorkspaceFailure('Служебные каталоги (.git, node_modules, .flux) Studio не открывает.');
+  return parts;
+}
+
 export interface TreeEntry { path: string; dir: boolean; size: number; mtime: number; text?: boolean; ignored: boolean }
 
 export class Workspace {
@@ -52,11 +63,7 @@ export class Workspace {
 
   /** Полный путь внутри папки. Самый глубокий существующий предок проверяется через realpath: ссылка наружу не пройдёт */
   resolve(rel: string, allowRoot = false): string {
-    if (typeof rel !== 'string' || rel.length > 400 || rel.includes('\0') || rel.includes('\\') || rel.startsWith('/') || /^[A-Za-z]:/.test(rel)) throw new WorkspaceFailure(`Недопустимое имя файла: ${String(rel).slice(0, 80)}`);
-    const parts = rel.split('/').filter(Boolean);
-    if (!allowRoot && !parts.length) throw new WorkspaceFailure('Не указан файл.');
-    if (parts.some(p => p === '..' || p === '.' || /[<>:"|?*]/.test(p) || /[. ]$/.test(p))) throw new WorkspaceFailure(`Недопустимое имя файла: ${rel}`);
-    if (parts.some(p => HIDDEN_DIRS.has(p))) throw new WorkspaceFailure('Служебные каталоги (.git, node_modules) Studio не открывает.');
+    const parts = relativeParts(rel, allowRoot);
     const full = path.resolve(this.root, ...parts);
     let probe = full;
     while (!fs.existsSync(probe) && probe !== this.root) probe = path.dirname(probe);

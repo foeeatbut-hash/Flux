@@ -33,7 +33,7 @@ export async function unzipInto(bytes: Uint8Array, folder: string): Promise<numb
     for (const name of names) {
       const rel = top && name.startsWith(top) ? name.slice(top.length) : name;
       // Служебные каталоги чужих инструментов в проект не переносятся
-      if (/(^|\/)(\.git|node_modules)\//.test(rel)) continue;
+      if (/(^|\/)(\.git|node_modules|\.flux)\//.test(rel)) continue;
       // Заявленный размер проверяется до распаковки: «бомба» не раздувается в памяти
       const declared = Number((zip.files[name] as any)._data?.uncompressedSize || 0);
       if (total + declared > MODULE_BUNDLE_MAX) throw new WorkspaceFailure('Распакованный проект больше 32 МиБ.');
