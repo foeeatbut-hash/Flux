@@ -68,6 +68,11 @@
         "modules/engine/pythonHarness.ts",
         "modules/compute/pythonWorker.ts",
         "modules/compute/hostFrame.ts",
+        "modules/compute/tsHostFrame.ts",
+        "modules/compute/tsWorker.ts",
+        "modules/runtime/deterministic.ts",
+        "src/services/moduleComputeTsHost.ts",
+        "scripts/fixtures/ts-host-harness.ts",
         "scripts/fixtures/moduleLanguages.ts",
         "modules/engine/scheduler.ts",
         "src/services/moduleCompute.ts",
@@ -340,6 +345,15 @@
     {
       "id": "modules-compute",
       "path": "scripts/test-modules-compute.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-ts-host",
+      "path": "scripts/test-modules-ts-host.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
