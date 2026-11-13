@@ -155,6 +155,34 @@ async function main() {
     const listed = await (await fetch(`${origin}/api/studio/releases?moduleId=journey-ts`, { headers: { Authorization: `Bearer ${tokenOf('dev')}` } })).json() as any;
     ok('и выпуск его программы виден ему в списке выпусков сервера', listed.releases.length === 1);
 
+    console.log('История версий: версия → правка → сравнение → откат');
+    const id = 'journey-ts', hist = async (action: string, args: object = {}) => call(action, { id, ...args });
+    const first = (await hist('historyList')).value.snapshots;
+    ok('отправка сама сохранила версию с номером, по которой потом можно сравнить выпуск', first.length === 1 && first[0].reason === 'publish' && /^\d+\.\d+\.\d+$/.test(first[0].version));
+    const original = (await hist('draftFile', { path: 'logic/main.ts' })).value.text as string;
+    ok('«Сохранить версию» без правок новой версии не создаёт', (await hist('historySave', { note: 'До правки' })).value.created === false);
+    await hist('draftSave', { path: 'logic/main.ts', text: `${original}\n// правка после версии\n` });
+    await hist('draftSave', { path: 'docs/note.md', text: 'новый файл\n' });
+    const saved = (await hist('historySave', { note: 'После правки' })).value;
+    ok('после правки «Сохранить версию» создаёт новую', saved.created === true && saved.snapshot.reason === 'manual' && saved.snapshot.note === 'После правки');
+    const cmp = (await hist('historyCompare', { from: first[0].id, to: saved.snapshot.id })).value;
+    ok('сравнение: изменённый и добавленный файлы, построчная разница', cmp.files.find((f: any) => f.path === 'docs/note.md')?.status === 'added'
+      && cmp.files.find((f: any) => f.path === 'logic/main.ts')?.lines.some((l: any) => l.op === '+' && l.text.includes('правка после версии')));
+    // Ещё одна правка, которой в истории нет: её и должен сохранить снимок «перед откатом»
+    await hist('draftSave', { path: 'logic/main.ts', text: `${original}\n// правка после версии\n// ещё одна правка\n` });
+    const plan = (await hist('historyPlan', { snapshot: first[0].id })).value;
+    ok('предпросмотр отката: файл исчезнет, файл изменится; ничего не записано', plan.entries.some((e: any) => e.path === 'docs/note.md' && e.action === 'delete')
+      && plan.entries.some((e: any) => e.path === 'logic/main.ts' && e.action === 'modify') && (await hist('draftFile', { path: 'logic/main.ts' })).value.text.includes('ещё одна правка'));
+    ok('откат с чужим токеном отклонён', (await hist('historyRollback', { snapshot: first[0].id, token: 'x'.repeat(64) })).ok === false);
+    const back = await hist('historyRollback', { snapshot: first[0].id, token: plan.token });
+    ok('откат вернул файлы версии отправки', back.ok === true && (await hist('draftFile', { path: 'logic/main.ts' })).value.text === original && (await hist('draftTree')).value.entries.every((e: any) => e.path !== 'docs/note.md'));
+    ok('перед откатом сохранено прежнее состояние, проект не потерял правку', back.value.restorePoint.reason === 'before-rollback' && (await hist('historyList')).value.snapshots.length === 3);
+    const undo = (await hist('historyPlan', { snapshot: back.value.restorePoint.id })).value;
+    ok('откат отменяется откатом к «Перед откатом»', (await hist('historyRollback', { snapshot: back.value.restorePoint.id, token: undo.token })).ok === true
+      && (await hist('draftFile', { path: 'logic/main.ts' })).value.text.includes('ещё одна правка'));
+    ok('служебная папка истории не видна в дереве и не открывается окном', (await hist('draftTree')).value.entries.every((e: any) => !/(^|\/)\.flux(\/|$)/.test(e.path)) && (await hist('draftFile', { path: '.flux/history/snapshots/x.json' })).ok === false);
+    ok('чужой или некорректный проект история не открывает', (await call('historyList', { id: '../x' })).ok === false && (await call('historyList', { id: 'no-such-program' })).ok === false);
+
     console.log(`\nFlux Studio: путь от новой программы до выпуска — ${passed} проверок пройдено`);
   } finally {
     server.close();
