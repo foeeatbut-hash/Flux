@@ -9,10 +9,12 @@
 - [x] 1 studio/shared/devRun.ts (+ обмен папкой) + scripts/test-studio-dev-run.ts + сертификат с сервера
 - [x] 2 главный процесс: действия devRunStart/devRunStop/devRunState, аренда, уборка
 - [x] 3 окно
-- [ ] 4 проверки, документация
+- [x] 4 проверки, документация
 
 ## Проверки «до»
 до: run-checks studio — 23 набора, 1 провал (test-studio-electron-start: нет dist-studio, среда); tsc exit 0. После шага 1: test-studio-dev-run 51 проверка, мутации (userId, автор, подпись, аренда) ловятся.
 
 ## Заметки
 - /api/studio/certificate отдаёт только статус; для пакета нужен конверт: добавляю поле `certificate` в ответ (server/routes/studioDeveloper.ts).
+
+После шага 4: run-checks studio architecture — 25 наборов, 1 провал (тот же electron-start, нет dist-studio); tsc exit 0; test-studio-dev-run 73; test-studio-ui-developer 163; test-studio-publish 52. Готово.
