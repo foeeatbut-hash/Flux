@@ -49,3 +49,25 @@ WebAssembly, тестовая база, диалоги (`RunDialog`), `flux.open
 ## На чём остановился
 
 Заведены ветка, файл хода и черновой PR; исполнители A и B запущены.
+
+## Исполнитель A: сделано/открыто
+
+### Точная форма действий оболочки (для исполнителя B; типы — `studio/shared/runActions.ts`)
+
+Все действия — через `window.studio.call(action, args)`, ответ `{ ok, value, error }`. Новые имена добавлены в `DEVELOPER_ACTIONS`.
+
+| Действие | Аргументы | `value` |
+|---|---|---|
+| `runConnect` | `{ connection: string, call: ConnectCall }` (вызов как по мосту: `http`, `ws-*`, `com-*`) | `{ ok: true, data } \| { ok: false, code, line? }`; коды `DENIED NOT_ALLOWED LIMIT TIMEOUT TARGET UNAVAILABLE FAILED`, `ASK` окну не приходит |
+| `runConnectAnswer` | `{ id, decision: 'always'\|'once'\|'never' }` | `{ answered: boolean }` (false — вопрос уже закрыт) |
+| `runStop` | `{}` | `{ stopped: true }` — закрывает подключения и объекты COM запуска, снимает вопросы; после него `run*` отказывают, пока не будет нового `runStart` |
+| `testPrograms` | `{}` | `TestProgramRow[]`: `{ id, name, version, language, exports: [{method, does}], installed }` — все свои черновики |
+| `testProgramInstall` | `{ id }` | `TestProgramRow[]` (обновлённый список); отказ словами, если черновик не собирается |
+| `testProgramRemove` | `{ id }` | `TestProgramRow[]` |
+| `runProgram` | `{ call: { program, method, data? } }` | `ProgramReply` (`{ ok: true, data } \| { ok: false, code }`) и необязательная `line` — строка для журнала запуска |
+| `runSaveFile` | `{ name, mime, bytes: Uint8Array }` | `'saved' \| 'cancelled'`; недопустимое имя — отказ словами |
+
+События окну: `window.studio.onRun(fn)` (канал `studio:run`, добавлен в предзагрузку), `fn(event: RunEvent)`:
+- `{ kind: 'connectAsk', id, ask: GrantAsk }` — вопрос о подключении (тексты из манифеста запущенного проекта: `app`, `does`, `access`, `technical`, `kind`, `moduleName`, `author`); окно показывает три ответа и вызывает `runConnectAnswer`;
+- `{ kind: 'connectAskClose', id }` — снять диалог (запуск закрыт, время ожидания 5 минут вышло, ответ уже дан).
+`runConnect` не возвращается, пока человек не ответил (или вопрос не снят: тогда `NOT_ALLOWED`, решение не запоминается). Решение хранится в памяти оболочки до закрытия Studio и привязано к тексту разрешения; «только сейчас» живёт до `runStop`/нового запуска.
