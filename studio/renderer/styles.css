@@ -132,6 +132,7 @@ tr[aria-selected="true"] td { background: var(--flux-sel); }
 .studio-diff-line { display: block; padding: 0 8px; }
 .studio-diff-line.add { background: var(--flux-accent-soft); }
 .studio-diff-line.del { background: var(--flux-bad-soft); }
+.studio-diff-gap { color: var(--flux-text-muted); background: var(--flux-hover); padding-left: calc(8px + 4ch + 8px); }
 .studio-diff-n { display: inline-block; width: 4ch; margin-right: 8px; text-align: right; color: var(--flux-text-faint); user-select: none; }
 .studio-diff-binary { padding: 8px 12px; margin: 0; }
 .studio-diff-file { all: unset; box-sizing: border-box; display: flex; gap: 8px; align-items: center; width: 100%; min-height: 28px; padding: 0 8px; cursor: pointer; font-size: 12px; }

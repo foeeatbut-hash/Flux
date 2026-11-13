@@ -16,8 +16,25 @@ export function numbered(lines: FileChange['lines']): Array<{ n: number | null; 
   return lines.map(l => { if (l.op !== '-') n++; return { n: l.op === '-' ? null : n, op: l.op, text: l.text }; });
 }
 
+/** Вокруг каждой правки остаётся по CONTEXT строк, длинные куски без изменений сворачиваются в одну строку-разрыв */
+const CONTEXT = 3;
+export type DiffRow = { n: number | null; op: string; text: string } | { gap: number };
+export function collapse(rows: Array<{ n: number | null; op: string; text: string }>): DiffRow[] {
+  const near = new Array<boolean>(rows.length).fill(false);
+  rows.forEach((r, i) => { if (r.op !== ' ') for (let k = Math.max(0, i - CONTEXT); k <= Math.min(rows.length - 1, i + CONTEXT); k++) near[k] = true; });
+  const out: DiffRow[] = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (near[i]) { out.push(rows[i]); continue; }
+    let j = i;
+    while (j < rows.length && !near[j]) j++;
+    out.push({ gap: j - i });
+    i = j - 1;
+  }
+  return out;
+}
+
 export default function DiffView({ file }: { file: FileChange }) {
-  const rows = useMemo(() => numbered(file.lines), [file]);
+  const rows = useMemo(() => file.status === 'changed' ? collapse(numbered(file.lines)) : numbered(file.lines), [file]);
   if (file.binary) {
     const size = file.status === 'removed' ? file.sizeBefore : file.sizeAfter;
     return <p className="fx-hint studio-diff-binary" data-testid="diff-binary">Двоичный файл: {BINARY_TEXT[file.status]}, {size ?? 0} байт{file.status === 'changed' && file.sizeBefore !== null ? ` (было ${file.sizeBefore})` : ''}.</p>;
@@ -25,10 +42,12 @@ export default function DiffView({ file }: { file: FileChange }) {
   return (
     <>
       <pre className="studio-diff code" data-testid="diff-code" aria-label={`Разница в ${file.path}`}>
-        {rows.map((r, i) => (
-          <span key={i} className={`studio-diff-line${r.op === '+' ? ' add' : r.op === '-' ? ' del' : ''}`}>
-            <span className="studio-diff-n">{r.n ?? ''}</span>{`${r.op} ${r.text}`}{'\n'}
-          </span>))}
+        {rows.map((r, i) => 'gap' in r
+          ? <span key={i} className="studio-diff-line studio-diff-gap">{`⋯ ${r.gap} ${r.gap === 1 ? 'строка' : r.gap < 5 ? 'строки' : 'строк'} без изменений`}{'\n'}</span>
+          : (
+            <span key={i} className={`studio-diff-line${r.op === '+' ? ' add' : r.op === '-' ? ' del' : ''}`}>
+              <span className="studio-diff-n">{r.n ?? ''}</span>{`${r.op} ${r.text}`}{'\n'}
+            </span>))}
       </pre>
       {file.truncated && <p className="fx-hint">Показаны первые строки разницы: файл изменился сильнее, чем помещается в окно.</p>}
     </>

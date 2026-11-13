@@ -22,6 +22,8 @@ const ROUTES = {
   requests: { method: 'GET', path: '/api/studio/requests' },
   requestBundle: { method: 'GET', path: '/api/studio/requests/:id/bundle' },
   releases: { method: 'GET', path: '/api/studio/releases' },
+  /** Откат владельца по своей программе: действующее назначение канала */
+  pins: { method: 'GET', path: '/api/studio/pins' },
   /** Единственная запись Studio в рабочую базу при публикации: подписанный запрос (сервер проверяет подпись и право) */
   submit: { method: 'POST', path: '/api/modules/requests' },
   /** Ошибки: обращения по своим программам и счётчики сбоев — существующие маршруты Flux, сервер сам отбирает «свои» */

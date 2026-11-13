@@ -10,7 +10,7 @@
  */
 import type { Express, Request, Response } from 'express';
 import { openEnvelope, peekEnvelope } from '../../modules/trust/envelope.js';
-import { parseReleaseClaim, parseRequestClaim, MODULE_ID } from '../../modules/trust/claims.js';
+import { parsePinClaim, parseReleaseClaim, parseRequestClaim, MODULE_ID } from '../../modules/trust/claims.js';
 import { MODULE_ROOT_KEY_HEX, loadTrust, readBundle } from '../moduleStore.js';
 import { developerGate, refuseDeveloper, type StudioDeps } from './studio.js';
 
@@ -115,5 +115,28 @@ export function registerStudioDeveloperRoutes(app: Express, deps: StudioDevelope
       return claim && claim.moduleId === r.moduleId && claim.version === r.version && keys.has(claim.author)
         ? [{ version: r.version, channel: claim.channel, state: r.state, createdAt: r.createdAt }] : [];
     }) });
+  }));
+
+  /**
+   * Откат владельца по своей программе: действующее назначение канала («не выше версии X»), по одному на канал.
+   * Назначения подписаны владельцем и лежат в общей таблице; разработчику отдаются только записи программы, выпуск которой
+   * подписан его ключом, — по чужой программе ответ пустой, как у выпусков.
+   */
+  app.get('/api/studio/pins', guard(async (req, res) => {
+    const db = deps.getPrisma(), moduleId = String(req.query.moduleId || '');
+    if (!MODULE_ID.test(moduleId)) return res.status(400).json({ error: 'Нужен идентификатор программы.' });
+    const keys = await myKeys(db, userId(req), rootHex());
+    const releases = await db.moduleRelease.findMany({ where: { moduleId }, select: { signature: true }, take: 100 });
+    const mine = releases.some((r: any) => { const claim = parseReleaseClaim(openEnvelope('release', r.signature, rootHex())); return !!claim && keys.has(claim.author); });
+    if (!mine) return res.json({ pins: [] });
+    const rows = await db.moduleChannelPin.findMany({ where: { moduleId }, orderBy: { createdAt: 'asc' }, select: { signature: true }, take: 500 });
+    const latest = new Map<string, { channel: string; version: string | null; reason: string; iat: number }>();
+    for (const row of rows) {
+      const claim = parsePinClaim(openEnvelope('pin', row.signature, rootHex()));
+      if (!claim || claim.moduleId !== moduleId) continue;
+      const known = latest.get(claim.channel);
+      if (!known || claim.iat > known.iat) latest.set(claim.channel, { channel: claim.channel, version: claim.version, reason: String(claim.reason).slice(0, 300), iat: claim.iat });
+    }
+    res.json({ pins: [...latest.values()] });
   }));
 }

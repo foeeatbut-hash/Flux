@@ -13,6 +13,7 @@ import { locate, noteProblems, reviewProblems, type Problem } from './helpers';
 import type { AnchoredNote } from '../../shared/ownerNotes';
 import { RIGHT_TEXT, RIGHT_TONE, type Right } from './useKey';
 import HistoryPanel, { type HistoryHooks } from './History';
+import Releases from './Releases';
 
 export type PanelTab = 'run' | 'problems' | 'notes' | 'publication' | 'history' | 'failures';
 
@@ -77,6 +78,7 @@ export default function BottomPanel({ id, tab, onTab, open, onToggle, runSignal,
                 <ProblemList problems={reviewRows} onGo={onGo} empty="Замечаний владельца нет." />
                 {['returned', 'rejected'].includes(latest.state) && <p className="fx-hint">Исправьте файлы и снова нажмите «Опубликовать» — номер версии предложится следующий.</p>}
               </>}
+              <Releases id={id} version={requestsVersion + history.version} />
               {requests.length > 1 && <table className="fx-table"><thead><tr><th>Версия</th><th>Состояние</th><th>Отправлена</th></tr></thead>
                 <tbody>{[...requests].reverse().map(r => <tr key={r.id}><td className="data">{r.version}</td><td>{REQUEST_STATES[r.state] || r.state}</td><td>{r.createdAt.slice(0, 10)}</td></tr>)}</tbody></table>}
             </div>)}

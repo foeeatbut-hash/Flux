@@ -38,7 +38,7 @@ import { fetchUrl, systemLookup } from '../../electron/moduleNet';
 import type { DeveloperAction } from './actions';
 import { studioRequest, StudioFailure, type StudioUser } from './api';
 import {
-  certificateStatus, lastRelease, markFixed, ownBundle, ownErrors, ownRequests, versionWarning, type Session,
+  certificateStatus, lastRelease, markFixed, ownBundle, ownErrors, ownReleases, ownRequests, versionWarning, type Session,
 } from './developerServer';
 
 export interface DeveloperDeps {
@@ -303,6 +303,13 @@ export class DeveloperService {
       case 'historyRollback': { const r = this.history(moduleId(args.id)).rollback(text(args.snapshot, 40), text(args.token, 100)); return { restorePoint: r.restorePoint, changed: r.entries.length }; }
       case 'historyRemove': { this.history(moduleId(args.id)).remove(text(args.snapshot, 40)); return { removed: true }; }
       case 'ownerNotes': return this.ownerNotes(moduleId(args.id));
+      // Выпуски своей программы; у каждого — снимок отправки этой версии, если он есть в истории («Сравнить с текущим»)
+      case 'releaseList': {
+        const id = moduleId(args.id), releases = await ownReleases(this.session(), id);
+        let sent: Record<string, string> = {};
+        try { for (const s of this.history(id).list().snapshots.reverse()) if (s.reason === 'publish' && s.version && s.complete) sent[s.version] = s.id; } catch { sent = {}; }
+        return releases.map(r => ({ ...r, snapshot: sent[r.version] ?? null }));
+      }
       case 'check': return this.check(moduleId(args.id));
       case 'publish': return this.publish(moduleId(args.id));
       case 'requests': return ownRequests(this.session());

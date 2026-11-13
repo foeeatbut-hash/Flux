@@ -47,6 +47,26 @@ export async function lastRelease(s: Session, moduleId: string): Promise<{ versi
   return live[0] ? { version: String(live[0].version), state: clip(live[0].state, 20) } : null;
 }
 
+export interface OwnRelease { version: string; channel: 'test' | 'production'; createdAt: string; state: 'published' | 'revoked' | 'rolled-back'; limit: string | null }
+/**
+ * Выпуски своей программы для списка: версия, кому доступна, дата, состояние. «Откат владельца» — владелец ограничил выпуски
+ * этой группы версией ниже (назначение канала, подписанное владельцем): выпуск остаётся в списке, но не запускается.
+ * Ответы сервера (`releases`, `pins`) показывают только свою программу; здесь они лишь приводятся к короткому виду.
+ */
+export async function ownReleases(s: Session, moduleId: string): Promise<OwnRelease[]> {
+  const [releases, pins] = await Promise.all([
+    studioRequest<{ releases?: any[] }>(s.origin, 'releases', { token: s.token, query: { moduleId } }),
+    studioRequest<{ pins?: any[] }>(s.origin, 'pins', { token: s.token, query: { moduleId } }).catch(() => ({ pins: [] as any[] })),
+  ]);
+  const limit = new Map<string, string>();
+  for (const p of Array.isArray(pins.pins) ? pins.pins.slice(0, 20) : []) if (MODULE_VERSION.test(String(p?.version))) limit.set(String(p.channel), String(p.version));
+  return (Array.isArray(releases.releases) ? releases.releases : []).slice(0, 100).filter(r => MODULE_VERSION.test(String(r?.version))).map((r): OwnRelease => {
+    const channel = r.channel === 'production' ? 'production' : 'test', cap = limit.get(channel) ?? null;
+    const state = r.state === 'revoked' ? 'revoked' : cap && compareVersions(String(r.version), cap) > 0 ? 'rolled-back' : 'published';
+    return { version: String(r.version), channel, createdAt: String(r.createdAt || '').slice(0, 10), state, limit: state === 'rolled-back' ? cap : null };
+  }).sort((a, b) => compareVersions(b.version, a.version));
+}
+
 /** Предупреждение «обновите Studio»: договор мог измениться, если Flux в общей базе новее */
 export async function versionWarning(origin: string, studio: string): Promise<string> {
   try {

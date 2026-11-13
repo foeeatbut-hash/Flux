@@ -71,6 +71,7 @@ async function main() {
   const reportId = '22222222-2222-4222-8222-222222222222';
   // Возвращённый запрос по проекту окна: появляется в ответе сервера, когда тест его задаёт
   let extraRequest: any = null;
+  let extraReleases: any[] = [], extraPins: any[] = [];
   const requestRows = () => [
     ...(extraRequest ? [extraRequest] : []),
     { id: 'req-2', moduleId: 'report-builder', version: '0.3.0', state: 'returned', parentId: null, changelog: 'Отчёты', channel: 'test', createdAt: '2026-11-10T09:00:00Z', decidedAt: '2026-11-10T12:00:00Z',
@@ -84,7 +85,8 @@ async function main() {
   const certRequests: any[] = [];
   flux.post('/api/modules/certificate-requests', (q, r) => { certRequests.push(q.body); r.json({ ok: true }); });
   flux.get('/api/studio/modules', (_q, r) => r.json({ modules: requestRows().map(x => ({ moduleId: x.moduleId, version: x.version, state: x.state, createdAt: x.createdAt, requests: 1 })) }));
-  flux.get('/api/studio/releases', (_q, r) => r.json({ releases: [] }));
+  flux.get('/api/studio/releases', (_q, r) => r.json({ releases: extraReleases }));
+  flux.get('/api/studio/pins', (_q, r) => r.json({ pins: extraPins }));
   flux.get('/api/studio/requests', (_q, r) => r.json({ requests: requestRows() }));
   flux.post('/api/modules/requests', (q, r) => { submitted.push(q.body); r.status(400).json({ error: 'Заглушка сервера не принимает запросы: у ключа нет сертификата владельца.' }); });
   flux.get('/api/feedback/reports', (_q, r) => r.json({ data: [
@@ -342,6 +344,11 @@ async function main() {
       fs.writeFileSync(mainFile, `// добавлено\n// сверху\n${original.replace('const mean = count ? sum / count : 0;', 'const mean = count ? sum / count : -1;')}`);
       extraRequest = { id: 'req-3', moduleId: projectId, version: '0.1.0', state: 'returned', parentId: null, changelog: 'Первая', channel: 'test', createdAt: '2026-11-12T09:00:00Z', decidedAt: '2026-11-12T12:00:00Z',
         review: { note: 'Две строки', comments: [{ path: 'logic/main.ts', line: meanLine, text: 'Среднее при пустом списке' }, { path: 'logic/main.ts', line: countLine, text: 'Счётчик лучше считать отдельно' }] } };
+      extraReleases = [
+        { version: '0.2.0', channel: 'test', state: 'published', createdAt: '2026-11-13T09:00:00Z' },
+        { version: '0.1.0', channel: 'test', state: 'published', createdAt: '2026-11-12T09:00:00Z' },
+        { version: '0.0.9', channel: 'production', state: 'revoked', createdAt: '2026-11-01T09:00:00Z' }];
+      extraPins = [{ channel: 'test', version: '0.1.5', reason: 'проверка', iat: 1 }];
       certificate.status = 'issued';
       await page.reload();
       await page.getByRole('heading', { name: 'Мои программы' }).waitFor();
@@ -362,9 +369,23 @@ async function main() {
       ok(`${theme}: переход из списка открыл файл, у строк стоят метки замечаний`, (await page.locator('.cm-lint-marker:visible').count()) === 2);
       await measure(page, `${theme}/замечания`);
       await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-10-notes.png`), fullPage: true });
+      // Выпуски своей программы: версия, кому, дата, состояние; «Сравнить с текущим» — только у версии со снимком отправки
+      await page.getByRole('tab', { name: 'Публикация' }).click();
+      const releases = page.getByTestId('releases');
+      await releases.waitFor();
+      const releaseText = await releases.innerText();
+      ok(`${theme}: список выпусков — версия, кому доступна, дата, состояние (выпущен, отозван, откат владельца)`, (await releases.locator('tbody tr').count()) === 3 && releaseText.includes('Откат владельца') && releaseText.includes('Отозван') && releaseText.includes('Выпущен') && releaseText.includes('Тестировщикам') && releaseText.includes('2026-11-12'));
+      ok(`${theme}: «Сравнить с текущим» есть только у версии со снимком отправки`, (await releases.getByRole('button', { name: /Сравнить выпуск/ }).count()) === 1 && (await releases.getByRole('button', { name: 'Сравнить выпуск 0.1.0 с текущими файлами' }).count()) === 1);
+      await releases.getByRole('button', { name: 'Сравнить выпуск 0.1.0 с текущими файлами' }).click();
+      const releaseCompare = page.getByRole('dialog', { name: 'Сравнение версий' });
+      await releaseCompare.getByRole('list', { name: 'Изменённые файлы' }).waitFor();
+      await releaseCompare.getByRole('listitem').filter({ hasText: 'logic/main.ts' }).click();
+      ok(`${theme}: сравнение выпуска с текущими файлами показывает правки после отправки, неизменные куски свёрнуты`, (await releaseCompare.getByTestId('diff-code').innerText()).includes('+ // добавлено') && (await releaseCompare.getByTestId('diff-code').innerText()).includes('без изменений'));
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-11-releases.png`), fullPage: true });
+      await releaseCompare.getByRole('button', { name: 'Закрыть' }).click();
       // Проект возвращается в исходное состояние: дальше отправка
       fs.writeFileSync(mainFile, original);
-      extraRequest = null;
+      extraRequest = null; extraReleases = []; extraPins = [];
       await page.reload();
       await page.getByRole('heading', { name: 'Мои программы' }).waitFor();
       await page.getByRole('button', { name: 'Пример для окна' }).click();
