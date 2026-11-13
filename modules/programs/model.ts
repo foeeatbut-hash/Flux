@@ -8,10 +8,16 @@
  */
 import { humanText } from '../connections/model';
 import type { ModuleExport } from '../contract';
+import { languageOf } from '../engine/types';
 
 export const EXPORTS_MAX = 16;
 export const EXPORT_METHOD = /^[a-z][A-Za-z0-9]{0,39}$/;
 export const PROGRAM_ID = /^[a-z][a-z0-9-]{0,63}$/;
+/**
+ * Имя «подключения» для политики администратора: запрет обращения вызывающей программы к программе `id`.
+ * Начинается с «@», как `@internet`/`@lan`, поэтому с объявленными подключениями манифеста не совпадает.
+ */
+export const programPolicyTarget = (id: string) => `@program:${id}`;
 
 /** Пределы вызова: общие для окна (мост) и главного процесса, чтобы одно число не расходилось в двух местах */
 export const PROGRAM_LIMITS = {
@@ -48,3 +54,13 @@ export function parseExports(raw: unknown): ModuleExport[] | null {
 }
 /** Объявленные методы (в проверенном выпуске они уже прошли схему; повторный разбор — защита главного процесса) */
 export const exportsOf = (manifest: { exports?: unknown } | null | undefined): ModuleExport[] => parseExports(manifest?.exports) || [];
+
+/**
+ * Методу на TypeScript нужен собранный `build/logic.js` (Flux не компилирует TypeScript сам; метод исполняет именно этот файл).
+ * Без `exports` у программы на TypeScript ничего этого нет: её логика живёт в окне программы, как раньше.
+ */
+export const needsLogicBuild = (manifest: { language?: 'typescript' | 'python' | 'wasm'; exports?: unknown }): boolean =>
+  languageOf(manifest) === 'typescript' && exportsOf(manifest).length > 0;
+/** Логику без контрольных примеров Flux не исполняет: Python и WebAssembly всегда, TypeScript — когда у него есть методы для других программ */
+export const needsControls = (manifest: { language?: 'typescript' | 'python' | 'wasm'; exports?: unknown }): boolean =>
+  languageOf(manifest) !== 'typescript' || exportsOf(manifest).length > 0;

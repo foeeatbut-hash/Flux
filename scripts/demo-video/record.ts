@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import ExcelJS from 'exceljs';
+import { findChrome } from '../chromePath';
 import { VALVE_SHEET } from '../fixtures/blanks';
 import { OVERLAY_SCRIPT } from './overlay';
 
@@ -498,8 +499,7 @@ async function main() {
   seedUser(dataDir);
 
   const pw = require('playwright-core');
-  const chromePath = [process.env.FLUX_CHROME, '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome',
-    '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'].find((p) => p && fs.existsSync(p));
+  const chromePath = findChrome();
   const browser = await pw.chromium.launch({ executablePath: chromePath, args: ['--no-sandbox', '--force-device-scale-factor=1'] });
   const videoDir = path.join(WORK, 'video');
   const context = await browser.newContext({

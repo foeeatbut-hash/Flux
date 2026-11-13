@@ -56,6 +56,10 @@ async function main() {
   ok('итог переживает перезапуск', c.status(r) === 'failed');
   ok('другая версия Electron проверяет заново', new ModuleControls(file, '42.0.0').status(r) === 'unknown');
   ok('TypeScript проверять не нужно', !c.required(fake(9, 'typescript')) && c.required(fake(9, 'python')));
+  const withMethods = { signature: 'sig-m', manifest: { language: 'typescript', exports: [{ method: 'convert', does: 'Пересчитывает сумму из одной валюты в другую по курсу' }] }, claim: { version: '1.0.0' } } as any;
+  ok('TypeScript с методами для других программ проверять нужно: непроверенную логику Flux не исполняет', c.required(withMethods) && !c.blocked(withMethods));
+  await c.record(withMethods, 'mismatch');
+  ok('...и такой выпуск после расхождения блокируется, как Python', c.blocked(withMethods) && !c.blocked(fake(9, 'typescript')));
 
   console.log('Предел и вытеснение по давности');
   const small = new ModuleControls(path.join(dir, 'many.json'), 'e');

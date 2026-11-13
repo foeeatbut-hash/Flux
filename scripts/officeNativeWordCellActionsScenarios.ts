@@ -467,13 +467,23 @@ export async function runNativeWordCellActions(options: WordScenarioOptions): Pr
   await reopenedCell.click({ position: { x: 6, y: 6 } });
   const reopenedMarks = reopenedCell.locator('[data-instr-field*="flux:"]');
   const reopenedSelected = () => reopenedCell.evaluate(() => { const st = (window as any).__fluxCtxRef?.current?.editor?.state; return st ? st.doc.textBetween(st.selection.from, st.selection.to) : ''; });
-  await reopenedCell.evaluate((cell: HTMLElement) => {
+  // Ставим DOM-выделение сразу после последней метки и ждём, пока ProseMirror его подхватит
+  // (selectionchange обрабатывается асинхронно, а автосохранение может перерисовать документ):
+  // фиксированная пауза в CI оставляла выделение редактора пустым. Пока условие не выполнено —
+  // установку повторяем.
+  const markSelectionPlaced = () => reopenedCell.evaluate((cell: HTMLElement) => {
     const field = [...cell.querySelectorAll('[data-instr-field*="flux:"]')].at(-1);
-    if (!field) return;
+    const view = (window as any).__fluxCtxRef?.current?.editor?.view;
+    if (!field || !field.parentNode || !view) return false;
+    const target = view.posAtDOM(field.parentNode, [...field.parentNode.childNodes].indexOf(field) + 1);
+    const st = view.state;
+    if (view.hasFocus() && st.selection.empty && st.selection.from === target) return true;
+    view.focus();
     const range = document.createRange(); range.setStartAfter(field); range.collapse(true);
     const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
+    return false;
   });
-  await page().waitForTimeout(250);
+  check('Word: selection right after the field mark is established in the editor', await waitFor(async () => await markSelectionPlaced()));
   const reopenedText = await reopenedCell.innerText();
   await page().keyboard.press('Backspace');
   check('Word first Backspace selects the field mark and keeps the cell text', await reopenedMarks.count() === 2 && await reopenedCell.innerText() === reopenedText && await reopenedSelected() === 'MotorPower', { text: await reopenedCell.innerText(), selected: await reopenedSelected() });

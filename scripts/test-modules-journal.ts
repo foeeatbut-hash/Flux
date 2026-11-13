@@ -146,6 +146,12 @@ async function main() {
   await call('admin', '/api/modules/connection-policy/rules', 'PUT', { rules: [{ moduleId: 'conn-a', connection: 'api', roles: ['ENGINEER_AUTO'] }, { moduleId: 'conn-a', connection: 'e3', roles: [] }] });
   const annPolicy = (await call('ann', '/api/modules/connection-policy')).body.denied, bobPolicy = (await call('bob', '/api/modules/connection-policy')).body.denied;
   ok('запрет роли действует на её людей, запрет без ролей — на всех', annPolicy.length === 2 && bobPolicy.length === 1 && bobPolicy[0].connection === 'e3');
+  const putRules = (rules: unknown[]) => call('admin', '/api/modules/connection-policy/rules', 'PUT', { rules });
+  ok('правило «@program:<id>» принимается', (await putRules([{ moduleId: 'conn-a', connection: '@program:rates', roles: ['ENGINEER_AUTO'] }, { moduleId: 'conn-a', connection: '@program:prices', roles: [] }])).status === 200);
+  const annProgram = (await call('ann', '/api/modules/connection-policy')).body.denied, bobProgram = (await call('bob', '/api/modules/connection-policy')).body.denied;
+  ok('запрет обращения к программе: роли — своим людям, пустые роли — всем', annProgram.length === 2 && bobProgram.length === 1 && bobProgram[0].connection === '@program:prices');
+  ok('«@program» без идентификатора, с неверным или чужим видом идентификатора отвергается', (await Promise.all(['@program', '@program:', '@program:Rates', '@program:1x', '@programs:rates', '@program:rates:x'].map(connection => putRules([{ moduleId: 'conn-a', connection, roles: [] }])))).every(r => r.status === 400));
+  await putRules([]);
 
   console.log('Журнал в обращении');
   const ctx = (journal: unknown) => validateModuleContext({ moduleId: 'conn-a', moduleVersion: '1.0.0', moduleChannel: 'production', moduleDiagnostics: { journal } });

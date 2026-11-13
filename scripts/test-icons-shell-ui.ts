@@ -12,7 +12,8 @@
 import { BAR_BTN, BAR_H, BAR_ICON, DESK, ICON_SIZE, START_W, TILE_ICON, explorerIconSize } from '../src/lib/metrics';
 
 const BASE = process.env.FLUX_UI_URL || 'http://127.0.0.1:5173';
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 let passed = 0; let failed = 0;
 const ok = (name: string, value: boolean, details?: unknown) => {
   if (value) { passed++; console.log('✓', name); } else { failed++; console.error('✗', name, details === undefined ? '' : JSON.stringify(details).slice(0, 300)); }

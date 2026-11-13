@@ -20,7 +20,7 @@ import { ensureRemoteSchema } from '../server/schema-sync';
 import { registerStudioRoutes } from '../server/routes/studio';
 import { registerStudioDeveloperRoutes, studioPublishGate } from '../server/routes/studioDeveloper';
 import { registerModulePublishingRoutes } from '../server/routes/modulePublishing';
-import { certificateEnvelope, hexOf, moduleBundle, newKey, releaseEnvelope, requestEnvelope, revocationEnvelope } from './fixtures/moduleTrust';
+import { certificateEnvelope, hexOf, moduleBundle, newKey, pinEnvelope, releaseEnvelope, requestEnvelope, revocationEnvelope } from './fixtures/moduleTrust';
 
 const Database = require('better-sqlite3');
 let passed = 0;
@@ -77,7 +77,7 @@ async function main() {
 
   try {
     console.log('Явное право');
-    const routes = ['/api/studio/requests', '/api/studio/releases?moduleId=alpha', `/api/studio/certificate?key=${hexOf(keys.a)}`];
+    const routes = ['/api/studio/requests', '/api/studio/releases?moduleId=alpha', '/api/studio/pins?moduleId=alpha', `/api/studio/certificate?key=${hexOf(keys.a)}`];
     for (const who of ['plain', 'admin']) {
       for (const route of routes) ok(`${who} без права: ${route.split('?')[0]} — 403`, (await call(strict, who, route)).status === 403);
     }
@@ -150,6 +150,15 @@ async function main() {
     ok('автор видит выпуск своей программы', releasesA.length === 1 && releasesA[0].version === '0.1.0' && releasesA[0].channel === 'test');
     ok('чужой разработчик выпусков не видит', (await call(strict, 'b', '/api/studio/releases?moduleId=alpha')).body.releases.length === 0);
     ok('некорректный идентификатор — 400', (await call(strict, 'a', '/api/studio/releases?moduleId=Bad')).status === 400);
+    // Откат владельца: назначение канала, подписанное владельцем; видно автору своей программы, действует последнее по времени
+    const pin = (version: string | null, iat: number, hash: string) => db.moduleChannelPin.create({ data: { moduleId: 'alpha', channel: 'test', version: version || '', reason: 'проверка', signature: pinEnvelope(root, 'alpha', 'test', version, iat), signatureHash: hash } });
+    await pin('0.0.5', 1000, 'pin-1');
+    ok('автор видит откат владельца по своей программе', (await call(strict, 'a', '/api/studio/pins?moduleId=alpha')).body.pins?.[0]?.version === '0.0.5');
+    await pin(null, 2000, 'pin-2');
+    const pinsA = (await call(strict, 'a', '/api/studio/pins?moduleId=alpha')).body.pins;
+    ok('действует последнее назначение канала (ограничение снято)', pinsA.length === 1 && pinsA[0].version === null && pinsA[0].channel === 'test');
+    ok('чужой разработчик откатов чужой программы не видит', (await call(strict, 'b', '/api/studio/pins?moduleId=alpha')).body.pins.length === 0);
+    ok('некорректный идентификатор откатов — 400', (await call(strict, 'a', '/api/studio/pins?moduleId=Bad')).status === 400);
     await db.moduleRequest.deleteMany({ where: { moduleId: 'alpha' } });
     const stillForeign = await send(strict, 'c', keys.c, 'alpha', '0.9.0');
     ok('выпуск чужого ключа закрывает программу и без запросов в очереди (403)', stillForeign.status === 403 && /другому разработчику/.test(stillForeign.body.error));

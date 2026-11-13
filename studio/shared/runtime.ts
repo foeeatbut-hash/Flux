@@ -12,7 +12,8 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { languageOf } from '../../modules/engine/types';
+import { LOGIC_FILES, languageOf } from '../../modules/engine/types';
+import { needsLogicBuild } from '../../modules/programs/model';
 import type { ModuleManifest } from '../../modules/contract';
 import { compileLogic } from './logicSource';
 import type { ProjectFiles } from './templates';
@@ -27,6 +28,21 @@ export function loadRuntimeTemplates(dir: string): RuntimeTemplates {
   return { frame: read('frame.js'), worker: read('worker.js'), html: read('index.html'), css: read('flux.css'), pageClient: optional('flux.v1.js'), pageCss: optional('flux-ui.v1.css') };
 }
 
+/** Логика, переведённая в CommonJS, как скрипт, который кладёт её функции в `globalThis.__fluxLogic` (Worker формы и хост метода читают оттуда) */
+const logicScript = (code: string) => `globalThis.__fluxLogic=(function(){var module={exports:{}},exports=module.exports;${code}\n;return module.exports;})();\n`;
+
+/**
+ * `build/logic.js` пакета — только программе на TypeScript с непустым `exports` (Flux исполняет метод для других программ этим файлом и
+ * сам TypeScript не компилирует). У остальных логика не нужна: пустая строка, пакет остаётся прежним. Форма и страница на это не влияют.
+ */
+export function assembleLogic(manifest: ModuleManifest, files: ProjectFiles): { logic: string; problem: string } {
+  if (!needsLogicBuild(manifest)) return { logic: '', problem: '' };
+  const source = files[LOGIC_FILES.typescript];
+  if (!source?.length) return { logic: '', problem: `Методам для других программ нужен исходник ${LOGIC_FILES.typescript}` };
+  const compiled = compileLogic(Buffer.from(source).toString('utf8'), LOGIC_FILES.typescript);
+  return compiled.problem ? { logic: '', problem: compiled.problem } : { logic: logicScript(compiled.code), problem: '' };
+}
+
 export function assembleRuntime(templates: RuntimeTemplates, manifest: ModuleManifest, files: ProjectFiles): { runtime: string; problem: string } {
   const language = languageOf(manifest);
   let form: unknown;
@@ -36,7 +52,7 @@ export function assembleRuntime(templates: RuntimeTemplates, manifest: ModuleMan
   if (language === 'typescript') {
     const compiled = compileLogic(Buffer.from(files[manifest.logic] || new Uint8Array()).toString('utf8'), manifest.logic);
     if (compiled.problem) return { runtime: '', problem: compiled.problem };
-    worker = `globalThis.__fluxLogic=(function(){var module={exports:{}},exports=module.exports;${compiled.code}\n;return module.exports;})();\n${templates.worker}`;
+    worker = `${logicScript(compiled.code)}${templates.worker}`;
   }
   const put = (text: string, sentinel: string, value: string) => {
     if (!text.includes(sentinel)) throw new Error(`В шаблоне окна программы нет метки ${sentinel}: пересоберите Studio`);

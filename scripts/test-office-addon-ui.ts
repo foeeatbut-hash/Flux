@@ -3,6 +3,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
+import { findChrome } from './chromePath';
 
 const root = process.cwd();
 const fixture = path.join(root, 'scripts/fixtures/office-flux-panel-ui');
@@ -33,7 +34,7 @@ async function main() {
     }
     if (!ready) throw new Error('Office add-on fixture Vite server did not start');
     for (const kind of ['sheets', 'docs']) {
-      check = spawn(process.execPath, [path.join(fixture, 'check.mjs')], { cwd: root, env: { ...process.env, OFFICE_ADDON_UI_URL: url, OFFICE_ADDON_UI_DIR: output, OFFICE_ADDON_KIND: kind }, stdio: 'inherit' });
+      check = spawn(process.execPath, [path.join(fixture, 'check.mjs')], { cwd: root, env: { ...process.env, FLUX_CHROME: findChrome(), OFFICE_ADDON_UI_URL: url, OFFICE_ADDON_UI_DIR: output, OFFICE_ADDON_KIND: kind }, stdio: 'inherit' });
       const code = await new Promise<number>((resolve, reject) => {
         check!.once('error', reject);
         check!.once('exit', (status, signal) => status === null ? reject(new Error(`Office add-on ${kind} browser check stopped (${signal})`)) : resolve(status));

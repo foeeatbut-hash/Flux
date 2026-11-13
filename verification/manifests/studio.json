@@ -278,6 +278,17 @@
       "timeoutMs": 300000
     },
     {
+      "id": "studio-history",
+      "path": "scripts/test-studio-history.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [
+        "synthetic-temp-files"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
       "id": "studio-page",
       "path": "scripts/test-studio-page.ts",
       "layer": "unit",
@@ -916,6 +927,72 @@
       ]
     },
     {
+      "id": "studio.history",
+      "program": "studio",
+      "label": "История версий проекта: сохранить, сравнить, откатить, замечания владельца, выпуски",
+      "sources": [
+        "studio/shared/history.ts",
+        "studio/shared/ownerNotes.ts",
+        "studio/shared/workspace.ts",
+        "studio/shared/archive.ts",
+        "studio/renderer/work/History.tsx",
+        "studio/renderer/work/HistoryDialogs.tsx",
+        "studio/renderer/work/DiffView.tsx",
+        "studio/renderer/work/historyText.ts",
+        "studio/renderer/work/Releases.tsx",
+        "studio/renderer/work/BottomPanel.tsx",
+        "server/routes/studioDeveloper.ts"
+      ],
+      "triggers": [
+        "вкладка «История» нижней панели",
+        "вкладки «Замечания» и «Публикация»",
+        "успешная «Собрать» и отправка на публикацию"
+      ],
+      "risk": "critical",
+      "expected": [
+        "Версия сохраняется в скрытой .flux/history проекта; сравнение показывает файлы и строки; откат сначала показывает, что изменится, и перед записью сохраняет прежнее состояние; замечания владельца стоят у строк; список выпусков с откатом владельца"
+      ],
+      "checks": [
+        {
+          "suite": "studio-history",
+          "layer": "unit",
+          "claims": [
+            "Снимки в скрытой .flux/history (не в дереве, пакете и архиве), одинаковый снимок не создаётся, сравнение со строками и двоичными, откат с предпросмотром, токеном и снимком «перед откатом», пределы и порядок вытеснения, подделанные и повреждённые снимки, перенос замечаний по снимку отправки; мутации защит"
+          ]
+        },
+        {
+          "suite": "studio-journey",
+          "layer": "api-db",
+          "claims": [
+            "Версия при отправке, сохранить версию, правка, сравнить, откат и откат отката — через настоящий главный процесс"
+          ]
+        },
+        {
+          "suite": "studio-publish",
+          "layer": "api-db",
+          "claims": [
+            "Откат владельца по своей программе виден только автору её выпуска; последнее назначение канала действует"
+          ]
+        },
+        {
+          "suite": "studio-ui-developer",
+          "layer": "browser-live",
+          "claims": [
+            "«История», «Сравнить», «Откатить…» с несохранённой правкой, замечания у строк и в списке, список выпусков и «Сравнить с текущим» — в обеих темах"
+          ]
+        }
+      ],
+      "manual": [
+        {
+          "layer": "portable",
+          "scenario": "В FluxStudio.exe на Windows: сохранить версию, изменить файл, откатить; проект на сетевом диске и с длинным путём",
+          "expected": [
+            "Откат пишет файлы атомарно; папка .flux скрыта в дереве; слежение за папкой не принимает запись истории за правку снаружи"
+          ]
+        }
+      ]
+    },
+    {
       "id": "studio.translator-sample",
       "program": "studio",
       "label": "Пример «Переводчик терминов»: путь от заготовки до Store",
@@ -1145,6 +1222,8 @@
         "studio/shared/tsBuild.ts",
         "studio/shared/tsBuildWorker.ts",
         "studio/shared/tsBuildHost.ts",
+        "studio/shared/tsTypes.ts",
+        "studio/shared/tsTypeWorker.ts",
         "studio/shell/developer.ts",
         "studio/renderer/work/ProjectWindow.tsx"
       ],
@@ -1161,7 +1240,7 @@
           "suite": "studio-tsbuild",
           "layer": "api-db",
           "claims": [
-            "Несколько файлов собираются в один и исполняются; ошибки синтаксиса, несуществующий файл и пакет называют файл, строку и столбец; зависшая сборка останавливается по времени; запуск, проверка и отправка останавливаются на ошибке сборки"
+            "Несколько файлов собираются в один и исполняются; ошибки синтаксиса, несуществующий файл и пакет называют файл, строку и столбец; зависшая сборка останавливается по времени; запуск, проверка и отправка останавливаются на ошибке сборки; типы сверяет настоящий компилятор TypeScript в отдельном потоке (ошибка в логике, странице и вызове flux.*, верный проект проходит, JS не сверяется, предел времени, кэш), мутация «сверка выключена» обнаруживается; заготовки всех языков и пример проходят строгие типы"
           ]
         }
       ],

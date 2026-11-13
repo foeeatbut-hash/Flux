@@ -17,18 +17,17 @@ const vaultFile=path.join(os.homedir(),'.flux-owner','vault.flux-owner');
 let win,fluxWin,activeParent=null,vault=null,password='',server='',token='',user=null,exe=null,operation=null,lastActivity=Date.now();
 let databaseRuntime=null,disconnecting=Promise.resolve();
 const displayServer=()=>databaseRuntime?databaseRuntime.display:server;
-const uiPath=path.join(__dirname,'..','ui','index.html');
 let vaultExists=false,backupSession=false,setupFolder='',setupKitPath='',publicFilePath='',previousVaultPath='',setupVerified=false;
-const signalProgress=(phase,current,total)=>{const span=diagnosticOperation.getStore();if(phase&&span&&span.lastPhase!==phase){span.lastPhase=phase;span.stage(phase,{current,total});}if(win&&!win.isDestroyed())win.webContents.send('owner:progress',{phase,current,total});};
+const signalProgress=(phase,current,total)=>{const span=diagnosticOperation.getStore();if(phase&&span&&span.lastPhase!==phase){span.lastPhase=phase;span.stage(phase,{current,total});}if(win&&!win.isDestroyed())win.webContents.send('console:progress',{phase,current,total});};
 function snapshot(){return {version,setupKitPath,publicFilePath,previousVaultPath,setupVerified,unlocked:!!vault,vaultExists,vaultPath:vaultFile,backupSession,kind:vault?.kind||'',publicKeys:vault?Object.fromEntries(Object.entries(vault.keys).map(([k,v])=>[k,v.publicHex])):{},backupOwnerPublic:vault?.backupOwnerPublic||'',licenses:vault?.licenses||[],updates:vault?.updates||[],revocations:vault?.revocations||[],server:displayServer(),connectionKind:'database',connected:!!token,user:user?{name:user.name,role:user.role}:null,exe:exe?{name:path.basename(exe.path),size:exe.size,sha256:exe.sha256}:null};}
 function requireVault(){if(!vault)throw new Error('Сначала разблокируйте хранилище.');lastActivity=Date.now();}
 async function save(next){if(backupSession)throw new Error('Запасной ключ открыт временно. Основное хранилище не изменяется.');await vaultApi.atomicWrite(vaultFile,await vaultApi.encrypt(next,password));vault=next;vaultExists=true;}
 function requireIdle(){if(operation)throw new Error('Дождитесь завершения текущей операции или отмените её.');}
 async function busy(fn){requireIdle();const controller=new AbortController();operation=controller;try{return await fn(controller.signal);}finally{operation=null;signalProgress('',0,0);}}
 async function disconnect(){token='';server='';user=null;if(fluxWin&&!fluxWin.isDestroyed())fluxWin.close();fluxWin=null;const previous=databaseRuntime;databaseRuntime=null;if(previous)disconnecting=Promise.resolve(previous.stop()).catch(()=>{});await disconnecting;}
-// Разделы владельца (console.cjs) подписываются на запирание и обрыв связи, чтобы закрыть свои окна вместе с окном лицензий
+// Окно разделов (console.cjs) подписывается на запирание и обрыв связи
 const listeners={locked:new Set(),disconnected:new Set()};
-async function lock(){operation?.abort();vault=null;password='';backupSession=false;setupVerified=false;exe=null;await disconnect();if(win&&!win.isDestroyed())win.webContents.send('owner:locked');for(const f of listeners.locked)f();}
+async function lock(){operation?.abort();vault=null;password='';backupSession=false;setupVerified=false;exe=null;await disconnect();for(const f of listeners.locked)f();}
 async function confirm(message,detail,parent=win){const r=await dialog.showMessageBox(parent,{type:'question',buttons:['Отмена','Подтвердить'],defaultId:0,cancelId:0,noLink:true,message,detail});return r.response===1;}
 async function exportEncrypted(payload,phrase,title,defaultPath){vaultApi.passwordCheck(phrase);const r=await dialog.showSaveDialog(win,{title,defaultPath,filters:[{name:'Зашифрованные ключи Flux',extensions:['flux-owner']}]});if(r.canceled||!r.filePath)return false;protectLocalVault(r.filePath);await vaultApi.atomicWrite(r.filePath,await vaultApi.encrypt(payload,phrase));return true;}
 function protectLocalVault(file){const normalize=p=>process.platform==='win32'?path.resolve(p).toLowerCase():path.resolve(p);if(normalize(file)===normalize(vaultFile))throw new Error('Нельзя перезаписать рабочее хранилище экспортом. Выберите другую папку или имя файла.');}
@@ -61,7 +60,7 @@ const actions={
     await disconnect();
     const address=safeText(a.server,4096).trim();
     try {
-      databaseRuntime=await startDatabaseRuntime({uri:address,signal,dialog,parentWindow:activeParent||win,onProgress:phase=>signalProgress(phase,0,0),onEvent:diagnosticEvent,onUnexpectedExit:()=>{diagnosticEvent('runtime.unexpectedExit');operation?.abort();void disconnect().then(()=>{if(win&&!win.isDestroyed())win.webContents.send('owner:disconnected');for(const f of listeners.disconnected)f();});}});
+      databaseRuntime=await startDatabaseRuntime({uri:address,signal,dialog,parentWindow:activeParent||win,onProgress:phase=>signalProgress(phase,0,0),onEvent:diagnosticEvent,onUnexpectedExit:()=>{diagnosticEvent('runtime.unexpectedExit');operation?.abort();void disconnect().then(()=>{for(const f of listeners.disconnected)f();});}});
       signal.throwIfAborted();
       const origin=databaseRuntime.origin;
       const packet=await ownerRequest(origin,'/api/owner/challenge',{signal});
@@ -80,30 +79,7 @@ const actions={
 };
 app.whenReady().then(async()=>{
   journal().installProcessHandlers(process);diagnosticEvent('app.ready',journal().diagnosticsContext());
-  ipcMain.handle('owner:action',async(event,action,args={})=>{
-    if(!win||event.sender!==win.webContents||event.senderFrame!==win.webContents.mainFrame||!Object.hasOwn(actions,action))return {ok:false,error:'Недоступное действие.'};
-    if(action==='reportDiagnostic'){try{return {ok:true,value:await actions[action](args)};}catch{return {ok:false,error:'Событие не записано.'};}}
-    const span=journal().beginOperation(action);return diagnosticOperation.run(span,async()=>{try{lastActivity=Date.now();const value=await actions[action](args&&typeof args==='object'?args:{});span.finish(null,{canceled:value?.canceled===true});return {ok:true,value};}catch(e){span.fail(e);return {ok:false,error:journal().redact(e?.message||'Операция не выполнена.'),operationId:span.id};}});
-  });
 });
-// Окно владельца открывается из оболочки Studio — Владелец, а не при запуске программы: у
-// разработчика того же exe окна владельца нет, у владельца — отдельный раздел.
-// tab: какая вкладка окна лицензий нужна («licenses» или «updates»); вкладка переключается нажатием, как это сделал бы человек
-const showTab=tab=>win.webContents.executeJavaScript(`document.querySelector('[data-tab="${tab==='updates'?'updates':'licenses'}"]')?.click()`).catch(()=>{});
-async function openOwnerWindow(tab){
-  if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.focus();if(tab)await showTab(tab);return;}
-  vaultExists=await fs.stat(vaultFile).then(()=>true,()=>false);
-  win=new BrowserWindow({width:1180,height:850,minWidth:860,minHeight:640,title:`Flux Studio — Владелец ${version}`,backgroundColor:'#101722',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,sandbox:true,nodeIntegration:false,webSecurity:true}});
-  for(const event of ['did-finish-load','did-fail-load','render-process-gone','unresponsive','responsive','preload-error'])win.webContents.on(event,(...args)=>{journal().record(`window.${event}`,{details:args.slice(1).map(value=>typeof value==='object'&&value!==null?{reason:value.reason,exitCode:value.exitCode}:value)},['did-fail-load','render-process-gone','preload-error','unresponsive'].includes(event)?'error':'info');});
-  win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',event=>event.preventDefault());
-  await win.loadFile(uiPath);
-  if(tab)await showTab(tab);
-  const timer=setInterval(()=>{if(vault&&!operation&&Date.now()-lastActivity>15*60*1000)lock();},30000);timer.unref();
-  for(const event of ['unresponsive','responsive'])win.on(event,()=>diagnosticEvent(`window.${event}`,{memory:process.memoryUsage()}));
-  let heartbeatAt=Date.now();const heartbeat=setInterval(()=>{const now=Date.now(),delay=now-heartbeatAt-1000;heartbeatAt=now;if(delay>2000)diagnosticEvent('process.eventLoopDelay',{delayMs:delay,memory:process.memoryUsage()});},1000);heartbeat.unref();
-  // Хранилище запирается, когда закрыто и это окно, и окно разделов: пока открыто хоть одно, пароль второй раз не спрашивается
-  win.on('closed',()=>{clearInterval(heartbeat);if(!require('./console.cjs').isConsoleOpen())void lock();});
-}
 app.on('child-process-gone',(_event,details)=>diagnosticEvent('app.childProcessGone',{type:details.type,reason:details.reason,exitCode:details.exitCode,serviceName:details.serviceName}));
 // Закрытие окна владельца только запирает хранилище: программа живёт, пока открыта оболочка Studio.
 // Схема для пробного запуска программы в разделе «Запросы на публикацию»: регистрировать её можно только до готовности
@@ -115,6 +91,6 @@ function consoleContext(){return {version,snapshot,vault:()=>vault,token:()=>tok
   confirm,touch:()=>{lastActivity=Date.now();},lockIfIdle:ms=>{if(vault&&!operation&&Date.now()-lastActivity>ms)lock();},
   setParent:w=>{activeParent=w;},listeners,refreshVault:async()=>{vaultExists=await fs.stat(vaultFile).then(()=>true,()=>false);},
   forward:{state:()=>snapshot(),unlock:a=>actions.unlock(a),connect:a=>actions.connect(a),disconnect:()=>actions.disconnect({}),lock:()=>actions.lock(),cancel:()=>actions.cancel()},
-  journal:()=>journal(),diagnosticOperation,openLicenses:tab=>openOwnerWindow(tab),licensesOpen:()=>!!win&&!win.isDestroyed(),lockAll:()=>lock()};}
+  journal:()=>journal(),diagnosticOperation,lockAll:()=>lock(),setWindow:w=>{win=w;},actions};}
 async function openConsole(tab){return require('./console.cjs').openConsole(consoleContext(),tab);}
-module.exports={openOwnerWindow,openConsole};
+module.exports={openConsole};

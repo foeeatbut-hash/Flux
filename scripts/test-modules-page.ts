@@ -5,6 +5,7 @@
  * electron/modules.ts, и считает обращения, которые дошли до «внешнего» сервера. Каждая защита проверена мутацией:
  * с ослабленным заголовком проверка обязана увидеть утечку.
  */
+import { verifySkip } from './verifySkip';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
@@ -24,6 +25,7 @@ import { describeBundle, verifyRelease } from '../modules/trust/verify';
 import { buildPageAssets } from '../modules/build';
 import { hexOf, newKey } from './fixtures/moduleTrust';
 import { themeKeys } from '../modules/contract';
+import { findChrome } from './chromePath';
 
 let failed = 0, passed = 0;
 const ok = (name: string, condition: unknown) => { if (condition) { passed++; console.log('  ✓', name); } else { failed++; console.error('  ✗', name); } };
@@ -179,7 +181,7 @@ async function live(csp: string, shots: string): Promise<LiveResult> {
   const hostServer = http.createServer((_req, res) => { res.writeHead(200, { 'Content-Type': 'text/html' }); res.end(`<!doctype html><meta charset="utf-8"><body style="margin:0"><script>${hostScript}</script>`); });
   await new Promise<void>(r => hostServer.listen(0, '127.0.0.1', r));
   const port = (s: http.Server) => (s.address() as AddressInfo).port;
-  const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME || '/usr/bin/chromium', args: ['--no-sandbox'] });
+  const browser = await chromium.launch({ executablePath: findChrome(), args: ['--no-sandbox'] });
   try {
     const result: LiveResult = { report: null, leaks, saved: [], windows: [], beats: 0, log: [], second: null, shot: {} };
     for (const theme of ['light', 'dark']) {
@@ -215,11 +217,11 @@ async function live(csp: string, shots: string): Promise<LiveResult> {
 }
 
 async function liveTests() {
-  const chrome = process.env.FLUX_CHROME || '/usr/bin/chromium';
+  const chrome = findChrome();
   if (!fs.existsSync(chrome)) {
     // В CI тихий пропуск недопустим: без живого кадра вся проверка изоляции была бы пустой
     if (process.env.CI) { failed++; console.error(`  ✗ в CI нет Chromium (${chrome}): живая проверка изоляции не выполнена`); return; }
-    console.log('FLUX_VERIFY_SKIP: нет Chromium (FLUX_CHROME)'); return;
+    verifySkip('нет Chromium (FLUX_CHROME)'); return;
   }
   const shots = process.env.FLUX_MODULE_SHOTS || '/tmp/modules-page-shots';
   console.log('\n6. Настоящий кадр: всё, что вне моста, закрыто');

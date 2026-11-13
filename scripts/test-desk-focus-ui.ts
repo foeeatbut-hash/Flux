@@ -9,7 +9,8 @@
  */
 import fs from 'node:fs';
 const BASE = process.env.FLUX_UI_URL || 'http://127.0.0.1:5173';
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const SHOTS = process.env.SHOTS || '';
 let passed = 0; let failed = 0;
 const ok = (name: string, value: boolean, details?: unknown) => {

@@ -15,6 +15,7 @@ import path from 'node:path';
 import { ipcMain } from 'electron';
 import { sha256Hex } from '../modules/trust/envelope';
 import type { RunnableRelease } from '../modules/trust/verify';
+import { needsControls } from '../modules/programs/model';
 import { trustedAuthSender } from './authStorage';
 
 export type ControlsStatus = 'passed' | 'failed' | 'unknown';
@@ -49,8 +50,8 @@ export class ModuleControls {
     return found.tries !== undefined && found.tries < CONTROLS_RETRIES ? 'unknown' : 'failed';
   }
 
-  /** Программе без контрольных примеров (TypeScript) проверять нечего — запуск не ждёт итога */
-  required(release: RunnableRelease) { return release.manifest.language === 'python' || release.manifest.language === 'wasm'; }
+  /** Программе без контрольных примеров (TypeScript без методов для других программ) проверять нечего — запуск не ждёт итога */
+  required(release: RunnableRelease) { return needsControls(release.manifest); }
   blocked(release: RunnableRelease) { return this.required(release) && this.status(release) === 'failed'; }
 
   async record(release: RunnableRelease, outcome: ControlsOutcome) {

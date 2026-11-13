@@ -16,24 +16,28 @@ const enc = (s: string) => new TextEncoder().encode(s);
 const good = '{"state":{},"calc":{"out":{"x":1}}}';
 const target = { moduleId: 'm', version: '1.0.0', language: 'wasm' as const };
 const pyTarget = { moduleId: 'p', version: '1.0.0', language: 'python' as const };
+const tsTarget = { moduleId: 't', version: '1.0.0', language: 'typescript' as const };
 
-function setup(over: { wasm?: () => Promise<string>; py?: () => Promise<string>; controls?: string } = {}) {
+function setup(over: { wasm?: () => Promise<string>; py?: () => Promise<string>; ts?: (source: string) => Promise<string>; noTs?: boolean; logicJs?: Uint8Array; controls?: string } = {}) {
   const failures: string[] = [], timers: Array<{ fn: () => void; ms: number; live: boolean }> = [];
-  let unloaded = 0, stopped = 0, pyLoaded = false, workers = 0;
+  let unloaded = 0, stopped = 0, pyLoaded = false, workers = 0, tsLoaded = false, tsUnloaded = 0;
+  const tsSources: string[] = [];
   const deps: ComputeDeps = {
     scheduler: new ComputeScheduler({ slots: 2, laneLimits: { python: 1 } }),
     wasm: { get workers() { return workers; }, stopAll() { stopped++; workers = 0; }, keepOnly() {},
       async run() { workers = 1; return { output: await (over.wasm ? over.wasm() : Promise.resolve(good)), from: 'cache' as const }; } },
     python: { get loaded() { return pyLoaded; }, unload() { unloaded++; pyLoaded = false; },
       async run() { pyLoaded = true; return { output: await (over.py ? over.py() : Promise.resolve(good)), bootMs: 0 }; } },
-    fetchFile: async (_id, file) => enc(file === 'controls.json' ? over.controls ?? JSON.stringify({ version: 1, cases: [{ name: 'a', input: { v: 1 }, expect: { state: {}, calc: { out: { x: 1 } } } }] }) : 'x'),
+    ...(over.noTs ? {} : { ts: { get loaded() { return tsLoaded; }, unload() { tsUnloaded++; tsLoaded = false; },
+      async run(source: string) { tsLoaded = true; tsSources.push(source); return { output: await (over.ts ? over.ts(source) : Promise.resolve(good)) }; } } }),
+    fetchFile: async (_id, file) => file === 'logic.js' && over.logicJs ? over.logicJs : enc(file === 'controls.json' ? over.controls ?? JSON.stringify({ version: 1, cases: [{ name: 'a', input: { v: 1 }, expect: { state: {}, calc: { out: { x: 1 } } } }] }) : 'x'),
     sha256: async () => 'f'.repeat(64),
     pythonIdleMinutes: () => 5,
     onFailure: (id, version, kind) => failures.push(`${id}@${version}:${kind}`),
     setTimer: (fn, ms) => { const t = { fn: () => { t.live = false; fn(); }, ms, live: true }; timers.push(t); return t; },
     clearTimer: h => { (h as any).live = false; },
   };
-  return { c: new ModuleCompute(deps), failures, timers, get unloaded() { return unloaded; }, get stopped() { return stopped; } };
+  return { c: new ModuleCompute(deps), failures, timers, tsSources, get unloaded() { return unloaded; }, get stopped() { return stopped; }, get tsUnloaded() { return tsUnloaded; } };
 }
 const code = async (p: Promise<unknown>) => p.then(() => '', e => (e as ComputeError).code);
 
@@ -124,11 +128,42 @@ async function main() {
     void running;
   }
 
+  console.log('Логика TypeScript (метод для других программ): третий исполнитель в той же очереди');
+  {
+    const t = setup();
+    ok('расчёт идёт: собранный build/logic.js из пакета передан хосту как текст', (await t.c.compute(tsTarget, { export: 'convert', data: {} }, 'active')).calc.out.x === 1 && t.tsSources.length === 1 && t.tsSources[0] === 'x');
+    ok('без хоста TypeScript — UNAVAILABLE, а не молчание', await code(setup({ noTs: true }).c.compute(tsTarget, {}, 'active')) === 'UNAVAILABLE');
+    ok('NaN на входе отклонён до очереди и для TypeScript', await code(t.c.compute(tsTarget, { a: NaN }, 'active')) === 'NUMBER');
+    const big = setup({ logicJs: new Uint8Array(1024 * 1024 + 1) });
+    ok('файл логики больше 1 МиБ — ABI, хост не вызывался', await code(big.c.compute(tsTarget, {}, 'active')) === 'ABI' && big.tsSources.length === 0);
+    ok('...и записан как сбой «crash»', big.failures.join() === 't@1.0.0:crash');
+    for (const [name, out, expect] of [['не по схеме договора', '{"x":1}', 'BAD_OUTPUT'], ['больше 256 КиБ', `{"state":{},"calc":{"out":{"x":"${'a'.repeat(300000)}"}}}`, 'BAD_OUTPUT'], ['целое > 2^53', '{"state":{},"calc":{"out":{"x":9007199254740993}}}', 'NUMBER']] as const) {
+      ok(`выход «${name}» отклонён и для TypeScript`, await code(setup({ ts: async () => out }).c.compute(tsTarget, {}, 'active')) === expect);
+    }
+    const slow = setup({ ts: async () => { throw new ComputeError('TIMEOUT', 'данные проекта'); } });
+    ok('время: TIMEOUT и событие «timeout» без текста ошибки', await code(slow.c.compute(tsTarget, {}, 'active')) === 'TIMEOUT' && slow.failures.join() === 't@1.0.0:timeout');
+    ok('после расчёта TypeScript стоит один таймер выгрузки хоста на минуту', t.timers.filter(x => x.live).length === 1 && t.timers.at(-1)!.ms === 60_000);
+    t.timers.at(-1)!.fn();
+    ok('по истечении хост выгружен', t.tsUnloaded === 1 && t.timers.filter(x => x.live).length === 0);
+    const r = await t.c.controls(tsTarget);
+    ok('контрольные примеры идут тем же путём, что расчёт', r.ok && t.tsSources.length === 2);
+    const bad = setup({ ts: async () => '{"state":{},"calc":{"out":{"x":2}}}' });
+    ok('не сошлись — одно событие «controls»', !(await bad.c.controls(tsTarget)).ok && bad.failures.join() === 't@1.0.0:controls');
+    // Одна очередь на все языки: при одном слоте расчёт TypeScript ждёт идущий расчёт WebAssembly
+    const gate = setup({ wasm: () => new Promise<string>(r => setTimeout(() => r(good), 30)) });
+    (gate.c as any).deps.scheduler = new ComputeScheduler({ slots: 1 });
+    const order: string[] = [];
+    await Promise.all([gate.c.compute(target, {}, 'active').then(() => order.push('wasm')), gate.c.compute(tsTarget, {}, 'active').then(() => order.push('ts'))]);
+    ok('очередь общая: при одном слоте TypeScript идёт после WebAssembly', order.join() === 'wasm,ts');
+  }
+
   console.log('Закрытие окна');
   {
     const t = setup();
+    await t.c.compute(tsTarget, {}, 'active');
     t.c.dispose();
     ok('после закрытия расчёты отклоняются', await code(t.c.compute(target, {}, 'active')) === 'DENIED');
+    ok('закрытие окна выгружает и хост TypeScript', t.tsUnloaded === 1);
   }
   console.log(`Оркестратор расчётов: проверок ${passed}`);
 }

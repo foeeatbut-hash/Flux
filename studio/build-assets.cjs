@@ -47,6 +47,39 @@ async function buildTsWorker({ esbuild, outfile }) {
   return built.metafile;
 }
 
+/**
+ * Стандартная библиотека TypeScript для сверки типов: lib.*.d.ts, нужные ES2022 и браузерным типам, вместе со ссылками
+ * `/// <reference lib="…" />` между ними. Встраивается в рабочий поток текстом: отдельных файлов рядом с программой нет.
+ */
+function readTsLibs() {
+  const dir = path.join(root, 'node_modules/typescript/lib');
+  const libs = {};
+  const add = name => {
+    if (libs[name]) return;
+    libs[name] = fs.readFileSync(path.join(dir, name), 'utf8');
+    for (const m of libs[name].matchAll(/\/\/\/\s*<reference\s+lib="([^"]+)"\s*\/>/g)) add(`lib.${m[1].toLowerCase()}.d.ts`);
+  };
+  for (const name of ['lib.es2022.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts']) add(name);
+  return libs;
+}
+
+/**
+ * Рабочий поток сверки типов: настоящий компилятор TypeScript (пакет typescript) и его стандартная библиотека встроены
+ * в один файл; сжатие убирает пробелы и комментарии компилятора, а не меняет его поведение. Возвращает карту сборки.
+ */
+async function buildTsTypeWorker({ esbuild, outfile }) {
+  const libs = JSON.stringify(readTsLibs());
+  const built = await esbuild.build({
+    entryPoints: [path.join(root, 'studio/shared/tsTypeWorker.ts')], outfile, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent', metafile: true,
+    minify: true, legalComments: 'none',
+    plugins: [{ name: 'ts-libs', setup(plugin) {
+      plugin.onResolve({ filter: /^virtual:ts-libs$/ }, () => ({ path: 'ts-libs', namespace: 'ts-libs' }));
+      plugin.onLoad({ filter: /.*/, namespace: 'ts-libs' }, () => ({ contents: `export default ${libs};`, loader: 'js' }));
+    } }],
+  });
+  return built.metafile;
+}
+
 /** Возвращает карты сборки (для проверки бандла) */
 async function buildDeveloperAssets({ app, esbuild }) {
   const metafiles = {};
@@ -97,9 +130,11 @@ async function buildDeveloperAssets({ app, esbuild }) {
   // Сборка TypeScript: рабочий поток с esbuild-wasm и сам wasm-файл (из пакета esbuild-wasm, интернет не нужен)
   metafiles.tsBuildWorker = await buildTsWorker({ esbuild, outfile: path.join(app, 'ts-build-worker.cjs') });
   fs.copyFileSync(path.join(root, 'node_modules/esbuild-wasm/esbuild.wasm'), path.join(app, 'esbuild.wasm'));
+  // Сверка типов: компилятор TypeScript и стандартная библиотека в отдельном потоке (ts-type-worker.cjs)
+  metafiles.tsTypeWorker = await buildTsTypeWorker({ esbuild, outfile: path.join(app, 'ts-type-worker.cjs') });
 
   for (const name of TEMPLATE_DIRS) copyTemplate(path.join(root, 'modules/fixtures', name), path.join(app, 'templates', name));
   return metafiles;
 }
 
-module.exports = { buildDeveloperAssets, buildTsWorker, loadStaticValidation, SENTINEL };
+module.exports = { buildDeveloperAssets, buildTsWorker, buildTsTypeWorker, loadStaticValidation, SENTINEL };

@@ -22,7 +22,8 @@ import { testCredentials } from './testCredentials';
  */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = testCredentials();
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const SHOTS = process.env.SHOTS === '1' ? (process.env.SHOTS_DIR || '/tmp/flux-layout') : '';
 
 let f = 0;

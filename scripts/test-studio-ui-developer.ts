@@ -25,6 +25,8 @@ import { chromium, type Page } from 'playwright-core';
 import { createControlsEngine } from '../studio/shared/controlsEngine';
 import { createTsBuilder } from '../studio/shared/tsBuildHost';
 import { DeveloperService } from '../studio/shell/developer';
+import { History } from '../studio/shared/history';
+import { Workspace } from '../studio/shared/workspace';
 import { ALL_ACTIONS } from '../studio/shell/actions';
 
 const { buildStudio, editorsEntry } = require('../studio/build.cjs');
@@ -67,7 +69,11 @@ async function main() {
   flux.use(express.json({ limit: '60mb' }));
   const submitted: any[] = [], transitions: any[] = [];
   const reportId = '22222222-2222-4222-8222-222222222222';
+  // Возвращённый запрос по проекту окна: появляется в ответе сервера, когда тест его задаёт
+  let extraRequest: any = null;
+  let extraReleases: any[] = [], extraPins: any[] = [];
   const requestRows = () => [
+    ...(extraRequest ? [extraRequest] : []),
     { id: 'req-2', moduleId: 'report-builder', version: '0.3.0', state: 'returned', parentId: null, changelog: 'Отчёты', channel: 'test', createdAt: '2026-11-10T09:00:00Z', decidedAt: '2026-11-10T12:00:00Z',
       review: { note: 'Поправьте подпись поля и уберите вызов сети.', comments: [{ path: 'form.json', line: 4, text: 'Подпись длиннее 60 знаков' }] } },
     { id: 'req-1', moduleId: 'equipment-inspector', version: '1.1.0', state: 'pending', parentId: null, changelog: 'Новое', channel: 'test', createdAt: '2026-11-09T09:00:00Z', decidedAt: null, review: null },
@@ -79,7 +85,8 @@ async function main() {
   const certRequests: any[] = [];
   flux.post('/api/modules/certificate-requests', (q, r) => { certRequests.push(q.body); r.json({ ok: true }); });
   flux.get('/api/studio/modules', (_q, r) => r.json({ modules: requestRows().map(x => ({ moduleId: x.moduleId, version: x.version, state: x.state, createdAt: x.createdAt, requests: 1 })) }));
-  flux.get('/api/studio/releases', (_q, r) => r.json({ releases: [] }));
+  flux.get('/api/studio/releases', (_q, r) => r.json({ releases: extraReleases }));
+  flux.get('/api/studio/pins', (_q, r) => r.json({ pins: extraPins }));
   flux.get('/api/studio/requests', (_q, r) => r.json({ requests: requestRows() }));
   flux.post('/api/modules/requests', (q, r) => { submitted.push(q.body); r.status(400).json({ error: 'Заглушка сервера не принимает запросы: у ключа нет сертификата владельца.' }); });
   flux.get('/api/feedback/reports', (_q, r) => r.json({ data: [
@@ -97,7 +104,7 @@ async function main() {
     dir: data, storage, version: '1.0.0', session: () => ({ origin, token: 'token-dev-long-enough', user: { id: 'dev', name: 'Разработчик' }, owner: false }),
     assets: { templatesRoot: path.join(built.app, 'templates'), runtimeDir: path.join(built.app, 'runtime') },
     engine: createControlsEngine({ workerFile: path.join(built.app, 'controls-worker.cjs'), timeoutMs: 5000 }),
-    tsBuilder: createTsBuilder({ workerFile: path.join(built.app, 'ts-build-worker.cjs'), wasmFile: path.join(built.app, 'esbuild.wasm') }),
+    tsBuilder: createTsBuilder({ workerFile: path.join(built.app, 'ts-build-worker.cjs'), wasmFile: path.join(built.app, 'esbuild.wasm'), typesWorkerFile: path.join(built.app, 'ts-type-worker.cjs') }),
     capture: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4, 5, 6, 7, 8]),
   });
   // Страницу и runtime запущенной программы отдаёт та же функция, что обслуживает flux-module://
@@ -163,8 +170,8 @@ async function main() {
       const tree = page.getByRole('tree', { name: 'Файлы проекта' });
       await tree.getByText('main.ts').waitFor();
       ok(`${theme}: рабочее окно открылось сразу, в дереве логика и контрольные примеры`, (await tree.innerText()).includes('manifest.json') && (await tree.innerText()).includes('controls.json'));
-      ok(`${theme}: три кнопки сверху и четыре вкладки внизу`, (await page.getByRole('toolbar', { name: 'Запуск, проверка, публикация' }).getByRole('button').allInnerTexts()).join('|') === 'Запустить|Проверить|Опубликовать'
-        && (await page.getByRole('tablist', { name: 'Нижняя панель' }).getByRole('tab').allInnerTexts()).map(t => t.replace(/\d+$/, '').trim()).join('|') === 'Запуск|Проблемы|Публикация|Сбои у пользователей');
+      ok(`${theme}: три кнопки сверху и шесть вкладок внизу`, (await page.getByRole('toolbar', { name: 'Запуск, проверка, публикация' }).getByRole('button').allInnerTexts()).join('|') === 'Запустить|Проверить|Опубликовать'
+        && (await page.getByRole('tablist', { name: 'Нижняя панель' }).getByRole('tab').allInnerTexts()).map(t => t.replace(/\d+$/, '').trim()).join('|') === 'Запуск|Проблемы|Замечания|Публикация|История|Сбои у пользователей');
       const projectId = fs.readdirSync(path.join(data, 'projects'))[0];
       ok(`${theme}: проект — папка на диске`, fs.existsSync(path.join(data, 'projects', projectId, 'manifest.json')));
 
@@ -206,10 +213,79 @@ async function main() {
       await page.locator('.studio-problem').filter({ hasText: 'logic/extra.ts:2' }).first().click();
       await page.getByRole('tablist', { name: 'Открытые файлы' }).getByRole('tab', { name: 'extra.ts' }).waitFor();
       ok(`${theme}: нажатие на ошибку открыло файл во вкладке`, true);
+      // Ошибка типов (синтаксис верный): настоящий компилятор TypeScript называет файл, строку и код в той же вкладке
+      await service.handle('draftSave', { id: projectId, path: 'logic/extra.ts', text: "export const ok = 1;\nexport const bad: number = 'не число';\n" });
+      await page.getByRole('button', { name: 'Собрать TypeScript' }).click();
+      const typed = page.locator('.studio-problem').filter({ hasText: 'logic/extra.ts:2' }).filter({ hasText: 'TS2322' }).first();
+      await typed.waitFor({ timeout: 60000 });
+      ok(`${theme}: ошибка типов видна во вкладке «Проблемы» с файлом, строкой и кодом`, (await typed.innerText()).includes('не может быть присвоен') || (await typed.innerText()).includes('is not assignable'));
+      await typed.click();
+      await page.getByRole('tablist', { name: 'Открытые файлы' }).getByRole('tab', { name: 'extra.ts' }).waitFor();
+      ok(`${theme}: нажатие на ошибку типов открыло файл`, true);
       await service.handle('draftRemoveFile', { id: projectId, path: 'logic/extra.ts' });
       await page.getByRole('button', { name: 'Собрать TypeScript' }).click();
       await page.getByText('Сборка прошла').waitFor({ timeout: 60000 });
       ok(`${theme}: после исправления «Собрать» сообщает, что ошибок нет`, true);
+
+      // История версий: успешная сборка сама сохранила версию; сохранить вручную, изменить, сравнить, откатить (в том числе с несохранённой правкой)
+      await page.getByRole('tab', { name: 'История' }).click();
+      const history = page.getByTestId('history-panel');
+      await history.locator('tbody tr').first().waitFor();
+      ok(`${theme}: успешная «Собрать» сама сохранила версию «Сборка»`, (await history.locator('tbody tr').first().innerText()).includes('Сборка'));
+      await history.getByLabel('Заметка к версии').fill('До правки');
+      await history.getByRole('button', { name: 'Сохранить версию' }).click();
+      await history.getByText('Сохранена вручную').waitFor();
+      ok(`${theme}: «Сохранить версию» с заметкой — строка с заметкой, лишней версии при тех же файлах нет`, (await history.locator('tbody tr').count()) === 1 && (await history.locator('tbody tr').first().innerText()).includes('До правки'));
+      ok(`${theme}: в дереве проекта нет служебной папки .flux`, (await tree.getByText('.flux', { exact: true }).count()) === 0 && fs.existsSync(path.join(data, 'projects', projectId, '.flux', 'history')));
+      const mainBefore = fs.readFileSync(path.join(data, 'projects', projectId, 'logic/main.ts'), 'utf8');
+      await service.handle('draftSave', { id: projectId, path: 'docs/extra.md', text: 'новый файл\n' });
+      await service.handle('draftSave', { id: projectId, path: 'logic/main.ts', text: `${mainBefore}\n// правка после версии\n` });
+      await history.getByRole('button', { name: /^Сравнить версию/ }).click();
+      const compare = page.getByRole('dialog', { name: 'Сравнение версий' });
+      await compare.getByRole('list', { name: 'Изменённые файлы' }).waitFor();
+      ok(`${theme}: «Сравнить» с текущими файлами: добавленный и изменённый файлы, построчная разница`, await (async () => {
+        const list = await compare.getByRole('list', { name: 'Изменённые файлы' }).innerText();
+        await compare.getByRole('listitem').filter({ hasText: 'logic/main.ts' }).click();
+        return list.includes('docs/extra.md') && list.includes('Добавлен') && list.includes('Изменён') && (await compare.getByTestId('diff-code').innerText()).includes('+ // правка после версии');
+      })());
+      await measure(page, `${theme}/сравнение`);
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-7-compare.png`), fullPage: true });
+      await compare.getByRole('button', { name: 'Закрыть' }).click();
+      // Несохранённая правка в редакторе: окно отката говорит о ней и предлагает сохранить
+      await tree.getByText('main.ts').click();
+      const editor = page.getByRole('textbox', { name: 'Файл logic/main.ts' });
+      await editor.click();
+      await page.keyboard.press('Control+End');
+      await page.keyboard.type('// не сохранено');
+      await page.locator('.studio-dirty').first().waitFor();
+      await page.getByRole('tab', { name: 'История' }).click();
+      await history.getByRole('button', { name: /^Откатить к версии/ }).click();
+      const back = page.getByRole('dialog', { name: 'Откатить к версии' });
+      await back.getByText('Изменится файлов: 1, появится: 0, исчезнет: 1').waitFor();
+      ok(`${theme}: предпросмотр отката: изменится, исчезнет, остальные не тронуты; сам откат ещё ничего не записал`, (await back.innerText()).includes('Остальные') && fs.existsSync(path.join(data, 'projects', projectId, 'docs/extra.md')));
+      ok(`${theme}: несохранённая правка названа в окне отката`, (await back.innerText()).includes('несохранённые правки'));
+      await back.getByRole('button', { name: 'Сохранить правки в проект' }).click();
+      await back.getByText('Есть несохранённые правки').waitFor({ state: 'detached' });
+      ok(`${theme}: правка сохранена в проект, предупреждение исчезло`, fs.readFileSync(path.join(data, 'projects', projectId, 'logic/main.ts'), 'utf8').includes('// не сохранено'));
+      await measure(page, `${theme}/откат`);
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-8-rollback.png`), fullPage: true });
+      await back.getByRole('button', { name: 'Откатить', exact: true }).click();
+      await back.waitFor({ state: 'detached' });
+      ok(`${theme}: после отката файлы как в версии, лишний файл исчез`, fs.readFileSync(path.join(data, 'projects', projectId, 'logic/main.ts'), 'utf8') === mainBefore && !fs.existsSync(path.join(data, 'projects', projectId, 'docs')));
+      await history.getByText('Перед откатом', { exact: true }).waitFor();
+      ok(`${theme}: появилась версия «Перед откатом» — прежнее состояние можно вернуть`, await (async () => {
+        await history.getByRole('button', { name: /^Откатить к версии/ }).first().click();
+        const undo = page.getByRole('dialog', { name: 'Откатить к версии' });
+        await undo.getByText('Изменится файлов').waitFor();
+        await undo.getByRole('button', { name: 'Откатить', exact: true }).click();
+        await undo.waitFor({ state: 'detached' });
+        const text = fs.readFileSync(path.join(data, 'projects', projectId, 'logic/main.ts'), 'utf8');
+        return text.includes('// не сохранено') && fs.existsSync(path.join(data, 'projects', projectId, 'docs/extra.md'));
+      })());
+      // Возвращаем проект в исходное состояние для следующих шагов
+      await service.handle('draftRemoveFile', { id: projectId, path: 'docs/extra.md' });
+      await service.handle('draftSave', { id: projectId, path: 'logic/main.ts', text: mainBefore });
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-9-history.png`), fullPage: true });
 
       // Редакторы формы из #155 во вкладке form.json
       await page.getByRole('tab', { name: 'form.json' }).first().click();
@@ -259,7 +335,57 @@ async function main() {
       await pub.getByRole('button', { name: 'Отмена' }).click();
 
       // Владелец выдал право (сервер теперь отвечает «выдан») — отправка открывается, сервер всё равно проверяет сам
+      // Замечания владельца: сервер отдал возвращённый запрос со строками; версия, которую видел владелец, — снимок отправки
+      const folder = path.join(data, 'projects', projectId), mainFile = path.join(folder, 'logic/main.ts');
+      const original = fs.readFileSync(mainFile, 'utf8'), originalLines = original.split('\n');
+      const meanLine = originalLines.findIndex(l => l.startsWith('  const mean')) + 1, countLine = originalLines.findIndex(l => l.trim() === 'count++;') + 1;
+      const sentHistory = new History(new Workspace(folder));
+      sentHistory.promote(sentHistory.save('build').snapshot.id, 'publish', { version: '0.1.0', note: 'Запрос req-3' });
+      fs.writeFileSync(mainFile, `// добавлено\n// сверху\n${original.replace('const mean = count ? sum / count : 0;', 'const mean = count ? sum / count : -1;')}`);
+      extraRequest = { id: 'req-3', moduleId: projectId, version: '0.1.0', state: 'returned', parentId: null, changelog: 'Первая', channel: 'test', createdAt: '2026-11-12T09:00:00Z', decidedAt: '2026-11-12T12:00:00Z',
+        review: { note: 'Две строки', comments: [{ path: 'logic/main.ts', line: meanLine, text: 'Среднее при пустом списке' }, { path: 'logic/main.ts', line: countLine, text: 'Счётчик лучше считать отдельно' }] } };
+      extraReleases = [
+        { version: '0.2.0', channel: 'test', state: 'published', createdAt: '2026-11-13T09:00:00Z' },
+        { version: '0.1.0', channel: 'test', state: 'published', createdAt: '2026-11-12T09:00:00Z' },
+        { version: '0.0.9', channel: 'production', state: 'revoked', createdAt: '2026-11-01T09:00:00Z' }];
+      extraPins = [{ channel: 'test', version: '0.1.5', reason: 'проверка', iat: 1 }];
       certificate.status = 'issued';
+      await page.reload();
+      await page.getByRole('heading', { name: 'Мои программы' }).waitFor();
+      await page.getByRole('button', { name: 'Пример для окна' }).click();
+      await page.getByRole('toolbar', { name: 'Запуск, проверка, публикация' }).waitFor();
+      const notesTab = page.getByRole('tab', { name: /^Замечания/ });
+      await notesTab.waitFor();
+      for (let i = 0; i < 100 && !/2$/.test((await notesTab.innerText()).trim()); i++) await page.waitForTimeout(100);
+      await notesTab.click();
+      const noteRows = page.locator('.studio-problem');
+      await noteRows.first().waitFor();
+      const noteText = await page.locator('.studio-problems').innerText();
+      ok(`${theme}: замечания владельца — в списке нижней панели, у изменившейся строки так и сказано, у целой нет`, (await noteRows.count()) === 2 && noteText.includes('Среднее при пустом списке') && noteText.includes('Строка с тех пор изменилась') && noteText.split('Строка с тех пор изменилась').length === 2);
+      ok(`${theme}: замечания перенесены на сегодняшние номера строк (сдвиг на две строки)`, noteText.includes(`logic/main.ts:${meanLine + 2}`) && noteText.includes(`logic/main.ts:${countLine + 2}`));
+      await noteRows.filter({ hasText: 'Среднее при пустом списке' }).click();
+      await page.getByRole('tablist', { name: 'Открытые файлы' }).getByRole('tab', { name: 'main.ts' }).waitFor();
+      await page.locator('.cm-lint-marker:visible').first().waitFor();
+      ok(`${theme}: переход из списка открыл файл, у строк стоят метки замечаний`, (await page.locator('.cm-lint-marker:visible').count()) === 2);
+      await measure(page, `${theme}/замечания`);
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-10-notes.png`), fullPage: true });
+      // Выпуски своей программы: версия, кому, дата, состояние; «Сравнить с текущим» — только у версии со снимком отправки
+      await page.getByRole('tab', { name: 'Публикация' }).click();
+      const releases = page.getByTestId('releases');
+      await releases.waitFor();
+      const releaseText = await releases.innerText();
+      ok(`${theme}: список выпусков — версия, кому доступна, дата, состояние (выпущен, отозван, откат владельца)`, (await releases.locator('tbody tr').count()) === 3 && releaseText.includes('Откат владельца') && releaseText.includes('Отозван') && releaseText.includes('Выпущен') && releaseText.includes('Тестировщикам') && releaseText.includes('2026-11-12'));
+      ok(`${theme}: «Сравнить с текущим» есть только у версии со снимком отправки`, (await releases.getByRole('button', { name: /Сравнить выпуск/ }).count()) === 1 && (await releases.getByRole('button', { name: 'Сравнить выпуск 0.1.0 с текущими файлами' }).count()) === 1);
+      await releases.getByRole('button', { name: 'Сравнить выпуск 0.1.0 с текущими файлами' }).click();
+      const releaseCompare = page.getByRole('dialog', { name: 'Сравнение версий' });
+      await releaseCompare.getByRole('list', { name: 'Изменённые файлы' }).waitFor();
+      await releaseCompare.getByRole('listitem').filter({ hasText: 'logic/main.ts' }).click();
+      ok(`${theme}: сравнение выпуска с текущими файлами показывает правки после отправки, неизменные куски свёрнуты`, (await releaseCompare.getByTestId('diff-code').innerText()).includes('+ // добавлено') && (await releaseCompare.getByTestId('diff-code').innerText()).includes('без изменений'));
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-11-releases.png`), fullPage: true });
+      await releaseCompare.getByRole('button', { name: 'Закрыть' }).click();
+      // Проект возвращается в исходное состояние: дальше отправка
+      fs.writeFileSync(mainFile, original);
+      extraRequest = null; extraReleases = []; extraPins = [];
       await page.reload();
       await page.getByRole('heading', { name: 'Мои программы' }).waitFor();
       await page.getByRole('button', { name: 'Пример для окна' }).click();

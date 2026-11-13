@@ -10,11 +10,19 @@ import type { StoreListing } from '../../../modules/store/model';
 interface Rule { moduleId: string; connection: string; roles: string[] }
 
 export default function ConnectionPolicy({ listings, roles }: { listings: StoreListing[]; roles: Array<{ code: string; name: string }> }) {
-  // Подключения и разрешения сети («@internet», «@lan»): оба запрещаются ролям одним правилом
-  const targets = (l: StoreListing) => [
-    ...(l.manifest.connections || []).map((c) => ({ value: c.id, label: `${c.app} (${c.id})` })),
-    ...(l.manifest.permissions || []).filter((p, i, all) => all.findIndex((q) => q.kind === p.kind) === i).map((p) => ({ value: `@${p.kind}`, label: p.kind === 'internet' ? 'Любой адрес в интернете' : 'Локальная сеть' })),
-  ];
+  // Подключения, разрешения сети («@internet», «@lan») и обращения к программам («@program:<id>»): все запрещаются ролям одним правилом
+  const programName = (id: string) => listings.find((l) => l.moduleId === id)?.name || id;
+  const targetLabel = (connection: string) => connection === '@internet' ? 'Любой адрес в интернете' : connection === '@lan' ? 'Локальная сеть'
+    : connection.startsWith('@program:') ? `Обращение к программе «${programName(connection.slice(9))}»` : connection;
+  const targets = (l: StoreListing) => {
+    const perms = (l.manifest.permissions || []) as Array<{ kind: string; program?: string }>;
+    return [
+      ...(l.manifest.connections || []).map((c) => ({ value: c.id, label: `${c.app} (${c.id})` })),
+      ...perms.filter((p, i) => p.kind !== 'program' && perms.findIndex((q) => q.kind === p.kind) === i).map((p) => ({ value: `@${p.kind}`, label: targetLabel(`@${p.kind}`) })),
+      // По строке на каждую объявленную программу: запрет относится к конкретному адресату, а не ко всем обращениям сразу
+      ...perms.filter((p, i) => p.kind === 'program' && p.program && perms.findIndex((q) => q.kind === 'program' && q.program === p.program) === i).map((p) => ({ value: `@program:${p.program}`, label: targetLabel(`@program:${p.program}`) })),
+    ];
+  };
   const withConnections = listings.filter((l) => targets(l).length > 0);
   const [rules, setRules] = useState<Rule[]>([]);
   const [moduleId, setModuleId] = useState('');
@@ -30,11 +38,11 @@ export default function ConnectionPolicy({ listings, roles }: { listings: StoreL
     {error && <div className="fx-error">{error}</div>}
     <table className="fx-table"><thead><tr><th>Программа</th><th>Подключение</th><th>Роли</th><th /></tr></thead>
       <tbody>{rules.length === 0 && <tr><td colSpan={4}>Запретов нет.</td></tr>}
-        {rules.map((r, i) => <tr key={`${r.moduleId}:${r.connection}:${i}`}><td>{listings.find((l) => l.moduleId === r.moduleId)?.name || r.moduleId}</td><td>{r.connection === '@internet' ? 'Любой адрес в интернете' : r.connection === '@lan' ? 'Локальная сеть' : r.connection}</td>
+        {rules.map((r, i) => <tr key={`${r.moduleId}:${r.connection}:${i}`}><td>{listings.find((l) => l.moduleId === r.moduleId)?.name || r.moduleId}</td><td>{targetLabel(r.connection)}</td>
           <td>{r.roles.length ? r.roles.join(', ') : 'все'}</td><td><Btn size="sm" onClick={() => void save(rules.filter((_, j) => j !== i))}>Снять запрет</Btn></td></tr>)}</tbody></table>
     <div className="flex flex-wrap items-center gap-2">
       <Select value={moduleId} onChange={(v) => { setModuleId(v); setConnection(''); }} aria-label="Программа" className="w-56" options={[{ value: '', label: 'Программа…' }, ...withConnections.map((l) => ({ value: l.moduleId, label: l.name }))]} />
-      <Select value={connection} onChange={setConnection} aria-label="Подключение" className="w-56" options={[{ value: '', label: 'Подключение…' }, ...(chosen ? targets(chosen) : [])]} />
+      <Select value={connection} onChange={setConnection} aria-label="Подключение" className="w-80" options={[{ value: '', label: 'Подключение…' }, ...(chosen ? targets(chosen) : [])]} />
       {roles.map((r) => <label key={r.code} className="flex items-center gap-1 text-xs"><input type="checkbox" checked={picked.includes(r.code)} onChange={() => setPicked((p) => p.includes(r.code) ? p.filter((c) => c !== r.code) : [...p, r.code])} />{r.name}</label>)}
       <Btn size="sm" tone="primary" disabled={!moduleId || !connection} onClick={() => void save([...rules, { moduleId, connection, roles: picked }])}>Запретить</Btn>
     </div>

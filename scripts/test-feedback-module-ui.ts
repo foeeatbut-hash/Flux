@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
+import { findChrome } from './chromePath';
 
 const base = process.env.FLUX_UI_URL || 'http://127.0.0.1:5198';
 async function run() {
-const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome', args: ['--no-sandbox'] });
+const browser = await chromium.launch({ executablePath: findChrome(), args: ['--no-sandbox'] });
 try {
   for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });

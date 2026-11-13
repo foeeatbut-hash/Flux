@@ -15,7 +15,8 @@ import { buildPageAssets } from '../modules/build';
 import { MIN_H, MIN_W } from '../src/lib/windows';
 
 const BASE = process.env.FLUX_UI_URL || 'http://127.0.0.1:5173';
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const SHOTS = process.env.FLUX_SHOTS || '/tmp/program-windows';
 let passed = 0, failed = 0;
 const ok = (name: string, value: unknown, details?: unknown) => { if (value) { passed++; console.log('  ✓', name); } else { failed++; console.error('  ✗', name, details === undefined ? '' : JSON.stringify(details).slice(0, 300)); } };

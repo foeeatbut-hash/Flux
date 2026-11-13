@@ -7,6 +7,7 @@
  * Запуск (Linux): xvfb-run -a npx tsx scripts/test-modules-compute-native.ts
  * Нужна сборка: npx vite build (dist/modules/_compute).
  */
+import { verifySkip } from './verifySkip';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,16 +17,16 @@ import { build } from 'esbuild';
 
 async function main() {
   if (process.platform !== 'win32' && !(process.platform === 'linux' && process.env.DISPLAY)) {
-    console.log('FLUX_VERIFY_SKIP: нужны Windows либо Linux с DISPLAY (xvfb-run)');
+    verifySkip('нужны Windows либо Linux с DISPLAY (xvfb-run)');
     return;
   }
-  if (!fs.existsSync('dist/modules/_compute/host.js')) { console.log('FLUX_VERIFY_SKIP: нет сборки dist/modules/_compute (npx vite build)'); return; }
+  if (!fs.existsSync('dist/modules/_compute/host.js')) { verifySkip('нет сборки dist/modules/_compute (npx vite build)'); return; }
   const { _electron } = await import('playwright-core');
   const { default: express } = await import('express');
   const { ModuleCache } = await import('../electron/moduleCache');
   const { ModuleSelection } = await import('../electron/moduleSelection');
   const { splitChunks } = await import('../modules/trust/bundle');
-  const { buildModuleRuntime } = await import('../modules/build');
+  const { buildModuleRuntime, buildModuleLogic } = await import('../modules/build');
   const { fluxModule, WASM_OPS: OP, wasmSleb } = await import('./fixtures/wasmBuilder');
   const { languageBundle, languageFiles, statsControlsText } = await import('./fixtures/moduleLanguages');
   const { hexOf, newKey, releaseEnvelope } = await import('./fixtures/moduleTrust');
@@ -46,7 +47,7 @@ async function main() {
   async function publish(id: string, files: Record<string, Uint8Array | string>, manifest: any) {
     const runtime = await buildModuleRuntime(temp, manifest);
     const bundle = packBundle({ ...files, 'manifest.json': JSON.stringify(manifest), 'form.json': form, 'build/runtime.js': runtime });
-    const signature = releaseEnvelope(root, bundle, { moduleId: id, version: manifest.version, author: dev, language: manifest.language || 'typescript' });
+    const signature = releaseEnvelope(root, bundle, { moduleId: id, version: manifest.version, author: dev, language: manifest.language || 'typescript', contractVersion: manifest.contractVersion });
     const result = await cache.install({ id: `rel-${id}`, moduleId: id, version: manifest.version, signature }, splitChunks(bundle));
     assert.ok(result.ok, `${id}: ${result.why}`);
     installed.push({ id, version: manifest.version });
@@ -101,6 +102,27 @@ async function main() {
   await hostile('loop-wasm', 'wasm', fluxModule({ run: [OP.loop, 0x40, OP.br, 0, OP.end, OP.i32const, 1] }));
   await hostile('grow-wasm', 'wasm', fluxModule({ memory: { min: 1, max: 16 },
     run: [OP.loop, 0x40, OP.i32const, 1, ...OP.memoryGrow, OP.i32const, ...wasmSleb(-1), 0x47, OP.brIf, 0, OP.end, OP.unreachable] }));
+  // Методы для других программ (`flux.programs.call`): вызываемые на Python и TypeScript и вызывающая с разрешением program на обе
+  {
+    const METHODS = ['convert', 'spin'].map(method => ({ method, does: `Метод ${method} считает значение по входным данным` }));
+    const methodLogic = `export function compute(input: { export?: string; data: any }) {
+  const out = (value: unknown) => ({ state: {}, calc: { out: value } });
+  if (input.export === undefined) return out({ ok: true });
+  if (input.export === 'convert') return out({ value: Math.round(input.data.amount * input.data.rate * 100) / 100, by: 'typescript' });
+  return out({ method: input.export });
+}
+`;
+    fs.mkdirSync(path.join(temp, 'logic'), { recursive: true });
+    fs.writeFileSync(path.join(temp, 'logic/main.ts'), methodLogic);
+    const base = { version: '1.0.0', author: 'Flux', contractVersion: 3, entries: ['equipment'], reads: ['equipment'] };
+    await publish('callee-py', {
+      'logic/main.py': 'def compute(i):\n    if i.get("export") is None:\n        return {"state": {}, "calc": {"out": {"ok": True}}}\n    d = i["data"]\n    return {"state": {}, "calc": {"out": {"value": round(d["amount"] * d["rate"] * 100) / 100, "by": "python"}}}\n',
+      'examples/controls.json': oneCase }, { ...base, id: 'callee-py', name: 'Метод на Python', language: 'python', logic: 'logic/main.py', exports: METHODS });
+    const tsMan = { ...base, id: 'callee-ts', name: 'Метод на TypeScript', logic: 'logic/main.ts', exports: METHODS };
+    await publish('callee-ts', { 'logic/main.ts': methodLogic, 'build/logic.js': await buildModuleLogic(temp, tsMan as any), 'examples/controls.json': oneCase }, tsMan);
+    await publish('prog-caller', { 'logic/main.ts': methodLogic }, { ...base, id: 'prog-caller', name: 'Вызывающая', logic: 'logic/main.ts',
+      permissions: ['callee-py', 'callee-ts'].map(program => ({ kind: 'program', program, does: 'Берёт у калькулятора курсов пересчёт сумм для отчёта' })) });
+  }
   // Контрольные примеры не сходятся с настоящим результатом: выпуск не должен запуститься
   {
     const f = languageFiles('c', { id: 'stats-wrong' }, { 'examples/controls.json': JSON.stringify({ version: 1, cases: [{ name: 'ложный', input: { v: 1, flux: { equipment: { params: [{ value: '2' }] } } }, expect: { state: {}, calc: { out: { count: 1, sum: 3, mean: 3, rms: 3, min: 3, max: 3 } } } }] }) });
@@ -297,6 +319,14 @@ async function main() {
     await page.getByText('Программа не запущена').waitFor({ timeout: 20000 });
     check('повторное открытие берёт итог из памяти компьютера', true);
 
+    // Обращение программы к программе в настоящем Electron: IPC главного процесса, контрольные примеры, движок вызываемой в окне
+    const programCall = (program: string, method: string, data: unknown) => page.evaluate(async a => (window as any).__programCall({ moduleId: 'prog-caller', version: '1.0.0' }, a), { program, method, data });
+    const viaTs = await programCall('callee-ts', 'convert', { amount: 100, rate: 0.9 });
+    check('flux.programs.call в Electron: метод на TypeScript (изолированный хост, build/logic.js) — ответ', viaTs.ok === true && viaTs.data.value === 90 && viaTs.data.by === 'typescript');
+    const viaPy = await programCall('callee-py', 'convert', { amount: 100, rate: 0.9 });
+    check('flux.programs.call в Electron: метод на Python (Pyodide) — ответ', viaPy.ok === true && viaPy.data.value === 90 && viaPy.data.by === 'python');
+    check('flux.programs.call в Electron: метод вне exports — NO_METHOD', (await programCall('callee-ts', 'ghost', {})).code === 'NO_METHOD');
+    check('flux.programs.call в Electron: программа без разрешения program на адресата — NOT_ALLOWED', (await page.evaluate(async () => (window as any).__programCall({ moduleId: 'stats-c', version: '1.0.0' }, { program: 'callee-ts', method: 'convert', data: {} }))).code === 'NOT_ALLOWED');
     check(`без ошибок исполнения страницы: ${JSON.stringify(errors)}`, errors.length === 0);
     const load = await metrics();
     console.log(`  итого: память всех процессов ${(sum(load, 'mem') / 1048576).toFixed(0)} МиБ`);

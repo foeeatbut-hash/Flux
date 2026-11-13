@@ -88,6 +88,30 @@ console.log('Подписанный выпуск несёт язык и плат
   const badControls = moduleBundle('1.0.0', { 'logic/main.py': 'x = 1\n', 'examples/controls.json': '{"version":1,"cases":[]}' }, { logic: 'logic/main.py', language: 'python' });
   ok('пустые контрольные примеры не проходят', !check(badControls, sign(badControls, { language: 'python' })).ok);
 
+  // Методы для других программ на TypeScript: исполняет собранный build/logic.js, и только после контрольных примеров
+  {
+    const methods = [{ method: 'convert', does: 'Пересчитывает сумму из одной валюты в другую по курсу' }];
+    const built = 'globalThis.__fluxLogic=(function(){var module={exports:{}},exports=module.exports;exports.compute=function(i){return {state:{},calc:{out:{}}};};return module.exports;})();\n';
+    const tsBundle = (extra: Record<string, string>, patch: Record<string, unknown> = {}) => moduleBundle('1.0.0', extra, { contractVersion: 3, exports: methods, ...patch });
+    const signedV3 = (bundle: Uint8Array) => releaseEnvelope(root, bundle, { version: '1.0.0', author: devHex, contractVersion: 3 });
+    const verify = (bundle: Uint8Array) => verifyRelease({ signature: signedV3(bundle), chunks: splitChunks(bundle), rootHex, revoked: none, now, moduleId: 'equipment-inspector', version: '1.0.0' });
+    ok('TypeScript с exports, build/logic.js и контрольными примерами проходит', verify(tsBundle({ 'build/logic.js': built, 'examples/controls.json': controls })).ok);
+    ok('TypeScript с exports без build/logic.js не проходит, причина названа', /build\/logic\.js/.test(verify(tsBundle({ 'examples/controls.json': controls })).why || ''));
+    ok('TypeScript с exports без контрольных примеров не проходит', /контрольные примеры/.test(verify(tsBundle({ 'build/logic.js': built })).why || ''));
+    ok('build/logic.js больше 1 МиБ не проходит', /больше 1 МиБ/.test(verify(tsBundle({ 'build/logic.js': `${built}/*${'x'.repeat(1024 * 1024)}*/`, 'examples/controls.json': controls })).why || ''));
+    ok('build/logic.js не в кодировке UTF-8 не проходит', /UTF-8/.test(verify(packBundle({ ...unpackBundle(tsBundle({ 'examples/controls.json': controls })), 'build/logic.js': Uint8Array.from([0xff, 0xfe, 0x00]) })).why || ''));
+    ok('файл, не похожий на собранную логику, не проходит', /не похож на собранную логику/.test(verify(tsBundle({ 'build/logic.js': 'alert(1)', 'examples/controls.json': controls })).why || ''));
+    const emptySource = unpackBundle(tsBundle({ 'build/logic.js': built, 'examples/controls.json': controls }));
+    delete emptySource['logic/main.ts'];
+    ok('TypeScript с exports без исходника logic/main.ts не проходит', /нужен исходник/.test(verify(packBundle(emptySource)).why || ''));
+    ok('подмена build/logic.js при прежней подписи не запускается',
+      (() => { const bundle = tsBundle({ 'build/logic.js': built, 'examples/controls.json': controls }); const swapped = packBundle({ ...unpackBundle(bundle), 'build/logic.js': `${built};globalThis.evil=1` });
+        return !verifyRelease({ signature: signedV3(bundle), chunks: splitChunks(swapped), rootHex, revoked: none, now, moduleId: 'equipment-inspector', version: '1.0.0' }).ok; })());
+    // Без exports ничего не меняется: прежние выпуски на TypeScript (без build/logic.js и без примеров) остаются годными
+    const plain = moduleBundle('1.0.0', {});
+    ok('TypeScript без exports по-прежнему проходит без build/logic.js и без контрольных примеров', check(plain, sign(plain)).ok);
+  }
+
   // Подмена любого файла пакета при прежней подписи: контрольные примеры, манифест (платформа, язык), логика
   {
     const files = unpackBundle(pyBundle);

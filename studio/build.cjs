@@ -86,15 +86,11 @@ async function buildStudio({ target, outDir, extraMain = null }) {
   if (target === 'owner') {
     // Раздел владельца — отдельные файлы рядом с оболочкой. Расположение (owner/main.cjs и ../ui) то же,
     // что было у отдельной программы, поэтому пути внутри её кода не менялись.
-    for (const name of ['main', 'preload', 'console-preload']) {
+    for (const name of ['main', 'console-preload']) {
       const built = await esbuild.build({ ...node, entryPoints: [path.join(root, `studio/owner/src/${name}.cjs`)], outfile: path.join(app, 'owner', `${name}.cjs`) });
       metafiles[`owner-${name}`] = built.metafile;
     }
-    fs.cpSync(path.join(root, 'studio/owner/ui'), path.join(app, 'ui'), { recursive: true });
-    // Окно лицензий в оформлении Flux: тот же flux.css и шрифты, что у главного окна (собраны выше)
-    fs.copyFileSync(path.join(app, 'renderer', 'flux.css'), path.join(app, 'ui', 'flux.css'));
-    fs.cpSync(path.join(app, 'renderer', 'fonts'), path.join(app, 'ui', 'fonts'), { recursive: true });
-    // Разделы владельца (запросы на публикацию, выпуски, сертификаты, обновления Flux): отдельное окно рядом с окном лицензий
+    // Разделы владельца (запросы на публикацию, выпуски, сертификаты, обновления Flux): одно окно разделов (лицензии и выпуск Flux тоже здесь)
     const consoleDir = path.join(app, 'ui', 'console');
     fs.mkdirSync(consoleDir, { recursive: true });
     // Мост программ проверяет сообщения схемами Ajv; в окне eval запрещён, поэтому схемы компилируются здесь, при сборке
@@ -140,7 +136,7 @@ function builderConfig({ target, outDir, release }) {
     directories: { app: path.join(outDir, 'app'), output: release },
     files: ['**/*'],
     // Рабочий поток контрольных примеров запускается как файл: из app.asar его не открыть
-    asarUnpack: ['controls-worker.cjs', 'ts-build-worker.cjs', 'esbuild.wasm'],
+    asarUnpack: ['controls-worker.cjs', 'ts-build-worker.cjs', 'ts-type-worker.cjs', 'esbuild.wasm'],
     win: { target: [{ target: 'portable', arch: ['x64'] }], icon: path.join(root, 'studio/icons', `${spec.icon}.ico`), artifactName: spec.exe.replace(/\.exe$/, '.${ext}') },
     portable: { requestExecutionLevel: 'user' },
   };

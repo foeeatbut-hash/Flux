@@ -7,7 +7,7 @@
  * не покидает этот процесс).
  */
 import { randomUUID } from 'node:crypto';
-import { languageOf } from '../../modules/engine/types';
+import { LOGIC_BUILD_FILE, languageOf } from '../../modules/engine/types';
 import { resources, type ModuleManifest, type LaunchContext, type Resource } from '../../modules/contract';
 import { MODULE_CHANNELS, MODULE_ID, MODULE_VERSION, type ModuleChannel } from '../../modules/trust/claims';
 import { unpackBundle, validBundlePath } from '../../modules/trust/bundle';
@@ -18,13 +18,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Drafts, TEXT_FILE } from '../shared/drafts';
 import { FolderWatcher } from '../shared/workspace';
+import { History, type SnapshotInfo } from '../shared/history';
+import { anchorNotes } from '../shared/ownerNotes';
+import { bundleText } from '../../modules/trust/bundle';
 import { unzipInto, zipProject } from '../shared/archive';
 import { DeveloperKeyring, KeyringFailure, type SafeStorageLike } from '../shared/keyring';
 import { buildRequest, PublishRefused } from '../shared/publish';
-import { pickForProgram } from '../../modules/page/pickFile';
+import { pickForWire } from './programFile';
 import { tsEntries, withBuilt, problemLine, type TsBuildResult } from '../shared/tsBuild';
 import type { TsBuilder } from '../shared/tsBuildHost';
-import { assembleRuntime, loadRuntimeTemplates, type RuntimeTemplates } from '../shared/runtime';
+import { assembleLogic, assembleRuntime, loadRuntimeTemplates, type RuntimeTemplates } from '../shared/runtime';
 import { createFromTemplate, TEMPLATES, TEMPLATE_IDS, validProjectId, type ProjectFiles, type TemplateId } from '../shared/templates';
 import { FLUX_ASSET_FILE, PAGE_URL_FILE, pageProblem, pageTypeOf } from '../../modules/page/model';
 import { TestBase } from '../shared/testBase';
@@ -35,7 +38,7 @@ import { fetchUrl, systemLookup } from '../../electron/moduleNet';
 import type { DeveloperAction } from './actions';
 import { studioRequest, StudioFailure, type StudioUser } from './api';
 import {
-  certificateStatus, lastRelease, markFixed, ownBundle, ownErrors, ownRequests, versionWarning, type Session,
+  certificateStatus, lastRelease, markFixed, ownBundle, ownErrors, ownReleases, ownRequests, versionWarning, type Session,
 } from './developerServer';
 
 export interface DeveloperDeps {
@@ -286,14 +289,27 @@ export class DeveloperService {
       case 'runPickFile': {
         // Тот же порядок, что у Flux (modules/page/pickFile.ts): диалог главного процесса, читается только выбранный файл
         if (!this.run?.page) throw new StudioFailure('Программа со своим экраном не запущена.');
-        if (!this.deps.pickDataFile) return { ok: false, code: 'DENIED' };
-        const reply = await pickForProgram({ program: this.run.name, accept: args.accept }, this.deps.pickDataFile);
-        return reply.ok ? { ok: true, name: reply.name, data: Buffer.from(reply.bytes).toString('base64') } : reply;
+        return pickForWire(this.run.name, args.accept, this.deps.pickDataFile);
       }
       case 'runNet': return this.runNet(args);
       case 'runShot': return this.shoot(moduleId(args.id), text(args.theme, 5), args.rect);
 
       // ── Проверка и публикация ────────────────────────────────────────────────
+      // ── История версий: снимки в .flux/history проекта (studio/shared/history.ts) ──
+      case 'historyList': return this.history(moduleId(args.id)).list();
+      case 'historySave': { const r = this.history(moduleId(args.id)).save('manual', { note: text(args.note ?? '', 400) }); return { snapshot: r.snapshot, created: r.created, evicted: r.evicted }; }
+      case 'historyCompare': return this.history(moduleId(args.id)).compare(text(args.from, 40), text(args.to, 40));
+      case 'historyPlan': return this.history(moduleId(args.id)).plan(text(args.snapshot, 40));
+      case 'historyRollback': { const r = this.history(moduleId(args.id)).rollback(text(args.snapshot, 40), text(args.token, 100)); return { restorePoint: r.restorePoint, changed: r.entries.length }; }
+      case 'historyRemove': { this.history(moduleId(args.id)).remove(text(args.snapshot, 40)); return { removed: true }; }
+      case 'ownerNotes': return this.ownerNotes(moduleId(args.id));
+      // Выпуски своей программы; у каждого — снимок отправки этой версии, если он есть в истории («Сравнить с текущим»)
+      case 'releaseList': {
+        const id = moduleId(args.id), releases = await ownReleases(this.session(), id);
+        let sent: Record<string, string> = {};
+        try { for (const s of this.history(id).list().snapshots.reverse()) if (s.reason === 'publish' && s.version && s.complete) sent[s.version] = s.id; } catch { sent = {}; }
+        return releases.map(r => ({ ...r, snapshot: sent[r.version] ?? null }));
+      }
       case 'check': return this.check(moduleId(args.id));
       case 'publish': return this.publish(moduleId(args.id));
       case 'requests': return ownRequests(this.session());
@@ -303,6 +319,32 @@ export class DeveloperService {
         return { marked: true };
       }
     }
+  }
+
+  /**
+   * Замечания владельца по строкам последнего запроса этой программы (то, что сервер уже отдаёт о возвращённом запросе),
+   * перенесённые на сегодняшние файлы по снимку отправки. Чужие запросы сервер не отдаёт: `requests` — только свои.
+   */
+  private async ownerNotes(id: string) {
+    const rows = (await ownRequests(this.session())).filter(r => r.moduleId === id);
+    const latest = rows.length ? rows.reduce((a, b) => a.createdAt > b.createdAt ? a : b) : null;
+    const comments = latest?.review?.comments ?? [];
+    if (!latest || !comments.length) return { request: latest ? { id: latest.id, version: latest.version, state: latest.state } : null, notes: [] };
+    let sent: Record<string, Uint8Array> | null = null;
+    try {
+      const h = this.history(id), list = h.list().snapshots.filter(s => s.reason === 'publish' && s.complete);
+      const found = list.find(s => s.note.includes(`Запрос ${latest.id}`)) ?? list.find(s => s.version === latest.version);
+      if (found) sent = h.files(found.id);
+    } catch { /* история недоступна или повреждена: замечания показываются без привязки */ }
+    const notes = anchorNotes(comments, sent ? p => bundleText(sent!, p) : null, p => { try { return Buffer.from(this.drafts.readAny(id, p)).toString('utf8'); } catch { return null; } });
+    return { request: { id: latest.id, version: latest.version, state: latest.state }, notes };
+  }
+
+  private history(id: string): History { return new History(this.drafts.space(id)); }
+  /** Автоматический снимок: сбой истории (папка занята, предел) не должен ломать сборку и публикацию, он только сообщается */
+  private autoSnapshot(id: string): { snapshot: SnapshotInfo | null; error: string } {
+    try { return { snapshot: this.history(id).save('build').snapshot, error: '' }; }
+    catch (e) { return { snapshot: null, error: `Версия не сохранена в истории: ${(e as Error).message}` }; }
   }
 
   private unwatch() { this.watching?.watcher.stop(); this.watching = null; }
@@ -319,7 +361,7 @@ export class DeveloperService {
     const row = (await ownRequests(s)).find(r => r.id === requestId);
     if (!row) throw new StudioFailure('Запрос не найден среди ваших.');
     const files = unpackBundle(await ownBundle(s, requestId));
-    delete files['build/runtime.js'];
+    delete files['build/runtime.js']; delete files[LOGIC_BUILD_FILE];
     const id = row.moduleId;
     if (this.drafts.exists(id)) throw new StudioFailure(`Проект «${id}» уже есть на этом компьютере. Откройте его или удалите перед импортом.`);
     this.drafts.create(id, files, { template: 'request', parentRequest: row.id, changelog: row.changelog, channel: row.channel === 'production' ? 'production' : 'test' });
@@ -414,7 +456,9 @@ export class DeveloperService {
     const files = this.drafts.files(id);
     if (!this.deps.tsBuilder) throw new StudioFailure('Сборка TypeScript в этой сборке Studio недоступна.');
     const result = await this.deps.tsBuilder.build(files);
-    return { ok: result.ok, files: result.entries, problems: result.problems, built: Object.keys(result.outputs) };
+    // Успешная сборка — повод для автоматического снимка: к такой версии можно вернуться
+    const auto = result.ok ? this.autoSnapshot(id) : null;
+    return { ok: result.ok, files: result.entries, problems: result.problems, built: Object.keys(result.outputs), historyError: auto?.error || '' };
   }
 
   private async check(id: string): Promise<CheckReport> {
@@ -441,24 +485,34 @@ export class DeveloperService {
     // У страницы нет runtime.js: пакет несёт ui/ как есть, и подписывается ровно он
     const built = manifest.ui === 'page' ? { runtime: '', problem: pageProblem(files, manifest.pages) } : assembleRuntime(this.runtimeTemplates(), manifest, files);
     if (built.problem) throw new StudioFailure(built.problem);
+    // Метод для других программ исполняет собранный build/logic.js: его кладёт Studio, ошибка сборки логики — ошибка отправки
+    const builtLogic = assembleLogic(manifest, files);
+    if (builtLogic.problem) throw new StudioFailure(`Логика на TypeScript не собралась: ${builtLogic.problem}`);
     const last = await lastRelease(s, id);
     let request;
     try {
       request = buildRequest(this.keyring, {
-        moduleId: id, version: manifest.version, files, runtime: built.runtime, baseRelease: last ? `${id}@${last.version}` : null,
+        moduleId: id, version: manifest.version, files, runtime: built.runtime, logic: builtLogic.logic, baseRelease: last ? `${id}@${last.version}` : null,
         parentRequest: state.parentRequest, channel: state.channel as ModuleChannel, changelog: state.changelog, comment: state.comment, report, studioVersion: this.deps.version,
       });
     } catch (error) {
       if (error instanceof KeyringFailure || error instanceof PublishRefused) throw new StudioFailure(error.message);
       throw error;
     }
+    // Снимок берётся ДО отправки: за время загрузки человек продолжает править файлы, а снимок должен быть ровно тем, что ушло
+    const sent = this.autoSnapshot(id);
     const reply = await studioRequest<{ id?: string; duplicate?: boolean }>(s.origin, 'submit', {
       token: s.token, body: { signature: request.signature, bundle: Buffer.from(request.bundle).toString('base64') }, timeoutMs: 180_000,
     });
     if (typeof reply.id !== 'string') throw new StudioFailure('Flux не подтвердил приём запроса.');
     // Следующая отправка этого проекта продолжает историю: прежний запрос станет «заменён новой отправкой»
     this.drafts.setState(id, { parentRequest: reply.id });
-    return { id: reply.id, duplicate: reply.duplicate === true, warning: await versionWarning(s.origin, this.deps.version) };
+    let historyError = sent.error;
+    if (sent.snapshot) {
+      try { this.history(id).promote(sent.snapshot.id, 'publish', { version: String(manifest.version), note: `Запрос ${reply.id}` }); }
+      catch (e) { historyError = `Версия отправки не отмечена в истории: ${(e as Error).message}`; }
+    }
+    return { id: reply.id, duplicate: reply.duplicate === true, warning: await versionWarning(s.origin, this.deps.version), historyError };
   }
 
   /** Предупреждение для главного окна */

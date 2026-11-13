@@ -12,9 +12,10 @@ import JSZip from 'jszip';
 import { chromium } from 'playwright-core';
 import { makeDocxWithTable, makeXlsxWithBlankFormula, makeXlsxWithManualRow, loginPage } from './officeHarness';
 import { captureNativeDefinedNameEvidence, runNativeSheetCellActions } from './officeNativeCellActionsScenarios';
-import { createNativeCheck, waitFor } from './officeNativeTestRuntime';
+import { createNativeCheck, waitFor, requestPanel } from './officeNativeTestRuntime';
 import { runNativeWordCellActions } from './officeNativeWordCellActionsScenarios';
 import { runNativePreflightModes } from './officeNativeSaveInPlaceScenario';
+import { findChrome } from './chromePath';
 void (async () => {
 type Fixture = { baseUrl: string; projectId: string; dataDir: string; admin: { symbol: string; password: string } };
 const metadataPath = resolve(process.argv[2] || process.env.FLUX_FIXTURE_META || '');
@@ -31,7 +32,7 @@ if (!/^https?:\/\/(127\.0\.0\.1|localhost):\d+$/.test(fixture.baseUrl) || !fixtu
 }
 await chmod(metadataPath, 0o600);
 const BASE = fixture.baseUrl.replace(/\/$/, '');
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const CHROME = findChrome();
 let failures = 0;
 const check = createNativeCheck(() => { failures++; });
 let token = '';
@@ -134,9 +135,7 @@ const openPanel = async (page: any, title: string) => {
     console.error('NATIVE_FRAME_OPEN_DIAGNOSTIC', JSON.stringify({ ...diagnostic, error: String(error), screenshot: path }));
     throw error;
   }
-  await frame.locator('body').evaluate((body: HTMLElement) => {
-    window.parent.postMessage({ flux: 'office', op: 'flux:open-panel' }, location.origin);
-  });
+  await requestPanel(page, frame, title);
   await page.getByRole('complementary', { name: 'Flux Office' }).waitFor({ timeout: 10000 });
   return frame;
 };

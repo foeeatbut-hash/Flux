@@ -6,7 +6,8 @@
  * Проводник, а не их копию.
  */
 const BASE = process.env.FLUX_UI_URL || 'http://127.0.0.1:5173';
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const KINDS = ['Папку', 'Документ Word', 'Книгу Excel', 'Текстовый файл', 'Архив ZIP'];
 const MENU = 'body > [data-context-menu]';
 

@@ -30,7 +30,8 @@ async function api(method: string, path: string, body?: any) {
   return { status: res.status, json: await res.json().catch(() => ({})) };
 }
 
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const LOGIN = testCredentials();
 
 let f = 0;

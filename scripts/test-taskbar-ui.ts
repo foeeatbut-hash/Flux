@@ -13,7 +13,8 @@
  * Запуск: FLUX_UI_URL=http://127.0.0.1:5391 FLUX_CHROME=… npx tsx scripts/test-taskbar-ui.ts
  */
 const BASE = process.env.FLUX_UI_URL || 'http://127.0.0.1:5173';
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 let passed = 0; let failed = 0;
 const ok = (name: string, value: boolean, details?: unknown) => {
   if (value) { passed++; console.log('✓', name); } else { failed++; console.error('✗', name, details === undefined ? '' : JSON.stringify(details).slice(0, 300)); }

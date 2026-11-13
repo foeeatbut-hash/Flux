@@ -56,7 +56,7 @@ export interface ModuleManifest {
   connections?: ConnectionDecl[];
   /** Разрешения сети (договор v3): «любой адрес в интернете», «локальная сеть»; больше видов — записями реестра разрешений */
   permissions?: ModulePermission[];
-  /** Методы, которые вызываются из других программ (договор v3): чистые функции «JSON → JSON» в логике на Python или WebAssembly */
+  /** Методы, которые вызываются из других программ (договор v3): чистые функции «JSON → JSON» в логике на Python, WebAssembly или TypeScript (compute из build/logic.js) */
   exports?: ModuleExport[];
   /** Вид интерфейса: без поля — форма (form.json); `page` — своя страница ui/index.html (договор v2) */
   ui?: 'page';

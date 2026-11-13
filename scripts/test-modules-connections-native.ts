@@ -7,6 +7,7 @@
  * Запуск (Linux): xvfb-run -a npx tsx scripts/test-modules-connections-native.ts
  * Нужна сборка: npx vite build (dist/modules/_shell).
  */
+import { verifySkip } from './verifySkip';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -16,10 +17,10 @@ import { build } from 'esbuild';
 
 async function main() {
   if (process.platform !== 'win32' && !(process.platform === 'linux' && process.env.DISPLAY)) {
-    console.log('FLUX_VERIFY_SKIP: нужны Windows либо Linux с DISPLAY (xvfb-run)');
+    verifySkip('нужны Windows либо Linux с DISPLAY (xvfb-run)');
     return;
   }
-  if (!fs.existsSync('dist/modules/_shell/index.html')) { console.log('FLUX_VERIFY_SKIP: нет сборки dist/modules/_shell (npx vite build)'); return; }
+  if (!fs.existsSync('dist/modules/_shell/index.html')) { verifySkip('нет сборки dist/modules/_shell (npx vite build)'); return; }
   const { _electron } = await import('playwright-core');
   const { default: express } = await import('express');
   const { ModuleCache } = await import('../electron/moduleCache');

@@ -7,7 +7,8 @@
  */
 import assert from 'node:assert/strict';
 const BASE = process.env.FLUX_UI_URL || 'http://127.0.0.1:5173';
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 (async () => {
   const { chromium } = await import('playwright-core');
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--no-sandbox'] });

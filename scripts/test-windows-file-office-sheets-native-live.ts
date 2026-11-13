@@ -10,7 +10,8 @@ import { WindowsFilesService } from '../electron/filesystem/service';
 import { LocalOfficeSessions, type LocalOfficeRequest } from '../electron/localOfficeSessions';
 import { makeXlsx } from './officeHarness';
 
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const check = (name: string, value: unknown, detail?: unknown) => {
   if (!value) throw new Error(`✗ ${name}${detail === undefined ? '' : `: ${JSON.stringify(detail)}`}`);
   console.log(`✓ ${name}`);

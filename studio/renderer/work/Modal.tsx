@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 
 /** Простое модальное окно: свой диалог Flux (WindowDialog) завязан на рабочий стол Flux, которого в Studio нет */
-export default function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+export default function Modal({ title, onClose, children, wide, huge }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean; huge?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -13,7 +13,7 @@ export default function Modal({ title, onClose, children, wide }: { title: strin
   }, []);
   return (
     <div className="studio-modal-back studio-body" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div ref={box} className={`studio-modal${wide ? ' wide' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
+      <div ref={box} className={`studio-modal${wide ? ' wide' : ''}${huge ? ' huge' : ''}`} role="dialog" aria-modal="true" aria-label={title}>
         <h2 className="studio-modal-title">{title}</h2>
         {children}
       </div>

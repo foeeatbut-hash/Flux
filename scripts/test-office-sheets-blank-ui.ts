@@ -6,7 +6,8 @@ import { loginPage } from './officeHarness';
 /** UI regression check for an empty Sheet1 under high-DPI window rendering. */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = testCredentials();
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const FRAME = 'iframe[title="Flux Office — Таблица"]';
 const DPR_VALUES = [1.25, 2];
 const THEMES = ['light', 'dark'] as const;

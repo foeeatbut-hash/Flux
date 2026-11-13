@@ -15,7 +15,8 @@ import { loginPage } from './officeHarness';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = testCredentials();
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const FRAME_COUNT = Math.max(10, Math.min(240, Number(process.env.FLUX_PERF_FRAMES) || 30));
 const WARMUP_FRAMES = 2;
 const NETWORK_IDLE_MS = 300;

@@ -2,7 +2,8 @@ import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 
 const base = process.env.FLUX_UI_URL || 'http://127.0.0.1:5173';
-const chrome = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome';
+import { findChrome } from './chromePath';
+const chrome = findChrome();
 let completed = false;
 process.on('exit', () => { if (!completed) process.exitCode = 1; });
 (async () => {

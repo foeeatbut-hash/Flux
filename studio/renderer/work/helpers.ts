@@ -1,5 +1,6 @@
 /** Мелкие чистые помощники рабочего окна Studio (проверяются в scripts/test-studio-workspace-ui-logic.ts) */
 import type { FileLanguage } from '../editors/CodeView';
+import type { AnchoredNote } from '../../shared/ownerNotes';
 
 const TRANSLIT: Record<string, string> = {
   а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's',
@@ -62,11 +63,19 @@ export function reviewProblems(review: { note: string; comments: Array<{ path: s
   return review.comments.map(c => ({ source: 'Владелец', title: c.text, detail: '', path: c.path, line: c.line ?? undefined }));
 }
 
+/** Замечание владельца, перенесённое на сегодняшние файлы (studio/shared/ownerNotes.ts) → строка списка «Замечания» */
+export function noteProblems(notes: AnchoredNote[]): Problem[] {
+  return notes.map(n => ({
+    source: 'Владелец', title: n.text, path: n.fileGone ? undefined : n.path, line: n.currentLine ?? undefined,
+    detail: n.fileGone ? `Файла ${n.path} больше нет в проекте.` : n.changed ? `Строка с тех пор изменилась${n.line && n.line !== n.currentLine ? ` (в отправленной версии это строка ${n.line})` : ''}.` : n.line === null ? 'Замечание ко всему файлу.' : '',
+  }));
+}
+
 /** Файл TypeScript проекта (не объявление типов): ради него появляется кнопка «Собрать» */
 export const isTsSource = (path: string) => /\.(ts|tsx)$/.test(path) && !/\.d\.ts$/.test(path);
 
 /** Ответ действия «build» главного процесса */
-export interface BuildReport { ok: boolean; files: string[]; problems: Array<{ path: string; line: number; column: number; text: string }>; built: string[] }
+export interface BuildReport { ok: boolean; files: string[]; problems: Array<{ path: string; line: number; column: number; text: string }>; built: string[]; historyError?: string }
 
 /** Ошибки сборки → строки «Проблем»: файл и строка открывают редактор на месте ошибки */
 export function buildProblems(list: BuildReport['problems']): Problem[] {

@@ -10,6 +10,7 @@
  *
  * Запуск: npx tsx scripts/test-modules-openfile.ts   (живая часть — FLUX_CHROME)
  */
+import { verifySkip } from './verifySkip';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,6 +25,7 @@ import { pickForProgram, pickTitle, readPicked } from '../modules/page/pickFile'
 import { buildPageAssets } from '../modules/build';
 import { fluxPageTypes } from '../modules/page/types';
 import { INVOKE_CHANNELS } from '../electron/ipcAllow';
+import { findChrome } from './chromePath';
 
 let failed = 0, passed = 0;
 const ok = (name: string, condition: unknown) => { if (condition) { passed++; console.log('  ✓', name); } else { failed++; console.error('  ✗', name); } };
@@ -131,10 +133,10 @@ async function units() {
 }
 
 async function live() {
-  const chrome = process.env.FLUX_CHROME || '/usr/bin/chromium';
+  const chrome = findChrome();
   if (!fs.existsSync(chrome)) {
     if (process.env.CI) { failed++; console.error(`  ✗ в CI нет Chromium (${chrome}): живая проверка не выполнена`); return; }
-    console.log('FLUX_VERIFY_SKIP: нет Chromium (FLUX_CHROME)'); return;
+    verifySkip('нет Chromium (FLUX_CHROME)'); return;
   }
   console.log('\n5. Настоящий кадр: клиент flux.openFile');
   const { chromium } = await import('playwright-core');

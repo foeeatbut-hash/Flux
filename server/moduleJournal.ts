@@ -183,7 +183,7 @@ export function registerJournalRoutes(app: Express, deps: JournalDeps): void {
     if (!raw) return fail(res, 400, 'Нужен список правил');
     const rules: Rule[] = [];
     for (const r of raw) {
-      if (typeof r?.moduleId !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(r.moduleId) || typeof r?.connection !== 'string' || !/^(?:[a-z][a-z0-9-]{0,31}|@internet|@lan)$/.test(r.connection)) return fail(res, 400, 'Неверное правило');
+      if (typeof r?.moduleId !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(r.moduleId) || typeof r?.connection !== 'string' || !/^(?:[a-z][a-z0-9-]{0,31}|@internet|@lan|@program:[a-z][a-z0-9-]{0,63})$/.test(r.connection)) return fail(res, 400, 'Неверное правило');
       rules.push({ moduleId: r.moduleId, connection: r.connection, roles: Array.isArray(r.roles) ? r.roles.filter((x: unknown) => typeof x === 'string' && x.length <= 64).slice(0, 30) : [] });
     }
     const value = JSON.stringify(rules);

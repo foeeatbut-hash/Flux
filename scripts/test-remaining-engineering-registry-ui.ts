@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const fixture = path.join(root, 'scripts/fixtures/remaining-engineering/vite.config.ts');
-const chromePath = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const chromePath = findChrome();
 const projectId = 'remaining-eng-project';
 const tags: any[] = [
   { id: 'remaining-eng-tag-a', identifier: 'QA-UI-A', department: 'Проверка UI', brand: 'Марка A', fluid: '', wbs: '', projectId, equipmentId: null, createdAt: '2026-01-02T03:04:05.000Z', updatedAt: '2026-02-03T04:05:06.000Z', metadata: JSON.stringify({ mainName: 'Насос с защитой', descriptions: [{ text: 'Статус', status: 'critical', comment: 'Проверить' }], dynamicFields: { Взрыв: 'Да' }, customFlag: true }) },

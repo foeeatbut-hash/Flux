@@ -10,6 +10,7 @@ const browser = await chromium.launch({ executablePath: process.env.FLUX_CHROME 
 const page = await browser.newPage();
 const failures = [];
 let expectedConflict = false;
+let queryHold = null; // пока задан, ответ office/query ждёт его
 const requests = [];
 const screenshotPaths = [];
 page.on('pageerror', (error) => failures.push(`pageerror:${error.message}`));
@@ -32,6 +33,12 @@ page.route('**/api/project-data/**', async (route) => {
     else body = { baseHash: 'fixture-hash-1', sourceRevision: 'fixture-rev-1', schema: { version: 1, anchors: [{ kind: 'excel-range', id: 'anchor-a1', sheetName: 'Лист1', address: 'A1', parts: [{ kind: 'text', text: 'Позиция ' }, { kind: 'field', binding: { fieldKey: 'identifier', sourceId: 'equipment', entityType: 'element', entityId: null, sourceRevision: 'fixture-rev-1', anchorId: 'anchor-a1' } }] }] } };
   } else if (endpoint === '/api/project-data/office/query') {
     const requestBody = request.postDataJSON(); requests.push({ endpoint: 'query', body: requestBody });
+    // Задержанный ответ: запрос уже ушёл, а человек успевает поменять выборку; ответ приходит с другой строкой, чтобы подмену было видно
+    if (queryHold) {
+      await queryHold;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ revision: 'fixture-rev-late', total: 1, rows: [{ entityId: 'e-late', entityType: 'element', sourceId: 'equipment', tag: 'P-LATE', values: { identifier: { value: 'P-LATE' }, name: { value: 'Late' }, equipType: { value: 'pump' } } }] }) });
+      return;
+    }
     body = { revision: 'fixture-rev-1', total: 2, rows: [
       { entityId: 'e-1', entityType: 'element', sourceId: 'equipment', tag: 'P-101', values: { identifier: { value: 'P-101', revision: 'fixture-rev-1' }, name: { value: 'Pump A' }, equipType: { value: 'pump' }, 'param:Основные|Масса': { value: 120, unit: 'кг' } } },
       { entityId: 'e-2', entityType: 'element', sourceId: 'equipment', tag: 'P-102', values: { identifier: { value: 'P-102', revision: 'fixture-rev-1' }, name: { value: 'Pump B' }, equipType: { value: 'pump' }, 'param:Основные|Масса': { value: 130, unit: 'кг' } } },
@@ -229,6 +236,30 @@ try {
   await page.getByRole('status').filter({ hasText: 'Таблица вставлена' }).waitFor();
   const inserted = (await page.evaluate(() => window.__fluxFixture.ops)).filter((item) => item.type === 'insert-table').at(-1);
   if (!inserted || inserted.rows.length !== 3 || inserted.rows[1][0] !== 'P-101') throw new Error(`insert-all table wrong: ${JSON.stringify(inserted)}`);
+  // Отмена идущего запроса выборки действием человека: кнопка «Обновить выборку» не остаётся заблокированной, а запоздавший ответ ничего не подменяет
+  const refresh = page.getByRole('button', { name: 'Обновить выборку' });
+  const refreshDisabled = (value) => page.waitForFunction((expected) => [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Обновить выборку'))?.disabled === expected, value, { timeout: 3000 });
+  const lateResponse = async (name, act, expectRows) => {
+    let release; queryHold = new Promise((resolve) => { release = resolve; });
+    const answered = page.waitForResponse((response) => response.url().endsWith('/office/query'));
+    answered.catch(() => {}); // при провале раньше ответа не даём ожиданию заслонить настоящую ошибку
+    await refresh.click();
+    await refreshDisabled(true);
+    await act();
+    try { await refreshDisabled(false); }
+    catch { release(); queryHold = null; throw new Error(`${name}: «Обновить выборку» осталась заблокированной после отмены запроса`); }
+    release(); queryHold = null; await answered; await page.waitForTimeout(300);
+    if (await page.getByRole('checkbox', { name: 'Выбрать строку P-LATE' }).count()) throw new Error(`${name}: запоздавший ответ подменил выборку`);
+    for (const tag of expectRows) if (!(await page.getByRole('checkbox', { name: `Выбрать строку ${tag}` }).count())) throw new Error(`${name}: пропала строка ${tag}`);
+  };
+  await lateResponse('выбор строк', () => page.getByRole('checkbox', { name: 'Выбрать все строки' }).check(), ['P-101', 'P-102']);
+  if (!(await page.getByRole('checkbox', { name: 'Выбрать строку P-101' }).isChecked())) throw new Error('выбор строк: отметка потеряна');
+  // «Исключить строку» не годится: оно заодно меняет выбор и снимает блокировку через onSelectionChange, маскируя onQueryChange
+  await lateResponse('смена условий выборки', () => page.getByRole('button', { name: 'Добавить', exact: true }).first().click(), []);
+  await refresh.click(); await page.getByRole('checkbox', { name: 'Выбрать строку P-101' }).waitFor();
+  await lateResponse('смена источника', () => page.evaluate(() => window.__fluxFixture.command('source-tags')), []);
+  await page.evaluate(() => window.__fluxFixture.command('source-equipment'));
+  await refresh.click(); await page.getByRole('checkbox', { name: 'Выбрать строку P-101' }).waitFor();
   // «Исходная шапка»: без шаблона файла — сообщение, с шаблоном — запись снимка той же записью схемы
   await page.evaluate(() => window.__fluxFixture.command('reset-header'));
   await page.getByText('У файла нет шаблона.').waitFor();
