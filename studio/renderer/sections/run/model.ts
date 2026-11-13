@@ -5,6 +5,7 @@
 import type { LaunchContext, ModuleManifest } from '../../../../modules/contract';
 import type { PageDialog } from '../../../../modules/page/model';
 import { PAGE_LIMITS, WINDOW_LIMITS } from '../../../../modules/page/model';
+import { initialRect } from '../../../../src/lib/windows';
 
 export interface Started {
   session: string; url: string; language: string;
@@ -18,6 +19,12 @@ export type Log = (kind: string, text: string, level?: LogRow['level']) => void;
 export interface WindowSpec { key: string; page: string; params: Record<string, unknown>; title: string; width?: number; height?: number }
 /** Размер окна без указания: как у окна Flux по умолчанию */
 export const DEFAULT_WINDOW = { width: 640, height: 420 } as const;
+/**
+ * Главное окно программы: размер первого окна Flux на столе 1280 × 720 (initialRect: 72 % × 78 %). Во Flux окно подгоняется под
+ * стол человека, у Studio стола нет, поэтому берётся размер самого обычного стола.
+ */
+const FLUX_FIRST_WINDOW = initialRect({ w: 1280, h: 720 }, 0);
+export const DEFAULT_MAIN = { width: FLUX_FIRST_WINDOW.w, height: FLUX_FIRST_WINDOW.h } as const;
 
 /** Те же слова, что у окна Flux при закрытии окна с несохранённым (src/components/modules/useProgramWindow.tsx) */
 export const CLOSE_TITLE = 'Закрыть без сохранения?';

@@ -322,7 +322,7 @@ async function main() {
       ok(`${theme}: без снимков «Опубликовать» остановилась на проблемах и не открыла окно версии`, (await page.getByRole('dialog').count()) === 0 && (await page.locator('.studio-problems').innerText()).length > 0);
       await measure(page, `${theme}/проблемы`);
       await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-4-problems.png`), fullPage: true });
-      await page.getByRole('tab', { name: 'Запуск' }).click();
+      await page.getByRole('tab', { name: 'Запуск', exact: true }).click();
       await page.getByRole('button', { name: 'Снять обе темы' }).click();
       await page.getByText('Снимки обеих тем сохранены').waitFor();
 

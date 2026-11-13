@@ -4,6 +4,7 @@
  * Журнал показывает каждое сообщение моста: чтения, сообщения программы (flux.log), расчёты и сбои.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { themeKeys, type LaunchContext, type ModuleManifest, type ThemeTokens } from '../../../modules/contract';
 import { kindOfOp, type ConnectCall, type GrantAsk } from '../../../modules/connections/model';
 import { PAGE_LIMITS, type WindowOptions } from '../../../modules/page/model';
@@ -14,7 +15,7 @@ import RunDialog from './RunDialog';
 import ProgramWindow, { type RunHost } from './run/ProgramWindow';
 import RunConnectPrompt, { type RunGrantChoice } from './run/RunConnectPrompt';
 import TestPrograms from './run/TestPrograms';
-import { canOpenWindow, closeRequest, createPageBus, hangLimit, type LogRow, type Started, type WindowSpec } from './run/model';
+import { DEFAULT_MAIN, canOpenWindow, closeRequest, createPageBus, hangLimit, type LogRow, type Started, type WindowSpec } from './run/model';
 import { pickedFromWire } from '../work/programDialog';
 
 interface BaseContext { id: string; name: string; equipment: Array<{ id: string; name: string }>; tags: Array<{ id: string; name: string }> }
@@ -26,8 +27,13 @@ function theme(): ThemeTokens {
   return Object.fromEntries(themeKeys.map(key => [key, style.getPropertyValue(key).trim()])) as ThemeTokens;
 }
 
-/** `signal` — счётчик нажатий «Запустить» сверху: каждое новое значение запускает программу; `onFail` — текст отказа запуска для списка «Проблемы» */
-export default function Run({ id, signal = 0, onFail, onStarted }: { id: string; signal?: number; onFail?: (text: string) => void; onStarted?: () => void }) {
+/**
+ * `signal` — счётчик нажатий «Запустить» сверху: каждое новое значение запускает программу; `onFail` — текст отказа запуска для списка «Проблемы».
+ * `scene` — место в основной области окна проекта, куда выкладываются окна программы (главное и открытые ею): они живут там, а здесь, в панели,
+ * остаются выбор, кнопки и журнал. `onStarted` просит показать эту область. `stopSignal` — счётчик закрытия вида «Запуск»: каждое новое
+ * значение останавливает программу. Без `scene` окна лежат прямо в панели (так раздел работает отдельно от окна проекта).
+ */
+export default function Run({ id, signal = 0, onFail, onStarted, scene, stopSignal = 0 }: { id: string; signal?: number; onFail?: (text: string) => void; onStarted?: () => void; scene?: HTMLElement | null; stopSignal?: number }) {
   const [contexts, setContexts] = useState<BaseContext[]>([]);
   const [pick, setPick] = useState({ projectId: 'p1', entry: 'equipment', entityId: 'p1-e-fan' });
   const [started, setStarted] = useState<Started | null>(null);
@@ -35,7 +41,7 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
   const [log, setLog] = useState<LogRow[]>([]);
   const [shots, setShots] = useState('');
   // Ширина кадра страницы: так видно, как она ведёт себя в узком и широком окне Flux
-  const [width, setWidth] = useState(0);
+  const [width, setWidth] = useState<number>(DEFAULT_MAIN.width);
   const kept = useRef<Record<string, unknown>>({});
   const mainFrame = useRef<HTMLIFrameElement | null>(null);
   const notifiers = useRef(new Set<(kind: 'changed' | 'project-changed') => void>());
@@ -173,11 +179,27 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
   const startRef = useRef(start);
   startRef.current = start;
   useEffect(() => { if (signal > 0) void startRef.current(); }, [signal]);
+  // Закрыли вид «Запуск»: программа останавливается, окна уходят; несохранённое спрашивается тем же вопросом, что при перезапуске
+  const halt = async () => {
+    if (unsaved.current.size) {
+      const allowed = await new Promise<boolean>(resolve => setRestartAsk({ text: [...unsaved.current.values()].find(Boolean) || '', resolve }));
+      if (!allowed) { onStarted?.(); return; }
+    }
+    attempt.current++;
+    await stopRun();
+    setStarted(null); setWindowList([]); unsaved.current.clear(); setError('');
+  };
+  const haltRef = useRef(halt);
+  haltRef.current = halt;
+  useEffect(() => { if (stopSignal > 0) void haltRef.current(); }, [stopSignal]);
   const shoot = async () => {
     setShots('');
     // Тема окна — класс dark на <html>, как во Flux; на время снимков переключаем его и возвращаем как было
     const root = document.documentElement, before = root.classList.contains('dark');
     const tell = () => notifiers.current.forEach(notify => notify('changed'));
+    // Снимается видимый кадр: если человек ушёл к файлу, вид «Запуск» сначала возвращается
+    onStarted?.();
+    await new Promise(r => setTimeout(r, 150));
     try {
       for (const name of ['light', 'dark']) {
         root.classList.toggle('dark', name === 'dark'); tell();
@@ -190,6 +212,14 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
     } catch (e) { setError((e as Error).message); }
     finally { root.classList.toggle('dark', before); tell(); }
   };
+  // Окна программы: главное и открытые ею. Лежат в основной области (портал в `scene`), пока вид «Запуск» не закрыт, а переход
+  // к файлу и обратно их не пересоздаёт: место всегда одно и то же, его только прячут
+  const stage = host && (
+    <div className="run-stage" role="group" aria-label="Окна программы">
+      <ProgramWindow key={started!.session} host={host} spec={null} width={width} />
+      {windows.map(spec => <ProgramWindow key={spec.key} host={host} spec={spec} onClose={() => setWindowList(windowsRef.current.filter(w => w.key !== spec.key))} />)}
+    </div>
+  );
   const declared = started ? (started.manifest.connections.length > 0 || (started.manifest.permissions || []).length > 0) : false;
 
   return (
@@ -217,16 +247,11 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
       {declared && <p className="fx-hint" data-testid="studio-admin-hint">Политики администратора в Studio нет: во Flux администратор может запретить подключение или вызов другой программы, и тогда программа получит отказ.</p>}
       {started?.manifest.ui === 'page' && (
         <div className="row" role="group" aria-label="Ширина окна">
-          {[[360, 'Узкое'], [640, 'Среднее'], [960, 'Широкое'], [0, 'Во всю ширину']].map(([w, label]) => (
+          {[[DEFAULT_MAIN.width, 'Как во Flux'], [360, 'Узкое'], [640, 'Среднее'], [960, 'Широкое'], [0, 'Во всю ширину']].map(([w, label]) => (
             <button key={w} className={width === w ? 'fx-btn fx-btn-primary' : 'fx-btn'} onClick={() => setWidth(Number(w))}>{label}</button>))}
         </div>
       )}
-      {host && <ProgramWindow key={started!.session} host={host} spec={null} width={width} />}
-      {host && windows.length > 0 && (
-        <div className="run-windows" role="group" aria-label="Окна программы">
-          {windows.map(spec => <ProgramWindow key={spec.key} host={host} spec={spec} onClose={() => setWindowList(windowsRef.current.filter(w => w.key !== spec.key))} />)}
-        </div>
-      )}
+      {stage && (scene ? createPortal(stage, scene) : stage)}
       {restartAsk && <RunDialog program={started?.manifest.name || 'Программа'} request={closeRequest(restartAsk.text)} onAnswer={answer => { const { resolve } = restartAsk; setRestartAsk(null); resolve(answer === true); }} />}
       {asks[0] && <RunConnectPrompt key={asks[0].id} ask={asks[0].ask} onChoose={choice => answerAsk(asks[0], choice)} />}
       <h4>Журнал сообщений моста</h4>

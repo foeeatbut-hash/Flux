@@ -11,7 +11,7 @@ import { pageHung, type WindowOptions, type PageDialog, type PageDialogAnswer } 
 import type { ModuleManifest } from '../../../../modules/contract';
 import RunDialog from '../RunDialog';
 import { dialogAnswerLine, dialogStartLine } from '../../work/programDialog';
-import { CLOSE_TITLE, DEFAULT_WINDOW, closeRequest, windowTitle, type Log, type PageBus, type Started, type WindowSpec } from './model';
+import { CLOSE_TITLE, DEFAULT_MAIN, DEFAULT_WINDOW, closeRequest, windowTitle, type Log, type PageBus, type Started, type WindowSpec } from './model';
 
 /** Общее для всех окон запуска: то, что не зависит от окна (чтение, расчёт, сеть, подключения, другие программы, файлы) */
 export interface RunHost {
@@ -129,7 +129,8 @@ export default function ProgramWindow({ host, spec, onClose, width }: Props) {
   };
 
   const title = windowTitle(started.manifest.name, custom);
-  const style = main ? (width ? { width, maxWidth: '100%' } : undefined) : { width: spec!.width || DEFAULT_WINDOW.width, maxWidth: '100%' };
+  // width 0 — «во всю ширину»; без выбора — размер окна Flux по умолчанию
+  const style = main ? { width: width === 0 ? '100%' : width || DEFAULT_MAIN.width, maxWidth: '100%' } : { width: spec!.width || DEFAULT_WINDOW.width, maxWidth: '100%' };
   // Остальные страницы лежат рядом с главной: адрес берётся от адреса запуска (в проверке в браузере он на loopback)
   const src = main ? started.url : new URL(spec!.page, started.url).href;
   return (
@@ -141,7 +142,7 @@ export default function ProgramWindow({ host, spec, onClose, width }: Props) {
       {hung && <p className="fx-error" role="alert" data-testid="module-hung">Программа {started.manifest.name} не отвечает. Остальная Studio работает.{' '}
         <button type="button" className="fx-btn" onClick={() => setRestarts(n => n + 1)}>Перезапустить</button></p>}
       <iframe key={restarts} ref={frame} title={main ? started.manifest.name : title} className="module-frame" data-testid={main ? 'studio-module-frame' : 'studio-window-frame'}
-        style={main ? undefined : { height: spec!.height || DEFAULT_WINDOW.height }}
+        style={{ height: main ? DEFAULT_MAIN.height : spec!.height || DEFAULT_WINDOW.height }}
         sandbox={MODULE_SANDBOX} referrerPolicy="no-referrer" src={`${src}#${session}`}
         allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'" />
       {closing ? <RunDialog scoped program={started.manifest.name} request={closeRequest(closing.text)} onAnswer={answer => { const { resolve } = closing; setClosing(null); resolve(answer === true); }} />

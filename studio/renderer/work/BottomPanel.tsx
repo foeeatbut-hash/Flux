@@ -34,8 +34,8 @@ export function ProblemList({ problems, onGo, empty }: { problems: Problem[]; on
   );
 }
 
-export default function BottomPanel({ id, tab, onTab, open, onToggle, runSignal, problems, onProblems, onGo, right, onRequestRight, rightError, requestsVersion, history, notes }: {
-  id: string; tab: PanelTab; onTab: (t: PanelTab) => void; open: boolean; onToggle: () => void; runSignal: number;
+export default function BottomPanel({ id, tab, onTab, open, onToggle, runSignal, scene, runStop, onRunStarted, problems, onProblems, onGo, right, onRequestRight, rightError, requestsVersion, history, notes }: {
+  id: string; tab: PanelTab; onTab: (t: PanelTab) => void; open: boolean; onToggle: () => void; runSignal: number; scene: HTMLElement | null; runStop: number; onRunStarted: () => void;
   problems: Problem[]; onProblems: (list: Problem[]) => void; onGo: (path: string, line?: number) => void;
   right: Right; onRequestRight: () => void; rightError: string; requestsVersion: number; history: HistoryHooks; notes: { version: string; notes: AnchoredNote[] } | null;
 }) {
@@ -55,10 +55,10 @@ export default function BottomPanel({ id, tab, onTab, open, onToggle, runSignal,
           tabs={[{ value: 'run', label: 'Запуск' }, { value: 'problems', label: 'Проблемы', count: own.length || undefined }, { value: 'notes', label: 'Замечания', count: notes?.notes.length || undefined }, { value: 'publication', label: 'Публикация' }, { value: 'history', label: 'История' }, { value: 'failures', label: 'Сбои у пользователей' }]} />
         <button type="button" className="fx-ibtn studio-bottom-toggle" aria-label={open ? 'Свернуть панель' : 'Развернуть панель'} onClick={onToggle}>{open ? <ChevronDown /> : <ChevronUp />}</button>
       </div>
-      {open && (
-        <div className="studio-bottom-body">
+      {/* Тело не убирается, когда панель свёрнута: в нём запущенная программа, а её окна лежат в основной области */}
+      <div className="studio-bottom-body" hidden={!open}>
           {/* Запуск не размонтируется при смене вкладки: программа остаётся запущенной */}
-          <div hidden={tab !== 'run'} className="studio-run"><DevRun id={id} /><Run id={id} signal={runSignal} onFail={text => onProblems([{ source: 'Запуск', title: text, detail: '', ...locate(text) }, ...own.filter(p => p.source !== 'Запуск'), ...owner])} /></div>
+          <div hidden={tab !== 'run'} className="studio-run"><DevRun id={id} /><Run id={id} signal={runSignal} scene={scene} stopSignal={runStop} onStarted={onRunStarted} onFail={text => onProblems([{ source: 'Запуск', title: text, detail: '', ...locate(text) }, ...own.filter(p => p.source !== 'Запуск'), ...owner])} /></div>
           {tab === 'problems' && <ProblemList problems={own} onGo={onGo} empty="Проблем нет. Нажмите «Проверить», чтобы убедиться." />}
           {tab === 'notes' && (
             <div>
@@ -85,7 +85,7 @@ export default function BottomPanel({ id, tab, onTab, open, onToggle, runSignal,
             </div>)}
           {tab === 'history' && <HistoryPanel id={id} hooks={history} />}
           {tab === 'failures' && <Errors bare />}
-        </div>)}
+      </div>
     </div>
   );
 }

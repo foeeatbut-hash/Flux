@@ -87,3 +87,12 @@ WebAssembly, тестовая база, диалоги (`RunDialog`), `flux.open
 - Окна: `studio/renderer/sections/run/` (`ProgramWindow`, `model`, `RunConnectPrompt`, `TestPrograms`), `Run.tsx` собирает общий хост. Тексты запроса подключения общие с Flux: `src/components/modules/connectionPromptText.ts`.
 - Порог «не отвечает» в окне можно сократить адресом `?hang=<мс>` (не меньше 1000) — только для проверок.
 - От A: набор B гоняет действия A как заглушку стенда; нужна сверка на настоящей службе (`runConnect` с событием `onRun`, `testPrograms*`, `runSaveFile`) и на Windows.
+
+## Исполнитель C (доводка после приёмки)
+
+Задание: окна — в основную область; набор интерфейса на настоящей службе; маркеры списка в запросе подключения.
+
+- [x] 1. Сцена окон в основной области: вкладка «Запуск» (`EditorArea`, `RUN_VIEW`), портал из `Run` в `studio-run-scene`; кадры не пересоздаются; тело нижней панели не размонтируется при сворачивании (иначе программа останавливалась); закрытие вкладки — стоп (`stopSignal`); «Снять обе темы» возвращает вид.
+- [x] 2. `scripts/test-studio-run-ui.ts` на настоящей службе (HTTP-сервер, `onRun`, черновик helper на TypeScript, запись файла); заглушены только `pickSaveFile` и `capture`.
+- [x] 3. Маркеры списка «Программа не получит» (`.studio-grant ul`).
+- [x] 4. Наборы: run-ui 122, ui-developer 163, words 9, tsc, architecture.

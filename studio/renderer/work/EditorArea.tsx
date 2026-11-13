@@ -19,10 +19,14 @@ import type { Entry } from './FileTree';
 
 const Editors = React.lazy(() => import('studio-editors'));
 const FORM_VIEW = 'form.json';
+/** Вид «Запуск» — вкладка рядом с файлами: окна запущенной программы. Это не путь файла, его так назвать нельзя (пути без пробелов и скобок не бывают такими) */
+export const RUN_VIEW = '«Запуск»';
 
 interface Buffer { saved: string; text: string; state: 'text' | 'image' | 'binary' | 'missing'; size: number; image?: string; conflict?: string | null; removed?: boolean }
 export interface EditorAreaHandle {
   open: (path: string, line?: number) => void;
+  /** Показать вид «Запуск» (вкладка добавляется, если её не было) */
+  openRun: () => void;
   saveAll: () => Promise<boolean>;
   external: (changes: Array<{ path: string; kind: string }>) => void;
   renamed: (from: string, to: string) => void;
@@ -30,7 +34,7 @@ export interface EditorAreaHandle {
   dirty: () => string[];
 }
 
-const EditorArea = forwardRef<EditorAreaHandle, { id: string; entries: Entry[]; notes?: AnchoredNote[]; onDirty: (paths: string[]) => void; onError: (text: string) => void; onSaved: () => void }>(function EditorArea({ id, entries, notes, onDirty, onError, onSaved }, ref) {
+const EditorArea = forwardRef<EditorAreaHandle, { id: string; entries: Entry[]; notes?: AnchoredNote[]; onDirty: (paths: string[]) => void; onError: (text: string) => void; onSaved: () => void; onScene?: (el: HTMLElement | null) => void; onRunClose?: () => void }>(function EditorArea({ id, entries, notes, onDirty, onError, onSaved, onScene, onRunClose }, ref) {
   const [tabs, setTabs] = useState<string[]>([]);
   const [active, setActive] = useState('');
   const [buffers, setBuffers] = useState<Record<string, Buffer>>({});
@@ -85,6 +89,7 @@ const EditorArea = forwardRef<EditorAreaHandle, { id: string; entries: Entry[]; 
 
   useImperativeHandle(ref, () => ({
     open: (path, line) => { void open(path, line); },
+    openRun: () => { setTabs(t => t.includes(RUN_VIEW) ? t : [...t, RUN_VIEW]); setActive(RUN_VIEW); },
     saveAll: async () => {
       for (const [path, b] of Object.entries(live.current)) if (b.state === 'text' && (b.text !== b.saved || b.removed)) if (!(await save(path))) return false;
       return true;
@@ -126,6 +131,7 @@ const EditorArea = forwardRef<EditorAreaHandle, { id: string; entries: Entry[]; 
   }, [active, save]);
 
   const close = (path: string) => {
+    if (path === RUN_VIEW) { onRunClose?.(); setTabs(t => { const n = t.filter(p => p !== path); if (active === path) setActive(n[n.length - 1] || ''); return n; }); return; }
     const b = buffers[path];
     if (b && b.text !== b.saved && !window.confirm(`В «${path}» есть несохранённые правки. Закрыть без сохранения?`)) return;
     setTabs(t => { const n = t.filter(p => p !== path); if (active === path) setActive(n[n.length - 1] || ''); return n; });
@@ -145,12 +151,14 @@ const EditorArea = forwardRef<EditorAreaHandle, { id: string; entries: Entry[]; 
           return (
             <div key={p} className={`studio-tab${active === p ? ' is-on' : ''}`} role="presentation">
               <button type="button" role="tab" aria-selected={active === p} onClick={() => setActive(p)} title={p}>
-                {p.split('/').pop()}{dirty && <span className="studio-dirty" aria-label="не сохранён" title="Не сохранён">●</span>}</button>
+                {p === RUN_VIEW ? p : p.split('/').pop()}{dirty && <span className="studio-dirty" aria-label="не сохранён" title="Не сохранён">●</span>}</button>
               <button type="button" className="studio-tab-x" aria-label={`Закрыть ${p}`} onClick={() => close(p)}><X /></button>
             </div>);
         })}
       </div>
       <div className="studio-editor-body">
+        {/* Место окон программы одно и то же всегда: кадры в нём не пересоздаются, когда человек уходит к файлу и возвращается */}
+        <div className="studio-run-scene" ref={onScene} hidden={active !== RUN_VIEW} data-testid="run-scene" />
         {!active && <div className="fx-empty-note">Откройте файл слева. Запустить, проверить и опубликовать программу можно кнопками сверху.</div>}
         {active === FORM_VIEW && (
           <Suspense fallback={<div className="fx-empty-note">Загрузка редактора…</div>}>
@@ -158,7 +166,7 @@ const EditorArea = forwardRef<EditorAreaHandle, { id: string; entries: Entry[]; 
               try { for (const [path, text] of Object.entries(changed)) await call('draftSave', { id, path, text }); await loadDraft(); onSaved(); return ''; } catch (e) { return (e as Error).message; }
             }} />}
           </Suspense>)}
-        {active && active !== FORM_VIEW && b?.state === 'text' && (<>
+        {active && active !== FORM_VIEW && active !== RUN_VIEW && b?.state === 'text' && (<>
           {b.conflict != null && (
             <div className="studio-banner warn" role="alert">Файл изменён снаружи, а у вас есть несохранённые правки.
               <button type="button" className="fx-btn" onClick={() => setBuffers(x => ({ ...x, [active]: { ...x[active], saved: b.conflict!, text: b.conflict!, conflict: null } }))}>Перечитать с диска</button>
