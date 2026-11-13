@@ -219,7 +219,8 @@ async function main() {
   const swap = (file: string, from: string, to: string, ...more: string[]): Plugin => ({
     name: 'mutant', setup(b) {
       b.onLoad({ filter: new RegExp(`${file.replace(/\./g, '\\.')}$`) }, args => {
-        let source = fs.readFileSync(args.path, 'utf8');
+        // На Windows git отдаёт файлы с CRLF: многострочный фрагмент мутации иначе не находится
+        let source = fs.readFileSync(args.path, 'utf8').replace(/\r\n/g, '\n');
         for (const [x, y] of [[from, to], ...(more.length ? [[more[0], more[1]]] : [])]) {
           if (!source.includes(x)) throw new Error(`мутант: в ${file} нет фрагмента «${x}»`);
           source = source.replace(x, y);
