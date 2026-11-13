@@ -17,7 +17,8 @@ import { testCredentials } from './testCredentials';
 import * as XLSX from 'xlsx';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const ADMIN = testCredentials();
 const stamp = Date.now().toString(36);
 /** Второй сотрудник: готовый (FLUX_USER_B/FLUX_PASS_B) или заводится администратором, если у него есть такое право */

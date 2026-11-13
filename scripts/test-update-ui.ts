@@ -5,7 +5,8 @@ import { testSignature } from './fixtures/updateTestSign';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const ADMIN = testCredentials();
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const VERSION = `999.8.${Date.now() % 1_000_000}`;
 const EMPLOYEE_PASSWORD = 'update-ui-test-only';
 

@@ -24,6 +24,7 @@ import { buildModuleLogic, buildTsHostAssets } from '../modules/build';
 import { MODULE_CSP, TS_HOST_FILE, moduleAssetPath, moduleHeaders } from '../modules/protocol';
 import { assembleLogic } from '../studio/shared/runtime';
 import type { ModuleManifest } from '../modules/contract';
+import { findChrome } from './chromePath';
 
 let passed = 0, failedCount = 0;
 const report = (name: string, condition: unknown) => { if (condition) { passed++; console.log('  ✓', name); } else { failedCount++; console.error('  ✗', name); } };
@@ -75,7 +76,7 @@ const LOGIC_NO_COMPUTE = 'export const other = 1;';
 const LOGIC_SYNTAX = 'globalThis.__fluxLogic = { compute( {{{';
 
 async function main() {
-  const chrome = process.env.FLUX_CHROME || '/usr/bin/chromium';
+  const chrome = findChrome();
   if (!fs.existsSync(chrome)) {
     // В CI тихий пропуск недопустим: без живого кадра вся проверка изоляции была бы пустой
     if (process.env.CI) { failedCount++; console.error(`  ✗ в CI нет Chromium (${chrome}): живая проверка изоляции не выполнена`); return; }

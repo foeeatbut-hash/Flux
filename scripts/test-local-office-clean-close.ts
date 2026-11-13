@@ -1,6 +1,7 @@
 /** Чистое локальное окно Таблицы: закрытие не вызывает native save/copy. */
 import { createServer } from 'vite';
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const ok = (name: string, condition: boolean, detail?: unknown) => {
   if (condition) console.log(`✓ ${name}`);
   else throw new Error(`✗ ${name}${detail === undefined ? '' : `: ${JSON.stringify(detail)}`}`);

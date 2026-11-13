@@ -29,6 +29,7 @@ import { ModuleProgramCalls, currentRelease } from '../electron/moduleProgramCal
 import type { ModuleManifest } from '../modules/contract';
 import { hexOf, moduleBundle, newKey, releaseEnvelope } from './fixtures/moduleTrust';
 import { fluxModule, WASM_OPS as OP, wasmSleb } from './fixtures/wasmBuilder';
+import { findChrome } from './chromePath';
 
 let passed = 0, failedCount = 0;
 const report = (name: string, condition: unknown) => { if (condition) { passed++; console.log('  ✓', name); } else { failedCount++; console.error('  ✗', name); } };
@@ -75,7 +76,7 @@ const wasmConstant = () => fluxModule({ output: WASM_OUT });
 const wasmSpinning = () => fluxModule({ output: WASM_OUT, run: [0x20, 1, 0x41, ...wasmSleb(CONTROL_INPUT_BYTES), 0x47, 0x04, 0x40, OP.loop, 0x40, OP.br, 0, OP.end, OP.end, OP.i32const, ...wasmSleb(WASM_OUT.length)] });
 
 async function main() {
-  const chrome = process.env.FLUX_CHROME || '/usr/bin/chromium';
+  const chrome = findChrome();
   if (!fs.existsSync(chrome)) {
     // В CI тихий пропуск недопустим: без настоящих движков набор был бы пустым
     if (process.env.CI) { failedCount++; console.error(`  ✗ в CI нет Chromium (${chrome}): проверка настоящих движков не выполнена`); return; }

@@ -38,7 +38,8 @@ const BASE = process.env.FLUX_API || 'http://localhost:3000';
 /** Сервер второго сотрудника: в отделе он у каждого свой, база одна */
 const BASE2 = process.env.FLUX_API2 || BASE;
 const ADMIN = testCredentials();
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: unknown) =>

@@ -18,6 +18,7 @@ import { LocalOfficeSessions, type LocalOfficeRequest } from '../electron/localO
 import { readOfficeBindings } from '../server/officeBindings';
 import { listDocxFields, listDocxMarkers } from '../server/officeFields';
 import { makeDocxWithTable, makeXlsxWithManualRow, loginPage } from './officeHarness';
+import { findChrome } from './chromePath';
 
 void (async () => {
   type Fixture = { baseUrl: string; projectId: string; dataDir: string; admin: { symbol: string; password: string } };
@@ -28,7 +29,7 @@ void (async () => {
   if (!/^https?:\/\/(127\.0\.0\.1|localhost):\d+$/.test(fixture.baseUrl) || !fixture.dataDir.startsWith('/tmp/flux-guide-server-')) throw new Error('Тест принимает только одноразовый стенд Guide');
   await chmod(metadataPath, 0o600);
   const BASE = fixture.baseUrl.replace(/\/$/, '');
-  const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+  const CHROME = findChrome();
   let failures = 0;
   const fieldRefreshOnly = process.env.FLUX_OFFICE_EXPLORER_ONLY === 'field-refresh';
   const fieldRefreshDone = Symbol('field-refresh-done');

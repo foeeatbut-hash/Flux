@@ -2,7 +2,8 @@ import path from 'node:path';
 import { createServer } from 'vite';
 
 const fixtureConfig = path.resolve('scripts/fixtures/guide-tour-ui/vite.config.ts');
-const chromePath = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const chromePath = findChrome();
 const widths = (process.env.GUIDE_UI_WIDTHS || '320,390,760,1280').split(',').map((value) => Number(value));
 const themes = process.env.GUIDE_UI_THEMES === 'light' ? [false] : process.env.GUIDE_UI_THEMES === 'dark' ? [true] : [false, true];
 let failures = 0;

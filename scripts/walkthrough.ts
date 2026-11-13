@@ -25,7 +25,8 @@ import { resolve } from 'node:path';
 import { SECTIONS } from './walkthroughSections';
 
 const BASE = process.env.FLUX_BASE || 'http://localhost:3000';
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const OUT = process.env.FLUX_FRAMES || resolve('.walkthrough');
 const { symbol: USER, password: PASS } = testCredentials();
 

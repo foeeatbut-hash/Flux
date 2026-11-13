@@ -2,7 +2,8 @@
 import { createServer } from 'vite';
 import { mockFluxPanelApi, openTagsSelection } from './officeLocalPanelMocks';
 
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const check = (name: string, condition: unknown, details?: unknown) => {
   if (!condition) throw new Error(`✗ ${name}${details === undefined ? '' : `: ${JSON.stringify(details)}`}`);
   console.log(`✓ ${name}`);

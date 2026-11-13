@@ -20,7 +20,8 @@ import { testCredentials } from './testCredentials';
 import { VEZA_SAMPLE_XML } from './fixtures/veza';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const USER = testCredentials();
 const OUT = process.env.FLUX_FRAMES || '.walkthrough';
 

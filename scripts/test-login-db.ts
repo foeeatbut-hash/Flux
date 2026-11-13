@@ -2,7 +2,8 @@
 import { readDatabaseConnection } from '../src/lib/connection';
 
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 const DATABASE_URL = 'mysql://synthetic_user:synthetic-secret@db.example.test:3306/Flux';
 
 let failures = 0;

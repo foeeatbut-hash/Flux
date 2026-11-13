@@ -12,7 +12,8 @@
 import { testCredentials } from './testCredentials';
 
 const BASE = process.env.FLUX_UI_URL || 'http://localhost:3917';
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1243/chrome-linux64/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 let failed = 0;
 const check = (name: string, cond: boolean, detail?: unknown) => {
   if (cond) console.log('  ✓', name); else { failed++; console.error('  ✗', name, detail ?? ''); }

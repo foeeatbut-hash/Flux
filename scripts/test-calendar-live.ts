@@ -18,7 +18,8 @@ import { testCredentials } from './testCredentials';
  */
 const BASE = process.env.FLUX_API || 'http://localhost:3000';
 const LOGIN = testCredentials();
-const CHROME = process.env.FLUX_CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+import { findChrome } from './chromePath';
+const CHROME = findChrome();
 
 let f = 0;
 const ok = (n: string, c: boolean, d?: any) =>
