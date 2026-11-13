@@ -452,6 +452,15 @@
       "timeoutMs": 900000
     },
     {
+      "id": "modules-dev-run-native",
+      "path": "scripts/test-modules-dev-run-native.ts",
+      "layer": "windows-native",
+      "platform": "win32",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "modules-connections-native",
       "path": "scripts/test-modules-connections-native.ts",
       "layer": "windows-native",

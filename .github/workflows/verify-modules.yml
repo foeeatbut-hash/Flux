@@ -96,6 +96,11 @@ jobs:
         run: |
           node --import tsx scripts/test-modules-page-native.ts 2>&1 | Tee-Object artifacts/modules-page-native.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Запуск из разработки (Studio → Flux) в Electron на Windows (папка обмена, согласие, срок аренды, «Убрать»)
+        shell: pwsh
+        run: |
+          node --import tsx scripts/test-modules-dev-run-native.ts 2>&1 | Tee-Object artifacts/modules-dev-run-native.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Python и WebAssembly в Electron на Windows
         shell: pwsh
         run: |
