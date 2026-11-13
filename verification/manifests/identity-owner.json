@@ -77,7 +77,11 @@
         "studio/owner/src/signing.cjs",
         "studio/owner/src/network.cjs",
         "studio/owner/src/setup.cjs",
-        "studio/owner/ui/app.js"
+        "studio/owner/console/Licenses.tsx",
+        "studio/owner/console/LicenseIssue.tsx",
+        "studio/owner/console/FluxPublish.tsx",
+        "studio/owner/console/LicenseKeys.tsx",
+        "studio/owner/console/Vault.tsx"
       ]
     }
   ],
