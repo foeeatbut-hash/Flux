@@ -123,7 +123,7 @@ async function main() {
   assert.deepEqual(real.failed, [], `батарея на настоящем коде упала: ${real.failed.join('; ')}`);
 
   console.log('3. Мутации: каждая защита выключается по одной, батарея обязана упасть');
-  const mutants: Array<{ name: string; file: 'electron/moduleProgramCalls.ts' | 'modules/bridge.ts' | 'src/services/moduleProgramCall.ts' | 'src/services/moduleCompute.ts'; from: string; to: string }> = [
+  const mutants: Array<{ name: string; file: 'electron/moduleProgramCalls.ts' | 'modules/bridge.ts' | 'modules/programs/caller.ts' | 'src/services/moduleCompute.ts'; from: string; to: string }> = [
     { name: 'нет проверки разрешения program (главный процесс)', file: 'electron/moduleProgramCalls.ts', from: "if (!hasProgramPermission(caller.manifest, program)) return refuse('NOT_ALLOWED');", to: '' },
     { name: 'нет запрета администратора на обращение к программе', file: 'electron/moduleProgramCalls.ts', from: 'if (this.deps.deniedByPolicy?.(request.moduleId, programPolicyTarget(program))) {', to: 'if (false as boolean) {' },
     { name: 'нет запрета вызова самой себя', file: 'electron/moduleProgramCalls.ts', from: "if (program === request.moduleId) return refuse('NOT_ALLOWED');", to: '' },
@@ -132,7 +132,7 @@ async function main() {
     { name: 'нет предела 4 одновременно (главный процесс)', file: 'electron/moduleProgramCalls.ts', from: 'slot.inFlight >= PROGRAM_LIMITS.inFlight ||', to: '' },
     { name: 'нет предела 256 КиБ на данные (главный процесс)', file: 'electron/moduleProgramCalls.ts', from: '(bytes as number) > PROGRAM_LIMITS.bytes', to: 'false' },
     { name: 'не проверяется метод в exports', file: 'electron/moduleProgramCalls.ts', from: "if (!exportsOf(callee.manifest).some(e => e.method === method)) return refuse('NO_METHOD');", to: '' },
-    { name: 'контрольные примеры вызываемой не проверяются перед методом (окно)', file: 'src/services/moduleProgramCall.ts', from: "if (await ipc.controls(begun.manifest) !== 'ok') throw new ComputeError('CONTROLS');", to: '' },
+    { name: 'контрольные примеры вызываемой не проверяются перед методом (окно)', file: 'modules/programs/caller.ts', from: "if (await ipc.controls(begun.manifest) !== 'ok') throw new ComputeError('CONTROLS');", to: '' },
     { name: 'файл логики TypeScript больше 1 МиБ не останавливается окном', file: 'src/services/moduleCompute.ts', from: "if (target.language === 'typescript' && source.bytes.length > LIMITS.tsFileBytes) throw new ComputeError('ABI', 'файл логики больше 1 МиБ');", to: '' },
     { name: 'вызываемая берётся без проверки «установлена»', file: 'electron/moduleProgramCalls.ts', from: 'const release = installed[moduleId] ? runnable.get(moduleId) : undefined;', to: 'const release = runnable.get(moduleId);' },
     { name: 'вызываемая берётся без проверки контрольных примеров', file: 'electron/moduleProgramCalls.ts', from: 'return release && !blocked(release) ?', to: 'return release ?' },
@@ -157,7 +157,7 @@ async function main() {
       const is = (file: string) => mutant.file === file;
       const result = await battery(mutant.name, is('electron/moduleProgramCalls.ts') ? loaded.ModuleProgramCalls : ModuleProgramCalls,
         is('modules/bridge.ts') ? loaded.createModuleBridge : createModuleBridge, is('electron/moduleProgramCalls.ts') ? loaded.currentRelease : currentRelease,
-        is('src/services/moduleCompute.ts') ? loaded.ModuleCompute : ModuleCompute, is('src/services/moduleProgramCall.ts') ? loaded.createProgramCaller : createProgramCaller);
+        is('src/services/moduleCompute.ts') ? loaded.ModuleCompute : ModuleCompute, is('modules/programs/caller.ts') ? ((options: any, deps: any) => loaded.createProgramCallerWith(options, deps)) as typeof createProgramCaller : createProgramCaller);
       check(`мутация «${mutant.name}» замечена (${result.failed.length} проверок упало)`, result.failed.length > 0);
     } finally { fs.rmSync(target, { force: true }); }
   }

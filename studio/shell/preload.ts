@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('studio', Object.freeze({
   onState: (fn: unknown) => subscribe('studio:state', fn),
   onProgress: (fn: unknown) => subscribe('studio:progress', fn),
   onProject: (fn: unknown) => subscribe('studio:project', fn),
+  /** События запуска программы: вопрос человеку о подключении и снятие вопроса (studio/shared/runActions.ts) */
+  onRun: (fn: unknown) => subscribe('studio:run', fn),
 }));
 
 /** Кнопки окна — тот же мост, что у Flux (window.electron.windowControls), чтобы одна и та же плавающая панелька работала в обеих программах */

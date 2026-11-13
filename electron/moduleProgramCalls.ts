@@ -32,7 +32,8 @@ export interface ProgramCallDeps {
   /** Вызываемая: выпуск, который у этого человека запускается СЕЙЧАС; null — не установлена, не допущена, отозвана или не прошла контрольные примеры */
   current: (moduleId: string) => Promise<VerifiedModule | null>;
   userId: () => string;
-  journal: ModuleJournal;
+  /** Нужна только запись: Studio подставляет журнал в памяти, Flux — файловый */
+  journal: Pick<ModuleJournal, 'add'>;
   /** Запрет администратора: вызывающая не вправе обращаться к этой программе (ModuleGrants.isDeniedByPolicy); сильнее согласия при установке */
   deniedByPolicy?: (callerId: string, target: string) => boolean;
   now?: () => number;

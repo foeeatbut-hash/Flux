@@ -4,6 +4,7 @@
  * Расчёт идёт в отдельном потоке, чтобы бесконечный цикл или раздутая память разработчика
  * остановил главный процесс, а не зависла Studio. Поток живёт один расчёт.
  */
+import vm from 'node:vm';
 import { parentPort, workerData } from 'node:worker_threads';
 import { ComputeError } from '../../modules/engine/types';
 import { loadWasm, runWasm } from '../../modules/engine/wasm';
@@ -15,12 +16,18 @@ async function run(job: Job): Promise<string> {
     const loaded = await loadWasm(job.bytes!, 'controls');
     return runWasm(loaded, job.input, { seed: job.seed });
   }
-  // Логика TypeScript приходит уже переведённой в CommonJS (studio/shared/logicSource.ts)
-  const module = { exports: {} as Record<string, unknown> };
-  new Function('module', 'exports', job.code!)(module, module.exports);
-  const compute = module.exports.compute;
-  if (typeof compute !== 'function') throw new ComputeError('ABI', 'в logic/main.ts нет функции compute');
-  return JSON.stringify(await (compute as (input: unknown) => unknown)(JSON.parse(job.input)));
+  // Логика TypeScript приходит уже переведённой в CommonJS (studio/shared/logicSource.ts). Исполняется в пустом контексте vm:
+  // ни process, ни require, ни fetch, ни import() там нет — как у хоста логики во Flux (без сети и без файлов). Контекст создаётся
+  // из объекта без прототипа и ничего из этого потока в него не передаётся: любой переданный объект открыл бы путь наружу
+  // через `.constructor.constructor`. Вход и выход — строки JSON.
+  const context = vm.createContext(Object.create(null));
+  const call = vm.runInContext(
+    `(function(){var module={exports:{}},exports=module.exports;${job.code!}\n;var c=module.exports.compute;`
+    + 'return typeof c==="function"?function(t){return Promise.resolve(c(JSON.parse(t))).then(function(v){return JSON.stringify(v)})}:null})()',
+    context,
+  ) as ((input: string) => Promise<string>) | null;
+  if (!call) throw new ComputeError('ABI', 'в logic/main.ts нет функции compute');
+  return call(job.input);
 }
 
 run(workerData as Job).then(

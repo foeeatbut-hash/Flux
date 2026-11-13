@@ -36,7 +36,8 @@ export interface ConnectionDeps {
   resolve: (moduleId: string, version: string) => Promise<VerifiedModule | null>;
   userId: () => string;
   grants: ModuleGrants;
-  journal: ModuleJournal;
+  /** Нужна только запись: Studio подставляет журнал в памяти, Flux — файловый */
+  journal: Pick<ModuleJournal, 'add'>;
   /** Помощник COM программы: у каждой свой, чтобы таймаут или сбой одной не трогал объекты других */
   comFor: (moduleId: string) => ComBackend;
   lookup?: Lookup;

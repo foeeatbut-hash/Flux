@@ -34,9 +34,12 @@ import { TestBase } from '../shared/testBase';
 import { validMessage } from '../../modules/schemas';
 import { hasNetPermission } from '../../modules/permissions/registry';
 import { ConnectError } from '../../modules/connections/model';
-import { fetchUrl, systemLookup } from '../../electron/moduleNet';
+import { fetchUrl, systemLookup, type Lookup } from '../../electron/moduleNet';
+import type { ComBackend } from '../../electron/moduleCom';
 import type { DeveloperAction } from './actions';
 import { DevRunHost } from './devRunHost';
+import { RunHost } from './runHost';
+import type { SaveDialog } from './runSaveFile';
 import { DevRunRefused } from '../shared/devRun';
 import { studioRequest, StudioFailure, type StudioUser } from './api';
 import {
@@ -65,6 +68,14 @@ export interface DeveloperDeps {
   home?: string;
   /** Диалог «дайте программе файл» (flux.openFile в запуске): показывает главный процесс; путь или null, если человек отказался */
   pickDataFile?: (options: { title: string; filters: Array<{ name: string; extensions: string[] }> }) => Promise<string | null>;
+  /** Системный диалог «Сохранить как» для файла от программы (`runSaveFile`): путь, выбранный человеком, или null */
+  pickSaveFile?: SaveDialog;
+  /** Помощник COM запущенной программы; по умолчанию — как во Flux (на Windows PowerShell). Проверки подставляют поддельный */
+  com?: () => ComBackend;
+  /** Разрешение имён для подключений запущенной программы; проверки подставляют своё */
+  lookup?: Lookup;
+  /** Сколько ждать ответа человека на вопрос о подключении, мс (по умолчанию 5 минут) */
+  askTimeoutMs?: number;
   /** Период запасного опроса папки, мс */
   pollMs?: number;
   /** Папка данных Flux для «Запустить во Flux»; по умолчанию ищется по правилам Flux. Проверки подставляют свою */
@@ -112,6 +123,8 @@ export class DeveloperService {
   private run: Run | null = null;
   private readonly requested: RequestedMarker;
   readonly devRun: DevRunHost;
+  /** Подключения, вторая программа и файл пользователю в запуске (studio/shell/runHost.ts) */
+  readonly runHost: RunHost;
 
   constructor(private readonly deps: DeveloperDeps) {
     this.keyring = new DeveloperKeyring(deps.dir, deps.storage);
@@ -121,6 +134,12 @@ export class DeveloperService {
     this.testBase = new TestBase(deps.dir);
     this.requested = new RequestedMarker(deps.dir);
     this.devRun = new DevRunHost({ keyring: this.keyring, dataDir: deps.fluxDataDir, now: deps.now });
+    this.runHost = new RunHost({
+      current: () => this.run ? { id: this.run.id, manifest: this.run.manifest, name: this.run.name } : null,
+      emit: event => deps.emit?.('studio:run', event), engine: deps.engine, com: deps.com, lookup: deps.lookup, askTimeoutMs: deps.askTimeoutMs, pickSaveFile: deps.pickSaveFile,
+      build: id => this.buildProgram(id),
+      drafts: () => this.drafts.list().map(({ id }) => ({ id, manifest: (() => { try { return this.manifestOf({ 'manifest.json': this.drafts.readAny(id, 'manifest.json') }); } catch { return null; } })() })),
+    });
     // Папки прежнего запуска, не дожившего до «Убрать» (вылет, выключение питания), убираются при старте
     this.devRun.sweep();
   }
@@ -221,13 +240,14 @@ export class DeveloperService {
         const id = moduleId(args.id);
         this.unwatch();
         if (this.devRun.state().moduleId !== id) this.devRun.stop();
+        if (this.run && this.run.manifest.id !== id) await this.stopRun();
         const watcher = new FolderWatcher(this.drafts.space(id), changes => this.deps.emit?.('studio:project', { id, changes }), this.deps.pollMs);
         watcher.start();
         this.watching = { id, watcher };
         return { watching: true };
       }
       // Окно проекта закрыто — запуск во Flux из него снимается
-      case 'projectUnwatch': { this.unwatch(); this.devRun.stop(); return { watching: false }; }
+      case 'projectUnwatch': { this.unwatch(); this.devRun.stop(); await this.stopRun(); return { watching: false }; }
       // Скачать проект архивом: место сохранения выбирает человек
       case 'projectExport': {
         const id = moduleId(args.id), target = await this.deps.pickArchive?.('save', `${id}.zip`);
@@ -303,6 +323,10 @@ export class DeveloperService {
         return pickForWire(this.run.name, args.accept, this.deps.pickDataFile);
       }
       case 'runNet': return this.runNet(args);
+      // Полный запуск: подключения, вторая программа, файл пользователю (договор — studio/shared/runActions.ts)
+      case 'runConnect': case 'runConnectAnswer': case 'runProgram': case 'runSaveFile': case 'testPrograms': return this.runHost.handle(action, args);
+      case 'testProgramInstall': case 'testProgramRemove': return this.runHost.handle(action, { id: moduleId(args.id) });
+      case 'runStop': { await this.stopRun(); return { stopped: true }; }
       case 'devRunStart': return this.startDevRun(moduleId(args.id));
       case 'devRunStop': { this.devRun.stop(); return this.devRun.state(); }
       case 'devRunState': return this.devRun.state();
@@ -363,7 +387,7 @@ export class DeveloperService {
 
   private unwatch() { this.watching?.watcher.stop(); this.watching = null; }
   /** Закрытие окна: слежение останавливается */
-  dispose() { this.unwatch(); this.devRun.dispose(); }
+  dispose() { this.unwatch(); this.devRun.dispose(); this.run = null; void this.runHost.shutdown(); }
 
   private guard<T>(fn: () => T): T {
     try { return fn(); } catch (error) { if (error instanceof KeyringFailure) throw new StudioFailure(error.message); throw error; }
@@ -388,6 +412,14 @@ export class DeveloperService {
     return { projectId: str(args.projectId), entry, entityId: str(args.entityId) };
   }
 
+  /** Запуск закрыт: подключения, объекты COM и вопросы человеку этого запуска закрываются, run* дальше отказывают до нового runStart */
+  private async stopRun() {
+    const run = this.run;
+    if (!run) return;
+    this.run = null;
+    await this.runHost.closeRun(run.id);
+  }
+
   private async startRun(id: string, args: Record<string, any>) {
     const draft = this.drafts.files(id), manifest = this.manifestOf(draft);
     // Проект с TypeScript сначала собирается сам; ошибка сборки — это ошибка запуска, с файлом и строкой
@@ -399,6 +431,8 @@ export class DeveloperService {
     if (built.problem) throw new StudioFailure(built.problem);
     this.testBase.ensure();
     const t = this.runtimeTemplates();
+    // Прежний запуск (другая программа или новая сборка) закрывается целиком: его сокеты и объекты COM не переходят в новый
+    await this.stopRun();
     this.run = {
       id: randomUUID(), language: languageOf(manifest), files, logicPath: manifest.logic, runtime: built.runtime, html: t.html, css: t.css,
       context: this.context(args), resources: manifest.reads || [], page, name: manifest.name, manifest,
@@ -414,6 +448,17 @@ export class DeveloperService {
     const s = this.session();
     const refuse = <T>(fn: () => T): T => { try { return fn(); } catch (e) { if (e instanceof DevRunRefused) throw new StudioFailure(e.message); throw e; } };
     refuse(() => this.devRun.checkFlux());
+    const built = await this.buildProgram(id);
+    const info = this.keyring.info();
+    const certificate = info.exists ? await certificateEnvelope(s, info.publicKey) : '';
+    return refuse(() => this.devRun.start({ certificate, userId: s.user.id, moduleId: id, version: String(built.manifest.version), files: built.files, runtime: built.runtime, logic: built.logic }));
+  }
+
+  /**
+   * Сборка проекта так, как она уходит во Flux: TypeScript собран, страница или форма проверены, логика метода собрана.
+   * Общая для «Запустить во Flux» и для «установить» вторую программу в тестовую базу запуска: одна сборка, один набор отказов.
+   */
+  private async buildProgram(id: string) {
     const draft = this.drafts.files(id), manifest = this.manifestOf(draft);
     if (manifest.id !== id || !MODULE_VERSION.test(String(manifest.version))) throw new StudioFailure('Идентификатор и версия в manifest.json не сходятся с проектом.');
     const compiled = await this.compiled(draft);
@@ -423,9 +468,7 @@ export class DeveloperService {
     if (built.problem) throw new StudioFailure(`Сборка не прошла: ${built.problem}`);
     const builtLogic = assembleLogic(manifest, files);
     if (builtLogic.problem) throw new StudioFailure(`Сборка не прошла: логика на TypeScript не собралась: ${builtLogic.problem}`);
-    const info = this.keyring.info();
-    const certificate = info.exists ? await certificateEnvelope(s, info.publicKey) : '';
-    return refuse(() => this.devRun.start({ certificate, userId: s.user.id, moduleId: id, version: String(manifest.version), files, runtime: built.runtime, logic: builtLogic.logic }));
+    return { manifest, files, runtime: built.runtime, logic: builtLogic.logic };
   }
 
   /**
