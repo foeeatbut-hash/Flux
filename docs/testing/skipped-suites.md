@@ -37,7 +37,7 @@
 | test-windows-files-native | не Windows — SKIP; нет второго тома — SKIP отдельных проверок | verify-windows-shell (Windows) |
 | test-e3-probe | нет PowerShell; часть проверок только Windows | verify-windows-shell |
 | test-windows-files | символьная ссылка без права SeCreateSymbolicLink (EPERM) — одна проверка | verify-windows-shell, build-portable, verify-drafts-panel |
-| test-office-bus | нет `FLUX_PG` — проверки PostgreSQL пропущены | нигде в workflow; только через `npm run check` локально |
+| test-office-bus | нет `FLUX_PG` — проверки PostgreSQL пропущены | verify-security-db (с `FLUX_PG` от сервиса postgres; SQLite и PostgreSQL проходят оба) |
 | test-studio-workspace, test-studio-tsbuild | нет ссылок / нет сетевого адреса кроме петли — часть проверок | build-studio (Ubuntu): часть проверок пропускается |
 
 Строки `SKIP ...` без `FLUX_VERIFY_SKIP:` (windows-files-native, e3-probe,

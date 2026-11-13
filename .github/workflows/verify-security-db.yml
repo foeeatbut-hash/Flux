@@ -107,6 +107,11 @@ jobs:
             }
           })().catch(error => { console.error(error); process.exitCode = 1; });
           NODE
+      - name: Общая шина Flux Office на SQLite и PostgreSQL (два сервера на одной базе)
+        env:
+          # Адрес базы того же сервера: набор создаёт свою базу и удаляет её после себя.
+          FLUX_PG: postgresql://postgres:disposable-ci-fixture-password@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres
+        run: node --import tsx scripts/test-office-bus.ts
       - name: Проверка типов
         run: npm run lint
       - name: Сессии, лицензии, подписи, упаковка и сохранность базы
