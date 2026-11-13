@@ -43,7 +43,7 @@ export const ASK_WAIT_MS = 5 * 60_000;
 export function connectLine(code: ConnectErrorCode, connection: string): string {
   const name = `подключение «${connection.slice(0, 40)}»`;
   switch (code) {
-    case 'DENIED': return `${name}: отказ — оно не объявлено в connections манифеста, вызов не подходит к объявлению (вид, путь, адрес, белый список COM, allowDangerous) или имеет неверную форму`;
+    case 'DENIED': return `${name}: отказ — оно не объявлено в разделе connections описания программы (manifest.json), вызов не подходит к объявлению (вид, путь, адрес, белый список COM, allowDangerous) или имеет неверную форму`;
     case 'NOT_ALLOWED': return `${name}: не разрешено — человек отказал в этом запуске или не ответил. Политики администратора в Studio нет: во Flux подключение может запретить и администратор`;
     case 'LIMIT': return `${name}: предел — слишком частые, большие или одновременные вызовы либо слишком много открытых подключений (пределы те же, что во Flux)`;
     case 'TIMEOUT': return `${name}: время вызова вышло`;

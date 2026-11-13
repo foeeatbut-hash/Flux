@@ -37,7 +37,7 @@ export function programLine(code: ProgramCallErrorCode, call: ProgramCall, detai
   switch (code) {
     case 'NOT_ALLOWED': return `${what}: NOT_ALLOWED — у вызывающей нет разрешения program на «${call.program}» в manifest.json, либо это вызов самой себя или вложенный вызов`;
     case 'NOT_INSTALLED': return `${what}: NOT_INSTALLED — «${call.program}» не установлена в тестовую базу этого запуска: установите её в списке второй программы`;
-    case 'NO_METHOD': return `${what}: NO_METHOD — метод не объявлен в exports манифеста «${call.program}»`;
+    case 'NO_METHOD': return `${what}: NO_METHOD — метод не объявлен в разделе exports описания программы «${call.program}»`;
     case 'LIMIT': return `${what}: LIMIT — слишком частые, большие или одновременные вызовы либо ответ больше 256 КиБ (пределы те же, что во Flux)`;
     case 'TIMEOUT': return `${what}: TIMEOUT — метод не уложился во время расчёта`;
     default: return `${what}: FAILED — метод не выполнился${detail ? ` (${detail})` : ''}`;
