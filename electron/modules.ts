@@ -1,11 +1,13 @@
-import { app, protocol, session, type WebContents } from 'electron';
+import { app, BrowserWindow, protocol, session, type WebContents } from 'electron';
 import { hardenModuleContents, hardenModuleSession } from '../modules/page/harden';
 import path from 'node:path';
+import os from 'node:os';
 import fs from 'node:fs/promises';
 import { bundledModules } from '../modules/bundled';
 import { MODULE_COMPUTE_HOST, MODULE_SCHEME, MODULE_SHELL_DIR, TS_HOST_FILE, moduleAssetPath, moduleHeaders, pageNavigationAllowed } from '../modules/protocol';
 import { CONTROLS_FILE, LOGIC_BUILD_FILE, LOGIC_FILES } from '../modules/engine/types';
 import { RUNTIME_FILE } from '../modules/trust/bundle';
+import { DEV_RUN_DIR } from '../modules/trust/devRun';
 import { FLUX_ASSET_DIR, FLUX_ASSET_FILE, PAGE_URL_FILE, pageTypeOf } from '../modules/page/model';
 import type { RunnableRelease } from '../modules/trust/verify';
 import { UPDATE_PUBLIC_KEY_HEX } from './updateKey';
@@ -17,6 +19,8 @@ import { ModuleConnections, type VerifiedModule } from './moduleConnections';
 import { registerConnectionsIpc } from './moduleConnectionsIpc';
 import { ModuleProgramCalls, currentRelease } from './moduleProgramCalls';
 import { ModuleGrants } from './moduleGrants';
+import { ModuleDevRuns } from './moduleDevRuns';
+import { registerModuleDevRunsIpc } from './moduleDevRunsIpc';
 import { ModuleJournal } from './moduleJournal';
 import { defaultComBackend, type ComBackend } from './moduleCom';
 import type { Lookup } from './moduleNet';
@@ -47,6 +51,20 @@ export interface ModuleProtocolOptions {
   /** Подключения: поддельный COM и своё разрешение имён для проверок; в выпуске не передаются */
   com?: ComBackend;
   lookup?: Lookup;
+  /** Папка обмена с Studio (`<данные Flux>/dev-run`) и часы аренды: для проверок; в выпуске не передаются */
+  devDir?: string;
+  devNow?: () => number;
+}
+
+/**
+ * Папка данных Flux (`pdm-app`), в которой Studio оставляет пакет разработки. Вычисляется так же, как в
+ * electron/main.ts (APPDATA, иначе ~/Library/Application Support или ~/.config) и как у Studio
+ * (studio/shared/fluxAddress.ts): три стороны обязаны назвать одну папку.
+ */
+export function devRunDirectory(): string {
+  const home = os.homedir();
+  const base = process.env.APPDATA || (process.platform === 'darwin' ? path.join(home, 'Library', 'Application Support') : path.join(home, '.config'));
+  return path.join(base, 'pdm-app', DEV_RUN_DIR);
 }
 
 /**
@@ -66,22 +84,44 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
   const cache = new ModuleCache(dir, options.rootHex ?? UPDATE_PUBLIC_KEY_HEX);
   const selection = new ModuleSelection(path.join(dir, 'selection.json'));
   const controls = new ModuleControls(path.join(dir, 'controls.json'), process.versions.electron);
+  // base — проверенные выпуски из кэша; runnable — то, что реально запускается: base, а поверх неё пакеты разработки
+  // (только с согласием человека и свежей арендой). Встроенный пример с тем же именем остаётся встроенным.
+  let base = new Map<string, RunnableRelease>();
   let runnable = new Map<string, RunnableRelease>();
   const resolved = new Map<string, { value: VerifiedModule; release: RunnableRelease } | null>();
-  const refresh = async () => {
+  const grants = new ModuleGrants(path.join(dir, 'grants.json'));
+  const rootHex = options.rootHex ?? UPDATE_PUBLIC_KEY_HEX;
+  const devRuns = new ModuleDevRuns({
+    dir: options.devDir ?? devRunDirectory(), rootHex: () => rootHex, revoked: () => cache.revoked(), userId: () => selection.active, reserved: bundledIds, now: options.devNow,
+    changed: () => {
+      rebuild();
+      // Окно Flux узнаёт об изменении событием, а не опросом: пакет мог истечь, появиться или быть убран
+      for (const win of BrowserWindow.getAllWindows()) { try { win.webContents.send('modules:devChanged'); } catch { /* окно закрывается */ } }
+    },
+  });
+  const rebuild = () => {
     resolved.clear();
-    try { runnable = await cache.resolve(selection.versions(), selection.channels); }
-    catch (e: any) { console.error('[Модули] Кэш выпусков не прочитан:', e?.message); }
-    // Встроенный пример с тем же именем остаётся встроенным: выпуск его не подменяет
+    runnable = new Map(base);
     for (const id of bundledIds) runnable.delete(id);
+    const dev = devRuns.active();
+    for (const [id, release] of dev) if (!bundledIds.includes(id)) runnable.set(id, release);
+    // Решения о подключениях пакета разработки не переживают его самого
+    grants.dropDevExcept(new Set(dev.keys()));
+  };
+  grants.setDevScope(id => devRuns.isActive(id));
+  const refresh = async () => {
+    try { base = await cache.resolve(selection.versions(), selection.channels); }
+    catch (e: any) { console.error('[Модули] Кэш выпусков не прочитан:', e?.message); }
+    await devRuns.scan().catch((e: any) => console.error('[Модули] Папка обмена с Studio не прочитана:', e?.message));
+    rebuild();
     return runnable;
   };
-  const grants = new ModuleGrants(path.join(dir, 'grants.json'));
   const journal = new ModuleJournal(path.join(dir, 'journal.json'));
-  const ready = Promise.all([selection.load(), controls.load(), grants.load(), journal.load()]).then(refresh);
+  const ready = Promise.all([selection.load(), controls.load(), grants.load(), journal.load()]).then(refresh).then(() => { devRuns.start(); });
 
   protocol.handle(MODULE_SCHEME, async request => {
     await ready;
+    await devRuns.touch();
     const asset = moduleAssetPath(request.url, [...bundledIds, ...runnable.keys(), MODULE_COMPUTE_HOST]);
     if (request.method !== 'GET' || !asset) return new Response(null, { status: 404 });
     try {
@@ -122,15 +162,21 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
     } catch (_) { return new Response(null, { status: 404 }); }
   });
 
-  registerModuleStoreIpc({ cache, selection, bundledIds, ready, refresh, runnable: () => runnable });
+  const shown = () => { const m = new Map(base); for (const id of bundledIds) m.delete(id); return m; };
+  registerModuleStoreIpc({ cache, selection, bundledIds, ready, refresh, runnable: () => runnable, shown, dev: () => devRuns.list().filter(item => item.live), trusted: options.trusted });
+  registerModuleDevRunsIpc({ devRuns, ready, userId: () => selection.active, trusted: options.trusted });
   registerModuleControlsIpc(controls, () => runnable, ready, options.trusted);
 
   // Подключения к внешним программам: проверенный выпуск — единственный источник разрешения
   const controlsBlocked = (release: RunnableRelease) => controls.blocked(release);
   const resolve = async (moduleId: string, version: string): Promise<VerifiedModule | null> => {
     await ready;
+    await devRuns.touch();
     const bundled = bundledModules.find(m => m.id === moduleId && m.version === version);
     if (bundled) return { manifest: bundled, version, author: bundled.author, verifiedAt: 0 };
+    // Пакет разработки запускается без установки, но только та сборка, на разрешения которой человек согласился
+    const dev = devRuns.active().get(moduleId);
+    if (dev && dev.claim.version === version) return controlsBlocked(dev) ? null : { manifest: dev.manifest, version, author: dev.claim.author, verifiedAt: dev.claim.iat };
     if (!selection.installed[moduleId]) return null;
     // Проверка подписей и чтение кэша дороги (десятки мс): результат держится до следующего обновления проверенных выпусков
     const key = `${moduleId}@${version}`;
@@ -144,13 +190,16 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
   // Вызываемая программа — та версия, что запускается у человека сейчас: выбранная, в открытом ему канале, не отозванная и не заблокированная контрольными примерами
   const current = async (moduleId: string): Promise<VerifiedModule | null> => {
     await ready;
+    await devRuns.touch();
+    const dev = devRuns.active().get(moduleId);
+    if (dev) return controlsBlocked(dev) ? null : { manifest: dev.manifest, version: dev.claim.version, author: dev.claim.author, verifiedAt: dev.claim.iat };
     return currentRelease(runnable, selection.installed, controlsBlocked, moduleId);
   };
   const programs = new ModuleProgramCalls({ resolve, current, userId: () => selection.active, journal, deniedByPolicy: (id, target) => grants.isDeniedByPolicy(id, target) });
   registerConnectionsIpc({
     service, programs, grants, journal, resolve, ready, userId: () => selection.active, trusted: options.trusted,
-    installed: async () => { await ready; return [...runnable.values()].filter(r => selection.installed[r.manifest.id]).map(r => ({ manifest: r.manifest, version: r.claim.version, author: r.claim.author, verifiedAt: r.claim.iat })); },
+    installed: async () => { await ready; return [...runnable.values()].filter(r => selection.installed[r.manifest.id] || devRuns.isActive(r.manifest.id)).map(r => ({ manifest: r.manifest, version: r.claim.version, author: r.claim.author, verifiedAt: r.claim.iat })); },
   });
-  app.on('before-quit', () => { void service.shutdown(); void journal.flush(); });
-  return { service, journal, grants };
+  app.on('before-quit', () => { devRuns.stop(); void service.shutdown(); void journal.flush(); });
+  return { service, journal, grants, devRuns };
 }

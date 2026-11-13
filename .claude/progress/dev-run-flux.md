@@ -9,15 +9,21 @@
 
 ## Шаги
 
-- [x] 1. Набор `scripts/test-modules-dev-run.ts` (49 проверок, в реестре `modules-dev-run`); мутации: 24 из 24 пойманы
-- [ ] 2. Главный процесс: `electron/moduleDevRuns.ts`, встройка в `electron/modules.ts`, IPC `modules:devRuns`/`devAccept`/`devRemove`
-- [ ] 3. Окно Flux: список программ, плашка «Разработка — не выпущено», «Убрать», диалог согласия
-- [ ] 4. Набор на настоящем Electron, tsc, `run-checks modules`, архитектурный, раздел в `03-programs/modules.md`
+- [x] 1. Набор `scripts/test-modules-dev-run.ts` (49 проверок, реестр `modules-dev-run`); мутации verifyDevRun: 24 из 24 пойманы
+- [x] 2. Главный процесс: `electron/moduleDevRuns.ts` (чтение папки, проверка, память, согласие, «Убрать»), `moduleDevRunsIpc.ts` (`modules:devRuns/devAccept/devRemove`, событие `modules:devChanged`), встройка в `modules.ts` (overlay поверх кэша: base → runnable), `moduleGrants.ts` (отдельная область `dev:` для решений о подключениях, не пишется в файл). Набор `test-modules-dev-run-host.ts` (60 проверок, реестр `modules-dev-run-host`); мутации ModuleDevRuns/ModuleGrants: все пойманы
+- [ ] 3. Окно Flux: «Пуск» (плашка), Библиотека Store («Из разработки»: карточки, причины отказа, «Убрать»), ModuleHost (плашка, согласие, остановка при истечении)
+- [ ] 4. Набор на настоящем Electron (`test-modules-dev-run-native.ts`), tsc, `run-checks modules`, архитектурный, раздел в `03-programs/modules.md`
 
-## Проверки «до»
+## Проверки «до» (a6fc5056)
 
-`run-checks.ts modules` на a6fc5056 — см. ниже (заполняется).
+`run-checks.ts modules`: 40 наборов, провалено 3 (restart-ui, store-ui, windows-ui: нет Chromium/FLUX_UI_URL — среда), пропущено 5 (native: нет DISPLAY). Это с моим набором step 1 (он проходит).
+
+## Решения
+
+- Решения о подключениях пакета разработки не смешиваются с выпуском: ключ `dev:<user>|<id>|<conn>`, только память.
+- `modules:state` не включает пакеты разработки в `runnable` (иначе попадут в обращения/ошибки по программам), а даёт отдельный `dev`.
+- Согласие: в памяти, ключ (человек, программа, хеш сборки).
 
 ## На чём остановился
 
-Шаг 1 готов.
+Шаг 2 готов, коммит — ниже. Следующее: шаг 3.

@@ -43,6 +43,10 @@ export const INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   'modules:journal-recent',
   // Файл пользователя для программы: диалог показывает главный процесс (electron/modulePickFile.ts)
   'modules:pick-file',
+  // Программы из разработки («Запустить во Flux» из Studio): список, согласие, «Убрать» (electron/moduleDevRunsIpc.ts)
+  'modules:devRuns',
+  'modules:devAccept',
+  'modules:devRemove',
   'app:get-server-url',
   'app:get-database',
   'app:probe-database',
@@ -73,6 +77,8 @@ export const LISTEN_CHANNELS: ReadonlySet<string> = new Set([
   'updater:status',
   'updater:error',
   'window:maximized-changed',
+  // Пакет из разработки появился, истёк или убран (electron/modules.ts)
+  'modules:devChanged',
 ]);
 
 export const refused = (channel: string) =>

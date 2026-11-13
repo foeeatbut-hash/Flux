@@ -10,7 +10,7 @@ import { ipcMain } from 'electron';
 import { effectiveChannel, type PromotionClaim } from '../modules/trust/promotion';
 import { permissionsDigest } from '../modules/store/model';
 import type { RunnableRelease } from '../modules/trust/verify';
-import { trustedAuthSender } from './authStorage';
+import { trustedAuthSender as trustedAuthSenderDefault } from './authStorage';
 import type { ModuleCache, ReleaseRow } from './moduleCache';
 import type { ModuleSelection } from './moduleSelection';
 
@@ -25,12 +25,22 @@ export interface ModuleHost {
   ready: Promise<unknown>;
   refresh: () => Promise<Map<string, RunnableRelease>>;
   runnable: () => Map<string, RunnableRelease>;
+  /**
+   * Что показывать окну как «запущено из Store»: без пакетов разработки (по умолчанию — `runnable`). Пакет разработки
+   * заменяет установленную программу только в протоколе и подключениях, а в состоянии Store это одно и то же имя.
+   */
+  shown?: () => Map<string, RunnableRelease>;
+  /** Программы из разработки, проверенные и с живой арендой: окно добавляет их в «Пуск» с плашкой */
+  dev?: () => unknown[];
+  trusted?: (event: Electron.IpcMainInvokeEvent) => boolean;
 }
 
 const refuse = { ok: false, error: 'Доступно только окну Flux.' };
 
 export function registerModuleStoreIpc(host: ModuleHost) {
   const { cache, selection } = host;
+  // Проверка отправителя подменяется только в проверках; в выпуске — окно Flux
+  const trustedAuthSender = host.trusted ?? trustedAuthSenderDefault;
   const describe = (r: RunnableRelease, promotions: readonly PromotionClaim[]) => ({ manifest: r.manifest, version: r.claim.version, channel: effectiveChannel(r.claim, r.signature, promotions), author: r.claim.author });
 
   /** Всё, что окну нужно знать о этом компьютере: установленное, проверенные версии, что реально запущено */
@@ -44,11 +54,11 @@ export function registerModuleStoreIpc(host: ModuleHost) {
     for (const moduleId of new Set(cached.map(c => c.moduleId))) {
       for (const r of await cache.available(moduleId, channels)) available.push({ moduleId, ...describe(r, promotions) });
     }
-    const runnable = host.runnable();
+    const runnable = (host.shown ?? host.runnable)();
     const fallbacks = Object.fromEntries(Object.entries(selection.versions())
       .filter(([id, wanted]) => runnable.get(id)?.claim.version !== wanted).map(([id, wanted]) => [id, { wanted, running: runnable.get(id)?.claim.version || null }]));
     return { ok: true, userId: selection.active, channels, revoked: { releases: [...revoked.releases], keys: [...revoked.keys] }, channelCaps: Object.fromEntries(caps), installed: selection.installed, cached, available, fallbacks,
-      runnable: [...runnable.values()].map(r => describe(r, promotions)) };
+      runnable: [...runnable.values()].map(r => describe(r, promotions)), dev: host.dev?.() ?? [] };
   };
 
   ipcMain.handle('modules:state', async event => {
