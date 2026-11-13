@@ -162,12 +162,15 @@ export function startShell(sections: ShellSection[] = []): void {
   app.whenReady().then(() => {
     const dataDir = app.getPath('userData');
     remembered = new RememberedBase(dataDir, safeStorage);
+    const tsBuilder = createTsBuilder({ workerFile: unpacked(path.join(__dirname, 'ts-build-worker.cjs')), wasmFile: unpacked(path.join(__dirname, 'esbuild.wasm')), typesWorkerFile: unpacked(path.join(__dirname, 'ts-type-worker.cjs')) });
+    // Разбор стандартной библиотеки TypeScript занимает секунды: поднимаем поток сверки типов заранее, а не при первом «Собрать»
+    tsBuilder.warm?.();
     developer = new DeveloperService({
       dir: dataDir, storage: safeStorage, version: __STUDIO_VERSION__,
       session: () => runtime && token && user ? { origin: runtime.origin, token, user, owner } : null,
       assets: { templatesRoot: path.join(__dirname, 'templates'), runtimeDir: path.join(__dirname, 'runtime') },
       engine: createControlsEngine({ workerFile: unpacked(path.join(__dirname, 'controls-worker.cjs')) }),
-      tsBuilder: createTsBuilder({ workerFile: unpacked(path.join(__dirname, 'ts-build-worker.cjs')), wasmFile: unpacked(path.join(__dirname, 'esbuild.wasm')) }),
+      tsBuilder,
       capture: async rect => (await win!.webContents.capturePage(rect)).toPNG(),
       home: path.join(app.getPath('documents'), 'Flux Studio'),
       emit: (channel, data) => { if (win && !win.isDestroyed()) win.webContents.send(channel, data); },

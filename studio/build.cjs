@@ -136,7 +136,7 @@ function builderConfig({ target, outDir, release }) {
     directories: { app: path.join(outDir, 'app'), output: release },
     files: ['**/*'],
     // Рабочий поток контрольных примеров запускается как файл: из app.asar его не открыть
-    asarUnpack: ['controls-worker.cjs', 'ts-build-worker.cjs', 'esbuild.wasm'],
+    asarUnpack: ['controls-worker.cjs', 'ts-build-worker.cjs', 'ts-type-worker.cjs', 'esbuild.wasm'],
     win: { target: [{ target: 'portable', arch: ['x64'] }], icon: path.join(root, 'studio/icons', `${spec.icon}.ico`), artifactName: spec.exe.replace(/\.exe$/, '.${ext}') },
     portable: { requestExecutionLevel: 'user' },
   };

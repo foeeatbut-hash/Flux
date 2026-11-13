@@ -6,6 +6,10 @@
  * - настоящая сборка в потоке: несколько файлов собираются в один; ошибки приходят по файлам, строкам и столбцам;
  *   несуществующий файл и пакет — понятные ошибки; зависшая сборка останавливается по времени;
  * - wasm-файл лежит рядом с потоком (на диске, не в сети), поэтому сборка работает без интернета;
+ * - сверка типов настоящим компилятором TypeScript в отдельном постоянном потоке: ошибка типа в логике, в странице и в вызове
+ *   flux.* (поле, ресурс, тип ответа) называет файл, строку, столбец и код; верный проект проходит; JS-файлы не сверяются;
+ *   повторная сверка идёт по кэшу; зависшая сверка останавливается понятной проблемой;
+ *   мутация «сверка выключена» (поток, который ничего не находит) этими же случаями обнаруживается;
  * - служба разработчика: «Собрать», «Запустить», «Проверить» и отправка сами собирают проект; ошибка сборки
  *   останавливает запуск и отправку и попадает в отчёт проверки строкой «файл:строка»; страница получает ui/*.js из src/*.ts.
  *
@@ -22,10 +26,13 @@ import { createControlsEngine } from '../studio/shared/controlsEngine';
 import { createTsBuilder } from '../studio/shared/tsBuildHost';
 import { emittedPath, isTsSource, normalize, problemLine, resolveImport, tsEntries, withBuilt } from '../studio/shared/tsBuild';
 import { ALL_ACTIONS } from '../studio/shell/actions';
+import { fluxPageTypes } from '../modules/page/types';
+import { TEMPLATE_IDS } from '../studio/shared/templates';
 
 const require = createRequire(import.meta.url);
 const { buildDeveloperAssets, buildTsWorker } = require('../studio/build-assets.cjs');
 const esbuild = require('esbuild');
+const timed = async <T>(run: () => Promise<T>): Promise<[T, number]> => { const t = performance.now(); const value = await run(); return [value, Math.round(performance.now() - t)]; };
 
 let passed = 0;
 const ok = (name: string, value: unknown) => { assert.ok(value, name); passed++; console.log(`  ✓ ${name}`); };
@@ -58,7 +65,7 @@ async function main() {
   const workerOnly = path.join(temp, 'worker-only.cjs');
   await buildTsWorker({ esbuild, outfile: workerOnly });
   ok('поток собирается отдельно (для проверок)', fs.existsSync(workerOnly));
-  const builder = createTsBuilder({ workerFile: path.join(app, 'ts-build-worker.cjs'), wasmFile: path.join(app, 'esbuild.wasm'), timeoutMs: 60_000 });
+  const builder = createTsBuilder({ workerFile: path.join(app, 'ts-build-worker.cjs'), wasmFile: path.join(app, 'esbuild.wasm'), typesWorkerFile: path.join(app, 'ts-type-worker.cjs'), timeoutMs: 60_000 });
 
   const good = await builder.build({
     'src/main.ts': enc("import { twice } from './lib/math';\nimport table from './table.json';\nexport const answer: number = twice(21) + table.extra;\n(globalThis as any).out = answer;"),
@@ -82,11 +89,74 @@ async function main() {
   ok('пакет вместо файла: понятная причина', bad.problems.some(p => p.path === 'src/b.ts' && p.line === 2 && /left-pad/.test(p.text) && /только файлы проекта/.test(p.text)));
   ok('в пути нет служебного пространства имён', bad.problems.every(p => !p.path.includes(':')));
 
-  const slow = createTsBuilder({ workerFile: path.join(app, 'ts-build-worker.cjs'), wasmFile: path.join(app, 'esbuild.wasm'), timeoutMs: 5 });
+  const slow = createTsBuilder({ workerFile: path.join(app, 'ts-build-worker.cjs'), wasmFile: path.join(app, 'esbuild.wasm'), typesWorkerFile: path.join(app, 'ts-type-worker.cjs'), timeoutMs: 5 });
   const stopped = await slow.build({ 'src/a.ts': enc('export const a = 1;') });
   ok('сборка, не уложившаяся во время, останавливается понятной проблемой', !stopped.ok && /не уложилась/.test(stopped.problems[0].text));
-  const lost = await createTsBuilder({ workerFile: path.join(app, 'ts-build-worker.cjs'), wasmFile: path.join(temp, 'нет.wasm') }).build({ 'a.ts': enc('1') });
+  const lost = await createTsBuilder({ workerFile: path.join(app, 'ts-build-worker.cjs'), wasmFile: path.join(temp, 'нет.wasm'), typesWorkerFile: path.join(app, 'ts-type-worker.cjs') }).build({ 'a.ts': enc('1') });
   ok('нет wasm-файла: проблема, а не зависание', !lost.ok && /не запустилась/.test(lost.problems[0].text));
+
+  console.log('Сверка типов');
+  ok('поток сверки собран, компилятор и библиотека внутри одного файла', fs.existsSync(path.join(app, 'ts-type-worker.cjs')) && 'tsTypeWorker' in assetsMap);
+  const pageProject = (src: string, extra: Record<string, Uint8Array> = {}) => ({ 'ui/index.html': enc('<html></html>'), 'types/flux.d.ts': enc(fluxPageTypes()), 'src/app.ts': enc(src), ...extra });
+  const wrap = (body: string) => `export async function main() {\n${body}\n}\n`;
+  const problemAt = (r: { problems: any[] }, file: string, line: number, re: RegExp) => r.problems.find(p => p.path === file && p.line === line && p.column > 0 && re.test(p.text));
+
+  const logicBad = await builder.build({ 'logic/main.ts': enc("export function compute(input: { a: number }) {\n  const n: number = 'x';\n  return { n, a: input.a };\n}\n") });
+  ok('ошибка типа в логике: файл, строка, столбец и код', !logicBad.ok && !!problemAt(logicBad, 'logic/main.ts', 2, /^TS2322: /));
+  ok('ошибка типов не даёт собранного файла', Object.keys(logicBad.outputs).length === 0);
+  const pageBad = await builder.build(pageProject(wrap("  const n: number = 'сорок два';\n  return n;")));
+  ok('ошибка типа в странице', !pageBad.ok && !!problemAt(pageBad, 'src/app.ts', 2, /TS2322/));
+  const fluxField = await builder.build(pageProject(wrap("  const eq = await flux.read('equipment');\n  return eq?.nme;")));
+  ok('flux.*: не то поле ответа', !fluxField.ok && !!problemAt(fluxField, 'src/app.ts', 3, /nme/));
+  const fluxResource = await builder.build(pageProject(wrap("  await flux.read('equipmnt');")));
+  ok('flux.*: ресурса нет в договоре', !fluxResource.ok && !!problemAt(fluxResource, 'src/app.ts', 2, /equipmnt/));
+  const fluxType = await builder.build(pageProject(wrap("  const answer: number = await flux.dialogs.confirm({ title: 'a', text: 'b' });\n  return answer;")));
+  ok('flux.*: не тот тип ответа', !fluxType.ok && !!problemAt(fluxType, 'src/app.ts', 2, /boolean/));
+  const fluxCall = await builder.build(pageProject(wrap("  await flux.windows.open(5);")));
+  ok('flux.*: неверный вызов', !fluxCall.ok && !!problemAt(fluxCall, 'src/app.ts', 2, /number/));
+  const noTypesFile = await builder.build({ 'ui/index.html': enc('<html></html>'), 'src/app.ts': enc(wrap("  await flux.read('equipmnt');")) });
+  ok('у страницы без своего types/flux.d.ts описание flux.* подставляется то же', !noTypesFile.ok && !!problemAt(noTypesFile, 'src/app.ts', 2, /equipmnt/));
+  const formNoFlux = await builder.build({ 'logic/main.ts': enc('export const n = flux.read;\n') });
+  ok('у формы без страницы глобального flux нет: обращение к нему — ошибка', !formNoFlux.ok && !!problemAt(formNoFlux, 'logic/main.ts', 1, /flux/));
+  const strictNull = await builder.build({ 'logic/main.ts': enc('export function f(a: string | null) {\n  return a.length;\n}\n') });
+  ok('строгий режим: null не пропускается', !strictNull.ok && !!problemAt(strictNull, 'logic/main.ts', 2, /null/));
+
+  const goodPage = await builder.build(pageProject(wrap("  const eq = await flux.read('equipment');\n  const name: string | undefined = eq?.name;\n  const yes: boolean = await flux.dialogs.confirm({ title: 'a', text: 'b' });\n  await flux.windows.open('index.html');\n  document.title = name ?? String(yes);\n  flux.log.info('готово');"), { 'src/helper.ts': enc('export const twice = (n: number) => n * 2;\n') }));
+  ok('верная страница с flux.*, document и строгими типами проходит', goodPage.ok && goodPage.problems.length === 0 && 'src/app.ts' in goodPage.outputs);
+  const jsOnly = await builder.build({ 'ui/app.js': enc('const n = 1; n.nothing(); flux.read(5);\n'), 'logic/main.ts': enc('export const a = 1;\n') });
+  ok('JS-файлы проекта не сверяются', jsOnly.ok);
+  const jsImported = await builder.build({ 'src/a.ts': enc("import { f } from './b.js';\nexport const x: number = f(1);\n"), 'src/b.js': enc('export const f = (n) => n + 1;\n') });
+  ok('подключённый .js не превращается в ошибку «нет объявлений типов»', jsImported.ok);
+  const both = await builder.build({ 'src/a.ts': enc("export const a: number = 'x';\n"), 'src/b.ts': enc("import './missing';\nexport const b: string = 1;\n") });
+  ok('ошибки типов и сборки показываются вместе', !both.ok && both.problems.some(p => p.path === 'src/a.ts' && /TS2322/.test(p.text)) && both.problems.some(p => p.path === 'src/b.ts' && /нет в проекте/.test(p.text)) && both.problems.some(p => p.path === 'src/b.ts' && p.line === 2 && /TS2322/.test(p.text)));
+  ok('синтаксическая ошибка не дублируется сверкой типов', bad.problems.filter(p => p.path === 'src/a.ts' && p.line === 2).length === 1);
+
+  // Кэш программы: тот же проект второй раз и проект с одним изменённым файлом идут не медленнее первой (холодной) сверки
+  const big = (n: number) => ({ 'src/m.ts': enc(`export const v: number = ${n};\n`), ...Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`src/f${i}.ts`, enc(`export const f${i} = (a: number): number => a + ${i};\n`)])) });
+  const coldBuilder = createTsBuilder({ workerFile: path.join(app, 'ts-build-worker.cjs'), wasmFile: path.join(app, 'esbuild.wasm'), typesWorkerFile: path.join(app, 'ts-type-worker.cjs') });
+  const [c1, cold] = await timed(() => coldBuilder.build(big(1)));
+  const [c2, same] = await timed(() => coldBuilder.build(big(1)));
+  const [c3, edited] = await timed(() => coldBuilder.build(big(2)));
+  console.log(`  время «Собрать» (esbuild и типы), мс: холодная ${cold}, повтор ${same}, правка одного файла ${edited}`);
+  ok('кэш: повторные сборки проходят и не медленнее холодной', c1.ok && c2.ok && c3.ok && same <= cold && edited <= cold);
+  coldBuilder.close?.();
+
+  // Предел времени: сверка, не уложившаяся, — понятная проблема, а не зависание
+  const tight = createTsBuilder({ workerFile: path.join(app, 'ts-build-worker.cjs'), wasmFile: path.join(app, 'esbuild.wasm'), typesWorkerFile: path.join(app, 'ts-type-worker.cjs'), typeTimeoutMs: 1 });
+  const cut = await tight.build({ 'src/a.ts': enc('export const a = 1;') });
+  ok('сверка типов, не уложившаяся во время, останавливается понятной проблемой', !cut.ok && cut.problems.some(p => /Сверка типов не уложилась/.test(p.text)) && Object.keys(cut.outputs).length === 0);
+  tight.close?.();
+  const noWorker = createTsBuilder({ workerFile: path.join(app, 'ts-build-worker.cjs'), wasmFile: path.join(app, 'esbuild.wasm'), typesWorkerFile: path.join(temp, 'нет.cjs') });
+  const noWorkerResult = await noWorker.build({ 'src/a.ts': enc('export const a = 1;') });
+  ok('нет файла потока сверки: проблема, а не зависание и не молчаливый пропуск', !noWorkerResult.ok && noWorkerResult.problems.some(p => /Сверка типов/.test(p.text)));
+
+  // Мутация «сверка выключена»: поток, который ничего не находит. Те же случаи должны его обнаружить
+  const stub = path.join(temp, '__mutant_types-off.cjs');
+  fs.writeFileSync(stub, "const { parentPort } = require('node:worker_threads');\nparentPort.on('message', m => parentPort.postMessage({ id: m.id, ok: true, problems: [] }));\n");
+  const mutant = createTsBuilder({ workerFile: path.join(app, 'ts-build-worker.cjs'), wasmFile: path.join(app, 'esbuild.wasm'), typesWorkerFile: stub });
+  const catches = async (b: typeof builder) => !(await b.build({ 'logic/main.ts': enc("export const n: number = 'x';\n") })).ok && !(await b.build(pageProject(wrap("  await flux.read('equipmnt');")))).ok;
+  ok('мутация «сверка выключена» обнаруживается теми же случаями', (await catches(builder)) && !(await catches(mutant)));
+  mutant.close?.();
 
   console.log('Служба разработчика');
   const storage = { isEncryptionAvailable: () => true, encryptString: (s: string) => Buffer.from(s).reverse(), decryptString: (b: Buffer) => Buffer.from(b).reverse().toString() };
@@ -105,6 +175,14 @@ async function main() {
   await call('draftCreate', { template: 'typescript', id: 'logic-demo', name: 'Логика', kind: 'form' });
   const first = await call('build', { id: 'logic-demo' });
   ok('«Собрать» проекта-шаблона проходит', first.ok && first.files.includes('logic/main.ts'));
+  // Заготовки всех языков (формой и страницей) и пример собираются без ошибок типов; строгость не ослабляется — чинится заготовка
+  for (const template of TEMPLATE_IDS) for (const kind of template === 'translator' ? ['form'] : ['form', 'page']) {
+    const id = `t-${template}-${kind}`;
+    await call('draftCreate', { template, id, name: `Заготовка ${template}`, kind });
+    const [made, ms] = await timed(() => call('build', { id }));
+    if (template === 'typescript' || template === 'translator') console.log(`  «Собрать» ${template}/${kind}: ${ms} мс`);
+    ok(`заготовка ${template} (${kind}) собирается без ошибок типов`, made.ok && made.problems.length === 0 && (template !== 'typescript' && template !== 'translator' || made.files.length > 0));
+  }
   await call('draftSave', { id: 'logic-demo', path: 'logic/helper.ts', text: 'export const n: number = ;\n' });
   const broken = await call('build', { id: 'logic-demo' });
   ok('«Собрать» называет файл и строку', !broken.ok && broken.problems.some((p: any) => p.path === 'logic/helper.ts' && p.line === 1));
