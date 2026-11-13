@@ -187,6 +187,9 @@ export class PowerShellComBackend implements ComBackend {
   private child: ChildProcessWithoutNullStreams | null = null;
   private dir = '';
   private starting: Promise<void> | null = null;
+  /** Помощник запущен и прислал строку готовности: до неё запросы не пишем, а таймер вызова не идёт */
+  private ready: Promise<void> | null = null;
+  private onReady: (() => void) | null = null;
   private pending = new Map<number, Pending>();
   private buffer = '';
   private seq = 0;
@@ -196,7 +199,7 @@ export class PowerShellComBackend implements ComBackend {
   private listeners: Array<() => void> = [];
   /** Сведения для разбора TIMEOUT: когда запущен, когда пришёл первый байт и готовность, сколько ответов, хвост stderr */
   private diag = { spawnedAt: 0, firstByteAt: 0, readyAt: 0, replies: 0, stderr: '', sent: 0, starts: 0 };
-  constructor(private timeoutMs = 20_000) {}
+  constructor(private timeoutMs = 20_000, private launchMs = 60_000) {}
 
   private diagLine(what: string, child: ChildProcessWithoutNullStreams | null) {
     const d = this.diag; const now = Date.now();
@@ -209,7 +212,14 @@ export class PowerShellComBackend implements ComBackend {
   available() { return process.platform === 'win32'; }
   onExit(listener: () => void) { this.listeners.push(listener); }
 
+  /** Запуск не входит в предел вызова: холодный PowerShell на загруженной машине стартует дольше, чем отвечает COM; у запуска свой предел */
   private async start() {
+    await this.spawnHelper();
+    const ready = this.ready;
+    if (ready) await ready;
+  }
+
+  private async spawnHelper() {
     if (this.child) return;
     this.starting ||= (async () => {
       this.dir = await mkdtemp(join(tmpdir(), 'flux-com-helper-'));
@@ -219,6 +229,17 @@ export class PowerShellComBackend implements ComBackend {
       const child = spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass', '-File', script], { windowsHide: true });
       this.child = child;
       this.diag = { spawnedAt: Date.now(), firstByteAt: 0, readyAt: 0, replies: 0, stderr: '', sent: 0, starts: this.diag.starts + 1 };
+      this.ready = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          console.error(this.diagLine(`предел запуска ${this.launchMs} мс`, child));
+          reject(new ConnectError('TIMEOUT', 'helper start')); child.kill();
+        }, this.launchMs);
+        this.onReady = () => { clearTimeout(timer); resolve(); };
+        // Помощник умер до готовности: ждущий запуска получает отказ сразу, а не по пределу
+        child.once('exit', () => { clearTimeout(timer); reject(new ConnectError('FAILED', 'helper exited')); });
+        child.once('error', () => { clearTimeout(timer); reject(new ConnectError('FAILED', 'helper exited')); });
+      });
+      this.ready.catch(() => {});
       child.stdout.setEncoding('utf8');
       child.stdout.on('data', (chunk: string) => this.onData(chunk));
       child.stderr.on('data', (chunk: Buffer) => { this.diag.stderr = (this.diag.stderr + chunk.toString('utf8')).slice(-600); });
@@ -238,7 +259,7 @@ export class PowerShellComBackend implements ComBackend {
       if (!line) continue;
       try {
         const reply = JSON.parse(line) as { id: number; ok: boolean; ready?: boolean; value?: ComValue; error?: string };
-        if (reply.ready) { this.diag.readyAt = Date.now(); continue; }
+        if (reply.ready) { this.diag.readyAt = Date.now(); this.onReady?.(); continue; }
         this.diag.replies++;
         const item = this.pending.get(reply.id);
         if (!item) continue;
@@ -253,6 +274,7 @@ export class PowerShellComBackend implements ComBackend {
   private onExit2(child: ChildProcessWithoutNullStreams) {
     if (this.child !== child) return;
     this.child = null;
+    this.ready = null; this.onReady = null;
     this.buffer = '';
     // Объекты умерли вместе с помощником: старые номера больше ни к чему не ведут, а программа узнаёт об этом из onExit
     this.ids.clear();
