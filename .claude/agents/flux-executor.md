@@ -45,7 +45,8 @@ model: sonnet
   сервер останавливать по cwd процесса, из файла-скрипта (строка с pgrep в
   самой команде находит саму команду), и ждать освобождения порта.
 - Наборы `*-ui`: `FLUX_UI_URL` (свой Vite) и
-  `FLUX_CHROME=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`.
+  `FLUX_CHROME=$(ls /opt/pw-browsers/chromium-*/chrome-linux*/chrome | head -1)` — номер сборки
+  меняется вместе с образом; набор, напечатавший `FLUX_VERIFY_SKIP`, не запускался.
 
 ## Проверки
 
