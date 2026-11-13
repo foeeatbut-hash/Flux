@@ -5,6 +5,7 @@ import path from 'node:path';
 import { packBundle } from '../../modules/trust/bundle';
 import { publicHexOf, sealEnvelope } from '../../modules/trust/envelope';
 import { describeBundle } from '../../modules/trust/verify';
+import { devRunPayload } from '../../modules/trust/devRun';
 import type { ModuleChannel } from '../../modules/trust/claims';
 
 export const newKey = () => crypto.generateKeyPairSync('ed25519').privateKey;
@@ -53,3 +54,12 @@ export const revocationEnvelope = (root: crypto.KeyObject, kind: 'release' | 'ke
 /** Назначение канала (откат) владельца: канал не выше версии; version = null снимает ограничение */
 export const pinEnvelope = (root: crypto.KeyObject, moduleId: string, channel: ModuleChannel, version: string | null, iat = Date.now()) =>
   sealEnvelope('pin', { v: 1, moduleId, channel, version, reason: 'проверка', iat }, root);
+
+/** «Запустить во Flux»: пакет разработки и его аренда, подписанные ключом разработчика (а не владельца) */
+export function devRunEnvelope(key: crypto.KeyObject, bundle: Uint8Array, p: { moduleId?: string; version: string; userId?: string; author?: string; iat?: number }) {
+  return sealEnvelope('devRun', devRunPayload({
+    moduleId: p.moduleId || 'equipment-inspector', version: p.version, author: p.author || publicHexOf(key), userId: p.userId ?? 'developer', bundle, now: p.iat ?? Date.now(),
+  }), key);
+}
+export const devLeaseEnvelope = (key: crypto.KeyObject, bundle: Uint8Array, p: { author?: string; iat?: number; sha256?: string } = {}) =>
+  sealEnvelope('devLease', { v: 1, sha256: p.sha256 ?? describeBundle(bundle).sha256, author: p.author || publicHexOf(key), iat: p.iat ?? Date.now() }, key);

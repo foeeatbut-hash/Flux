@@ -3,7 +3,10 @@
  */
 import React, { useState } from 'react';
 import { Btn, Dialog } from '../ui';
-import { categoryName, formatSize, type StoreListing } from '../../../modules/store/model';
+import './store.css';
+import { categoryName, formatSize, storeInfoOf, type StoreListing } from '../../../modules/store/model';
+import { DEV_BADGE, type DevRunItem } from '../../../modules/store/devRun';
+import { devPermissions } from '../../services/moduleDevRunActions';
 import { installPlan, installModule, newPermissions, removeModule, updateModule } from '../../services/moduleStoreActions';
 import { ModuleIcon } from './StoreParts';
 
@@ -21,7 +24,7 @@ export function RequirementsList({ listing }: { listing: StoreListing }) {
   return <>{rows.map((t) => <div key={t} className="stx-perm">{t}</div>)}</>;
 }
 
-export function PermissionsList({ listing, added = [] }: { listing: StoreListing; added?: string[] }) {
+export function PermissionsList({ listing, added = [] }: { listing: Pick<StoreListing, 'permissions'>; added?: string[] }) {
   // Заметные разрешения (любой адрес в интернете, локальная сеть) выделены рамкой: их нельзя принять не заметив
   return <>{listing.permissions.map((p) => <div key={p.text} data-notable={p.notable ? '' : undefined} className={`stx-perm${added.includes(p.text) ? ' is-new' : ''}${p.notable ? ' is-notable' : ''}`}>
     <span aria-hidden="true">{p.kind === 'write' || p.kind === 'run' ? '✕' : p.kind === 'open' ? '↗' : p.notable ? '!' : '●'}</span>
@@ -73,6 +76,31 @@ export default function StoreDialogs({ dialog, onClose, onDone }: { dialog: Stor
       <div><div className="mb-1 text-sm font-semibold">Требования</div><RequirementsList listing={listing} /></div>
       {kind === 'install' && listing.testing && <div className="stx-note">Это тестовая версия: её видят только назначенные владельцем тестировщики.</div>}
       {busy && <div className="text-sm" style={{ color: 'var(--flux-text-muted)' }}>Скачивание и проверка подписи владельца…</div>}
+      {error && <div className="fx-error">{error}</div>}
+    </div>
+  </Dialog>;
+}
+
+/**
+ * Первый запуск программы из разработки: те же разрешения, что при установке из Store, но про непроверенную сборку.
+ * Согласие действует на эту сборку и этого человека, пока открыт Flux; новая сборка спросит снова.
+ */
+export function DevConsentDialog({ item, onClose, onAccept }: { item: DevRunItem; onClose: () => void; onAccept: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const accept = async () => {
+    setBusy(true); setError('');
+    try { await onAccept(); } catch (e: any) { setError(e?.message || 'Не выполнено'); } finally { setBusy(false); }
+  };
+  return <Dialog title={`Запустить «${item.name}» из разработки`} onClose={onClose} busy={busy} width="max-w-lg"
+    footer={<><Btn disabled={busy} onClick={onClose}>Отмена</Btn><Btn tone="primary" disabled={busy} onClick={() => void accept()}>Принять и запустить</Btn></>}>
+    <div className="flex flex-col gap-3" data-testid="dev-consent">
+      <div className="flex items-center gap-3"><ModuleIcon listing={{ name: item.name, color: storeInfoOf(item.manifest!).color }} size={48} />
+        <div className="min-w-0"><div className="font-semibold">{item.name} {item.version}</div>
+          <div className="text-xs" style={{ color: 'var(--flux-text-muted)' }}>{item.developer || 'Разработчик'} · {DEV_BADGE}</div></div></div>
+      <div className="stx-note">Эту сборку ещё не проверял и не подписывал владелец. Она запускается только у вас, на этом компьютере и пока открыта Studio, а данные Flux может только читать, как любая программа.</div>
+      <div><div className="mb-1 text-sm font-semibold">Программа получит</div><PermissionsList listing={{ permissions: devPermissions(item) }} /></div>
+      {busy && <div className="text-sm" style={{ color: 'var(--flux-text-muted)' }}>Проверка в главном процессе…</div>}
       {error && <div className="fx-error">{error}</div>}
     </div>
   </Dialog>;

@@ -35,6 +35,12 @@ export const useModuleStore = create<ModuleStoreState>((set) => ({
   setLocal: (local) => {
     set({ local });
     // Запускается только проверенное главным процессом: его манифесты и попадают в «Пуск»
-    syncInstalledSections((local?.runnable || []).map((r) => ({ manifest: r.manifest, version: r.version, channel: r.channel, author: r.author })));
+    // Пакет разработки той же программы на время заменяет выпущенную: в «Пуске» одна запись, и это запись разработки
+    const dev = (local?.dev || []).filter((d) => d.live && d.manifest);
+    syncInstalledSections([
+      ...(local?.runnable || []).filter((r) => !dev.some((d) => d.moduleId === r.manifest.id))
+        .map((r) => ({ manifest: r.manifest, version: r.version, channel: r.channel, author: r.author })),
+      ...dev.map((d) => ({ manifest: d.manifest!, version: d.version, channel: 'test' as const, dev: { developer: d.developer, accepted: d.accepted, sha256: d.sha256 } })),
+    ]);
   },
 }));

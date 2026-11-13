@@ -23,7 +23,7 @@ const state = () => useModuleStore.getState();
 /** Отказ сервера по политике (4xx) отличается от обрыва связи: первый отменяет действие, второй нет */
 const isNetwork = (e: any) => typeof e?.status !== 'number';
 
-async function reloadLocal(): Promise<LocalState | null> {
+export async function reloadLocal(): Promise<LocalState | null> {
   const next = await local<LocalState>('modules:state').catch(() => null);
   state().setLocal(next);
   if (next?.cached) retainModuleCompute(next.cached);

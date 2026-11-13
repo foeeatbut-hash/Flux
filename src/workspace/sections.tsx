@@ -219,9 +219,10 @@ const BY_PATH = new Map(SECTIONS.map((s) => [s.path, s]));
 export function syncInstalledSections(items: InstalledModule[]): void {
   if (sameInstalled(items, useSectionsVersion.getState().items)) return;
   for (let i = SECTIONS.length - 1; i >= 0; i--) if (SECTIONS[i].dynamic) { BY_PATH.delete(SECTIONS[i].path); SECTIONS.splice(i, 1); }
-  for (const { manifest } of items) {
+  for (const { manifest, dev } of items) {
     if (BY_PATH.has(moduleHref(manifest.id))) continue; // встроенный пример с тем же именем остаётся встроенным
-    const def: SectionDef = { path: moduleHref(manifest.id), title: manifest.name, icon: BuilderAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true,
+    // Программа из разработки не выпущена: это видно уже в «Пуске» и в заголовке окна
+    const def: SectionDef = { path: moduleHref(manifest.id), title: dev ? `${manifest.name} (разработка)` : manifest.name, icon: BuilderAppIcon, scope: 'global', scroll: 'fixed', pad: false, multi: true,
       fileOnly: !manifest.entries.includes('start'), dynamic: true, Component: ModuleHost };
     SECTIONS.push(def); BY_PATH.set(def.path, def);
   }

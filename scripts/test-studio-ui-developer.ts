@@ -28,6 +28,7 @@ import { DeveloperService } from '../studio/shell/developer';
 import { History } from '../studio/shared/history';
 import { Workspace } from '../studio/shared/workspace';
 import { ALL_ACTIONS } from '../studio/shell/actions';
+import { certificateEnvelope, newKey } from './fixtures/moduleTrust';
 
 const { buildStudio, editorsEntry } = require('../studio/build.cjs');
 let passed = 0;
@@ -80,7 +81,11 @@ async function main() {
   ];
   flux.get('/api/health', (_q, r) => r.json({ version: '1.0.0' }));
   const certificate = { status: 'none' };
-  flux.get('/api/studio/certificate', (_q, r) => r.json({ status: certificate.status, name: '' }));
+  // «Запустить во Flux»: сертификат владельца на ключ этого компьютера выдаётся, когда тест включает devCert
+  const devCert = { on: false }, devRoot = newKey();
+  flux.get('/api/studio/certificate', (q, r) => r.json(devCert.on
+    ? { status: 'issued', name: 'Разработчик', certificate: certificateEnvelope(devRoot, String(q.query.key), 'dev') }
+    : { status: certificate.status, name: '' }));
   // Тот же договор, что у маршрута из PR владельца (server/routes/moduleCertRequests.ts): тело {key, name}, профиль из входа
   const certRequests: any[] = [];
   flux.post('/api/modules/certificate-requests', (q, r) => { certRequests.push(q.body); r.json({ ok: true }); });
@@ -106,7 +111,9 @@ async function main() {
     engine: createControlsEngine({ workerFile: path.join(built.app, 'controls-worker.cjs'), timeoutMs: 5000 }),
     tsBuilder: createTsBuilder({ workerFile: path.join(built.app, 'ts-build-worker.cjs'), wasmFile: path.join(built.app, 'esbuild.wasm'), typesWorkerFile: path.join(built.app, 'ts-type-worker.cjs') }),
     capture: async () => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4, 5, 6, 7, 8]),
+    fluxDataDir: () => path.join(temp, 'flux-data'),
   });
+  fs.mkdirSync(path.join(temp, 'flux-data'), { recursive: true });
   // Страницу и runtime запущенной программы отдаёт та же функция, что обслуживает flux-module://
   const assets = http.createServer((req, res) => {
     const asset = service.asset(`flux-module://run${req.url?.split('#')[0].split('?')[0]}`);
@@ -318,6 +325,27 @@ async function main() {
       await page.getByRole('tab', { name: 'Запуск' }).click();
       await page.getByRole('button', { name: 'Снять обе темы' }).click();
       await page.getByText('Снимки обеих тем сохранены').waitFor();
+
+      // «Запустить во Flux»: сначала отказ словами (сертификата ещё нет), затем запуск и «Убрать»
+      const devrun = page.getByTestId('studio-devrun');
+      const devDir = path.join(temp, 'flux-data', 'dev-run');
+      await devrun.getByRole('button', { name: 'Запустить во Flux' }).click();
+      await devrun.getByRole('alert').waitFor();
+      ok(`${theme}: без сертификата запуск во Flux отказывает словами, в папке Flux ничего нет`, /нет сертификата владельца/.test(await devrun.getByRole('alert').innerText()) && (!fs.existsSync(devDir) || fs.readdirSync(devDir).length === 0));
+      await measure(page, `${theme}/запуск-во-flux-отказ`);
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-3a-devrun-refused.png`), fullPage: true });
+      devCert.on = true;
+      await devrun.getByRole('button', { name: 'Запустить во Flux' }).click();
+      await devrun.getByRole('status').waitFor();
+      ok(`${theme}: «Запущено во Flux — до закрытия Studio», версия и время сборки, подсказка про плашку`, /Запущено во Flux — до закрытия Studio/.test(await devrun.getByRole('status').innerText())
+        && /версия 0\.1\.0, собрано в \d\d:\d\d/.test(await devrun.innerText()) && /Разработка — не выпущено/.test(await devrun.innerText()));
+      ok(`${theme}: три файла лежат в папке Flux`, fs.readdirSync(devDir).length === 1 && ['run.json', 'lease.txt', 'package.bin'].every(n => fs.existsSync(path.join(devDir, fs.readdirSync(devDir)[0], n))));
+      await measure(page, `${theme}/запуск-во-flux`);
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-3b-devrun.png`), fullPage: true });
+      await devrun.getByRole('button', { name: 'Убрать' }).click();
+      await devrun.getByRole('button', { name: 'Запустить во Flux' }).waitFor();
+      ok(`${theme}: «Убрать» возвращает кнопку и убирает папку`, fs.readdirSync(devDir).length === 0);
+      devCert.on = false;
 
       // Ключ создан сам; одна кнопка запроса права
       await page.getByRole('tab', { name: 'Публикация' }).click();

@@ -27,6 +27,9 @@ export const ENVELOPE_PREFIX = {
   /** Назначение канала: «рабочий канал не выше версии X» — откат, подписанный владельцем */
   pin: 'FLUXMODPIN1',
   promotion: 'FLUXMODCHANNEL1',
+  /** Пакет разработки («Запустить во Flux» из Studio) и его аренда: подписаны ключом разработчика, выпуском не являются */
+  devRun: 'FLUXMODDEV1',
+  devLease: 'FLUXMODDEVLEASE1',
 } as const;
 export type EnvelopeKind = keyof typeof ENVELOPE_PREFIX;
 

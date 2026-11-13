@@ -17,6 +17,12 @@ export type GrantState = 'allowed' | 'denied' | 'ask';
 interface Row { decision: StoredDecision; spec: string; at: number }
 
 const GRANTS_MAX = 2000;
+/**
+ * Решения о подключениях пакета, запущенного из разработки («Запустить во Flux»), живут отдельно от решений о выпущенной
+ * программе того же имени: у ключа другое начало, в файл они не пишутся и после перезапуска забываются. Иначе
+ * «разрешить всегда», сказанное выпуску, молча действовало бы на непроверенную сборку, и наоборот.
+ */
+const DEV_KEY = 'dev:';
 
 export class ModuleGrants {
   private rows = new Map<string, Row>();
@@ -25,7 +31,18 @@ export class ModuleGrants {
   /** Политика администратора: запрещено роли этого человека; сильнее его выбора */
   private denied = new Set<string>();
   private loaded: Promise<void> | null = null;
+  /** Какие программы сейчас запущены из разработки; решения по ним идут в отдельную область (DEV_KEY) */
+  private isDev: (moduleId: string) => boolean = () => false;
   constructor(private file: string) {}
+
+  setDevScope(isDev: (moduleId: string) => boolean) { this.isDev = isDev; }
+  private keyOf(userId: string, moduleId: string, connection: string) {
+    return `${this.isDev(moduleId) ? DEV_KEY : ''}${ModuleGrants.key(userId, moduleId, connection)}`;
+  }
+  /** Пакет разработки больше не запущен: его решения не нужны (новая сборка спросит заново) */
+  dropDevExcept(active: ReadonlySet<string>) {
+    for (const key of [...this.rows.keys()]) if (key.startsWith(DEV_KEY) && !active.has(key.split('|')[1])) this.rows.delete(key);
+  }
 
   load(): Promise<void> {
     return this.loaded ||= (async () => {
@@ -35,6 +52,7 @@ export class ModuleGrants {
         this.denied = new Set((Array.isArray(file.policy) ? file.policy : []).filter(v => typeof v === 'string').slice(0, 1000));
         const data = file.rows || {};
         for (const [key, row] of Object.entries(data).slice(0, GRANTS_MAX)) {
+          if (key.startsWith(DEV_KEY)) continue; // решения по разработке в файл не пишутся: такая строка подложена
           if (row && (row.decision === 'always' || row.decision === 'never') && typeof row.spec === 'string') this.rows.set(key, { decision: row.decision, spec: row.spec, at: Number(row.at) || 0 });
         }
       } catch { /* решений ещё нет */ }
@@ -45,7 +63,7 @@ export class ModuleGrants {
 
   /** Что сейчас действует для подключения с этим текстом разрешения */
   state(userId: string, moduleId: string, connection: string, spec: string, session: string): GrantState {
-    const key = ModuleGrants.key(userId, moduleId, connection);
+    const key = this.keyOf(userId, moduleId, connection);
     if (this.denied.has(`${moduleId}|${connection}`)) return 'denied';
     const row = this.rows.get(key);
     // Прежний выбор действует только на то же самое разрешение: новый адрес или более широкий доступ спрашивается снова
@@ -54,7 +72,7 @@ export class ModuleGrants {
   }
 
   async decide(userId: string, moduleId: string, connection: string, spec: string, session: string, decision: 'always' | 'once' | 'never' | 'ask') {
-    const key = ModuleGrants.key(userId, moduleId, connection);
+    const key = this.keyOf(userId, moduleId, connection);
     if (decision === 'once') { this.once.add(`${key}|${spec}|${session}`); return; }
     for (const item of [...this.once]) if (item.startsWith(`${key}|`)) this.once.delete(item);
     if (decision === 'ask') this.rows.delete(key);
@@ -66,7 +84,8 @@ export class ModuleGrants {
   endSession(session: string) { for (const item of [...this.once]) if (item.endsWith(`|${session}`)) this.once.delete(item); }
 
   async resetAll(userId: string, moduleId?: string) {
-    for (const key of [...this.rows.keys()]) if (key.startsWith(`${userId}|${moduleId ? `${moduleId}|` : ''}`)) this.rows.delete(key);
+    const prefix = `${userId}|${moduleId ? `${moduleId}|` : ''}`;
+    for (const key of [...this.rows.keys()]) if (key.startsWith(prefix) || key.startsWith(DEV_KEY + prefix)) this.rows.delete(key);
     await this.save();
   }
 
@@ -90,7 +109,7 @@ export class ModuleGrants {
     try {
       await fs.mkdir(path.dirname(this.file), { recursive: true });
       const tmp = `${this.file}.${process.pid}.tmp`;
-      await fs.writeFile(tmp, JSON.stringify({ rows: Object.fromEntries(this.rows), policy: [...this.denied] }));
+      await fs.writeFile(tmp, JSON.stringify({ rows: Object.fromEntries([...this.rows].filter(([key]) => !key.startsWith(DEV_KEY))), policy: [...this.denied] }));
       await fs.rename(tmp, this.file);
     } catch { /* решение действует до перезапуска, если диск недоступен */ }
   }

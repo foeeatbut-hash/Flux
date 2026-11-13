@@ -99,6 +99,8 @@ async function main() {
   const url = `http://127.0.0.1:${(server.address() as any).port}`;
   const electron = await _electron.launch({ args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), path.join(temp, 'main.cjs')],
     env: { ...process.env, FLUX_MODULE_FIXTURE_DIR: temp, FLUX_MODULE_FIXTURE_URL: `${url}/`, FLUX_TEST_ROOT: rootHex, FLUX_TEST_DIR: data, ...(process.platform === 'win32' ? {} : { FLUX_FAKE_COM: '1' }) }, timeout: 60000 });
+  // Диагностика помощника COM (строки «[com]») идёт в журнал шага: по ней разбирают TIMEOUT на Windows
+  for (const stream of [electron.process().stdout, electron.process().stderr]) stream?.on('data', (d: Buffer) => { for (const l of d.toString('utf8').split('\n')) if (l.includes('[com]')) console.log(l.trim()); });
   const page = await electron.firstWindow();
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -198,6 +200,8 @@ async function main() {
     await ipc('modules:grant', { moduleId: 'connections-com', version: '1.0.0', connection: 'fso', session: 'x', decision: 'always' });
     await open('connections-com');
     const com = await frameText('connections-com', 'схема-12');
+    // Провал на Windows без текста окна не разобрать: настоящий COM отвечает своим кодом, и он виден только здесь
+    if (!com.includes('C:\\Проекты\\схема-12.dwg')) console.log(`ДИАГНОСТИКА COM: текст окна программы: ${JSON.stringify(com.slice(0, 800))}`);
     check(`COM-пример (${process.platform === 'win32' ? 'настоящий Scripting.FileSystemObject' : 'поддельный COM'}): имя без расширения и собранный путь`,
       com.includes('схема-12') && com.includes('C:\\Проекты\\схема-12.dwg'));
 
