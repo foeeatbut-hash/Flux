@@ -2,9 +2,12 @@
  * Обращение программы к другой программе (`flux.programs.call`): две и более подписанные программы в настоящем кэше выпусков,
  * мост окна → сторона окна (moduleProgramCall) → главный процесс (ModuleProgramCalls) → очередь расчёта (ModuleCompute).
  *
- * Движки подставные: логика вызываемой программы — функция по её идентификатору, а ПОДПИСАННЫЙ файл logic/main.py при этом
+ * Движки подставные: логика вызываемой программы на Python — функция по её идентификатору, а ПОДПИСАННЫЙ файл logic/main.py при этом
  * честно доставляется через `fetchFile` из проверенного выпуска. Настоящие Pyodide и WebAssembly проверяют наборы
  * test-modules-python / -wasm / -compute-native: здесь проверяется то, что вокруг них — разрешения, отказы, пределы, журнал.
+ * Метод на TypeScript исполняется ПОДПИСАННЫМ build/logic.js, собранным настоящим esbuild, в новом контексте `vm` на каждый вызов
+ * (модель хоста: без сети и `flux`, без состояния между вызовами, остановка по времени); настоящий изолированный кадр, Worker и
+ * CSP проверяет test-modules-ts-host в Chromium.
  *
  * Каждая защита проверена мутацией: копия исходника с одной выключенной проверкой прогоняется через ту же батарею проверок,
  * и батарея обязана упасть. Мутант, который «проходит», означает, что проверка ничего не ловит.
@@ -19,9 +22,10 @@ import vm from 'node:vm';
 import { themeKeys, type ModuleManifest } from '../modules/contract';
 import { validMessage } from '../modules/schemas';
 import { createModuleBridge } from '../modules/bridge';
-import { buildPageAssets } from '../modules/build';
-import { PROGRAM_LIMITS } from '../modules/programs/model';
-import { ComputeError } from '../modules/engine/types';
+import { buildModuleLogic, buildPageAssets } from '../modules/build';
+import { executionProblem } from '../modules/trust/execution';
+import { PROGRAM_LIMITS, needsControls, needsLogicBuild } from '../modules/programs/model';
+import { ComputeError, LIMITS, LOGIC_BUILD_FILE } from '../modules/engine/types';
 import { ComputeScheduler } from '../modules/engine/scheduler';
 import { splitChunks } from '../modules/trust/bundle';
 import { ModuleCache } from '../electron/moduleCache';
@@ -48,15 +52,48 @@ const DOES = 'Берёт у калькулятора курсов пересчё
 const permit = (...programs: string[]) => programs.map(program => ({ kind: 'program', program, does: DOES }));
 const controls = JSON.stringify({ version: 1, cases: [{ name: 'один', input: { v: 1 }, expect: { state: {}, calc: { out: { ok: true } } } }] });
 const EXPORTS = ['convert', 'rateOn', 'setRate', 'slow', 'huge', 'crash', 'late', 'bad', 'relay'];
+const TS_EXPORTS = ['convert', 'setRate', 'count', 'spin', 'huge', 'crash', 'bad', 'sealed'];
+/** Логика метода на TypeScript: то, что разработчик пишет в logic/main.ts. Собирается настоящим esbuild (modules/build.ts), как build/logic.js */
+const TS_LOGIC = `
+let counter = 0;
+const out = (value: unknown) => ({ state: {}, calc: { out: value } });
+export function compute(input: { export: string; data: any }) {
+  const g = globalThis as any, data = input.data;
+  switch (input.export) {
+    case 'convert': case 'setRate': return out({ value: Math.round(data.amount * (data.rate ?? 1) * 100) / 100, by: 'ts' });
+    case 'count': g.__seen = (g.__seen ?? 0) + 1; return out({ module: ++counter, global: g.__seen });
+    case 'spin': for (;;) { /* бесконечный цикл */ }
+    case 'huge': return out({ text: 'я'.repeat(300000) });
+    case 'crash': throw new Error('СЕКРЕТ-В-ОШИБКЕ');
+    case 'bad': return undefined;
+    case 'sealed': return out({ fetch: typeof g.fetch, xhr: typeof g.XMLHttpRequest, socket: typeof g.WebSocket, require: typeof g.require, process: typeof g.process, flux: typeof g.flux, document: typeof g.document });
+    default: return out({ by: 'ts', method: input.export });
+  }
+}
+`;
+let tsBuilt = '';
+async function tsLogicBuild() {
+  if (tsBuilt) return tsBuilt;
+  const folder = path.join(dir, 'ts-logic');
+  fs.mkdirSync(path.join(folder, 'logic'), { recursive: true });
+  fs.writeFileSync(path.join(folder, 'logic/main.ts'), TS_LOGIC);
+  return tsBuilt = await buildModuleLogic(folder, { id: 'x', name: 'x', version: '1.0.0', author: 'A', contractVersion: 3, entries: ['start'], reads: [], logic: 'logic/main.ts',
+    exports: [{ method: 'convert', does: 'Метод считает значение по входным данным' }] } as unknown as ModuleManifest);
+}
 async function publish(id: string, version: string, patch: Record<string, unknown> = {}, channel: 'production' | 'test' = 'production') {
-  const python = patch.language === 'python';
-  const manifest = { id, name: `Программа ${id}`, contractVersion: 3, ...patch };
-  const bundle = moduleBundle(version, python ? { 'logic/main.py': `# логика ${id} ${version}\n`, 'examples/controls.json': controls } : {}, { ...manifest, ...(python ? { logic: 'logic/main.py' } : {}) });
+  const python = patch.language === 'python', typescript = patch.ts === true;
+  const { ts: _flag, ...manifestPatch } = patch;
+  const manifest = { id, name: `Программа ${id}`, contractVersion: 3, ...manifestPatch };
+  // build/logic.js несёт метку выпуска: по ней видно, чья подписанная логика исполнилась
+  const extra = python ? { 'logic/main.py': `# логика ${id} ${version}\n`, 'examples/controls.json': controls }
+    : typescript ? { 'logic/main.ts': TS_LOGIC, 'build/logic.js': `${await tsLogicBuild()}/* логика ${id} ${version} */\n`, 'examples/controls.json': controls } : {};
+  const bundle = moduleBundle(version, extra, { ...manifest, ...(python ? { logic: 'logic/main.py' } : {}) });
   const signature = releaseEnvelope(root, bundle, { moduleId: id, version, author: dev, channel, contractVersion: 3, language: python ? 'python' : undefined });
   const result = await cache.install({ id: `rel-${id}-${version}`, moduleId: id, version, signature }, splitChunks(bundle));
   assert.ok(result.ok, `${id}@${version}: ${result.why}`);
 }
 const exportsOf = (...methods: string[]) => ({ language: 'python', exports: methods.map(method => ({ method, does: `Метод ${method} считает значение по входным данным` })) });
+const tsExportsOf = (...methods: string[]) => ({ ts: true, exports: methods.map(method => ({ method, does: `Метод ${method} считает значение по входным данным` })) });
 
 async function main() {
   await selection.load(); await selection.activate('u1');
@@ -67,15 +104,17 @@ async function main() {
   await publish('ghosted', '1.0.0', exportsOf('convert'));
   await publish('beta', '1.0.0', exportsOf('convert'), 'test');
   await publish('broken', '1.0.0', exportsOf('convert'));
-  await publish('report', '1.0.0', { permissions: permit('rates', 'chain', 'bare', 'ghosted', 'absent', 'beta', 'broken') });
+  await publish('tsrates', '1.0.0', tsExportsOf(...TS_EXPORTS));
+  await publish('tscontrols', '1.0.0', tsExportsOf('convert'));
+  await publish('report', '1.0.0', { permissions: permit('rates', 'chain', 'bare', 'ghosted', 'absent', 'beta', 'broken', 'tsrates', 'tscontrols', 'tsbig') });
   await publish('plain-caller', '1.0.0', {});
-  for (const id of ['rates', 'prices', 'chain', 'bare', 'beta', 'broken', 'report', 'plain-caller']) await selection.install(id, '1.0.0', { dirty: false });
+  for (const id of ['rates', 'prices', 'chain', 'bare', 'beta', 'broken', 'tsrates', 'tscontrols', 'report', 'plain-caller']) await selection.install(id, '1.0.0', { dirty: false });
   // 'ghosted' лежит в кэше проверенных, но человек её не ставил
   console.log('1. Подписанные выпуски');
-  check('выпуски проверены и лежат в кэше', (await cache.runnable(['production', 'test'])).size === 9);
+  check('выпуски проверены и лежат в кэше', (await cache.runnable(['production', 'test'])).size === 11);
   const mine = await cache.resolve(selection.versions(), selection.channels);
   check('у человека запускаются установленные из рабочего канала; чужая, не установленная и тестовая — нет', mine.has('rates') && mine.has('report') && !mine.has('ghosted') && !mine.has('beta'));
-  check('манифест exports и permissions дошёл из подписанного пакета', (mine.get('rates')!.manifest.exports || []).length === EXPORTS.length && (mine.get('report')!.manifest.permissions || []).length === 7);
+  check('манифест exports и permissions дошёл из подписанного пакета', (mine.get('rates')!.manifest.exports || []).length === EXPORTS.length && (mine.get('report')!.manifest.permissions || []).length === 10);
 
   console.log('2. Батарея проверок на настоящих классах');
   const real = await battery('настоящий', ModuleProgramCalls, createModuleBridge);
@@ -83,7 +122,7 @@ async function main() {
   assert.deepEqual(real.failed, [], `батарея на настоящем коде упала: ${real.failed.join('; ')}`);
 
   console.log('3. Мутации: каждая защита выключается по одной, батарея обязана упасть');
-  const mutants: Array<{ name: string; file: 'electron/moduleProgramCalls.ts' | 'modules/bridge.ts'; from: string; to: string }> = [
+  const mutants: Array<{ name: string; file: 'electron/moduleProgramCalls.ts' | 'modules/bridge.ts' | 'src/services/moduleProgramCall.ts' | 'src/services/moduleCompute.ts'; from: string; to: string }> = [
     { name: 'нет проверки разрешения program (главный процесс)', file: 'electron/moduleProgramCalls.ts', from: "if (!hasProgramPermission(caller.manifest, program)) return refuse('NOT_ALLOWED');", to: '' },
     { name: 'нет запрета вызова самой себя', file: 'electron/moduleProgramCalls.ts', from: "if (program === request.moduleId) return refuse('NOT_ALLOWED');", to: '' },
     { name: 'нет запрета вложенного вызова', file: 'electron/moduleProgramCalls.ts', from: "if ((this.serving.get(request.moduleId) || 0) > 0) return refuse('NOT_ALLOWED');", to: '' },
@@ -91,7 +130,8 @@ async function main() {
     { name: 'нет предела 4 одновременно (главный процесс)', file: 'electron/moduleProgramCalls.ts', from: 'slot.inFlight >= PROGRAM_LIMITS.inFlight ||', to: '' },
     { name: 'нет предела 256 КиБ на данные (главный процесс)', file: 'electron/moduleProgramCalls.ts', from: '(bytes as number) > PROGRAM_LIMITS.bytes', to: 'false' },
     { name: 'не проверяется метод в exports', file: 'electron/moduleProgramCalls.ts', from: "if (!exportsOf(callee.manifest).some(e => e.method === method)) return refuse('NO_METHOD');", to: '' },
-    { name: 'TypeScript-вызываемая исполняется как есть', file: 'electron/moduleProgramCalls.ts', from: "if (languageOf(callee.manifest) === 'typescript') return refuse('FAILED');", to: '' },
+    { name: 'контрольные примеры вызываемой не проверяются перед методом (окно)', file: 'src/services/moduleProgramCall.ts', from: "if (await ipc.controls(begun.manifest) !== 'ok') throw new ComputeError('CONTROLS');", to: '' },
+    { name: 'файл логики TypeScript больше 1 МиБ не останавливается окном', file: 'src/services/moduleCompute.ts', from: "if (target.language === 'typescript' && source.bytes.length > LIMITS.tsFileBytes) throw new ComputeError('ABI', 'файл логики больше 1 МиБ');", to: '' },
     { name: 'вызываемая берётся без проверки «установлена»', file: 'electron/moduleProgramCalls.ts', from: 'const release = installed[moduleId] ? runnable.get(moduleId) : undefined;', to: 'const release = runnable.get(moduleId);' },
     { name: 'вызываемая берётся без проверки контрольных примеров', file: 'electron/moduleProgramCalls.ts', from: 'return release && !blocked(release) ?', to: 'return release ?' },
     { name: 'место в пределах не освобождается по итогу', file: 'electron/moduleProgramCalls.ts', from: 'slot.inFlight = Math.max(0, slot.inFlight - 1);', to: '' },
@@ -112,11 +152,42 @@ async function main() {
     fs.writeFileSync(target, source.replace(mutant.from, mutant.to));
     try {
       const loaded = require(path.resolve(target));
-      const inElectron = mutant.file.startsWith('electron');
-      const result = await battery(mutant.name, inElectron ? loaded.ModuleProgramCalls : ModuleProgramCalls, inElectron ? createModuleBridge : loaded.createModuleBridge, inElectron ? loaded.currentRelease : currentRelease);
+      const is = (file: string) => mutant.file === file;
+      const result = await battery(mutant.name, is('electron/moduleProgramCalls.ts') ? loaded.ModuleProgramCalls : ModuleProgramCalls,
+        is('modules/bridge.ts') ? loaded.createModuleBridge : createModuleBridge, is('electron/moduleProgramCalls.ts') ? loaded.currentRelease : currentRelease,
+        is('src/services/moduleCompute.ts') ? loaded.ModuleCompute : ModuleCompute, is('src/services/moduleProgramCall.ts') ? loaded.createProgramCaller : createProgramCaller);
       check(`мутация «${mutant.name}» замечена (${result.failed.length} проверок упало)`, result.failed.length > 0);
     } finally { fs.rmSync(target, { force: true }); }
   }
+
+  console.log('3б. Проверка выпуска: методы на TypeScript требуют собранный build/logic.js и контрольные примеры');
+  const exec = executionBattery(executionProblem);
+  for (const name of exec.passed) { passed++; console.log(`  ✓ ${name}`); }
+  assert.deepEqual(exec.failed, [], `проверка выпуска на настоящем коде упала: ${exec.failed.join('; ')}`);
+  const execMutants: Array<{ name: string; from: string; to: string }> = [
+    { name: 'метод на TypeScript не требует собранного файла', from: "if (!built?.length) return `exports: методам на TypeScript нужен собранный ${LOGIC_BUILD_FILE} (соберите программу в Studio или Flux)`;", to: '' },
+    { name: 'метод на TypeScript не требует исходника', from: "if (!logic?.length) return `exports: методам на TypeScript нужен исходник ${LOGIC_FILES.typescript}`;", to: '' },
+    { name: 'нет предела размера build/logic.js', from: "if (built.length > LIMITS.tsFileBytes) return `${LOGIC_BUILD_FILE} больше 1 МиБ`;", to: '' },
+    { name: 'build/logic.js не обязан быть текстом UTF-8', from: "if (text === null) return `${LOGIC_BUILD_FILE} не в кодировке UTF-8`;", to: 'if (text === null) return "";' },
+    { name: 'build/logic.js может быть чем угодно', from: "if (!text.includes('__fluxLogic')) return `${LOGIC_BUILD_FILE} не похож на собранную логику: его собирает Flux или Studio`;", to: '' },
+    { name: 'метод на TypeScript без контрольных примеров', from: "if (!files[CONTROLS_FILE]?.length) return `Для методов на TypeScript нужны контрольные примеры: ${CONTROLS_FILE}`;", to: '' },
+    { name: 'требования к методам на TypeScript выключены целиком', from: 'if (needsLogicBuild(manifest)) {', to: 'if (false as boolean) {' },
+    { name: 'требования применяются и к TypeScript без exports (ломают прежние выпуски)', from: 'if (needsLogicBuild(manifest)) {', to: "if (languageOf(manifest) === 'typescript') {" },
+  ];
+  for (const mutant of execMutants) {
+    const source = fs.readFileSync('modules/trust/execution.ts', 'utf8');
+    assert.ok(source.includes(mutant.from), `мутант «${mutant.name}»: фрагмент не найден`);
+    const target = path.join('modules/trust', `${stamp}_exec_${++n}.ts`);
+    fs.writeFileSync(target, source.replace(mutant.from, mutant.to));
+    try {
+      // Мутант может не только вернуть «годно», но и упасть на пустом месте: падение — тоже замеченная поломка
+      const result = (() => { try { return executionBattery(require(path.resolve(target)).executionProblem); } catch { return { passed: [], failed: ['упало'] }; } })();
+      check(`мутация «${mutant.name}» замечена (${result.failed.length} проверок упало)`, result.failed.length > 0);
+    } finally { fs.rmSync(target, { force: true }); }
+  }
+  const sample = [{ method: 'convert', does: 'Метод считает значение по входным данным' }];
+  check('needsLogicBuild и needsControls: только TypeScript с exports', needsLogicBuild({ exports: sample }) && !needsLogicBuild({}) && !needsLogicBuild({ language: 'python', exports: sample })
+    && needsControls({ language: 'wasm' }) && needsControls({ exports: sample }) && !needsControls({}));
 
   console.log('3а. Версия вызываемой — та, что запускается у человека');
   await publish('rates', '1.1.0', exportsOf(...EXPORTS));
@@ -158,14 +229,39 @@ async function main() {
   console.log(`\nВСЕ ТЕСТЫ ПРОЙДЕНЫ (${passed})`);
 }
 
+// ── Батарея проверки выпуска ────────────────────────────────────────────────
+
+/** `executionProblem` на пакетах методов для других программ: требования к TypeScript и неизменность прежних выпусков */
+function executionBattery(problem: typeof executionProblem) {
+  const passedChecks: string[] = [], failed: string[] = [];
+  const ok = (name: string, condition: unknown) => { (condition ? passedChecks : failed).push(name); };
+  const enc = (text: string) => new TextEncoder().encode(text);
+  const manifest = { id: 'ts-methods', name: 'ТС', version: '1.0.0', author: 'A', contractVersion: 3, entries: ['start'], reads: [], logic: 'logic/main.ts',
+    exports: [{ method: 'convert', does: 'Метод считает значение по входным данным' }] } as unknown as ModuleManifest;
+  const full = (): Record<string, Uint8Array> => ({ 'logic/main.ts': enc('export function compute() {}'), 'build/logic.js': enc('globalThis.__fluxLogic={}'), 'examples/controls.json': enc(controls) });
+  const without = (name: string) => { const files = full(); delete files[name]; return files; };
+  ok('TypeScript с exports: полный пакет проходит', problem(manifest, full()) === '');
+  ok('нет build/logic.js — отказ, причина названа', /build\/logic\.js/.test(problem(manifest, without('build/logic.js'))));
+  ok('пустой build/logic.js — отказ', problem(manifest, { ...full(), 'build/logic.js': new Uint8Array() }) !== '');
+  ok('нет logic/main.ts — отказ', problem(manifest, without('logic/main.ts')) !== '');
+  ok('нет контрольных примеров — отказ', /контрольные примеры/.test(problem(manifest, without('examples/controls.json'))));
+  ok('build/logic.js больше 1 МиБ — отказ', problem(manifest, { ...full(), 'build/logic.js': enc(`globalThis.__fluxLogic={}/*${'x'.repeat(LIMITS.tsFileBytes)}*/`) }) !== '');
+  ok('build/logic.js не UTF-8 — отказ', problem(manifest, { ...full(), 'build/logic.js': Uint8Array.from([0xff, 0xfe, 0x00]) }) !== '');
+  ok('build/logic.js без __fluxLogic — отказ', problem(manifest, { ...full(), 'build/logic.js': enc('alert(1)') }) !== '');
+  const plain = { ...manifest, exports: undefined } as unknown as ModuleManifest;
+  ok('TypeScript без exports: прежний пакет без build/logic.js и без примеров проходит', problem(plain, { 'logic/main.ts': enc('x') }) === '' && problem(plain, {}) === '');
+  ok('Python с exports по-прежнему требует свои файлы, а не build/logic.js', problem({ ...manifest, language: 'python', logic: 'logic/main.py' } as unknown as ModuleManifest, { 'logic/main.py': enc('x = 1'), 'examples/controls.json': enc(controls) }) === '');
+  return { passed: passedChecks, failed };
+}
+
 // ── Батарея проверок ────────────────────────────────────────────────────────
 
 /** Подставная логика вызываемых программ: что получила, то и видно; `gates` держат вызов «в полёте», пока проверка не отпустит */
-interface Rig { seen: any[]; gates: Array<() => void>; begins: number }
-async function battery(label: string, PC: typeof ModuleProgramCalls, makeBridge: typeof createModuleBridge, current: typeof currentRelease = currentRelease) {
+interface Rig { seen: any[]; gates: Array<() => void>; begins: number; controlled: string[] }
+async function battery(label: string, PC: typeof ModuleProgramCalls, makeBridge: typeof createModuleBridge, current: typeof currentRelease = currentRelease, MC: typeof ModuleCompute = ModuleCompute, makeCaller: typeof createProgramCaller = createProgramCaller) {
   const passedChecks: string[] = [], failed: string[] = [];
   const ok = (name: string, condition: unknown) => { (condition ? passedChecks : failed).push(name); };
-  const rig: Rig = { seen: [], gates: [], begins: 0 };
+  const rig: Rig = { seen: [], gates: [], begins: 0, controlled: [] };
   let clock = 10_000_000;
   const journalFile = path.join(dir, `journal-${label.replace(/\W+/g, '_')}-${Math.random().toString(36).slice(2)}.json`);
   const journal = new ModuleJournal(journalFile, () => clock);
@@ -176,18 +272,18 @@ async function battery(label: string, PC: typeof ModuleProgramCalls, makeBridge:
     // Манифесты, которые настоящий выпуск не пропустил бы: проверка главного процесса не должна полагаться на проверку выпуска
     selfie: { version: '1.0.0', author: dev, verifiedAt: 1, manifest: { id: 'selfie', name: 'Сама', version: '1.0.0', author: 'A', contractVersion: 3, entries: ['start'], reads: [], logic: 'logic/main.py', language: 'python',
       permissions: permit('selfie') as never, exports: [{ method: 'convert', does: 'Метод считает значение по входным данным' }] } },
-    tsprog: { version: '1.0.0', author: dev, verifiedAt: 1, manifest: { id: 'tsprog', name: 'ТС', version: '1.0.0', author: 'A', contractVersion: 3, entries: ['start'], reads: [], logic: 'logic/main.ts',
+    // TypeScript-вызываемая, чей собранный файл больше предела: в подписанный выпуск такая не попадёт, но окно не должно полагаться на это
+    tsbig: { version: '1.0.0', author: dev, verifiedAt: 1, manifest: { id: 'tsbig', name: 'ТС', version: '1.0.0', author: 'A', contractVersion: 3, entries: ['start'], reads: [], logic: 'logic/main.ts',
       exports: [{ method: 'convert', does: 'Метод считает значение по входным данным' }] } },
-    sneaky: { version: '1.0.0', author: dev, verifiedAt: 1, manifest: { id: 'sneaky', name: 'Хитрая', version: '1.0.0', author: 'A', contractVersion: 3, entries: ['start'], reads: [], logic: 'logic/main.ts', permissions: permit('rates', 'tsprog') as never } },
   };
   const resolve = async (id: string, version: string) => fabricated[id] ?? (runnable.get(id)?.claim.version === version
     ? { manifest: runnable.get(id)!.manifest, version, author: dev, verifiedAt: 1 } : null);
-  const currentOf = async (id: string) => fabricated[id] && id === 'tsprog' ? fabricated[id] : current(runnable, selection.installed, release => blocked.has(release.manifest.id), id);
+  const currentOf = async (id: string) => fabricated[id] && id === 'tsbig' ? fabricated[id] : current(runnable, selection.installed, release => blocked.has(release.manifest.id), id);
   const programs = new PC({ resolve, current: currentOf, userId: () => 'u1', journal, now: () => clock });
 
   // Очередь расчёта: тот же ModuleCompute, что у окна; подписанные файлы логики доходят через fetchFile
-  const files = (id: string) => (runnable.get(id) ?? everything.get(id))?.files;
-  const compute = new ModuleCompute({
+  const files = (id: string) => id === 'tsbig' ? { [LOGIC_BUILD_FILE]: new Uint8Array(LIMITS.tsFileBytes + 1) } : (runnable.get(id) ?? everything.get(id))?.files;
+  const compute = new MC({
     scheduler: new ComputeScheduler({ slots: 4, laneLimits: { python: 1 } }),
     wasm: { workers: 0, stopAll() {}, keepOnly() {}, async run() { throw new Error('нет'); } },
     python: {
@@ -205,7 +301,30 @@ async function battery(label: string, PC: typeof ModuleProgramCalls, makeBridge:
         return { output: JSON.stringify({ state: {}, calc: { out } }), bootMs: 0 };
       },
     },
-    fetchFile: async (id, file) => { const logic = files(id)?.['logic/main.py']; if (!logic || file !== 'logic.py') throw new Error('нет файла'); return logic; },
+    // Метод на TypeScript — подписанный build/logic.js, собранный настоящим esbuild, в новом контексте vm на каждый вызов: без сети и flux, без состояния
+    ts: {
+      loaded: false, unload() {},
+      async run(source, input, _seed, timeoutMs) {
+        const id = /логика ([a-z0-9-]+) /.exec(source)?.[1] ?? 'tsbig';
+        rig.seen.push({ id, source, request: JSON.parse(input) });
+        const context = vm.createContext({});
+        try {
+          vm.runInContext(source, context, { timeout: 300 });
+          (context as any).__input = JSON.parse(input);
+          const output = vm.runInContext('JSON.stringify(__fluxLogic.compute(__input))', context, { timeout: Math.min(timeoutMs, 300) });
+          if (typeof output !== 'string') throw new ComputeError('BAD_OUTPUT');
+          return { output };
+        } catch (error) {
+          if (error instanceof ComputeError) throw error;
+          throw new ComputeError(/timed out/.test(String((error as Error).message)) ? 'TIMEOUT' : 'CRASH');
+        }
+      },
+    },
+    fetchFile: async (id, file) => {
+      const logic = file === 'logic.py' ? files(id)?.['logic/main.py'] : file === 'logic.js' ? files(id)?.[LOGIC_BUILD_FILE] : undefined;
+      if (!logic) throw new Error('нет файла');
+      return logic;
+    },
     sha256: async () => 'f'.repeat(64),
     pythonIdleMinutes: () => 5,
     onFailure: () => {},
@@ -214,7 +333,8 @@ async function battery(label: string, PC: typeof ModuleProgramCalls, makeBridge:
     if (channel === 'modules:program-begin') { rig.begins++; return programs.begin(data); }
     return { ok: programs.end(data) };
   };
-  const callerFor = (id: string, version = '1.0.0') => createProgramCaller({ moduleId: id, version }, () => ({ invoke: ipc, compute: (target, input) => compute.compute(target, input, 'active'), controls: async () => 'ok' }));
+  const callerFor = (id: string, version = '1.0.0') => makeCaller({ moduleId: id, version }, () => ({ invoke: ipc, compute: (target, input) => compute.compute(target, input, 'active'),
+    controls: async manifest => { rig.controlled.push(manifest.id); return manifest.id === 'tscontrols' ? 'failed' : 'ok'; } }));
   const sent: any[] = [];
   const frame = { postMessage: (m: unknown) => sent.push(m) } as unknown as Window;
   const theme = Object.fromEntries(themeKeys.map(k => [k, '#000'])) as never;
@@ -293,8 +413,31 @@ async function battery(label: string, PC: typeof ModuleProgramCalls, makeBridge:
   ok('отказ NOT_INSTALLED не запускал расчёт', !rig.seen.some(s => ['ghosted', 'beta', 'broken'].includes(s.id)));
   ok('NO_METHOD: метода нет в exports, хотя логика его знает', outcome(await ask(report, 'rates', 'ghost')) === 'NO_METHOD' && !rig.seen.some(s => s.request.export === 'ghost'));
   ok('NO_METHOD: у программы вообще нет exports', outcome(await ask(report, 'bare', 'convert')) === 'NO_METHOD');
-  const sneaky = await bridgeOf('sneaky');
-  ok('FAILED: вызываемая на TypeScript — ясный отказ, расчёта нет', outcome(await ask(sneaky, 'tsprog', 'convert')) === 'FAILED' && !rig.seen.some(s => s.id === 'tsprog') && !journal.recent(500).some(e => e.moduleId === 'tsprog'));
+  // Метод на TypeScript: исполняет подписанный build/logic.js вызываемой
+  tick();
+  const tsReport = await bridgeOf('report');
+  reply = await ask(tsReport, 'tsrates', 'convert', { amount: 100, rate: 0.9, note: 'ТС-МАРКЕР' });
+  ok('TypeScript: успех — ответ calc.out метода', reply?.type === 'program-result' && reply.data.value === 90 && reply.data.by === 'ts');
+  const tsSeen = rig.seen.at(-1);
+  ok('TypeScript: метод получил ровно { export, data }', JSON.stringify(Object.keys(tsSeen.request).sort()) === '["data","export"]' && tsSeen.request.data.amount === 100);
+  ok('TypeScript: исполнен подписанный build/logic.js вызываемой, байт в байт', tsSeen.id === 'tsrates' && tsSeen.source.includes('логика tsrates 1.0.0') && tsSeen.source === Buffer.from(files('tsrates')![LOGIC_BUILD_FILE]).toString('utf8'));
+  ok('TypeScript: контрольные примеры вызываемой проверены перед методом', rig.controlled.includes('tsrates'));
+  ok('TypeScript: журнал вызываемой — «Расчёты», метод и вызывающая, без содержимого', journal.recent(500).some(e => e.moduleId === 'tsrates' && e.event === 'export' && e.outcome === 'ok' && e.detail === 'convert · из «report»') && !JSON.stringify(journal.recent(500)).includes('ТС-МАРКЕР'));
+  const count1 = await ask(tsReport, 'tsrates', 'count'), count2 = await ask(tsReport, 'tsrates', 'count');
+  ok('TypeScript: нет состояния между вызовами (переменная модуля и глобальная начинаются заново)', outcome(count1) === 'ok' && outcome(count2) === 'ok' && count1.data.module === 1 && count2.data.module === 1 && count1.data.global === 1 && count2.data.global === 1);
+  const sealed = await ask(tsReport, 'tsrates', 'sealed');
+  ok('TypeScript: у метода нет сети, require, process, flux и DOM (модель хоста; настоящую CSP проверяет test-modules-ts-host)', outcome(sealed) === 'ok' && Object.values(sealed.data).every(v => v === 'undefined'));
+  ok('TypeScript: ошибка логики — FAILED, текст ошибки в ответе и журнале не виден', outcome(await ask(tsReport, 'tsrates', 'crash')) === 'FAILED' && !JSON.stringify(journal.recent(500)).includes('СЕКРЕТ'));
+  ok('TypeScript: метод ничего не вернул — FAILED', outcome(await ask(tsReport, 'tsrates', 'bad')) === 'FAILED');
+  ok('TypeScript: метода нет в exports — NO_METHOD, логика не запускалась', outcome(await ask(tsReport, 'tsrates', 'ghost')) === 'NO_METHOD' && !rig.seen.some(s => s.id === 'tsrates' && s.request.export === 'ghost'));
+  tick();
+  const tsSpin = await ask(tsReport, 'tsrates', 'spin');
+  ok('TypeScript: бесконечный цикл — TIMEOUT, итог в журнале вызываемой', outcome(tsSpin) === 'TIMEOUT' && journal.recent(500).some(e => e.moduleId === 'tsrates' && e.event === 'export' && e.outcome === 'timeout'));
+  ok('TypeScript: после остановки по времени следующий вызов работает', outcome(await ask(tsReport, 'tsrates', 'convert', { amount: 1 })) === 'ok');
+  ok('TypeScript: ответ метода больше 256 КиБ — LIMIT', outcome(await ask(tsReport, 'tsrates', 'huge')) === 'LIMIT');
+  const beforeControlled = rig.seen.length;
+  ok('TypeScript: контрольные примеры не сошлись — FAILED, метод не исполнялся', outcome(await ask(tsReport, 'tscontrols', 'convert', { amount: 1 })) === 'FAILED' && rig.controlled.includes('tscontrols') && rig.seen.length === beforeControlled);
+  ok('TypeScript: файл логики больше 1 МиБ — FAILED, метод не исполнялся', outcome(await ask(tsReport, 'tsbig', 'convert', { amount: 1 })) === 'FAILED' && !rig.seen.some(s => s.id === 'tsbig'));
   ok('FAILED: метод упал', outcome(await ask(report, 'rates', 'crash')) === 'FAILED');
   ok('FAILED: метод вернул не JSON', outcome(await ask(report, 'rates', 'bad')) === 'FAILED');
   ok('TIMEOUT: метод не уложился в предел расчёта', outcome(await ask(report, 'rates', 'late')) === 'TIMEOUT');
