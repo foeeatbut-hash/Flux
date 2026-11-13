@@ -145,12 +145,20 @@ const shadowCss = `
 .cm-editor .cm-activeLine, .cm-editor .cm-activeLineGutter { background: var(--surface-2); }
 /* CodeMirror задаёт tab-size и скрытый распорку номеров через style="", который CSP окна Studio (style-src 'self') не пускает: те же правила здесь */
 .cm-content { caret-color: var(--text); tab-size: 4; }
-.cm-gutter > .cm-gutterElement:first-child { visibility: hidden; pointer-events: none; }
+.cm-gutter:not(.cm-gutter-lint) > .cm-gutterElement:first-child { visibility: hidden; pointer-events: none; } /* распорка номеров строк; в поле меток распорки нет, там первый элемент — настоящая метка */
 .cm-editor .cm-cursor { border-left-color: var(--text); }
 .cm-editor .cm-selectionBackground, .cm-editor.cm-focused .cm-selectionBackground { background: color-mix(in srgb, var(--accent) 30%, transparent); }
 .cm-tooltip { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
 .cm-tooltip-autocomplete ul li[aria-selected] { background: var(--accent); color: var(--accent-text); }
 .cm-diagnostic-error { border-left-color: var(--danger); }
+.cm-diagnostic-warning { border-left-color: var(--warn); }
+/* Метки у строк (замечания владельца, ошибки): значки CodeMirror — картинки data:, CSP окна их не любит, поэтому метка — цветная точка */
+.cm-editor .cm-lint-marker { content: none !important; width: 10px !important; height: 10px !important; margin: 5px 2px; border-radius: 50%; background-image: none !important; }
+.cm-editor .cm-lint-marker-warning { background: var(--warn) !important; }
+.cm-editor .cm-lint-marker-error { background: var(--danger) !important; }
+.cm-editor .cm-lintRange { background-image: none !important; }
+.cm-editor .cm-lintRange-warning { text-decoration: underline wavy var(--warn); text-underline-offset: 3px; }
+.cm-editor .cm-lintRange-error { text-decoration: underline wavy var(--danger); text-underline-offset: 3px; }
 .cm-tok-keyword { color: var(--tok-keyword); font-weight: 600; }
 .cm-tok-string { color: var(--tok-string); }
 .cm-tok-number { color: var(--tok-number); }

@@ -7,7 +7,7 @@ import { ChevronDown, ChevronRight, File as FileIcon, FilePlus, Folder, FolderPl
 import { call } from '../call';
 import Modal from './Modal';
 
-export interface Entry { path: string; dir: boolean; size: number; ignored: boolean; text?: boolean }
+export interface Entry { path: string; dir: boolean; size: number; mtime?: number; ignored: boolean; text?: boolean }
 
 const parentOf = (p: string) => p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '';
 const baseOf = (p: string) => p.slice(p.lastIndexOf('/') + 1);

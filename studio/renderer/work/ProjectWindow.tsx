@@ -14,6 +14,7 @@ import PublishDialog from './PublishDialog';
 import { buildProblems, isTsSource, problemsOf, type BuildReport, type Problem } from './helpers';
 import { RIGHT_TEXT, RIGHT_TONE, type useKey } from './useKey';
 import { formatTime, REASON_TEXT } from './historyText';
+import type { AnchoredNote } from '../../shared/ownerNotes';
 
 type Key = ReturnType<typeof useKey>;
 interface Tree { folder: string; entries: Entry[] }
@@ -31,6 +32,7 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
   const [busy, setBusy] = useState('');
   const [requestsVersion, setRequestsVersion] = useState(0);
   const [historyVersion, setHistoryVersion] = useState(0);
+  const [notes, setNotes] = useState<{ version: string; notes: AnchoredNote[] } | null>(null);
   const [dirty, setDirty] = useState<string[]>([]);
   const [find, setFind] = useState<{ q: string; hits: Hit[] | null } | null>(null);
   const [name, setName] = useState(id);
@@ -52,6 +54,15 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
     });
     return () => { off(); void call('projectUnwatch').catch(() => {}); };
   }, [id, reload]);
+
+  // Замечания владельца к строкам: читаются с сервера и переносятся на сегодняшние файлы; перечитываются после правок файлов и отправки
+  const treeSignature = (tree?.entries || []).filter(e => !e.dir).map(e => `${e.path}:${e.size}:${e.mtime}`).join('|');
+  useEffect(() => {
+    let live = true;
+    call<{ request: { version: string } | null; notes: AnchoredNote[] }>('ownerNotes', { id })
+      .then(r => { if (live) setNotes(r.request ? { version: r.request.version, notes: r.notes } : null); }).catch(() => { if (live) setNotes(null); });
+    return () => { live = false; };
+  }, [id, requestsVersion, historyVersion, treeSignature]);
 
   const goto = useCallback((path: string, line?: number) => area.current?.open(path, line), []);
   const saved = useCallback(async () => { await area.current?.saveAll(); }, []);
@@ -136,11 +147,11 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
             onRenamed={(a, b) => area.current?.renamed(a, b)} onDeleted={p => area.current?.deleted(p)} onError={setError} />
         </aside>
         <div className="studio-center">
-          <EditorArea ref={area} id={id} entries={tree?.entries || []} onDirty={setDirty} onError={setError} onSaved={() => void reload()} />
+          <EditorArea ref={area} id={id} entries={tree?.entries || []} notes={notes?.notes || []} onDirty={setDirty} onError={setError} onSaved={() => void reload()} />
         </div>
       </div>
       <BottomPanel id={id} tab={panel} onTab={setPanel} open={panelOpen} onToggle={() => setPanelOpen(o => !o)} runSignal={runSignal}
-        problems={problems} onProblems={setProblems} onGo={goto} right={keyState.right} onRequestRight={() => void keyState.request()} rightError={keyState.error} requestsVersion={requestsVersion}
+        problems={problems} onProblems={setProblems} onGo={goto} right={keyState.right} onRequestRight={() => void keyState.request()} rightError={keyState.error} requestsVersion={requestsVersion} notes={notes}
         history={{ version: historyVersion, getDirty: () => area.current?.dirty() ?? [], saveAll: async () => (await area.current?.saveAll()) ?? false, onNote: setNote,
           onRolledBack: restorePoint => { setNote(`Проект возвращён к выбранной версии. Прежнее состояние сохранено: «${REASON_TEXT[restorePoint.reason]}» от ${formatTime(restorePoint.time)}.`); setHistoryVersion(n => n + 1); void reload(); } }} />
       {publishing && <PublishDialog id={id} right={keyState.right} onRequestRight={() => void keyState.request()} onClose={() => setPublishing(false)}

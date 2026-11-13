@@ -7,6 +7,7 @@ export const DEVELOPER_ACTIONS = [
   'testBase', 'testBaseReset',
   'build', 'runStart', 'runRead', 'runCompute', 'runShot', 'runPickFile', 'runNet',
   'historyList', 'historySave', 'historyCompare', 'historyPlan', 'historyRollback', 'historyRemove',
+  'ownerNotes',
   'check', 'publish', 'requests', 'errors', 'errorFixed',
 ] as const;
 export type DeveloperAction = typeof DEVELOPER_ACTIONS[number];

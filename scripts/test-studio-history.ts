@@ -20,6 +20,7 @@ import JSZip from 'jszip';
 import { zipProject } from '../studio/shared/archive';
 import * as realHistory from '../studio/shared/history';
 import * as realWorkspace from '../studio/shared/workspace';
+import * as realNotes from '../studio/shared/ownerNotes';
 
 type HistoryModule = typeof realHistory;
 type WorkspaceModule = typeof realWorkspace;
@@ -200,6 +201,24 @@ async function battery(H: HistoryModule, W: WorkspaceModule, tag: string): Promi
   return R;
 }
 
+/** Замечания владельца, привязанные к снимку отправки (studio/shared/ownerNotes.ts) */
+function notesBattery(N: typeof realNotes): Map<string, boolean> {
+  const R = new Map<string, boolean>();
+  const check = (name: string, fn: () => unknown) => { try { R.set(name, !!fn()); } catch { R.set(name, false); } };
+  const before = 'a\nb\nc\nd', after = 'x\na\nB\nc\nd';
+  check('замечание: целая строка переехала вместе со сдвигом и не помечена', () => { const l = N.locateLine(before, after, 1), c = N.locateLine(before, after, 3); return l.line === 2 && !l.changed && c.line === 4 && !c.changed; });
+  check('замечание: изменившаяся строка помечена и указывает на новое место', () => { const l = N.locateLine(before, after, 2); return l.line === 3 && l.changed; });
+  check('замечание: удалённая строка помечена', () => { const l = N.locateLine('a\nb\nc', 'a\nc', 2); return l.changed && l.line === 2; });
+  const notes = [{ path: 'f.ts', line: 2, text: 'к b' }, { path: 'f.ts', line: null, text: 'ко всему файлу' }, { path: 'gone.ts', line: 1, text: 'файла нет' }];
+  const files: Record<string, string> = { 'f.ts': after };
+  const anchored = N.anchorNotes(notes, p => p === 'f.ts' ? before : null, p => files[p] ?? null);
+  check('замечание: с отправкой — перенос и признак изменения', () => anchored[0].anchored && anchored[0].changed && anchored[0].currentLine === 3);
+  check('замечание: ко всему файлу и к пропавшему файлу', () => anchored[1].currentLine === null && !anchored[1].changed && anchored[2].fileGone && anchored[2].changed);
+  const loose = N.anchorNotes(notes, null, p => files[p] ?? null);
+  check('замечание: без снимка отправки остаётся на своём номере и ничего не утверждает', () => !loose[0].anchored && !loose[0].changed && loose[0].currentLine === 2);
+  return R;
+}
+
 /** Мутанты: [условие, файл, что заменить, на что] */
 const MUTANTS: Array<[string, 'history' | 'workspace', string, string]> = [
   ['подделанные пути и битый JSON показаны как повреждённые, список жив', 'history', '      relativeParts(rel); // тот же разбор', '      void rel; // тот же разбор'],
@@ -221,6 +240,9 @@ async function main() {
   const real = await battery(realHistory, realWorkspace, 'real');
   for (const [name, value] of real) { assert.ok(value, name); passed++; console.log(`  ✓ ${name}`); }
   assert.ok(real.size >= 40, `условий слишком мало: ${real.size}`);
+
+  const notes = notesBattery(realNotes);
+  for (const [name, value] of notes) { assert.ok(value, name); passed++; console.log(`  ✓ ${name}`); }
 
   console.log('Мутации защит');
   const made: string[] = [];
@@ -250,6 +272,14 @@ async function main() {
       assert.equal(result.get(condition), false, `мутация не поймана условием «${condition}»`);
       passed++; console.log(`  ✓ мутация поймана: ${condition}`);
     }
+    const notesSource = path.join(shared, 'ownerNotes.ts'), mutantNotes = path.join(shared, `__mutant_notes_${process.pid}.ts`);
+    const original = fs.readFileSync(notesSource, 'utf8'), broken = '{ line: newN + 1, changed: true }';
+    assert.ok(original.includes(broken));
+    fs.writeFileSync(mutantNotes, original.replace(broken, '{ line: newN + 1, changed: false }'));
+    made.push(mutantNotes);
+    const mutated = notesBattery(await import(mutantNotes));
+    assert.equal(mutated.get('замечание: изменившаяся строка помечена и указывает на новое место'), false, 'мутация признака «строка изменилась» не поймана');
+    passed++; console.log('  ✓ мутация поймана: признак «строка изменилась»');
   } finally { for (const f of made) fs.rmSync(f, { force: true }); }
   console.log(`\nИстория версий: ${passed} проверок прошли.`);
 }

@@ -25,6 +25,8 @@ import { chromium, type Page } from 'playwright-core';
 import { createControlsEngine } from '../studio/shared/controlsEngine';
 import { createTsBuilder } from '../studio/shared/tsBuildHost';
 import { DeveloperService } from '../studio/shell/developer';
+import { History } from '../studio/shared/history';
+import { Workspace } from '../studio/shared/workspace';
 import { ALL_ACTIONS } from '../studio/shell/actions';
 
 const { buildStudio, editorsEntry } = require('../studio/build.cjs');
@@ -67,7 +69,10 @@ async function main() {
   flux.use(express.json({ limit: '60mb' }));
   const submitted: any[] = [], transitions: any[] = [];
   const reportId = '22222222-2222-4222-8222-222222222222';
+  // Возвращённый запрос по проекту окна: появляется в ответе сервера, когда тест его задаёт
+  let extraRequest: any = null;
   const requestRows = () => [
+    ...(extraRequest ? [extraRequest] : []),
     { id: 'req-2', moduleId: 'report-builder', version: '0.3.0', state: 'returned', parentId: null, changelog: 'Отчёты', channel: 'test', createdAt: '2026-11-10T09:00:00Z', decidedAt: '2026-11-10T12:00:00Z',
       review: { note: 'Поправьте подпись поля и уберите вызов сети.', comments: [{ path: 'form.json', line: 4, text: 'Подпись длиннее 60 знаков' }] } },
     { id: 'req-1', moduleId: 'equipment-inspector', version: '1.1.0', state: 'pending', parentId: null, changelog: 'Новое', channel: 'test', createdAt: '2026-11-09T09:00:00Z', decidedAt: null, review: null },
@@ -163,8 +168,8 @@ async function main() {
       const tree = page.getByRole('tree', { name: 'Файлы проекта' });
       await tree.getByText('main.ts').waitFor();
       ok(`${theme}: рабочее окно открылось сразу, в дереве логика и контрольные примеры`, (await tree.innerText()).includes('manifest.json') && (await tree.innerText()).includes('controls.json'));
-      ok(`${theme}: три кнопки сверху и пять вкладок внизу`, (await page.getByRole('toolbar', { name: 'Запуск, проверка, публикация' }).getByRole('button').allInnerTexts()).join('|') === 'Запустить|Проверить|Опубликовать'
-        && (await page.getByRole('tablist', { name: 'Нижняя панель' }).getByRole('tab').allInnerTexts()).map(t => t.replace(/\d+$/, '').trim()).join('|') === 'Запуск|Проблемы|Публикация|История|Сбои у пользователей');
+      ok(`${theme}: три кнопки сверху и шесть вкладок внизу`, (await page.getByRole('toolbar', { name: 'Запуск, проверка, публикация' }).getByRole('button').allInnerTexts()).join('|') === 'Запустить|Проверить|Опубликовать'
+        && (await page.getByRole('tablist', { name: 'Нижняя панель' }).getByRole('tab').allInnerTexts()).map(t => t.replace(/\d+$/, '').trim()).join('|') === 'Запуск|Проблемы|Замечания|Публикация|История|Сбои у пользователей');
       const projectId = fs.readdirSync(path.join(data, 'projects'))[0];
       ok(`${theme}: проект — папка на диске`, fs.existsSync(path.join(data, 'projects', projectId, 'manifest.json')));
 
@@ -328,7 +333,38 @@ async function main() {
       await pub.getByRole('button', { name: 'Отмена' }).click();
 
       // Владелец выдал право (сервер теперь отвечает «выдан») — отправка открывается, сервер всё равно проверяет сам
+      // Замечания владельца: сервер отдал возвращённый запрос со строками; версия, которую видел владелец, — снимок отправки
+      const folder = path.join(data, 'projects', projectId), mainFile = path.join(folder, 'logic/main.ts');
+      const original = fs.readFileSync(mainFile, 'utf8'), originalLines = original.split('\n');
+      const meanLine = originalLines.findIndex(l => l.startsWith('  const mean')) + 1, countLine = originalLines.findIndex(l => l.trim() === 'count++;') + 1;
+      const sentHistory = new History(new Workspace(folder));
+      sentHistory.promote(sentHistory.save('build').snapshot.id, 'publish', { version: '0.1.0', note: 'Запрос req-3' });
+      fs.writeFileSync(mainFile, `// добавлено\n// сверху\n${original.replace('const mean = count ? sum / count : 0;', 'const mean = count ? sum / count : -1;')}`);
+      extraRequest = { id: 'req-3', moduleId: projectId, version: '0.1.0', state: 'returned', parentId: null, changelog: 'Первая', channel: 'test', createdAt: '2026-11-12T09:00:00Z', decidedAt: '2026-11-12T12:00:00Z',
+        review: { note: 'Две строки', comments: [{ path: 'logic/main.ts', line: meanLine, text: 'Среднее при пустом списке' }, { path: 'logic/main.ts', line: countLine, text: 'Счётчик лучше считать отдельно' }] } };
       certificate.status = 'issued';
+      await page.reload();
+      await page.getByRole('heading', { name: 'Мои программы' }).waitFor();
+      await page.getByRole('button', { name: 'Пример для окна' }).click();
+      await page.getByRole('toolbar', { name: 'Запуск, проверка, публикация' }).waitFor();
+      const notesTab = page.getByRole('tab', { name: /^Замечания/ });
+      await notesTab.waitFor();
+      for (let i = 0; i < 100 && !/2$/.test((await notesTab.innerText()).trim()); i++) await page.waitForTimeout(100);
+      await notesTab.click();
+      const noteRows = page.locator('.studio-problem');
+      await noteRows.first().waitFor();
+      const noteText = await page.locator('.studio-problems').innerText();
+      ok(`${theme}: замечания владельца — в списке нижней панели, у изменившейся строки так и сказано, у целой нет`, (await noteRows.count()) === 2 && noteText.includes('Среднее при пустом списке') && noteText.includes('Строка с тех пор изменилась') && noteText.split('Строка с тех пор изменилась').length === 2);
+      ok(`${theme}: замечания перенесены на сегодняшние номера строк (сдвиг на две строки)`, noteText.includes(`logic/main.ts:${meanLine + 2}`) && noteText.includes(`logic/main.ts:${countLine + 2}`));
+      await noteRows.filter({ hasText: 'Среднее при пустом списке' }).click();
+      await page.getByRole('tablist', { name: 'Открытые файлы' }).getByRole('tab', { name: 'main.ts' }).waitFor();
+      await page.locator('.cm-lint-marker:visible').first().waitFor();
+      ok(`${theme}: переход из списка открыл файл, у строк стоят метки замечаний`, (await page.locator('.cm-lint-marker:visible').count()) === 2);
+      await measure(page, `${theme}/замечания`);
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-10-notes.png`), fullPage: true });
+      // Проект возвращается в исходное состояние: дальше отправка
+      fs.writeFileSync(mainFile, original);
+      extraRequest = null;
       await page.reload();
       await page.getByRole('heading', { name: 'Мои программы' }).waitFor();
       await page.getByRole('button', { name: 'Пример для окна' }).click();

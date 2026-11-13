@@ -19,6 +19,8 @@ import path from 'node:path';
 import { Drafts, TEXT_FILE } from '../shared/drafts';
 import { FolderWatcher } from '../shared/workspace';
 import { History, type SnapshotInfo } from '../shared/history';
+import { anchorNotes } from '../shared/ownerNotes';
+import { bundleText } from '../../modules/trust/bundle';
 import { unzipInto, zipProject } from '../shared/archive';
 import { DeveloperKeyring, KeyringFailure, type SafeStorageLike } from '../shared/keyring';
 import { buildRequest, PublishRefused } from '../shared/publish';
@@ -300,6 +302,7 @@ export class DeveloperService {
       case 'historyPlan': return this.history(moduleId(args.id)).plan(text(args.snapshot, 40));
       case 'historyRollback': { const r = this.history(moduleId(args.id)).rollback(text(args.snapshot, 40), text(args.token, 100)); return { restorePoint: r.restorePoint, changed: r.entries.length }; }
       case 'historyRemove': { this.history(moduleId(args.id)).remove(text(args.snapshot, 40)); return { removed: true }; }
+      case 'ownerNotes': return this.ownerNotes(moduleId(args.id));
       case 'check': return this.check(moduleId(args.id));
       case 'publish': return this.publish(moduleId(args.id));
       case 'requests': return ownRequests(this.session());
@@ -309,6 +312,25 @@ export class DeveloperService {
         return { marked: true };
       }
     }
+  }
+
+  /**
+   * Замечания владельца по строкам последнего запроса этой программы (то, что сервер уже отдаёт о возвращённом запросе),
+   * перенесённые на сегодняшние файлы по снимку отправки. Чужие запросы сервер не отдаёт: `requests` — только свои.
+   */
+  private async ownerNotes(id: string) {
+    const rows = (await ownRequests(this.session())).filter(r => r.moduleId === id);
+    const latest = rows.length ? rows.reduce((a, b) => a.createdAt > b.createdAt ? a : b) : null;
+    const comments = latest?.review?.comments ?? [];
+    if (!latest || !comments.length) return { request: latest ? { id: latest.id, version: latest.version, state: latest.state } : null, notes: [] };
+    let sent: Record<string, Uint8Array> | null = null;
+    try {
+      const h = this.history(id), list = h.list().snapshots.filter(s => s.reason === 'publish' && s.complete);
+      const found = list.find(s => s.note.includes(`Запрос ${latest.id}`)) ?? list.find(s => s.version === latest.version);
+      if (found) sent = h.files(found.id);
+    } catch { /* история недоступна или повреждена: замечания показываются без привязки */ }
+    const notes = anchorNotes(comments, sent ? p => bundleText(sent!, p) : null, p => { try { return Buffer.from(this.drafts.readAny(id, p)).toString('utf8'); } catch { return null; } });
+    return { request: { id: latest.id, version: latest.version, state: latest.state }, notes };
   }
 
   private history(id: string): History { return new History(this.drafts.space(id)); }

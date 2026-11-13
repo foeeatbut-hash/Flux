@@ -7,12 +7,13 @@
  * перед запуском, проверкой и публикацией несохранённое сохраняется само. Файл, изменённый снаружи при несохранённых
  * правках, не перезаписывается молча: вкладка спрашивает «перечитать / оставить моё» (studio/shared/conflict.ts).
  */
-import React, { Suspense, forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import React, { Suspense, forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import type { EditorDraft } from '../../shared/editorContract';
 import { reconcile } from '../../shared/conflict';
 import { call } from '../call';
-import { CodeView } from '../editors/CodeView';
+import { CodeView, type MarkedLine } from '../editors/CodeView';
+import type { AnchoredNote } from '../../shared/ownerNotes';
 import { IMAGE_FILE, languageOfFile, MIME } from './helpers';
 import type { Entry } from './FileTree';
 
@@ -29,7 +30,7 @@ export interface EditorAreaHandle {
   dirty: () => string[];
 }
 
-const EditorArea = forwardRef<EditorAreaHandle, { id: string; entries: Entry[]; onDirty: (paths: string[]) => void; onError: (text: string) => void; onSaved: () => void }>(function EditorArea({ id, entries, onDirty, onError, onSaved }, ref) {
+const EditorArea = forwardRef<EditorAreaHandle, { id: string; entries: Entry[]; notes?: AnchoredNote[]; onDirty: (paths: string[]) => void; onError: (text: string) => void; onSaved: () => void }>(function EditorArea({ id, entries, notes, onDirty, onError, onSaved }, ref) {
   const [tabs, setTabs] = useState<string[]>([]);
   const [active, setActive] = useState('');
   const [buffers, setBuffers] = useState<Record<string, Buffer>>({});
@@ -131,6 +132,10 @@ const EditorArea = forwardRef<EditorAreaHandle, { id: string; entries: Entry[]; 
     setBuffers(x => { const { [path]: _gone, ...rest } = x; return rest; });
   };
 
+  // Метка владельца у строки; текст — по наведению (подсказка редактора). Изменившаяся с тех пор строка помечена в тексте
+  const marks: MarkedLine[] = useMemo(() => (notes || []).filter(n => n.path === active && n.currentLine).map(n => ({
+    line: n.currentLine!, column: 1, severity: 'warning' as const, message: `Владелец: ${n.text}${n.changed ? ' (строка с тех пор изменилась)' : ''}`,
+  })), [notes, active]);
   const b = buffers[active];
   return (
     <div className="studio-editor">
@@ -160,7 +165,7 @@ const EditorArea = forwardRef<EditorAreaHandle, { id: string; entries: Entry[]; 
               <button type="button" className="fx-btn" onClick={() => setBuffers(x => ({ ...x, [active]: { ...x[active], saved: b.conflict!, conflict: null } }))}>Оставить моё</button></div>)}
           {b.removed && <div className="studio-banner warn" role="alert">Файл удалён снаружи. Сохраните (Ctrl+S), чтобы создать его заново, или закройте вкладку.</div>}
           <CodeView key={active} value={b.text} language={languageOfFile(active)} label={`Файл ${active}`} testId="file-editor"
-            reveal={reveal && reveal.path === active ? reveal : null}
+            reveal={reveal && reveal.path === active ? reveal : null} marks={marks}
             onChange={text => setBuffers(x => x[active] ? { ...x, [active]: { ...x[active], text } } : x)} />
         </>)}
         {active && active !== FORM_VIEW && b?.state === 'image' && <div className="studio-image"><img src={b.image} alt={active} /></div>}
