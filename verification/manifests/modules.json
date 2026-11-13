@@ -218,6 +218,15 @@
       "timeoutMs": 900000
     },
     {
+      "id": "modules-dev-run",
+      "path": "scripts/test-modules-dev-run.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "modules-publishing",
       "path": "scripts/test-modules-publishing.ts",
       "layer": "api-db",
