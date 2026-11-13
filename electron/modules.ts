@@ -146,7 +146,7 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
     await ready;
     return currentRelease(runnable, selection.installed, controlsBlocked, moduleId);
   };
-  const programs = new ModuleProgramCalls({ resolve, current, userId: () => selection.active, journal });
+  const programs = new ModuleProgramCalls({ resolve, current, userId: () => selection.active, journal, deniedByPolicy: (id, target) => grants.isDeniedByPolicy(id, target) });
   registerConnectionsIpc({
     service, programs, grants, journal, resolve, ready, userId: () => selection.active, trusted: options.trusted,
     installed: async () => { await ready; return [...runnable.values()].filter(r => selection.installed[r.manifest.id]).map(r => ({ manifest: r.manifest, version: r.claim.version, author: r.claim.author, verifiedAt: r.claim.iat })); },

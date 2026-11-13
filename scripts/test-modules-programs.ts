@@ -24,13 +24,14 @@ import { validMessage } from '../modules/schemas';
 import { createModuleBridge } from '../modules/bridge';
 import { buildModuleLogic, buildPageAssets } from '../modules/build';
 import { executionProblem } from '../modules/trust/execution';
-import { PROGRAM_LIMITS, needsControls, needsLogicBuild } from '../modules/programs/model';
+import { PROGRAM_LIMITS, needsControls, needsLogicBuild, programPolicyTarget } from '../modules/programs/model';
 import { ComputeError, LIMITS, LOGIC_BUILD_FILE } from '../modules/engine/types';
 import { ComputeScheduler } from '../modules/engine/scheduler';
 import { splitChunks } from '../modules/trust/bundle';
 import { ModuleCache } from '../electron/moduleCache';
 import { ModuleSelection } from '../electron/moduleSelection';
 import { ModuleJournal } from '../electron/moduleJournal';
+import { ModuleGrants } from '../electron/moduleGrants';
 import { ModuleProgramCalls, currentRelease } from '../electron/moduleProgramCalls';
 import type { VerifiedModule } from '../electron/moduleConnections';
 import { INVOKE_CHANNELS } from '../electron/ipcAllow';
@@ -124,6 +125,7 @@ async function main() {
   console.log('3. Мутации: каждая защита выключается по одной, батарея обязана упасть');
   const mutants: Array<{ name: string; file: 'electron/moduleProgramCalls.ts' | 'modules/bridge.ts' | 'src/services/moduleProgramCall.ts' | 'src/services/moduleCompute.ts'; from: string; to: string }> = [
     { name: 'нет проверки разрешения program (главный процесс)', file: 'electron/moduleProgramCalls.ts', from: "if (!hasProgramPermission(caller.manifest, program)) return refuse('NOT_ALLOWED');", to: '' },
+    { name: 'нет запрета администратора на обращение к программе', file: 'electron/moduleProgramCalls.ts', from: 'if (this.deps.deniedByPolicy?.(request.moduleId, programPolicyTarget(program))) {', to: 'if (false as boolean) {' },
     { name: 'нет запрета вызова самой себя', file: 'electron/moduleProgramCalls.ts', from: "if (program === request.moduleId) return refuse('NOT_ALLOWED');", to: '' },
     { name: 'нет запрета вложенного вызова', file: 'electron/moduleProgramCalls.ts', from: "if ((this.serving.get(request.moduleId) || 0) > 0) return refuse('NOT_ALLOWED');", to: '' },
     { name: 'нет предела 20 в секунду', file: 'electron/moduleProgramCalls.ts', from: '++slot.calls > PROGRAM_LIMITS.perSecond ||', to: '' },
@@ -279,7 +281,9 @@ async function battery(label: string, PC: typeof ModuleProgramCalls, makeBridge:
   const resolve = async (id: string, version: string) => fabricated[id] ?? (runnable.get(id)?.claim.version === version
     ? { manifest: runnable.get(id)!.manifest, version, author: dev, verifiedAt: 1 } : null);
   const currentOf = async (id: string) => fabricated[id] && id === 'tsbig' ? fabricated[id] : current(runnable, selection.installed, release => blocked.has(release.manifest.id), id);
-  const programs = new PC({ resolve, current: currentOf, userId: () => 'u1', journal, now: () => clock });
+  // Политика администратора — настоящий ModuleGrants: тот же набор запретов, что у «@internet»/«@lan»
+  const grants = new ModuleGrants(path.join(dir, `grants-${Math.random().toString(36).slice(2)}.json`));
+  const programs = new PC({ resolve, current: currentOf, userId: () => 'u1', journal, now: () => clock, deniedByPolicy: (id, target) => grants.isDeniedByPolicy(id, target) });
 
   // Очередь расчёта: тот же ModuleCompute, что у окна; подписанные файлы логики доходят через fetchFile
   const files = (id: string) => id === 'tsbig' ? { [LOGIC_BUILD_FILE]: new Uint8Array(LIMITS.tsFileBytes + 1) } : (runnable.get(id) ?? everything.get(id))?.files;
@@ -442,6 +446,29 @@ async function battery(label: string, PC: typeof ModuleProgramCalls, makeBridge:
   ok('FAILED: метод вернул не JSON', outcome(await ask(report, 'rates', 'bad')) === 'FAILED');
   ok('TIMEOUT: метод не уложился в предел расчёта', outcome(await ask(report, 'rates', 'late')) === 'TIMEOUT');
   ok('итог отказа записан в журнал обеих (исполнение началось)', journal.recent(500).some(e => e.moduleId === 'rates' && e.event === 'export' && e.outcome === 'timeout') && journal.recent(500).some(e => e.moduleId === 'report' && e.outcome === 'failed'));
+
+  // Запрет администратора: `@program:<id>` сильнее разрешения program из подписанного манифеста
+  tick();
+  const policyBridge = await bridgeOf('report');
+  const seenBeforePolicy = rig.seen.length;
+  grants.setPolicy([{ moduleId: 'report', connection: programPolicyTarget('rates') }]);
+  reply = await ask(policyBridge, 'rates', 'convert', { amount: 1, note: 'ПОЛИТИКА-МАРКЕР' });
+  ok('запрет администратора: вызов rates — NOT_ALLOWED, хотя разрешение program объявлено и подписано', outcome(reply) === 'NOT_ALLOWED' && rig.seen.length === seenBeforePolicy);
+  const policyEntries = journal.recent(500);
+  ok('запрет администратора: в журнале вызывающей итог «denied-by-admin», без содержимого', policyEntries.some(e => e.moduleId === 'report' && e.outcome === 'denied-by-admin' && e.detail === 'программа «rates» · convert') && !JSON.stringify(policyEntries).includes('ПОЛИТИКА'));
+  ok('запрет администратора: вызываемая ничего не знает — в её журнале записей нет, очередь пуста', !policyEntries.some(e => e.moduleId === 'rates' && e.detail.includes('report') && e.outcome !== 'ok' && e.outcome !== 'timeout' && e.outcome !== 'failed' && e.outcome !== 'limit') && programs.active === 0);
+  const policyDirect = await programs.begin({ moduleId: 'report', version: '1.0.0', call: { program: 'rates', method: 'convert', bytes: 2 } });
+  ok('запрет администратора действует и на главный процесс напрямую, слова окна не нужны', !policyDirect.ok && beginCode(policyDirect) === 'NOT_ALLOWED');
+  ok('запрет другой пары не мешает: запрет на rates не закрывает report другую программу (tsrates)', outcome(await ask(policyBridge, 'tsrates', 'convert', { amount: 2 })) === 'ok');
+  grants.setPolicy([{ moduleId: 'plain-caller', connection: programPolicyTarget('rates') }, { moduleId: 'report', connection: programPolicyTarget('prices') }, { moduleId: 'report', connection: 'rates' }, { moduleId: 'report', connection: '@lan' }]);
+  tick();
+  ok('запрет той же вызывающей на другую программу, чужой пары и одноимённого «подключения» rates вызов report→rates не затрагивает', outcome(await ask(policyBridge, 'rates', 'convert', { amount: 1 })) === 'ok');
+  grants.setPolicy([{ moduleId: 'report', connection: programPolicyTarget('rates') }, { moduleId: 'report', connection: programPolicyTarget('tsrates') }]);
+  tick();
+  ok('запрет всем ролям и другим программам: обе пары отказывают', outcome(await ask(policyBridge, 'rates', 'convert', { amount: 1 })) === 'NOT_ALLOWED' && outcome(await ask(policyBridge, 'tsrates', 'convert', { amount: 1 })) === 'NOT_ALLOWED');
+  grants.setPolicy([]);
+  tick();
+  ok('запрет снят — вызов снова проходит', outcome(await ask(policyBridge, 'rates', 'convert', { amount: 1 })) === 'ok');
 
   // Пределы (у каждого моста свой счёт сообщений за секунду, поэтому мост свой)
   tick();

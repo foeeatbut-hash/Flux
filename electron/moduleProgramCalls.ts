@@ -5,6 +5,7 @@
  * `begin` — ВСЕ проверки и место в очереди пределов, `end` — итог и журнал. Решает только этот файл по проверенным
  * выпускам (подпись владельца, кэш), а не окно и не слова программы:
  * 1. вызывающая — установленная, проверенная; в её подписанном манифесте есть разрешение `program` на этот идентификатор;
+ * 1а. запрет администратора `@program:<id>` (роль или все) сильнее согласия: отказ NOT_ALLOWED, в журнале вызывающей «запрещено администратором»;
  * 2. вызова самой себя и вложенного вызова нет: пока метод программы исполняется для другой, она сама ничего не вызывает;
  * 3. пределы на вызывающую: 4 одновременно и 20 в секунду, данные ≤ 256 КиБ;
  * 4. вызываемая — ТА ВЕРСИЯ, что запускается у этого человека сейчас (установлена, канал, отзыв и откат, контрольные примеры),
@@ -13,7 +14,7 @@
  * У метода нет ни подключений, ни сети, ни чтения данных Flux — только расчёт, поэтому обращение не обходит чужих разрешений.
  */
 import { hasProgramPermission } from '../modules/permissions/registry';
-import { EXPORT_METHOD, PROGRAM_ERROR_CODES, PROGRAM_ID, PROGRAM_LIMITS, exportsOf, type ProgramCallErrorCode } from '../modules/programs/model';
+import { EXPORT_METHOD, PROGRAM_ERROR_CODES, PROGRAM_ID, PROGRAM_LIMITS, exportsOf, programPolicyTarget, type ProgramCallErrorCode } from '../modules/programs/model';
 import { languageOf, type ModuleLanguage } from '../modules/engine/types';
 import type { ModuleManifest } from '../modules/contract';
 import type { ModuleJournal } from './moduleJournal';
@@ -32,6 +33,8 @@ export interface ProgramCallDeps {
   current: (moduleId: string) => Promise<VerifiedModule | null>;
   userId: () => string;
   journal: ModuleJournal;
+  /** Запрет администратора: вызывающая не вправе обращаться к этой программе (ModuleGrants.isDeniedByPolicy); сильнее согласия при установке */
+  deniedByPolicy?: (callerId: string, target: string) => boolean;
   now?: () => number;
 }
 
@@ -84,6 +87,11 @@ export class ModuleProgramCalls {
       return { ok: false, code };
     };
     if (!hasProgramPermission(caller.manifest, program)) return refuse('NOT_ALLOWED');
+    // Запрет администратора — тот же отказ, что и без разрешения; вызываемая о нём не узнаёт: её журнал и очередь не затронуты
+    if (this.deps.deniedByPolicy?.(request.moduleId, programPolicyTarget(program))) {
+      this.record(request.moduleId, caller.version, user, 'call', label, 'denied-by-admin', this.now() - started, bytes as number, 0);
+      return { ok: false, code: 'NOT_ALLOWED' };
+    }
     if (program === request.moduleId) return refuse('NOT_ALLOWED');
     if ((this.serving.get(request.moduleId) || 0) > 0) return refuse('NOT_ALLOWED');
     // Вызовы, которым никто не сообщил итог (окно закрыто на середине), освобождают место сами

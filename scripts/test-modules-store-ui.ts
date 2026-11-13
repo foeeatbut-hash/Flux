@@ -30,6 +30,9 @@ const defs = [
   { id: 'other-x', name: 'Заметки инженера', color: '#be123c', category: 'other', summary: 'Свободные заметки к позиции', versions: ['1.0.0'], reads: ['tag'], installs: 1, rating: [0, 0, 0, 0, 0], roles: [] },
 ];
 
+/** Правила политики подключений, которые «хранит сервер» мока; PUT записывает их, тело запроса запоминается для проверки */
+const policy = { rules: [] as Array<{ moduleId: string; connection: string; roles: string[] }>, puts: [] as unknown[] };
+
 function serverModel() {
   const mine: Record<string, { version: string; auto: string }> = {};
   let autoUpdate = false;
@@ -92,6 +95,10 @@ async function mockApi(page: Page, model: ReturnType<typeof serverModel>, role: 
       return route.fulfill({ json: { listings, entries: [], spread: { 'calc-load': { '1.1.0': 9, '1.2.0': 5 } }, logs: [
         { id: 'l1', userId: 'ann', userName: 'Анна Сидорова', moduleId: 'calc-load', action: 'update', fromVersion: '1.1.0', toVersion: '1.2.0', detail: '', createdAt: new Date().toISOString() },
         { id: 'l2', userId: 'adm', userName: 'Иванова Мария', moduleId: 'doc-pack', action: 'admission-pending', fromVersion: '', toVersion: '', detail: '', createdAt: new Date().toISOString() }] } });
+    }
+    if (p === '/api/modules/connection-policy/rules') {
+      if (method === 'PUT') { const body = JSON.parse(req.postData() || '{}'); policy.rules = body.rules; policy.puts.push(body); }
+      return route.fulfill({ json: { rules: policy.rules } });
     }
     if (p === '/api/modules/store-roles') return route.fulfill({ json: { roles: [{ code: 'ENGINEER_AUTO', name: 'Инженер КИПиА' }, { code: 'ENGINEER_VENT', name: 'Инженер ОВиК' }] } });
     return route.fulfill({ json: {} });
@@ -258,6 +265,27 @@ async function run() {
     check('журнал: кто что сделал', /обновил/.test(await admin.getByTestId('stx-log').innerText()));
     await admin.getByRole('tab', { name: /Версии/ }).click();
     check('у кого какая версия', /1\.1\.0 — 9, 1\.2\.0 — 5/.test(await admin.getByTestId('stx-admin').innerText()));
+    await admin.getByRole('tab', { name: 'Подключения', exact: true }).click();
+    await admin.getByTestId('connection-policy').waitFor();
+    await admin.getByLabel('Программа', { exact: true }).selectOption('net-rates');
+    const targets = await admin.getByLabel('Подключение', { exact: true }).locator('option').allInnerTexts();
+    check(`запрет: у программы с разрешением program — строка «Обращение к программе «название»» (${targets.join(' | ')})`, targets.includes('Обращение к программе «Расчёт нагрузок»') && targets.filter((t) => t === 'Локальная сеть').length === 1 && targets.includes('Любой адрес в интернете'));
+    await admin.getByLabel('Подключение', { exact: true }).selectOption('@program:calc-load');
+    await admin.getByRole('button', { name: 'Запретить' }).click();
+    await admin.getByTestId('connection-policy').getByText('Обращение к программе «Расчёт нагрузок»').first().waitFor();
+    check('запрет: на сервер ушло «@program:calc-load», а не «@program»', JSON.stringify(policy.puts.at(-1)) === JSON.stringify({ rules: [{ moduleId: 'net-rates', connection: '@program:calc-load', roles: [] }] }));
+    check('запрет: в таблице правил — название программы-адресата и «все» роли', /Курсы валют\s+Обращение к программе «Расчёт нагрузок»\s+все/.test((await admin.getByTestId('connection-policy').locator('tbody tr').first().innerText()).replace(/\t/g, ' ')));
+    check('запрет: горизонтальной прокрутки нет', await admin.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+    if (shot) {
+      for (const dark of [false, true]) {
+        await admin.evaluate((d) => document.documentElement.classList.toggle('dark', d), dark);
+        await admin.waitForTimeout(150);
+        await admin.screenshot({ path: shot.replace(/\.png$/, `-policy${dark ? '-dark' : ''}.png`) });
+      }
+    }
+    await admin.getByRole('button', { name: 'Снять запрет' }).click();
+    await admin.getByText('Запретов нет.').waitFor();
+    check('запрет снят: правило ушло с сервера', policy.rules.length === 0);
     await admin.close();
 
     console.log('Узкое окно');

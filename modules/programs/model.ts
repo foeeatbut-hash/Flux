@@ -13,6 +13,11 @@ import { languageOf } from '../engine/types';
 export const EXPORTS_MAX = 16;
 export const EXPORT_METHOD = /^[a-z][A-Za-z0-9]{0,39}$/;
 export const PROGRAM_ID = /^[a-z][a-z0-9-]{0,63}$/;
+/**
+ * Имя «подключения» для политики администратора: запрет обращения вызывающей программы к программе `id`.
+ * Начинается с «@», как `@internet`/`@lan`, поэтому с объявленными подключениями манифеста не совпадает.
+ */
+export const programPolicyTarget = (id: string) => `@program:${id}`;
 
 /** Пределы вызова: общие для окна (мост) и главного процесса, чтобы одно число не расходилось в двух местах */
 export const PROGRAM_LIMITS = {
