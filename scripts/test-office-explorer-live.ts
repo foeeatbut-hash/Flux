@@ -343,7 +343,16 @@ void (async () => {
   };
   const fillFromProject = async (label: string, beforePreview?: () => Promise<void>) => {
     await page.getByRole('button', { name: /1\. Выборка/ }).click();
+    // Сетка уже может показывать FAN_HIGH из прежней выборки, поэтому ждём ответ office/query именно на этот клик:
+    // отметка строк до ответа сбрасывается приходом нового результата. 409 источника панель сама повторяет, итоговый ответ — 200.
+    const queryAnswered = page.waitForResponse((response: any) => {
+      const request = response.request();
+      if (request.method() !== 'POST' || new URL(response.url()).pathname !== '/api/project-data/office/query') return false;
+      try { return response.status() === 200 && request.postDataJSON()?.projectId === fixture.projectId; } catch { return false; }
+    }, { timeout: 30000 }).then(() => true).catch(() => false);
     await panel().getByRole('button', { name: 'Обновить выборку' }).click();
+    check(`${label}: ответ office/query на «Обновить выборку» получен`, await queryAnswered);
+    check(`${label}: выборка применена, кнопка «Обновить выборку» снова активна`, await waitFor(async () => await panel().getByRole('button', { name: 'Обновить выборку' }).isEnabled(), 20000));
     check(`${label}: выборка показывает оборудование проекта`, await waitFor(async () => (await panel().getByRole('grid', { name: 'Предпросмотр выборки' }).getByText(/FAN_HIGH/).count()) > 0, 20000));
     await panel().getByRole('checkbox', { name: 'Выбрать все строки' }).check();
     await page.getByRole('button', { name: /3\. Обновление/ }).click();
