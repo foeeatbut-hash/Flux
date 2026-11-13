@@ -130,7 +130,8 @@ export default function ProgramWindow({ host, spec, onClose, width }: Props) {
 
   const title = windowTitle(started.manifest.name, custom);
   const style = main ? (width ? { width, maxWidth: '100%' } : undefined) : { width: spec!.width || DEFAULT_WINDOW.width, maxWidth: '100%' };
-  const src = main ? started.url : `flux-module://run/ui/${spec!.page}`;
+  // Остальные страницы лежат рядом с главной: адрес берётся от адреса запуска (в проверке в браузере он на loopback)
+  const src = main ? started.url : new URL(spec!.page, started.url).href;
   return (
     <section className="run-window" data-testid="program-window" data-window={key} aria-label={title} style={{ position: 'relative', ...style }}>
       {(isPage || !main) && <header className="run-window-head">
