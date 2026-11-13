@@ -73,6 +73,7 @@
         "modules/runtime/deterministic.ts",
         "src/services/moduleComputeTsHost.ts",
         "scripts/fixtures/ts-host-harness.ts",
+        "scripts/fixtures/programs-engines-harness.ts",
         "scripts/fixtures/moduleLanguages.ts",
         "modules/engine/scheduler.ts",
         "src/services/moduleCompute.ts",
@@ -354,6 +355,33 @@
     {
       "id": "modules-ts-host",
       "path": "scripts/test-modules-ts-host.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-programs",
+      "path": "scripts/test-modules-programs.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-permissions",
+      "path": "scripts/test-modules-permissions.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-programs-engines",
+      "path": "scripts/test-modules-programs-engines.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],

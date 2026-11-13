@@ -49,7 +49,7 @@ jobs:
     env:
       NODE_OPTIONS: --max-old-space-size=8192
       FLUX_MODULE_SHOTS: artifacts/modules-shots
-      # Живая проверка изоляции страницы (test-modules-page) и хоста метода на TypeScript (test-modules-ts-host) идёт в настоящем Chrome; без него в CI она падает, а не пропускается
+      # Живая проверка изоляции страницы (test-modules-page) и хостов методов (test-modules-ts-host, test-modules-programs-engines: TypeScript, Python, WebAssembly) идёт в настоящем Chrome; без него в CI она падает, а не пропускается
       FLUX_CHROME: C:\Program Files\Google\Chrome\Application\chrome.exe
       DISABLE_HMR: 'true'
       # Все наборы job обязательны: пропуск (нет сборки, Chromium) = провал, а не зелёный код (scripts/verifySkip.ts)
@@ -69,7 +69,7 @@ jobs:
         run: |
           node_modules/.bin/tsc --noEmit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($suite in @('modules-contract', 'modules-page', 'modules-openfile', 'modules-windows', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'modules-languages', 'modules-wasm', 'modules-python', 'modules-parity', 'modules-scheduler', 'modules-compute', 'modules-ts-host', 'modules-controls', 'modules-connections', 'modules-no-bundled', 'architecture')) {
+          foreach ($suite in @('modules-contract', 'modules-page', 'modules-openfile', 'modules-windows', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'modules-languages', 'modules-wasm', 'modules-python', 'modules-parity', 'modules-scheduler', 'modules-compute', 'modules-ts-host', 'modules-programs', 'modules-permissions', 'modules-programs-engines', 'modules-controls', 'modules-connections', 'modules-no-bundled', 'architecture')) {
             node --import tsx "scripts/test-$suite.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }

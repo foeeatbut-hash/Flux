@@ -25,12 +25,16 @@ const code = (value: unknown): ComputeErrorCode => COMPUTE_ERROR_CODES.includes(
 
 interface WasmWorker { worker: Worker; busy: boolean; known: Set<string> }
 
-export function createWasmRunner(): WasmRunner {
+/**
+ * `spawnWorker` — откуда берётся Worker WebAssembly; во Flux это собранный Vite файл рядом с окном, проверки в обычном
+ * Chromium подставляют тот же код, собранный esbuild (scripts/fixtures/programs-engines-harness.ts).
+ */
+export function createWasmRunner(spawnWorker: () => Worker = () => new Worker(new URL('../workers/moduleWasm.worker.ts', import.meta.url), { type: 'module' })): WasmRunner {
   const pool: WasmWorker[] = [];
   // Один скомпилированный модуль на выпуск: Worker'ы получают его готовым, поэтому остановка Worker'а компиляции не требует
   const compiled = new MemoryCompileCache(16);
   const stats = { compiled: 0, cached: 0 };
-  const spawn = (): WasmWorker => ({ worker: new Worker(new URL('../workers/moduleWasm.worker.ts', import.meta.url), { type: 'module' }), busy: false, known: new Set() });
+  const spawn = (): WasmWorker => ({ worker: spawnWorker(), busy: false, known: new Set() });
   let counter = 0;
   return {
     get workers() { return pool.length; },
@@ -72,7 +76,8 @@ export function createWasmRunner(): WasmRunner {
   };
 }
 
-export function createPythonRunner(): PythonRunner {
+/** `base` — откуда берётся страница хоста; во Flux это `flux-module://_compute/`, проверки в обычном Chromium подставляют http-адрес с теми же заголовками */
+export function createPythonRunner(base = 'flux-module://_compute/'): PythonRunner {
   let frame: HTMLIFrameElement | null = null;
   let ready: Promise<HTMLIFrameElement> | null = null;
   // Строго по одному: следующий расчёт уходит в среду, только когда предыдущий закончился (в том числе остановкой по времени)
@@ -113,7 +118,7 @@ export function createPythonRunner(): PythonRunner {
       };
       const giveUp = setTimeout(() => { window.removeEventListener('message', onReady); created.remove(); ready = null; reject(new ComputeError('UNAVAILABLE', 'среда Python не отвечает')); }, 15_000);
       window.addEventListener('message', onReady);
-      created.src = 'flux-module://_compute/index.html';
+      created.src = `${base}index.html`;
       document.body.append(created);
     });
   }
