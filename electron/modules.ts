@@ -163,7 +163,7 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
   });
 
   const shown = () => { const m = new Map(base); for (const id of bundledIds) m.delete(id); return m; };
-  registerModuleStoreIpc({ cache, selection, bundledIds, ready, refresh, runnable: () => runnable, shown, dev: () => devRuns.list().filter(item => item.live), trusted: options.trusted });
+  registerModuleStoreIpc({ cache, selection, bundledIds, ready, refresh, runnable: () => runnable, shown, dev: () => devRuns.list(), trusted: options.trusted });
   registerModuleDevRunsIpc({ devRuns, ready, userId: () => selection.active, trusted: options.trusted });
   registerModuleControlsIpc(controls, () => runnable, ready, options.trusted);
 

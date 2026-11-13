@@ -8,6 +8,7 @@ import { updateAvailable, formatSize, type StoreListing } from '../../../modules
 import { useModuleStore } from '../../store/moduleStoreState';
 import { autoOn, installModule, rollbackModule, setAutoUpdate, setModuleAuto, updateAll } from '../../services/moduleStoreActions';
 import { ActionButton, ModuleIcon, Ring, type ActionKind } from './StoreParts';
+import StoreDevRuns from './StoreDevRuns';
 
 type Tab = 'installed' | 'updates';
 
@@ -38,6 +39,7 @@ export default function StoreLibrary({ initialTab = 'installed', listings, onOpe
       {Object.entries(busy).map(([id, text]) => `${listings.find((l) => l.moduleId === id)?.name || id}: ${text}`).join(' · ')}</div>}
 
     {tab === 'installed' && <div className="grid gap-2">
+      <StoreDevRuns />
       {mine.length === 0 && <div className="stx-note">Установленных программ пока нет. Выберите их в Store.</div>}
       {mine.filter(here).map((l) => <div key={l.moduleId} className="stx-card" style={{ cursor: 'default' }}>
         <ModuleIcon listing={l} size={48} />

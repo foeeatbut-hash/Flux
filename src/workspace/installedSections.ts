@@ -11,7 +11,11 @@
 import { create } from 'zustand';
 import type { ModuleManifest } from '../../modules/contract';
 
-export interface InstalledModule { manifest: ModuleManifest; version: string; channel: 'test' | 'production'; author?: string }
+export interface InstalledModule {
+  manifest: ModuleManifest; version: string; channel: 'test' | 'production'; author?: string;
+  /** Запущена из разработки («Запустить во Flux»), не выпущена: плашка в «Пуске» и в окне, до согласия на разрешения не открывается */
+  dev?: { developer: string; accepted: boolean; sha256: string };
+}
 
 interface SectionsVersion { version: number; items: InstalledModule[]; bump: (items: InstalledModule[]) => void }
 
@@ -27,4 +31,5 @@ export const useInstalledModules = (): InstalledModule[] => useSectionsVersion((
 
 /** Новый набор не перерисовывает ничего, если он тот же: id, версия и название */
 export const sameInstalled = (a: InstalledModule[], b: InstalledModule[]) =>
-  a.length === b.length && a.every((x, i) => x.manifest.id === b[i].manifest.id && x.version === b[i].version && x.manifest.name === b[i].manifest.name && x.channel === b[i].channel && x.author === b[i].author);
+  a.length === b.length && a.every((x, i) => x.manifest.id === b[i].manifest.id && x.version === b[i].version && x.manifest.name === b[i].manifest.name && x.channel === b[i].channel && x.author === b[i].author
+    && x.dev?.accepted === b[i].dev?.accepted && x.dev?.sha256 === b[i].dev?.sha256);

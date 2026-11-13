@@ -11,7 +11,7 @@
 
 - [x] 1. Набор `scripts/test-modules-dev-run.ts` (49 проверок, реестр `modules-dev-run`); мутации verifyDevRun: 24 из 24 пойманы
 - [x] 2. Главный процесс: `electron/moduleDevRuns.ts` (чтение папки, проверка, память, согласие, «Убрать»), `moduleDevRunsIpc.ts` (`modules:devRuns/devAccept/devRemove`, событие `modules:devChanged`), встройка в `modules.ts` (overlay поверх кэша: base → runnable), `moduleGrants.ts` (отдельная область `dev:` для решений о подключениях, не пишется в файл). Набор `test-modules-dev-run-host.ts` (60 проверок, реестр `modules-dev-run-host`); мутации ModuleDevRuns/ModuleGrants: все пойманы
-- [ ] 3. Окно Flux: «Пуск» (плашка), Библиотека Store («Из разработки»: карточки, причины отказа, «Убрать»), ModuleHost (плашка, согласие, остановка при истечении)
+- [x] 3. Окно Flux: «Пуск» («(разработка)»), Библиотека Store («Из разработки»: карточки, причины отказа, «Убрать», `StoreDevRuns.tsx`), ModuleHost (плашка-Chip, «Убрать», согласие `DevConsentDialog`, остановка при истечении); набор `test-modules-dev-run-ui.ts` (17 проверок, нужен свой Vite 5411 и FLUX_CHROME), снимки в обеих темах просмотрены
 - [ ] 4. Набор на настоящем Electron (`test-modules-dev-run-native.ts`), tsc, `run-checks modules`, архитектурный, раздел в `03-programs/modules.md`
 
 ## Проверки «до» (a6fc5056)
@@ -26,4 +26,4 @@
 
 ## На чём остановился
 
-Шаг 2 готов, коммит — ниже. Следующее: шаг 3.
+Шаги 2 и 3 готовы. Следующее: шаг 4 (native-набор на Electron, tsc, наборы области, раздел modules.md).

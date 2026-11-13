@@ -7,6 +7,7 @@
  */
 import type { ModuleManifest } from '../../modules/contract';
 import type { StoreListing } from '../../modules/store/model';
+import type { DevRunItem } from '../../modules/store/devRun';
 import type { ModuleChannel } from '../../modules/trust/claims';
 import { bridge, call } from './moduleReleaseService';
 
@@ -21,6 +22,8 @@ export interface LocalState {
   /** Выбранная версия больше не проходит проверку (отозвана, откат владельца): запущена более старая */
   fallbacks: Record<string, { wanted: string; running: string | null }>;
   runnable: Array<{ manifest: ModuleManifest; version: string; channel: ModuleChannel; author: string }>;
+  /** Программы из разработки (Studio → Flux): проверенные и отказанные с причиной */
+  dev?: DevRunItem[];
   broken?: Array<{ moduleId: string; version: string; why: string }>;
   at?: number; version?: string;
 }

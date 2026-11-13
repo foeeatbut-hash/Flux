@@ -8,6 +8,7 @@ import { useRealTimeSync } from '../SocketProvider';
 import { useStore } from '../../store/store';
 import { flushModuleCrashes } from '../../services/moduleCrashQueue';
 import { refreshStore } from '../../services/moduleStoreActions';
+import { watchDevRuns } from '../../services/moduleDevRunActions';
 import { syncJournal } from '../../services/moduleJournalClient';
 import { syncConnectionPolicy } from '../../services/moduleConnectionPolicy';
 
@@ -23,6 +24,8 @@ export default function StoreSync() {
     window.addEventListener('online', run);
     return () => { clearInterval(timer); window.removeEventListener('focus', run); window.removeEventListener('online', run); };
   }, [userId]);
+  // Программа из разработки появилась, срок её аренды вышел или её убрали: «Пуск» и окна узнают сразу
+  useEffect(() => (userId ? watchDevRuns() : undefined), [userId]);
   useEffect(() => {
     if (!socket || !userId) return;
     const run = () => { void refreshStore(); void flushModuleCrashes(); void syncJournal(); void syncConnectionPolicy(); };

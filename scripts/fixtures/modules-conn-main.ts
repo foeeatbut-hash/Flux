@@ -9,6 +9,8 @@ registerModuleScheme();
 app.whenReady().then(async () => {
   setupModuleProtocol(path.resolve('dist'), {
     rootHex: process.env.FLUX_TEST_ROOT!, dir: process.env.FLUX_TEST_DIR!, trusted: () => true,
+    // Папка обмена с Studio — своя, а не настоящая папка данных Flux на этом компьютере
+    devDir: process.env.FLUX_TEST_DEV_DIR || path.join(process.env.FLUX_TEST_DIR!, 'dev-run'),
     ...(process.env.FLUX_FAKE_COM === '1' ? { com: new FakeCom() } : {}),
   });
   const win = new BrowserWindow({ show: true, width: 1200, height: 800, webPreferences: {

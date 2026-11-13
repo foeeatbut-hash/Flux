@@ -17,7 +17,7 @@
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ModuleManifest } from '../modules/contract';
+import type { DevRunItem } from '../modules/store/devRun';
 import { MODULE_BUNDLE_MAX, MODULE_ID, parseCertificateClaim } from '../modules/trust/claims';
 import { DEV_RUN_FILES, leaseProblem, verifyDevRun, type DevRunFile, type DevRunnable } from '../modules/trust/devRun';
 import { ENVELOPE_MAX, peekEnvelope, sha256Hex } from '../modules/trust/envelope';
@@ -32,21 +32,6 @@ const RUN_FILE_MAX = ENVELOPE_MAX * 2 + 4096;
 export const DEV_POLL_MS = 10_000;
 /** Чаще этого обращения программы не перечитывают папку: запросов у кадра много */
 const TOUCH_MIN_MS = 1500;
-
-/** Одна запись списка «Разработка»: то, что видит человек; байт пакета и подписей здесь нет */
-export interface DevRunItem {
-  moduleId: string; name: string; version: string; developer: string;
-  /** Пакет проверен и аренда свежая: программу можно открыть (после согласия) */
-  live: boolean;
-  /** Человек согласился с разрешениями ЭТОЙ сборки */
-  accepted: boolean;
-  /** Хеш сборки: согласие дают именно на него */
-  sha256: string;
-  /** Для окна согласия; пусто у непроверенного */
-  manifest: ModuleManifest | null;
-  /** Причина отказа словами; пусто у проверенного */
-  why: string;
-}
 
 interface Entry {
   moduleId: string;
@@ -93,6 +78,8 @@ async function readLimited(file: string, max: number): Promise<{ bytes: Buffer |
   } catch { return { bytes: null, why: 'файл не читается' }; }
   finally { await handle?.close().catch(() => {}); }
 }
+
+export type { DevRunItem };
 
 export class ModuleDevRuns {
   private entries = new Map<string, Entry>();
