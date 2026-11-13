@@ -7,8 +7,8 @@
 - [ ] 1. Находки ручной проверки владельца на Windows — на начало сессии не присланы
 - [ ] 2. Долги PR 165
   - [x] 2а. методы `flux.programs.call` на TypeScript (отказ в `modules/trust/execution.ts`)
-  - [ ] 2б. запрет администратором обращения к программам (образец — @internet/@lan)
-  - [ ] 2в. `test-modules-programs` на настоящих Pyodide и WebAssembly
+  - [x] 2б. запрет администратором обращения к программам (образец — @internet/@lan)
+  - [x] 2в. `test-modules-programs` на настоящих Pyodide и WebAssembly
   - [ ] 2г. WebSocket по полному адресу — только если нужен
 - [ ] 3. Хвосты рабочего окна Studio: [ ] типы при сборке TypeScript; [x] пробный запуск владельца (файл, диалоги); [x] окно «Лицензии»
 - [ ] 4. Функции «как в GitHub»: история версий, сравнение, откат, замечания к строкам, список выпусков
@@ -30,3 +30,7 @@
 - 13.11: в работе `program-policy` (2б + 2в, файл хода `.claude/progress/program-policy.md`, своя ветка worktree, пушит HEAD:ветка).
 - Находка: путь Chromium в правилах был устаревший (chromium-1194, в образе 1243) — наборы *-ui у исполнителей могли молча пропускаться; правила исправлены. Тот же путь зашит в scripts/test-icons-shell-ui.ts, test-remaining-engineering-registry-ui.ts, test-design-live.ts, test-office-explorer-live.ts, walkthrough.ts, test-windows-file-office-sheets-native-live.ts, test-tag-canvas-live.ts — разобрать в пункте 5.
 - Урок: исполнителю не давать переключаться на рабочую ветку в worktree (ветка общая — у основной копии «появляются» обратные изменения); пушить `HEAD:ветка` из своей.
+- 13.11: падения remaining-api-fixture и contracts на b50d0fb4…561dc544 — одна причина: манифест identity-owner.json ссылался на удалённый studio/owner/ui/app.js; исправлено в a0a66890 (check:verification, check:coverage локально зелёные).
+- 13.11: `program-policy` принят (561dc544, a124de0f, a3961c0a): запрет администратором `@program:<id>` (главный процесс, сервер, экран политики; подпись «Локальная сеть» исправлена), набор test-modules-programs-engines на настоящих Pyodide/WebAssembly/TypeScript в Chromium, наборы programs/permissions/engines включены в манифест и verify-modules.yml, 4 случая вызова в test-modules-compute-native. Руководитель сам прогнал на вершине: engines 28, programs 120. Исполнитель прогнал native-набор под Xvfb в контейнере (43) — Electron в контейнере ЕСТЬ. Ждёт Windows-CI. Не сделано: запрет и TIMEOUT в настоящем Electron.
+- 2г (WebSocket по полному адресу) — не нужен ни одной программе, не делается; остаётся строкой в плане.
+- В работе: `studio-typecheck` (шаг 1 запушен c831b035).
