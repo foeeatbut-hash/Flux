@@ -110,7 +110,7 @@ until curl -s localhost:3000/api/health >/dev/null; do sleep 3; done
 
 Новый экран проверяется снимком, а не «выглядит правильно»: Chromium через
 `playwright-core` (путь — `FLUX_CHROME` или
-`/opt/pw-browsers/chromium-*/chrome-linux*/chrome` — номер сборки меняется с образом, сейчас 1243; ``, `--no-sandbox`). Проверять
+`/opt/pw-browsers/chromium-*/chrome-linux*/chrome` — номер сборки меняется с образом, сейчас 1243; `--no-sandbox`). Проверять
 обе темы, отсутствие горизонтальной прокрутки и тишину в консоли (`pageerror`,
 `console` типа `error`).
 
