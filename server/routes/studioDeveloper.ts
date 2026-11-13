@@ -72,7 +72,12 @@ export function registerStudioDeveloperRoutes(app: Express, deps: StudioDevelope
     const trust = await loadTrust(db, rootHex());
     const issued = trust.certificates.get(key);
     // Чужой ключ отвечает так же, как неизвестный: по ответу не узнать, кому он выдан
-    if (issued) return res.json(issued.userId === userId(req) ? { status: 'issued', name: issued.name } : { status: 'none', name: '' });
+    if (issued) {
+      if (issued.userId !== userId(req)) return res.json({ status: 'none', name: '' });
+      // Конверт сертификата Studio кладёт рядом с пакетом разработки («Запустить во Flux»): Flux проверяет его по корню владельца сам
+      const row = await db.moduleCertificate.findUnique({ where: { keyHex: key }, select: { signature: true } });
+      return res.json({ status: 'issued', name: issued.name, certificate: row?.signature || '' });
+    }
     // Строка есть, а действующего сертификата нет — значит подпись не сошлась или ключ отозван
     const row = await db.moduleCertificate.findUnique({ where: { keyHex: key }, select: { userId: true } });
     res.json({ status: row && row.userId === userId(req) ? 'revoked' : 'none', name: '' });

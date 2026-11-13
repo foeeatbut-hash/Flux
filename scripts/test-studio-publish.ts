@@ -136,6 +136,7 @@ async function main() {
     console.log('Сертификат');
     const status = async (who: string, key: string) => (await call(strict, who, `/api/studio/certificate?key=${key}`)).body;
     ok('выданный сертификат своего ключа', (await status('a', hexOf(keys.a))).status === 'issued' && (await status('a', hexOf(keys.a))).name === 'Разработчик');
+    ok('свой сертификат приходит конвертом (для «Запустить во Flux»), чужой — нет', /^FLUXMODCERT1\./.test((await status('a', hexOf(keys.a))).certificate) && !('certificate' in (await status('b', hexOf(keys.a)))));
     ok('чужой ключ отвечает как неизвестный, имя не раскрывается', (await status('b', hexOf(keys.a))).status === 'none' && (await status('b', hexOf(keys.a))).name === '');
     ok('неизвестный ключ — «нет»', (await status('a', hexOf(newKey()))).status === 'none');
     ok('некорректный ключ — 400', (await call(strict, 'a', '/api/studio/certificate?key=zz')).status === 400);

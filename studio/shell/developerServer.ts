@@ -19,6 +19,12 @@ export async function certificateStatus(s: Session, key: string): Promise<Certif
   return { status, name: clip(reply.name, 160) };
 }
 
+/** Конверт сертификата владельца на ключ разработчика — для пакета разработки; в окно не уходит. Пусто — сертификата нет */
+export async function certificateEnvelope(s: Session, key: string): Promise<string> {
+  const reply = await studioRequest<{ status?: string; certificate?: string }>(s.origin, 'certificate', { token: s.token, query: { key } });
+  return reply.status === 'issued' && typeof reply.certificate === 'string' ? reply.certificate.slice(0, 64 * 1024) : '';
+}
+
 export interface RequestRow {
   id: string; moduleId: string; version: string; state: string; parentId: string | null; changelog: string; channel: string;
   createdAt: string; decidedAt: string | null; review: { note: string; comments: Array<{ path: string; line: number | null; text: string }> } | null;
