@@ -8,6 +8,7 @@ import { Empty, Status, Tabs } from '../../../src/components/ui/controls';
 import { call, REQUEST_STATES, STATE_TONE, type RequestRow } from '../call';
 import { TONE } from '../Modules';
 import Run from '../sections/Run';
+import DevRun from '../sections/DevRun';
 import Errors from '../sections/Errors';
 import { locate, noteProblems, reviewProblems, type Problem } from './helpers';
 import type { AnchoredNote } from '../../shared/ownerNotes';
@@ -57,7 +58,7 @@ export default function BottomPanel({ id, tab, onTab, open, onToggle, runSignal,
       {open && (
         <div className="studio-bottom-body">
           {/* Запуск не размонтируется при смене вкладки: программа остаётся запущенной */}
-          <div hidden={tab !== 'run'} className="studio-run"><Run id={id} signal={runSignal} onFail={text => onProblems([{ source: 'Запуск', title: text, detail: '', ...locate(text) }, ...own.filter(p => p.source !== 'Запуск'), ...owner])} /></div>
+          <div hidden={tab !== 'run'} className="studio-run"><DevRun id={id} /><Run id={id} signal={runSignal} onFail={text => onProblems([{ source: 'Запуск', title: text, detail: '', ...locate(text) }, ...own.filter(p => p.source !== 'Запуск'), ...owner])} /></div>
           {tab === 'problems' && <ProblemList problems={own} onGo={onGo} empty="Проблем нет. Нажмите «Проверить», чтобы убедиться." />}
           {tab === 'notes' && (
             <div>

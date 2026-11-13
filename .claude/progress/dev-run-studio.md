@@ -8,7 +8,7 @@
 ## Шаги
 - [x] 1 studio/shared/devRun.ts (+ обмен папкой) + scripts/test-studio-dev-run.ts + сертификат с сервера
 - [x] 2 главный процесс: действия devRunStart/devRunStop/devRunState, аренда, уборка
-- [ ] 3 окно
+- [x] 3 окно
 - [ ] 4 проверки, документация
 
 ## Проверки «до»
