@@ -14,6 +14,8 @@ declare global {
       call: <T = unknown>(action: string, args?: object) => Promise<Reply<T>>;
       onState: (fn: (state: Snapshot) => void) => () => void;
       onProgress: (fn: (data: { phase: string }) => void) => () => void;
+      /** Вопрос о подключении запущенной программы: решение человека (runConnectAnswer) нужно главному процессу, чтобы ответить программе; нет подписки — окно старой сборки */
+      onConnectAsk?: (fn: (data: { id: string; ask: import('../../modules/connections/model').GrantAsk }) => void) => () => void;
       /** Изменения в папке проекта снаружи (git, другой редактор): дерево и вкладки обновляются сразу */
       onProject: (fn: (data: { id: string; changes: Array<{ path: string; kind: 'added' | 'changed' | 'removed' }> }) => void) => () => void;
     };

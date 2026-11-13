@@ -3,23 +3,20 @@
  * мост (modules/bridge.ts), что во Flux. Окно читает данные не из Flux, а у главного процесса — из тестовой SQLite.
  * Журнал показывает каждое сообщение моста: чтения, сообщения программы (flux.log), расчёты и сбои.
  */
-import React, { useEffect, useRef, useState } from 'react';
-import { createModuleBridge } from '../../../modules/bridge';
-import { MODULE_SANDBOX } from '../../../modules/protocol';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { themeKeys, type LaunchContext, type ModuleManifest, type ThemeTokens } from '../../../modules/contract';
+import { kindOfOp, type ConnectCall, type GrantAsk } from '../../../modules/connections/model';
+import { PAGE_LIMITS, type WindowOptions } from '../../../modules/page/model';
+import type { ProgramCall, ProgramReply } from '../../../modules/programs/model';
 import { call } from '../call';
-import { trialProgramCall } from '../../shared/trialPrograms';
-import type { PageDialog, PageDialogAnswer } from '../../../modules/page/model';
 import RunDialog from './RunDialog';
-import { dialogAnswerLine, dialogStartLine, pickedFromWire } from '../work/programDialog';
+import ProgramWindow, { type RunHost } from './run/ProgramWindow';
+import RunConnectPrompt, { type RunGrantChoice } from './run/RunConnectPrompt';
+import TestPrograms from './run/TestPrograms';
+import { canOpenWindow, closeRequest, createPageBus, hangLimit, type LogRow, type Started, type WindowSpec } from './run/model';
+import { pickedFromWire } from '../work/programDialog';
 
-interface Started {
-  session: string; url: string; language: string;
-  manifest: Pick<ModuleManifest, 'id' | 'name' | 'version' | 'reads' | 'entries' | 'ui' | 'pages' | 'permissions'> & { connections: unknown[] };
-  context: LaunchContext;
-}
 interface BaseContext { id: string; name: string; equipment: Array<{ id: string; name: string }>; tags: Array<{ id: string; name: string }> }
-interface LogRow { at: string; kind: string; text: string; level: 'info' | 'warn' | 'error' }
 
 const ENTRIES: Record<string, string> = { start: 'Пуск', equipment: 'Карточка оборудования', tag: 'Карточка тега' };
 
@@ -39,28 +36,52 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
   // Ширина кадра страницы: так видно, как она ведёт себя в узком и широком окне Flux
   const [width, setWidth] = useState(0);
   const kept = useRef<Record<string, unknown>>({});
-  const frame = useRef<HTMLIFrameElement>(null);
-  const bridge = useRef<ReturnType<typeof createModuleBridge> | null>(null);
+  const mainFrame = useRef<HTMLIFrameElement | null>(null);
+  const notifiers = useRef(new Set<(kind: 'changed' | 'project-changed') => void>());
   const latest = useRef(pick);
   // Главный процесс держит только последний запуск: если два запуска идут подряд (верхняя «Запустить» и сразу
   // «Перезапустить») или сменился проект, ответ прежнего может прийти позже — окно с его сеансом мост бы отверг
   // и оно осталось бы пустым, поэтому опоздавший ответ отбрасывается
   const attempt = useRef(0);
-  const [dialog, setDialog] = useState<{ request: PageDialog; resolve: (answer: PageDialogAnswer) => void } | null>(null);
+  // Окна программы, открытые ею самой (flux.windows.open); главное окно — отдельно, считается в пределе числа окон
+  const [windows, setWindows] = useState<WindowSpec[]>([]);
+  const windowsRef = useRef<WindowSpec[]>([]);
+  const windowSeq = useRef(0);
+  const unsaved = useRef(new Map<string, string>());
+  const [restartAsk, setRestartAsk] = useState<{ text: string; resolve: (allowed: boolean) => void } | null>(null);
+  // Вопросы о подключении идут по одному, как во Flux: следующий — после ответа на прежний
+  const [asks, setAsks] = useState<Array<{ id: string; ask: GrantAsk }>>([]);
+  const asksRef = useRef(asks); asksRef.current = asks;
   latest.current = pick;
 
   const add = (kind: string, text: string, level: LogRow['level'] = 'info') =>
     setLog(rows => [...rows.slice(-199), { at: new Date().toLocaleTimeString('ru-RU'), kind, text, level }]);
+  const setWindowList = (list: WindowSpec[]) => { windowsRef.current = list; setWindows(list); };
 
-  useEffect(() => { attempt.current++; setStarted(null); setLog([]); setError(''); void call<{ context: BaseContext[] }>('testBase').then(b => setContexts(b.context)).catch(() => {}); }, [id]);
+  useEffect(() => { attempt.current++; setStarted(null); setWindowList([]); setLog([]); setError(''); void call<{ context: BaseContext[] }>('testBase').then(b => setContexts(b.context)).catch(() => {}); }, [id]);
 
-  // Мост живёт, пока открыт запуск; закрытие окна программы закрывает и его
+  // Вопрос о подключении присылает главный процесс событием; ответ человека уходит ему же. Закрытие запуска без ответа — «позже»
   useEffect(() => {
     if (!started) return;
-    const isPage = started.manifest.ui === 'page';
-    const manifest = { ...started.manifest, author: '', contractVersion: (started.manifest.permissions || []).length ? 3 : isPage ? 2 : 1, logic: '' } as unknown as ModuleManifest;
-    const b = createModuleBridge({
-      frame: () => frame.current?.contentWindow || null, session: started.session, manifest,
+    const off = window.studio.onConnectAsk?.(data => setAsks(list => [...list, data]));
+    return () => {
+      off?.();
+      for (const item of asksRef.current) void call('runConnectAnswer', { id: item.id, choice: 'later' }).catch(() => undefined);
+      setAsks([]);
+    };
+  }, [started]);
+  const answerAsk = (item: { id: string; ask: GrantAsk }, choice: RunGrantChoice) => {
+    setAsks(list => list.filter(x => x.id !== item.id));
+    void call('runConnectAnswer', { id: item.id, choice }).catch(e => add('подключение', `ответ не доставлен: ${(e as Error).message}`, 'error'));
+  };
+
+  const bus = useMemo(() => createPageBus(), [started]);
+  const manifest = useMemo(() => started && ({ ...started.manifest, author: '', contractVersion: (started.manifest.permissions || []).length ? 3 : started.manifest.ui === 'page' ? 2 : 1, logic: '' } as unknown as ModuleManifest), [started]);
+
+  // Всё, что окна запуска берут у запуска: чтение тестовой базы, расчёт, сеть, подключения, вторая программа, файлы, окна
+  const host: RunHost | null = started && manifest ? {
+    started, log: add, bus, kept, manifest, notifiers: notifiers.current, mainFrame, hangMs: hangLimit(),
+    base: {
       context: () => ({ projectId: latest.current.projectId || null, entry: latest.current.entry as LaunchContext['entry'], entityId: latest.current.entityId || null }),
       theme,
       read: async (resource, entityId) => {
@@ -75,49 +96,64 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
       },
       // Обращение по полному адресу: решает главный процесс Studio по тем же правилам, что Flux (разрешение — permissions манифеста)
       net: async request => {
-        const t = Date.now(), host = (() => { try { return new URL(request.url).hostname; } catch { return '?'; } })();
+        const t = Date.now(), hostName = (() => { try { return new URL(request.url).hostname; } catch { return '?'; } })();
         const reply = await call<{ ok: boolean; data?: { status: number }; code?: string }>('runNet', { call: request });
-        if (reply.ok) { add('сеть', `${request.method} ${host} — ${reply.data?.status}, ${Date.now() - t} мс`); return { ok: true, data: reply.data }; }
-        add('сеть', `${request.method} ${host}: ${reply.code}`, 'warn');
+        if (reply.ok) { add('сеть', `${request.method} ${hostName} — ${reply.data?.status}, ${Date.now() - t} мс`); return { ok: true, data: reply.data }; }
+        add('сеть', `${request.method} ${hostName}: ${reply.code}`, 'warn');
         return { ok: false, code: (reply.code || 'FAILED') as never };
       },
-      // Других программ на тестовой базе нет: вызов отвечает NOT_INSTALLED, строка в журнале запуска
-      program: async request => { const { reply, line } = trialProgramCall(request); add('программа', line, 'warn'); return reply; },
+      // Подключение по объявлению манифеста: объявление, пределы и память решений — у главного процесса Studio; вопрос человеку — окно ниже
+      connect: async (connection: string, request: ConnectCall) => {
+        const t = Date.now();
+        const reply = await call<{ ok: boolean; data?: unknown; code?: string }>('runConnect', { connection, call: request }).catch(() => ({ ok: false, code: 'FAILED' } as const));
+        add('подключение', `${kindOfOp(request.op)}, ${connection}, ${reply.ok ? 'выполнено' : reply.code}, ${Date.now() - t} мс`, reply.ok ? 'info' : 'warn');
+        return reply.ok ? { ok: true, data: (reply as { data: unknown }).data } : { ok: false, code: (reply.code || 'FAILED') as never };
+      },
+      // Другая программа: та, что поставлена в тестовую базу; остальные отвечают NOT_INSTALLED, как у человека без неё
+      program: async (request: ProgramCall) => {
+        const t = Date.now();
+        const reply = await call<ProgramReply>('runProgram', { call: request }).catch(() => ({ ok: false, code: 'FAILED' } as ProgramReply));
+        add('программа', `${request.program}.${request.method}: ${reply.ok ? 'ответ получен' : (reply as { code: string }).code}, ${Date.now() - t} мс`, reply.ok ? 'info' : 'warn');
+        return reply;
+      },
       onComputeError: code => add('сбой', `расчёт остановлен: ${code}`, 'error'),
       onLog: (level, text) => add('flux.log', text, level),
-      // Страница программы: окна, файлы и обмен в Studio только записываются в журнал, настоящие — во Flux
-      page: isPage ? {
-        loadState: () => kept.current, keepState: state => { kept.current = state; },
-        offerFile: async file => { add('файл', `${file.name} (${file.bytes.length} Б) — во Flux Flux спросит и сохранит через диалог`); return 'saved'; },
-        // Файл пользователя: диалог показывает главный процесс Studio, как Flux в настоящем запуске; программа получает только выбранный файл
-        pickFile: async request => pickedFromWire(await call('runPickFile', { accept: request.accept }), (text, level) => add('файл', text, level)),
-        onBeat: () => undefined,
-        openWindow: (page, params, options) => {
-          const extra = options ? ` (${[options.title && `заголовок «${options.title}»`, options.width && `ширина ${options.width}`, options.height && `высота ${options.height}`].filter(Boolean).join(', ')})` : '';
-          add('окно', `${page} ${JSON.stringify(params)}${extra} — во Flux откроется обычным окном`); return true;
-        },
-        // Диалоги Flux: в Studio показывает диалог Studio, ответ человека идёт программе как во Flux; закрытие запуска закрывает диалог без ответа
-        dialog: request => new Promise<PageDialogAnswer>(resolve => {
-          add('диалог', dialogStartLine(request));
-          setDialog({ request, resolve: answer => { add('диалог', dialogAnswerLine(request, answer)); resolve(answer); } });
-        }),
-        setTitle: text => add('заголовок окна', text ? `«${text}» — во Flux окно зовётся «${started.manifest.name} — ${text}»` : 'возвращено название программы'),
-        setUnsaved: (unsaved, text) => add('несохранённое', unsaved ? `есть${text ? `: «${text}»` : ''} — во Flux при закрытии окна спросят «Закрыть без сохранения?»` : 'нет'),
-        params: () => ({}), broadcast: data => add('обмен', JSON.stringify(data).slice(0, 120)),
-      } : undefined,
       onFailure: kind => add('сбой', String(kind), 'error'),
-    });
-    bridge.current = b;
-    const listener = (event: MessageEvent) => { void b.handle(event); };
-    window.addEventListener('message', listener);
-    return () => { window.removeEventListener('message', listener); b.dispose(); bridge.current = null; setDialog(current => { current?.resolve(null); return null; }); };
-  }, [started]);
+    },
+    // Файл пользователю: системный диалог сохранения показывает главный процесс; программа узнаёт только «сохранён» или «отказ»
+    offerFile: async file => {
+      if (file.bytes.length > PAGE_LIMITS.saveChars) { add('файл', `${file.name}: больше предела — не предложен`, 'warn'); return 'cancelled'; }
+      try {
+        const answer = await call<'saved' | 'cancelled'>('runSaveFile', { name: file.name, mime: file.mime, bytes: file.bytes });
+        add('файл', `${file.name} (${file.bytes.length} Б) — ${answer === 'saved' ? 'сохранён' : 'человек отказался сохранять'}`);
+        return answer;
+      } catch (e) { add('файл', `${file.name}: ${(e as Error).message}`, 'error'); return 'cancelled'; }
+    },
+    // Файл пользователя: диалог показывает главный процесс Studio, как Flux в настоящем запуске; программа получает только выбранный файл
+    pickFile: async request => pickedFromWire(await call('runPickFile', { accept: request.accept }), (text, level) => add('файл', text, level)),
+    openWindow: (page: string, params: Record<string, unknown>, options?: WindowOptions) => {
+      const note = options ? ` (${[options.title && `заголовок «${options.title}»`, options.width && `ширина ${options.width}`, options.height && `высота ${options.height}`].filter(Boolean).join(', ')})` : '';
+      if (page !== 'index.html' && !(started.manifest.pages || []).includes(page)) { add('окно', `${page}: такой страницы нет в manifest.json`, 'warn'); return false; }
+      // Главное окно считается: предел, как во Flux, — число окон программы
+      if (!canOpenWindow(1 + windowsRef.current.length)) { add('окно', `${page}: предел числа окон программы`, 'warn'); return false; }
+      const spec: WindowSpec = { key: `w${++windowSeq.current}`, page, params, title: options?.title || '', width: options?.width, height: options?.height };
+      setWindowList([...windowsRef.current, spec]);
+      add('окно', `${page} ${JSON.stringify(params)}${note} — открыто, окон ${1 + windowsRef.current.length}`);
+      return true;
+    },
+    setUnsaved: (key, text) => { if (text === null) unsaved.current.delete(key); else unsaved.current.set(key, text); },
+  } : null;
 
   const project = contexts.find(c => c.id === pick.projectId);
   const entities = pick.entry === 'equipment' ? project?.equipment : pick.entry === 'tag' ? project?.tags : [];
   const start = async () => {
+    // Перезапуск закрывает все окна программы: несохранённое спрашивается тем же вопросом, что при закрытии окна
+    if (unsaved.current.size) {
+      const allowed = await new Promise<boolean>(resolve => setRestartAsk({ text: [...unsaved.current.values()].find(Boolean) || '', resolve }));
+      if (!allowed) return;
+    }
     const mine = ++attempt.current;
-    setError(''); setLog([]); setStarted(null);
+    setError(''); setLog([]); setStarted(null); setWindowList([]); unsaved.current.clear();
     try {
       const reply = await call<Started>('runStart', { id, ...pick, entityId: pick.entry === 'start' ? '' : pick.entityId });
       if (mine !== attempt.current) return;
@@ -134,18 +170,20 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
     setShots('');
     // Тема окна — класс dark на <html>, как во Flux; на время снимков переключаем его и возвращаем как было
     const root = document.documentElement, before = root.classList.contains('dark');
+    const tell = () => notifiers.current.forEach(notify => notify('changed'));
     try {
       for (const name of ['light', 'dark']) {
-        root.classList.toggle('dark', name === 'dark'); bridge.current?.notify('changed');
+        root.classList.toggle('dark', name === 'dark'); tell();
         // Окно программы перерисовывается после «changed»; сигнала готовности у него нет, поэтому короткая пауза
         await new Promise(r => setTimeout(r, 500));
-        const box = frame.current!.getBoundingClientRect();
+        const box = mainFrame.current!.getBoundingClientRect();
         await call('runShot', { id, theme: name, rect: { x: box.x, y: box.y, width: box.width, height: box.height } });
       }
       setShots('Снимки обеих тем сохранены в проекте (store/light.png, store/dark.png).');
     } catch (e) { setError((e as Error).message); }
-    finally { root.classList.toggle('dark', before); bridge.current?.notify('changed'); }
+    finally { root.classList.toggle('dark', before); tell(); }
   };
+  const declared = started ? (started.manifest.connections.length > 0 || (started.manifest.permissions || []).length > 0) : false;
 
   return (
     <div className="panel" aria-labelledby="run-title">
@@ -161,6 +199,7 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
           <select id="run-entity" value={pick.entityId} disabled={pick.entry === 'start'} onChange={e => setPick({ ...pick, entityId: e.target.value })}>
             <option value="">—</option>{(entities || []).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}</select></div>
       </div>
+      <TestPrograms id={id} onChange={line => add('программа', line)} />
       {error && <p className="fx-error" role="alert">{error}</p>}
       <div className="row">
         <button className="fx-btn fx-btn-primary" onClick={start}>{started ? 'Перезапустить' : 'Запустить'}</button>
@@ -168,18 +207,21 @@ export default function Run({ id, signal = 0, onFail, onStarted }: { id: string;
       </div>
       {shots && <p className="fx-hint" role="status">{shots}</p>}
       {started && started.language === 'python' && <p className="fx-hint">Python исполняет общая среда Flux, в Studio её нет: форма откроется, расчёт — нет. Его проверит Flux при первом запуске выпуска.</p>}
+      {declared && <p className="fx-hint" data-testid="studio-admin-hint">Политики администратора в Studio нет: во Flux администратор может запретить подключение или вызов другой программы, и тогда программа получит отказ.</p>}
       {started?.manifest.ui === 'page' && (
         <div className="row" role="group" aria-label="Ширина окна">
           {[[360, 'Узкое'], [640, 'Среднее'], [960, 'Широкое'], [0, 'Во всю ширину']].map(([w, label]) => (
             <button key={w} className={width === w ? 'fx-btn fx-btn-primary' : 'fx-btn'} onClick={() => setWidth(Number(w))}>{label}</button>))}
         </div>
       )}
-      {started && (
-        <iframe ref={frame} title={started.manifest.name} className="module-frame" data-testid="studio-module-frame" style={width ? { width, maxWidth: '100%' } : undefined}
-          sandbox={MODULE_SANDBOX} referrerPolicy="no-referrer" src={`${started.url}#${started.session}`}
-          allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'" />
+      {host && <ProgramWindow key={started!.session} host={host} spec={null} width={width} />}
+      {host && windows.length > 0 && (
+        <div className="run-windows" role="group" aria-label="Окна программы">
+          {windows.map(spec => <ProgramWindow key={spec.key} host={host} spec={spec} onClose={() => setWindowList(windowsRef.current.filter(w => w.key !== spec.key))} />)}
+        </div>
       )}
-      {dialog && started && <RunDialog program={started.manifest.name} request={dialog.request} onAnswer={answer => { setDialog(null); dialog.resolve(answer); }} />}
+      {restartAsk && <RunDialog program={started?.manifest.name || 'Программа'} request={closeRequest(restartAsk.text)} onAnswer={answer => { const { resolve } = restartAsk; setRestartAsk(null); resolve(answer === true); }} />}
+      {asks[0] && <RunConnectPrompt key={asks[0].id} ask={asks[0].ask} onChoose={choice => answerAsk(asks[0], choice)} />}
       <h4>Журнал сообщений моста</h4>
       {log.length === 0 ? <div className="empty small">Сообщений пока нет.</div> : (
         <table className="log"><thead><tr><th>Время</th><th>Вид</th><th>Сообщение</th></tr></thead>
