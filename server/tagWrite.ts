@@ -25,6 +25,7 @@
  */
 
 import { bumpElementsOfTags } from './equipmentVersion.js';
+import { keepVersion } from './versionBump.js';
 import { renameTagInVdr } from './vdrTags.js';
 import { parseMetadata, inTagTransaction } from './tagHistory.js';
 import { TagDuplicate, tagCodeKey, withCodeKey, duplicateOf, isCodeKeyViolation } from './tagCodeKey.js';
@@ -176,7 +177,9 @@ async function attemptWrite(tx: any, id: string, input: TagWriteInput): Promise<
   // Перенос карточки — не правка данных тега: версия при нём не меняется.
   // Иначе каждое перетаскивание отбирало бы версию у всех, кто держит тег открытым,
   // и у самого автора переноса (массовая раскладка версий обратно не отдаёт)
-  if (!fieldsChanged && changedKeys.every((k) => LAYOUT_KEYS.has(k))) data.updatedAt = cur.updatedAt ?? null;
+  // Целая версия (server/versionBump.ts) тоже не растёт: по той же причине
+  const layoutOnly = !fieldsChanged && changedKeys.every((k) => LAYOUT_KEYS.has(k));
+  if (layoutOnly) data.updatedAt = cur.updatedAt ?? null;
 
   // Условная запись: если между чтением и записью тег успели изменить, не пишем
   // поверх, а читаем заново и сливаем ещё раз
@@ -185,7 +188,8 @@ async function attemptWrite(tx: any, id: string, input: TagWriteInput): Promise<
   // — это и есть «успели изменить»
   try {
     // Код меняется — ключ меняется с ним: в базе нет пути, где identifier правится без codeKey
-    const tag = await tx.tag.update({ where: { id, updatedAt: cur.updatedAt ?? null }, data: withCodeKey(data) });
+    const written = withCodeKey(data);
+    const tag = await tx.tag.update({ where: { id, updatedAt: cur.updatedAt ?? null }, data: layoutOnly ? keepVersion(written) : written });
     // Код тега — часть позиции: изменился — версия позиции выросла
     if ('identifier' in data) {
       await bumpElementsOfTags(tx, [id]);

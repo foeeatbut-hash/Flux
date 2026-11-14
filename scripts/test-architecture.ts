@@ -502,5 +502,75 @@ console.log('\n9. Храповик дизайна (docs/methodology/01-design.md
   }
 }
 
+// ── Запись в версионные модели идёт через расширение клиента ──
+//
+// Целую версию записи двигает расширение клиента (server/versionBump.ts), а не
+// маршруты: так забыть её нельзя. Но расширение видит только корневые операции
+// `update`, `updateMany`, `upsert` (ветка update). Мимо него идут сырой SQL,
+// вложенные записи (`data: { rel: { update: … } }`) и записи, которые ставят
+// версию руками. Каждое такое место перечислено здесь с причиной; новое —
+// падение, а не отметка «проверено»: прочитай место и реши, должна ли запись
+// двигать версию. Число в перечне точное — стало меньше, перечень сокращают.
+console.log('\n10. Запись в версионные модели не обходит расширение (server/versionBump.ts)');
+{
+  const bumpSrc = read('server/versionBump.ts');
+  const models = [...(bumpSrc.match(/VERSIONED_MODELS[^=]*=\s*\[([\s\S]*?)\]/)?.[1] || '').matchAll(/'(\w+)'/g)].map((m) => m[1]);
+  ok(`перечень версионных моделей прочитан (${models.length})`, models.length === 12, models);
+  const delegates = models.map((m) => m[0].toLowerCase() + m.slice(1));
+  const writeCall = new RegExp(`\\b(${delegates.join('|')})\\.(update|updateMany|upsert)\\(`);
+
+  const SERVER = [...walk('server'), 'server.ts', ...ELECTRON]
+    .filter((rel) => rel !== 'server/versionBump.ts' && rel !== 'server/versionGuard.ts');
+  const code = (rel: string) => read(rel).replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' ')).replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
+  /** Совпадения шаблона по файлам: файл → число мест. */
+  const tally = (find: (rel: string, src: string) => number): Record<string, number> => {
+    const out: Record<string, number> = {};
+    for (const rel of SERVER) { const n = find(rel, code(rel)); if (n) out[rel] = n; }
+    return out;
+  };
+  /** Сверка с перечнем: новое место — провал, исчезнувшее — тоже (перечень не копит мёртвые записи). */
+  const compare = (title: string, found: Record<string, number>, allowed: Record<string, { n: number; why: string }>) => {
+    const extra = Object.entries(found).filter(([file, n]) => n > (allowed[file]?.n ?? 0)).map(([file, n]) => `${file}: ${n}, в перечне ${allowed[file]?.n ?? 0}`);
+    ok(`${title}: новых мест нет`, extra.length === 0, extra);
+    const stale = Object.entries(allowed).filter(([file, a]) => (found[file] ?? 0) < a.n).map(([file, a]) => `${file}: в перечне ${a.n}, найдено ${found[file] ?? 0}`);
+    ok(`${title}: перечень без устаревших записей`, stale.length === 0, stale);
+  };
+
+  // 1. Сырой SQL: UPDATE / REPLACE INTO / «вставить или обновить» — таблица в запросе часто собирается
+  // из имени, поэтому ловим сам оператор, а не имя таблицы
+  const RAW = /UPDATE\s+(?:\$\{[^}]+\}|["`\[]?[A-Za-z_]+["`\]]?)\s+SET\b|REPLACE\s+INTO\b|ON\s+CONFLICT[^;]{0,200}DO\s+UPDATE\b|ON\s+DUPLICATE\s+KEY\s+UPDATE\b/g;
+  compare('сырой SQL-запись', tally((_rel, src) => [...src.matchAll(RAW)].length), {
+    'server/tagCodeKey.ts': { n: 1, why: 'служебное заполнение codeKey у тегов, где его нет: данные тега не меняются' },
+    'server/entityIdMigration.ts': { n: 2, why: 'миграция идентификаторов переписывает ключи и ссылки; содержимое записей то же, версия записи не растёт намеренно' },
+    'server/fileSharing.ts': { n: 1, why: 'FileShare — не версионная модель' },
+    'server/routes/fileSharing.ts': { n: 2, why: 'FileShare — не версионная модель' },
+  });
+
+  // 2. Вложенные записи: расширение видит только корневую операцию. Одиночный `update: {` без `create:`
+  // рядом — вложенная правка (у `upsert` ветка create всегда рядом)
+  compare('вложенные записи в связанные модели', tally((_rel, src) => {
+    let n = [...src.matchAll(/\b(?:updateMany|upsert)\s*:\s*[\[{]|\bupdate\s*:\s*\[/g)].length;
+    for (const m of src.matchAll(/\bupdate\s*:\s*\{/g)) {
+      if (!/\bcreate\s*:/.test(src.slice(Math.max(0, m.index! - 500), m.index! + 500))) n++;
+    }
+    return n;
+  }), {
+    'server/equipmentParamAccess.ts': { n: 1, why: 'тип параметра функции, а не запись' },
+  });
+
+  // 3. Версию ставят руками значением (а не `increment`): «хватка» строки перед записью, откат
+  const SET = /[?:,(]\s*\{\s*version\s*:(?!\s*(?:\{\s*increment|true\b|false\b|\d|'desc'|'asc'))|\bdata\s*:\s*\{\s*version\s*:(?!\s*\{\s*increment)/g;
+  compare('версия, поставленная руками', tally((_rel, src) => writeCall.test(src)
+    ? src.split('\n').filter((l) => { SET.lastIndex = 0; return SET.test(l); }).length : 0), {
+    'server/routes/equipmentXmlSources.ts': { n: 2, why: 'часть 5: «хватка» позиции и откат XML-ревизии ставят прочитанную версию; откат назад нарушает «версия только растёт»' },
+    'server/equipmentXmlUndo.ts': { n: 1, why: 'часть 5: то же для отмены XML-ревизии' },
+  });
+
+  // 4. Клиент сервера собирается с расширением (проверка роста версии — scripts/test-version-bump.ts)
+  ok('server.ts: клиент базы создаётся с расширением роста версии',
+    /traceDatabase\(\s*withVersionBump\(\s*buildPrismaClient\(/.test(read('server.ts')));
+}
+
 console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
 process.exit(f === 0 ? 0 : 1);

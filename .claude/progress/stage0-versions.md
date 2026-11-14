@@ -91,7 +91,63 @@ Dictionary 3/3; DictionaryItem 6/6; TagTemplate 2/2; ConstructorDoc 1/1 (мар�
       project-delete-sqlite и 11 наборов с ручным CREATE TABLE на SQLite.
       Не запускались здесь (нужна MariaDB): test-catalog-publication,
       -second-review-http, -workspace-http.
-- [ ] Исполнитель A: versionBump + versionGuard + ВДР на общем месте + наборы
+- [x] Исполнитель A: versionBump + versionGuard + ВДР на общем месте + наборы + храповик
+      (число моделей — 12: у ConstructorDoc колонка тоже есть). Прошли: test-version-bump (169),
+      test-version-guard (34), vdr-concurrency (без правок набора), tag-code-key, tag-history-tx,
+      op-receipt, architecture (раздел 10), equipment-xml-routes-sqlite, project-delete-sqlite,
+      database-client, tsc. Мутации — в отчёте исполнителя A; перенос тега по холсту — на keepVersion.
 - [ ] Исполнитель B: маршруты оборудования (сервер) + набор
 - [ ] Исполнитель C: экран «Оборудование» (клиент) + набор интерфейса
 - [ ] Документы: offline-work.md, страницы программ, plan.md; удалить файлы хода
+
+
+## Договор A (как сделано)
+
+Исполнителям маршрутов — по этим именам и сигнатурам.
+
+### `server/versionGuard.ts`
+- `class VersionConflict extends Error` — `new VersionConflict(message, current = null)`; поле `current` —
+  запись, какой она стала (сырая строка Prisma). `name === 'VersionConflict'`.
+- `expectedVersionOf(raw): number | undefined | null` — целое ≥ 1 числом или строкой (`?expectedVersion=`);
+  `undefined`/`null`/`''` → `undefined` (клиент без версии); нечитаемое → `null` (маршрут отвечает 400).
+- `guardedWrite<R>(prisma, opts): Promise<{ before, after, extra? } | null>`; `null` — записи нет (404).
+  `opts`: `model` (имя делегата: `'tag'`, `'componentElement'`…), `id`, `expectedVersion?`,
+  `build(current, db) => { data, extra? }` (бросает `VersionConflict`, если по прочитанному запись
+  недопустима; читать из базы не через `db` нельзя), `staleMessage(current) => string` (текст 409, по-русски),
+  `after?(db, before, after)` (в той же транзакции), а для ВДР ещё `expectedUpdatedAt?`, `matchUpdatedAt?`.
+  Версию растит сама (`version: { increment: 1 }` явно, расширение не добавляет второй раз).
+  С `expectedVersion` — одна попытка, проигрыш → `VersionConflict` с текущей записью. Без — до 4 попыток
+  (поле «поставь эти значения» от повтора смысла не меняет), потом тот же отказ.
+- `guardedDelete(prisma, { model, id, expectedVersion?, staleMessage, before? }): Promise<{ before } | null>`;
+  `before(db, current)` — каскад/история в той же транзакции до удаления. `deleteMany where { id, version }`;
+  без повторов: проигрыш → `VersionConflict`.
+- `sendVersionConflict(res, e, present?)` → 409 `{ error: e.message, code: 'VERSION_CONFLICT', current }`;
+  `present(record)` — как маршрут обычно отдаёт запись (разбор JSON-полей), применяется к `current`.
+- `inTransaction(prisma, fn)` — как был в `vdrWrite.ts` (тот реэкспортирует).
+- Маршруту: `const v = expectedVersionOf(req.body.expectedVersion)` → `v === null` → 400;
+  `catch (e) { if (e instanceof VersionConflict) return sendVersionConflict(res, e, present); … }`.
+  Ответ маршрута отдаёт запись с `version` (в Prisma-строке она уже есть).
+
+### `server/versionBump.ts`
+- `VERSIONED_MODELS: readonly string[]` — 12 моделей (Project, Tag, EquipmentSystem, Monoblock,
+  ComponentElement, DocRegister, DocRegisterItem, ConstructorDoc, FileNode, Dictionary, DictionaryItem, TagTemplate).
+- `withVersionBump(client)` — расширение; подключено в `server.ts` → `createPrismaClient`:
+  `traceDatabase(withVersionBump(buildPrismaClient(…)))` — единственное место клиента (запуск и переключение базы).
+  Растит `update`, `updateMany`, `updateManyAndReturn`, ветку update у `upsert`; пустой `update: {}` у upsert
+  («создай, если нет») версию не двигает. Явный `version` в данных расширение не трогает.
+- `keepVersion(data)` — осознанно без роста; метка — служебный ключ `__fluxKeepVersion`, расширение снимает её
+  до запроса (символ не годился — Prisma копирует аргументы и теряет символьные ключи). На клиенте без
+  расширения Prisma откажет неизвестным полем (громко).
+- `bumpedData(data)` — то же дописывание для кода без расширения (использует `guardedWrite`).
+- Вложенные записи и сырой SQL расширение не видит — храповик `scripts/test-architecture.ts`, раздел 10
+  (перечень мест с причинами: сырой SQL, вложенные записи, версия, поставленная руками; откат/«хватка»
+  XML-ревизий помечены «часть 5»).
+
+### `server/vdrWrite.ts`
+`VdrConflict` теперь тот же класс, что `VersionConflict` (`export const VdrConflict = VersionConflict`);
+`guardedUpdate` — `guardedWrite` с `matchUpdatedAt`; `guardedIssue` пишет под `version` и растит её.
+Маршруты ВДР не менялись: ответ по-прежнему `{ error, conflict: true, current }` (код `VERSION_CONFLICT` у них не добавлен).
+
+### Для тестов маршрутов
+Клиент без расширения (`new PrismaClient`) версию не растит нигде, кроме `guardedWrite`/`guardedIssue`:
+наборы, проверяющие рост версии у маршрута, собирают клиента `withVersionBump(raw)`.
