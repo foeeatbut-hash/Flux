@@ -53,7 +53,7 @@ declare const flux: {
   read<R extends FluxResource>(resource: R, entityId?: string): Promise<FluxReadData[R]>;
   /** Расчёт логики (Python, WebAssembly): вход JSON, выход state и calc.out */
   compute(input: Record<string, unknown>): Promise<FluxOutput>;
-  /** Состояние хранит Flux в памяти (не на диске), общее для окон программы; до ${PAGE_LIMITS.stateBytes / 1024} КиБ */
+  /** Состояние, общее для окон программы. Читающая данные Flux программа: в памяти Flux, до ${PAGE_LIMITS.stateBytes / 1024} КиБ. Самостоятельная (ничего не читает во Flux, открывается только из «Пуска»): на диске этого компьютера у этого человека, до 1 МиБ; ошибки LIMIT (предел) и FAILED (диск). Данные не удаляются при обновлении и откате версии: старый и новый формат программа читает сама */
   state: { get(): Promise<Record<string, unknown>>; set(state: Record<string, unknown>): Promise<null> };
   /** Подключение из manifest.json; первое обращение Flux подтверждает у человека */
   connect: { call(connection: string, call: Record<string, unknown>): Promise<unknown> };

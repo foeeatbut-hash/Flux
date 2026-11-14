@@ -69,7 +69,7 @@ jobs:
         run: |
           node_modules/.bin/tsc --noEmit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($suite in @('modules-contract', 'modules-page', 'modules-openfile', 'modules-windows', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'modules-languages', 'modules-wasm', 'modules-python', 'modules-parity', 'modules-scheduler', 'modules-compute', 'modules-ts-host', 'modules-programs', 'modules-permissions', 'modules-storage', 'modules-programs-engines', 'modules-controls', 'modules-connections', 'modules-no-bundled', 'architecture')) {
+          foreach ($suite in @('modules-contract', 'modules-page', 'modules-openfile', 'modules-windows', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'modules-languages', 'modules-wasm', 'modules-python', 'modules-parity', 'modules-scheduler', 'modules-compute', 'modules-ts-host', 'modules-programs', 'modules-permissions', 'modules-storage', 'modules-storage-host', 'modules-programs-engines', 'modules-controls', 'modules-connections', 'modules-no-bundled', 'architecture')) {
             node --import tsx "scripts/test-$suite.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }

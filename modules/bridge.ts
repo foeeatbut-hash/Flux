@@ -48,8 +48,12 @@ export interface ModuleBridgeOptions {
    * без `ui: 'page'` в манифесте, любое действие страницы — отказ DENIED.
    */
   page?: {
-    loadState: () => Record<string, unknown>;
-    keepState: (state: Record<string, unknown>) => void;
+    /** Состояние страницы: окно держит его в памяти, а у самостоятельной программы читает с диска через главный процесс (modules/storage), поэтому ответ может быть асинхронным; сбой — исключение (программе уйдёт FAILED) */
+    loadState: () => Record<string, unknown> | Promise<Record<string, unknown>>;
+    /** Отказ — `{ code }` (предел хранилища, ошибка диска); `void` — сохранено. Состояние в памяти окна при отказе остаётся прежним */
+    keepState: (state: Record<string, unknown>) => void | { code: 'LIMIT' | 'FAILED' } | Promise<void | { code: 'LIMIT' | 'FAILED' }>;
+    /** Предел размера состояния, байт: 1 МиБ у самостоятельной программы (диск), прежние 256 КиБ у остальных (память). Нет поля — прежний */
+    stateLimit?: number;
     offerFile: (file: { name: string; mime: string; bytes: Uint8Array }) => Promise<'saved' | 'cancelled'>;
     /**
      * Файл пользователя (flux.openFile, добавлено к v2): окно Flux показывает системный диалог, человек выбирает файл,
@@ -262,10 +266,17 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       page.onAttach?.({ name: message.name, bytes: message.encoding === 'base64' ? Math.floor(message.data.length * 3 / 4) : new TextEncoder().encode(message.data).length, code });
       answer({ code }); return;
     }
-    if (message.op === 'state-load') { answer({ data: page.loadState() }); return; }
+    if (message.op === 'state-load') {
+      try { answer({ data: await page.loadState() }); } catch { answer({ code: 'FAILED' }); }
+      return;
+    }
     if (message.op === 'state-keep') {
-      if (messageBytes(message.state) > PAGE_LIMITS.stateBytes) { answer({ code: 'LIMIT' }); return; }
-      page.keepState(message.state); answer({ data: null }); return;
+      if (messageBytes(message.state) > (page.stateLimit ?? PAGE_LIMITS.stateBytes)) { answer({ code: 'LIMIT' }); return; }
+      try {
+        const refusal = await page.keepState(message.state);
+        answer(refusal && (refusal.code === 'LIMIT' || refusal.code === 'FAILED') ? { code: refusal.code } : { data: null });
+      } catch { answer({ code: 'FAILED' }); }
+      return;
     }
     if (message.op === 'file-pick') {
       if (!page.pickFile) { answer({ code: 'DENIED' }); return; }
@@ -321,7 +332,10 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     }
     if (--budget < 0) return;
     try {
-      if (messageBytes(message) > 1024 * 1024) return;
+      // Состояние самостоятельной программы — до 1 МиБ само по себе, а сообщение несёт ещё конверт; без запаса оно молча
+      // отбрасывалось бы здесь, и программа ждала бы ответа до таймаута. Запас дан только сообщению `state-keep`
+      const room = message.type === 'page' && message.op === 'state-keep' ? (options.page?.stateLimit ?? 0) + 1024 : 0;
+      if (messageBytes(message) > Math.max(1024 * 1024, room)) return;
     } catch (_) { return; }
     if (validMessage('ready', message)) {
       ready = true;

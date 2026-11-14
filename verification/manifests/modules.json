@@ -18,6 +18,9 @@
         "modules/contract.ts",
         "modules/storage/model.ts",
         "modules/storage/disk.ts",
+        "electron/moduleStorage.ts",
+        "electron/moduleStorageIpc.ts",
+        "src/services/moduleStateStorage.ts",
         "modules/schemas.ts",
         "modules/protocol.ts",
         "modules/runtime/frame.ts",
@@ -393,6 +396,15 @@
     {
       "id": "modules-storage",
       "path": "scripts/test-modules-storage.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-storage-host",
+      "path": "scripts/test-modules-storage-host.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
