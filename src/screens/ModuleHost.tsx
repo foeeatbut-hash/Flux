@@ -88,7 +88,7 @@ function ModuleHostSession({ current, wasDev, location, project, theme }: {
     <div className="fx-head shrink-0"><h1 className="fx-head-title">{manifest.name}</h1><span className="fx-head-count">{manifest.version}</span>
       {dev && <Chip tone="amber" title="Эту сборку не проверял и не подписывал владелец; она работает только у вас, пока открыта Studio">{DEV_BADGE}</Chip>}
       {dev && <div className="fx-head-acts">
-        {isStandalone(manifest) && <button className="fx-btn" data-testid="dev-clear-storage" title="Данные сборки из разработки переживают перезапуск Flux и «Убрать»; стираются только так и из Studio. Данные выпущенной программы не затрагиваются"
+        {isStandalone(manifest) && <button className="fx-btn" data-testid="dev-clear-storage" title="Данные сборки из разработки переживают перезапуск Flux и «Убрать»; стираются только этой кнопкой. Данные выпущенной программы не затрагиваются"
           onClick={() => void clearDevStorage(manifest.id).then(() => setGeneration(value => value + 1)).catch(() => {})}>Очистить хранилище</button>}
         <button className="fx-btn" data-testid="dev-remove" onClick={() => void removeDevRun(manifest.id).catch(() => {})}>Убрать</button></div>}
       {selected && selected.manifest.version !== manifest.version && <div className="fx-head-acts"><button className="fx-btn" onClick={() => {

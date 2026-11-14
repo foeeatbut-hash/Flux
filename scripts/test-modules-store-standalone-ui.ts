@@ -6,7 +6,7 @@
  *
  * Что доказывается: метка «Работает без связи» — только у самостоятельной программы без интернета, сети и обращений к другим
  * программам (подключение к программе на компьютере метку не снимает); она есть в карточке, на странице и в окне установки;
- * окно удаления самостоятельной программы говорит про данные на компьютере, и удаление просит главный процесс стереть
+ * окно удаления самостоятельной программы: данные на компьютере остаются, а с галочкой удаление просит главный процесс стереть
  * область `released` именно этой программы; у остальных программ этого нет; мерки и снимки обеих тем.
  *
  * Запуск: FLUX_CHROME=… npx tsx scripts/test-modules-store-standalone-ui.ts   (свой Vite на свободном порту; без Chromium печатает FLUX_VERIFY_SKIP)
@@ -176,39 +176,56 @@ async function main() {
       && await page.locator('[data-testid="stx-dialog"] [data-testid="stx-offline"]').count() === 0 && await page.locator('.stx-ph [data-testid="stx-offline"]').count() === 0);
     await page.getByRole('button', { name: 'Отмена', exact: true }).click();
 
-    console.log('Удаление: данные на этом компьютере');
-    await page.getByTestId('stx-nav-library').click();
-    await page.getByRole('button', { name: 'Удалить' }).first().click();
-    const note = page.getByTestId('stx-delete-data');
-    await note.waitFor();
-    check('окно удаления самостоятельной программы: «Сохранённые программой данные на этом компьютере будут удалены»', await note.innerText() === 'Сохранённые программой данные на этом компьютере будут удалены');
+    console.log('Удаление: данные на этом компьютере остаются, пока человек сам не отметит «Удалить и данные»');
+    const openRemove = async () => {
+      await page.goto(`${base}/scripts/fixtures/store-ui.html`);
+      await page.getByTestId('stx-nav-library').click();
+      await page.getByRole('button', { name: 'Удалить' }).first().click();
+      await page.getByTestId('stx-wipe').waitFor();
+    };
+    const confirmRemove = async () => {
+      const from = (await ipcLog()).length;
+      await page.getByRole('button', { name: 'Удалить', exact: true }).last().click();
+      await page.waitForFunction(n => (window as any).__ipcLog.slice(n).some((e: any) => e.channel === 'modules:remove'), from);
+      await page.getByTestId('stx-wipe').waitFor({ state: 'detached' });
+      return (await ipcLog()).slice(from);
+    };
+    await openRemove();
+    const wipe = page.getByTestId('stx-wipe');
+    check('окно удаления самостоятельной программы: галочка говорит про данные на этом компьютере и по умолчанию снята',
+      /в том числе сохранённые на этом компьютере/.test(await wipe.innerText()) && !(await wipe.locator('input').isChecked()));
+    check('отдельной строки «данные будут удалены» в окне нет', await page.getByText('будут удалены').count() === 0);
     for (const dark of [false, true]) {
       await setTheme(dark);
-      const m = await measure('[data-testid="stx-delete-data"]');
-      check(`${dark ? 'тёмная' : 'светлая'}: строка в окне удаления — шрифт не мельче 12 px, прокрутки нет (${m.font}px)`, m.font >= 12 && m.overflowX <= 0);
+      const m = await measure('[data-testid="stx-wipe"]');
+      check(`${dark ? 'тёмная' : 'светлая'}: галочка в окне удаления — шрифт не мельче 12 px, прокрутки нет (${m.font}px)`, m.font >= 12 && m.overflowX <= 0);
       await page.screenshot({ path: path.join(shots, `store-remove-${dark ? 'dark' : 'light'}.png`) });
     }
     await setTheme(false);
-    const before = (await ipcLog()).length;
-    await page.getByRole('button', { name: 'Удалить', exact: true }).last().click();
-    await page.waitForFunction(() => (window as any).__ipcLog.some((e: any) => e.channel === 'modules:state-clear'));
-    const cleared = (await ipcLog()).slice(before).filter(e => e.channel === 'modules:state-clear');
-    check('удаление просит главный процесс стереть область released именно этой программы, один раз', cleared.length === 1 && cleared[0].data.moduleId === 'quick-notes' && cleared[0].data.scope === 'released');
-    check('до очистки программа снята и в главном процессе, и на сервере', (await ipcLog()).slice(before).findIndex(e => e.channel === 'modules:remove') < (await ipcLog()).slice(before).findIndex(e => e.channel === 'modules:state-clear')
+    const kept = await confirmRemove();
+    check('удаление без галочки: программа снята в главном процессе и на сервере', kept.some(e => e.channel === 'modules:remove')
+      && !(await call('ann', '/api/modules/installs')).body.installs.some((i: any) => i.moduleId === 'quick-notes'));
+    check('удаление без галочки: стереть данные на компьютере главный процесс не просили', !kept.some(e => e.channel === 'modules:state-clear'));
+
+    console.log('Удаление с галочкой: данные на этом компьютере стираются');
+    await install('quick-notes');
+    await openRemove();
+    await page.getByTestId('stx-wipe').locator('input').check();
+    const wiped = await confirmRemove();
+    await page.waitForFunction(() => (window as any).__ipcLog.filter((e: any) => e.channel === 'modules:state-clear').length > 0);
+    const cleared = (await ipcLog()).filter(e => e.channel === 'modules:state-clear');
+    check('удаление с галочкой просит главный процесс стереть область released именно этой программы, один раз', cleared.length === 1 && cleared[0].data.moduleId === 'quick-notes' && cleared[0].data.scope === 'released');
+    check('до очистки программа снята и в главном процессе, и на сервере', wiped.some(e => e.channel === 'modules:remove')
       && !(await call('ann', '/api/modules/installs')).body.installs.some((i: any) => i.moduleId === 'quick-notes'));
 
-    console.log('Удаление программы, читающей данные Flux: данных на диске нет, строки и очистки нет');
+    console.log('Удаление программы, читающей данные Flux: данных на диске нет — галочка про компьютер не говорит, очистки нет');
     await install('flux-reader');
-    await page.goto(`${base}/scripts/fixtures/store-ui.html`);
-    await page.getByTestId('stx-nav-library').click();
-    await page.getByRole('button', { name: 'Удалить' }).first().click();
-    await page.getByRole('button', { name: 'Удалить', exact: true }).last().waitFor();
-    check('у программы, читающей данные Flux, строки про данные нет', await page.getByTestId('stx-delete-data').count() === 0);
-    const beforeReader = (await ipcLog()).length;
-    await page.getByRole('button', { name: 'Удалить', exact: true }).last().click();
-    await page.waitForFunction(n => (window as any).__ipcLog.slice(n).some((e: any) => e.channel === 'modules:remove'), beforeReader);
+    await openRemove();
+    check('у программы, читающей данные Flux, галочка про данные на компьютере не говорит', !/на этом компьютере/.test(await page.getByTestId('stx-wipe').innerText()));
+    await page.getByTestId('stx-wipe').locator('input').check();
+    const reader = await confirmRemove();
     await page.waitForTimeout(300);
-    check('и главный процесс стереть данные не просили', !(await ipcLog()).slice(beforeReader).some(e => e.channel === 'modules:state-clear'));
+    check('и главный процесс стереть данные не просили', !reader.some(e => e.channel === 'modules:state-clear'));
 
     check(`без ошибок исполнения страницы: ${JSON.stringify(errors)}`, errors.length === 0);
     console.log(`\n${passed} проверок пройдено. Снимки: ${shots}`);

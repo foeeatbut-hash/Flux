@@ -6,7 +6,7 @@ import { Btn, Dialog } from '../ui';
 import './store.css';
 import { categoryName, formatSize, storeInfoOf, type StoreListing } from '../../../modules/store/model';
 import { DEV_BADGE, type DevRunItem } from '../../../modules/store/devRun';
-import { OFFLINE_HINT, STORAGE_DELETE_NOTICE, WORKS_OFFLINE_LABEL, isStandalone, worksOffline } from '../../../modules/storage/model';
+import { OFFLINE_HINT, STORAGE_WIPE_SUFFIX, WORKS_OFFLINE_LABEL, isStandalone, worksOffline } from '../../../modules/storage/model';
 import { devPermissions } from '../../services/moduleDevRunActions';
 import { installPlan, installModule, newPermissions, removeModule, updateModule } from '../../services/moduleStoreActions';
 import { ModuleIcon } from './StoreParts';
@@ -55,9 +55,8 @@ export default function StoreDialogs({ dialog, onClose, onDone }: { dialog: Stor
       <Btn tone="danger" disabled={busy} onClick={() => void run()}>Удалить</Btn></>}>
       <div className="flex flex-col gap-3 text-sm">
         <div>Программа пропадёт из «Пуска» и карточек только у вас. Поставить её снова можно из Store.</div>
-        {isStandalone(listing.manifest) && <div className="stx-note" data-testid="stx-delete-data">{STORAGE_DELETE_NOTICE}</div>}
-        <label className="flex items-center gap-2"><input type="checkbox" checked={wipe} onChange={(e) => setWipe(e.target.checked)} />
-          Удалить и данные программы (по умолчанию они сохраняются на случай повторной установки)</label>
+        <label className="flex items-center gap-2" data-testid="stx-wipe"><input type="checkbox" checked={wipe} onChange={(e) => setWipe(e.target.checked)} />
+          Удалить и данные программы{isStandalone(listing.manifest) ? STORAGE_WIPE_SUFFIX : ''} (по умолчанию они сохраняются на случай повторной установки)</label>
         {error && <div className="fx-error">{error}</div>}
       </div>
     </Dialog>;
