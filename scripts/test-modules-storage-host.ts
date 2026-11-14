@@ -256,7 +256,7 @@ async function main() {
   const stamp = `__mutant_${process.pid}`;
   let n = 0;
   for (const mutant of mutants) {
-    const source = fs.readFileSync(mutant.file, 'utf8');
+    const source = fs.readFileSync(mutant.file, 'utf8').replace(/\r\n/g, '\n'); // CRLF Windows: многострочные фрагменты мутантов записаны с LF
     assert.ok(source.includes(mutant.from), `мутант «${mutant.name}»: фрагмент не найден в ${mutant.file}`);
     const target = path.join(path.dirname(mutant.file), `${stamp}_${++n}.ts`);
     fs.writeFileSync(target, mutant.all ? source.split(mutant.from).join(mutant.to) : source.replace(mutant.from, () => mutant.to));

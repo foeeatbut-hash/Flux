@@ -322,7 +322,7 @@ async function main() {
   const dirOfModule = 'modules/storage';
   let n = 0;
   for (const mutant of mutants) {
-    const source = fs.readFileSync(`${dirOfModule}/${mutant.file}.ts`, 'utf8');
+    const source = fs.readFileSync(`${dirOfModule}/${mutant.file}.ts`, 'utf8').replace(/\r\n/g, '\n'); // CRLF Windows: многострочные фрагменты мутантов записаны с LF
     assert.ok(source.includes(mutant.from), `мутант «${mutant.name}»: фрагмент не найден в ${mutant.file}.ts`);
     ++n;
     // Мутант кладётся в ту же папку под своим именем: относительные импорты (./model) продолжают работать.
