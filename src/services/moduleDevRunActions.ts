@@ -27,6 +27,15 @@ export async function removeDevRun(moduleId: string): Promise<void> {
   await reloadLocal();
 }
 
+/**
+ * «Очистить хранилище» у сборки из разработки: данные самостоятельной программы области `dev` переживают перезапуск Flux и «Убрать»
+ * (иначе разработчику не проверить «переживает перезапуск»), поэтому стираются только этим действием и из Studio.
+ * Область выпуска (`released`) этим вызовом не затрагивается.
+ */
+export async function clearDevStorage(moduleId: string): Promise<void> {
+  await local('modules:state-clear', { moduleId, scope: 'dev' });
+}
+
 /** Главный процесс сообщает об изменении: пакет появился, срок аренды вышел, убран или принят */
 export function watchDevRuns(): () => void {
   const ipc = (window as any).electron?.ipcRenderer as { on?: (channel: string, fn: () => void) => (() => void) | void } | undefined;

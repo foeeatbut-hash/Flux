@@ -116,6 +116,11 @@ jobs:
         run: |
           node --import tsx scripts/test-modules-connections-native.ts 2>&1 | Tee-Object artifacts/modules-connections-native.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Самостоятельная программа без выбранного проекта в полном Flux, обе темы
+        shell: pwsh
+        run: |
+          node --import tsx scripts/test-modules-standalone-live.ts 2>&1 | Tee-Object artifacts/modules-standalone-live.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Пуск и карточки в полном Flux, обе темы
         shell: pwsh
         run: |

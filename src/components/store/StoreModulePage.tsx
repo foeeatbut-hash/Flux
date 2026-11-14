@@ -6,6 +6,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { categoryName, formatSize, STATUS_NAMES, type StoreListing } from '../../../modules/store/model';
+import { OFFLINE_HINT, WORKS_OFFLINE_LABEL, worksOffline } from '../../../modules/storage/model';
 import { useModuleStore } from '../../store/moduleStoreState';
 import { ActionButton, ModuleIcon, Stars, type ActionKind } from './StoreParts';
 import { PermissionsList, RequirementsList } from './StoreDialogs';
@@ -46,6 +47,7 @@ export default function StoreModulePage({ listing, onBack, onAct, onReport }: {
       <div className="min-w-0 flex-1">
         <h1>{listing.name}</h1>
         <div className="stx-meta"><span>{listing.developer}</span><span>{categoryName(listing.category)}</span>
+          {worksOffline(listing.manifest) && <span data-testid="stx-offline" title={OFFLINE_HINT}>{WORKS_OFFLINE_LABEL}</span>}
           {listing.rating.count > 0 && <span><Stars value={listing.rating.avg} /> {listing.rating.avg.toFixed(1)} ({listing.rating.count})</span>}
           <span>{STATUS_NAMES[listing.status]}{listing.deprecated ? ' · устарела' : ''}{listing.testing ? ' · тестовая' : ''}</span></div>
         <p className="stx-short">{listing.summary || listing.description}</p>

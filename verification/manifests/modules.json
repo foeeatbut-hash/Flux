@@ -178,6 +178,15 @@
       "timeoutMs": 900000
     },
     {
+      "id": "modules-standalone-live",
+      "path": "scripts/test-modules-standalone-live.ts",
+      "layer": "windows-native",
+      "platform": "win32",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "modules-flux-ui-live",
       "path": "scripts/test-modules-flux-ui-live.ts",
       "layer": "windows-native",
@@ -575,6 +584,34 @@
           "layer": "windows-native",
           "claims": [
             "Полный Flux: вход, Пуск и карточки позиции и тега открывают настоящий модуль; замеры и снимки обеих тем"
+          ]
+        },
+        {
+          "suite": "modules-standalone-live",
+          "layer": "windows-native",
+          "claims": [
+            "Полный Flux без выбранного проекта: самостоятельная программа открывается из Пуска и работает; замеры и снимки обеих тем"
+          ]
+        },
+        {
+          "suite": "modules-storage-native",
+          "layer": "windows-native",
+          "claims": [
+            "Состояние самостоятельной программы на диске в Electron: перезагрузка окна, предел 1 МиБ, битый файл, очистка; читающая данные Flux остаётся в памяти"
+          ]
+        },
+        {
+          "suite": "modules-storage-host",
+          "layer": "unit",
+          "claims": [
+            "Диск положен только самостоятельной программе, по человеку и области; порядок записей, отказы LIMIT и FAILED в журнале и мосте"
+          ]
+        },
+        {
+          "suite": "modules-storage",
+          "layer": "unit",
+          "claims": [
+            "Файл хранилища: путь, конверт, предел, атомарная запись и очередь, битый файл не затирается, удаление по точному пути"
           ]
         },
         {

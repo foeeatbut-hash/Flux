@@ -82,5 +82,7 @@ export const STORAGE_DELETE_NOTICE = 'Сохранённые программо�
 export const STORAGE_IN_MEMORY_TEXT = 'Хранилище: в памяти — программа читает данные Flux';
 /** Метка Store, окна установки и Studio */
 export const WORKS_OFFLINE_LABEL = 'Работает без связи';
+/** Пояснение к метке: она заявляет, чего программа не просит; сам Flux без связи пока не запускается (этап 3) */
+export const OFFLINE_HINT = 'Не просит доступа к интернету, локальной сети и другим программам. Сам Flux без связи пока не запускается.';
 
 export type StorageErrorCode = 'LIMIT' | 'FAILED';

@@ -6,6 +6,7 @@ import { Btn, Dialog } from '../ui';
 import './store.css';
 import { categoryName, formatSize, storeInfoOf, type StoreListing } from '../../../modules/store/model';
 import { DEV_BADGE, type DevRunItem } from '../../../modules/store/devRun';
+import { OFFLINE_HINT, STORAGE_DELETE_NOTICE, WORKS_OFFLINE_LABEL, isStandalone, worksOffline } from '../../../modules/storage/model';
 import { devPermissions } from '../../services/moduleDevRunActions';
 import { installPlan, installModule, newPermissions, removeModule, updateModule } from '../../services/moduleStoreActions';
 import { ModuleIcon } from './StoreParts';
@@ -54,6 +55,7 @@ export default function StoreDialogs({ dialog, onClose, onDone }: { dialog: Stor
       <Btn tone="danger" disabled={busy} onClick={() => void run()}>Удалить</Btn></>}>
       <div className="flex flex-col gap-3 text-sm">
         <div>Программа пропадёт из «Пуска» и карточек только у вас. Поставить её снова можно из Store.</div>
+        {isStandalone(listing.manifest) && <div className="stx-note" data-testid="stx-delete-data">{STORAGE_DELETE_NOTICE}</div>}
         <label className="flex items-center gap-2"><input type="checkbox" checked={wipe} onChange={(e) => setWipe(e.target.checked)} />
           Удалить и данные программы (по умолчанию они сохраняются на случай повторной установки)</label>
         {error && <div className="fx-error">{error}</div>}
@@ -73,6 +75,7 @@ export default function StoreDialogs({ dialog, onClose, onDone }: { dialog: Stor
       {deps.length > 0 && <div className="stx-note">Вместе с ней поставится: {deps.map((d) => `${d.listing.name} ${d.version}`).join(', ')}</div>}
       {added.length > 0 && <div className="stx-note">Новая версия просит больше, чем прежняя. Проверьте разрешения ниже.</div>}
       <div><div className="mb-1 text-sm font-semibold">Программа получит</div><PermissionsList listing={listing} added={added} /></div>
+      {worksOffline(listing.manifest) && <div className="stx-note" data-testid="stx-offline"><b>{WORKS_OFFLINE_LABEL}.</b> {OFFLINE_HINT}</div>}
       <div><div className="mb-1 text-sm font-semibold">Требования</div><RequirementsList listing={listing} /></div>
       {kind === 'install' && listing.testing && <div className="stx-note">Это тестовая версия: её видят только назначенные владельцем тестировщики.</div>}
       {busy && <div className="text-sm" style={{ color: 'var(--flux-text-muted)' }}>Скачивание и проверка подписи владельца…</div>}
