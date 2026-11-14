@@ -35,15 +35,15 @@ export function registerTagProcurementRoutes(app: Express): void {
     const prisma = getPrisma();
     try {
       const { procurement, version } = req.body || {};
-      const { before, tag, unchanged } = await writeTag(prisma, String(req.params.id), {
+      const { tag, unchanged } = await writeTag(prisma, String(req.params.id), {
         metadata: { procurement: procurementOf(procurement) },
         onlyKeys: ['procurement'],
         version: version === undefined ? undefined : (version === null ? null : String(version)),
+      }, {
+        // История — в транзакции записи: не записалась она, не записалась и правка закупки
+        record: async (tx, r) => { if (!r.unchanged) await recordTagUpdate(tx, tagChangeContext(req, r.tag.projectId, TAG_SOURCE.procurement), r.before, r.tag); },
       });
-      if (!unchanged) {
-        await recordTagUpdate(prisma, tagChangeContext(req, tag.projectId, TAG_SOURCE.procurement), before, tag);
-        emitEntityChanged('tag', tag.id, req);
-      }
+      if (!unchanged) emitEntityChanged('tag', tag.id, req);
       res.json({ tag });
     } catch (err: any) {
       const known = tagWriteFailure(err);

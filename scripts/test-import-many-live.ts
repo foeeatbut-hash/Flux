@@ -49,6 +49,11 @@ const call = async (method: string, path: string, body?: unknown) => {
     units, category: 'AHU', fileName: 'Расчёты: 2 файлов', projectId, tagLinks: plan.data?.plan?.tagLinks,
   });
   ok('ввоз прошёл', wrote.status === 200 && !!wrote.data?.batchId, wrote.data);
+  // Один код в двух файлах одного ввоза — один тег (ключ codeKey): вторая позиция идёт по правилу привязки к существующему
+  const projectTags = ((await call('GET', `/api/projects/${projectId}/tags`)).data?.tags || []) as any[];
+  const keys = projectTags.map((t: any) => String(t.identifier).trim().normalize('NFC').toLowerCase());
+  ok('в проекте ровно один тег с каждым кодом', new Set(keys).size === keys.length, keys);
+  ok('код, общий для двух файлов, — один тег с ключом', projectTags.filter((t: any) => t.codeKey === 'pr-01-dw-001a').length === 1, keys.filter((k) => k === 'pr-01-dw-001a'));
   const systems = (await call('GET', `/api/projects/${projectId}/systems`)).data?.systems || [];
   const byName = (n: string) => systems.find((s: any) => s.name === n);
   ok('обе установки встали', !!byName('PR-01-AS-001') && !!byName('PR-02-AS-001'), systems.map((s: any) => s.name));

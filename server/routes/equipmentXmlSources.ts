@@ -17,7 +17,7 @@ import { bindingKey as catalogBindingKey, sourceInfo as equipmentCatalogSourceIn
 import { resolveEquipmentSourceTargets, type EquipmentSourceTargetElement, type EquipmentSourceTargetsResult } from '../equipmentSourceTargets.js';
 import { importPolicyOfProject } from './tagPolicy.js';
 import { validateTag } from '../../equipment/tagPolicy.js';
-import { recordTagCreated, TAG_SOURCE } from '../tagHistory.js';
+import { recordTagCreated, markTransactionClient, TAG_SOURCE } from '../tagHistory.js';
 import { withCodeKey, findTagsByCode } from '../tagCodeKey.js';
 import { blockKey } from '../specUtils.js';
 import { nextProjectEntityId } from '../entityIds.js';
@@ -684,6 +684,8 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       const reviewedBaselineChanged = status === 'complete' || status === 'keepResolved';
       const createdSnapshots: any[] = [];
       await prisma.$transaction(async (tx: any) => {
+        // История тегов, заведённых ниже, пишется в этой же транзакции и её сбой откатывает ввоз
+        markTransactionClient(tx);
         const sourceClaim = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, projectId, deletedAt: null, tagId: source.tagId, tagIdentifier: source.tagIdentifier, xmlTargetIdentity: source.xmlTargetIdentity ?? null, selectedRule: source.selectedRule }, data: { updatedAt: source.updatedAt } });
         if (sourceClaim.count !== 1) throw Object.assign(new Error('Источник перепривязали во время сравнения. Проверьте XML заново.'), { status: 409 });
         if (tag) {

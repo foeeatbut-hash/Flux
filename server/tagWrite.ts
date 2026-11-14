@@ -26,7 +26,7 @@
 
 import { bumpElementsOfTags } from './equipmentVersion.js';
 import { renameTagInVdr } from './vdrTags.js';
-import { parseMetadata } from './tagHistory.js';
+import { parseMetadata, inTagTransaction } from './tagHistory.js';
 import { TagDuplicate, tagCodeKey, withCodeKey, duplicateOf, isCodeKeyViolation } from './tagCodeKey.js';
 
 export type MetadataPatch = Record<string, unknown>;
@@ -212,9 +212,17 @@ async function writeInTx(tx: any, id: string, input: TagWriteInput): Promise<Tag
  * Записать правку в одном теге: слияние, сверка версии, условное обновление.
  * Бросает TagNotFound, TagConflict, TagBadRequest.
  */
-export async function writeTag(prisma: any, id: string, input: TagWriteInput): Promise<TagWriteResult> {
+export async function writeTag(
+  prisma: any, id: string, input: TagWriteInput,
+  /** Что записать в той же транзакции после правки (история тега): не записалось — не записался и тег */
+  hooks: { record?: (tx: any, result: TagWriteResult) => Promise<void> } = {},
+): Promise<TagWriteResult> {
   try {
-    return await prisma.$transaction((tx: any) => writeInTx(tx, id, input), { timeout: 15000 });
+    return await inTagTransaction(prisma, async (tx: any) => {
+      const result = await writeInTx(tx, id, input);
+      if (hooks.record) await hooks.record(tx, result);
+      return result;
+    }, { timeout: 15000 });
   } catch (e) {
     // Переименование проиграло гонку за код: проверка в attemptWrite его пропустила, остановил ключ
     if (isCodeKeyViolation(e)) {
@@ -229,8 +237,11 @@ export async function writeTag(prisma: any, id: string, input: TagWriteInput): P
  * Массовая запись: все теги одной транзакцией, как и было, — либо всё, либо
  * ничего. Несуществующие теги пропускаются и возвращаются списком `missing`.
  */
-export async function writeTags(prisma: any, items: Array<{ id: string; input: TagWriteInput }>): Promise<{ results: TagWriteResult[]; missing: string[] }> {
-  return prisma.$transaction(async (tx: any) => {
+export async function writeTags(
+  prisma: any, items: Array<{ id: string; input: TagWriteInput }>,
+  hooks: { record?: (tx: any, results: TagWriteResult[]) => Promise<void> } = {},
+): Promise<{ results: TagWriteResult[]; missing: string[] }> {
+  return inTagTransaction(prisma, async (tx: any) => {
     const results: TagWriteResult[] = [];
     const missing: string[] = [];
     for (const { id, input } of items) {
@@ -238,6 +249,7 @@ export async function writeTags(prisma: any, items: Array<{ id: string; input: T
         if (e instanceof TagNotFound) missing.push(id); else throw e;
       }
     }
+    if (hooks.record) await hooks.record(tx, results);
     return { results, missing };
   }, { timeout: 120000, maxWait: 15000 });
 }

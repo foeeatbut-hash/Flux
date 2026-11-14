@@ -6,7 +6,7 @@ import { ensureTables, type TableSpec, type Col } from '../ddl.js';
 import { planTagLinks, type TagLink } from '../equipmentTags.js';
 import { importPolicyOfProject } from './tagPolicy.js';
 import { validateTag } from '../../equipment/tagPolicy.js';
-import { TAG_SOURCE, tagChangeContext, recordChangeSets, createdSet, deletedSet, type TagChangeSet } from '../tagHistory.js';
+import { TAG_SOURCE, tagChangeContext, recordChangeSets, inTagTransaction, createdSet, deletedSet, type TagChangeSet } from '../tagHistory.js';
 import { withCodeKey, findTagByCode } from '../tagCodeKey.js';
 
 /**
@@ -298,9 +298,10 @@ export function registerBuilderRoutes(app: Express): void {
       const snap = parse<{ rows: any[]; created: string[]; createdTags?: string[] }>(batch.beforeJson, { rows: [], created: [] });
       const keptTags: string[] = [];
       let removedTags = 0;
-      // Что удалено — в историю тегов, но после транзакции: сбой записи журнала не должен откатывать отмену
+      // Что удалено — в историю тегов, в той же транзакции: не записалась история, не отменяется и действие
       const gone: TagChangeSet[] = [];
-      await prisma.$transaction(async (tx: any) => {
+      // Таблица истории готовится до транзакции: внутри неё SQLite чужих запросов не отвечает
+      await inTagTransaction(prisma, async (tx: any) => {
         gone.length = 0;
         for (const r of snap.rows) {
           const { id, createdAt, updatedAt, ...fields } = r;
@@ -326,8 +327,8 @@ export function registerBuilderRoutes(app: Express): void {
           removedTags++;
         }
         await tx.selectionBatch.update({ where: { id: batch.id }, data: { undone: true } });
+        await recordChangeSets(tx, tagChangeContext(req, batch.projectId || '', TAG_SOURCE.builder), gone);
       }, TX_LONG);
-      await recordChangeSets(prisma, tagChangeContext(req, batch.projectId || '', TAG_SOURCE.builder), gone);
       broadcast('builder:list', { listId: batch.listId, projectId: batch.projectId || '' });
       res.json({ ok: true, listId: batch.listId, removedTags, keptTags });
     } catch (err: any) { sendError(res, err); }
@@ -439,7 +440,7 @@ export function registerBuilderRoutes(app: Express): void {
       const refused: string[] = [];
       let batchId = '';
       let linked = 0;
-      await prisma.$transaction(async (tx: any) => {
+      await inTagTransaction(prisma, async (tx: any) => {
         born.length = 0;
         for (const l of links) {
           const row = items.get(l.blockKey);
@@ -483,8 +484,9 @@ export function registerBuilderRoutes(app: Express): void {
         if (before.length || createdTags.length) {
           batchId = (await tx.selectionBatch.create({ data: { listId: list.id, projectId: list.projectId, title: 'Связь с тегами проекта', beforeJson: JSON.stringify({ rows: before, created: [], createdTags }), createdById: me(req)?.id || null } })).id;
         }
+        // Новые теги и их история — одна транзакция
+        await recordChangeSets(tx, tagChangeContext(req, list.projectId, TAG_SOURCE.builder), born);
       }, TX_LONG);
-      await recordChangeSets(prisma, tagChangeContext(req, list.projectId, TAG_SOURCE.builder), born);
       if (createdTags.length || linked) emitProjectDataChanged('tag', list.projectId, me(req));
       broadcast('builder:list', { listId: list.id, projectId: list.projectId });
       res.json({ created: createdTags.length, linked, refused, batchId: batchId || null });

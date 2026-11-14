@@ -13,7 +13,7 @@
  * (`equipmentVersion.ts`).
  */
 import { withBump } from './equipmentVersion.js';
-import { recordChangeSets, TAG_SOURCE, TAG_CHANGE_KIND, type TagChangeSet } from './tagHistory.js';
+import { recordChangeSets, inTagTransaction, TAG_SOURCE, TAG_CHANGE_KIND, type TagChangeSet } from './tagHistory.js';
 import type { DbItem } from './equipmentIdentity.js';
 
 export type RemovalWhy = 'missing' | 'reselected' | 'other';
@@ -85,22 +85,25 @@ export async function transferTags(
   prisma: any, ctx: { projectId: string; userId?: string | null }, from: DbItem, to: { id: string; title: string }, batchId: string,
 ): Promise<void> {
   if (!from.tagIds.length) return;
-  await prisma.componentElement.update({
-    where: { id: to.id },
-    // Новая запись только что заведена этим же ввозом: её версия остаётся первой
-    data: { tags: { connect: from.tagIds.map(id => ({ id })) } },
-  });
-  await prisma.equipmentHistory.create({
-    data: {
-      elementId: from.id, version: from.row.version ?? 1,
-      oldSpecs: JSON.stringify({ tagIds: from.tagIds, elementId: from.id }),
-      newSpecs: JSON.stringify({ tagIds: from.tagIds, elementId: to.id }),
-      changeType: 'TAG_MOVE', batchId,
-    },
-  });
   const sets: TagChangeSet[] = from.tagIds.map(tagId => ({
     tagId, projectId: ctx.projectId,
     entries: [{ kind: TAG_CHANGE_KIND.changed, field: 'equipmentElement', before: from.title, after: to.title }],
   }));
-  await recordChangeSets(prisma, { projectId: ctx.projectId, userId: ctx.userId, source: TAG_SOURCE.equipmentImport }, sets);
+  // Перенос связей и строка истории тега — одна транзакция (при ввозе в транзакции — она же)
+  await inTagTransaction(prisma, async (tx: any) => {
+    await tx.componentElement.update({
+      where: { id: to.id },
+      // Новая запись только что заведена этим же ввозом: её версия остаётся первой
+      data: { tags: { connect: from.tagIds.map(id => ({ id })) } },
+    });
+    await tx.equipmentHistory.create({
+      data: {
+        elementId: from.id, version: from.row.version ?? 1,
+        oldSpecs: JSON.stringify({ tagIds: from.tagIds, elementId: from.id }),
+        newSpecs: JSON.stringify({ tagIds: from.tagIds, elementId: to.id }),
+        changeType: 'TAG_MOVE', batchId,
+      },
+    });
+    await recordChangeSets(tx, { projectId: ctx.projectId, userId: ctx.userId, source: TAG_SOURCE.equipmentImport }, sets);
+  });
 }

@@ -7,7 +7,7 @@ import { autoFixTag, validateTag } from '../../equipment/tagPolicy.js';
 import { importPolicyOfProject } from './tagPolicy.js';
 import { withBump } from '../equipmentVersion.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from '../equipmentHierarchy.js';
-import { TAG_SOURCE, recordTagCreated, recordChangeSets, updateSet, type TagChangeSet } from '../tagHistory.js';
+import { TAG_SOURCE, recordTagCreated, recordChangeSets, updateSet, inTagTransaction, type TagChangeSet } from '../tagHistory.js';
 import { withCodeKey, findTagByCode, isCodeKeyViolation } from '../tagCodeKey.js';
 import { nextProjectEntityId } from '../entityIds.js';
 
@@ -306,13 +306,18 @@ export async function resolveTag(prisma: any, projectId: string, raw: unknown, o
   if (opts.dryRun) return { ok: true, identifier: check.identifier, corrected, created: true };
   let made: any;
   try {
-    made = await prisma.tag.create({ data: withCodeKey({ id: await nextProjectEntityId(prisma, projectId, 'TAG'), identifier: check.identifier, projectId }) });
+    const id = await nextProjectEntityId(prisma, projectId, 'TAG');
+    // Тег и его история — одна транзакция: не записалась история, не создаётся и тег
+    made = await inTagTransaction(prisma, async (tx: any) => {
+      const row = await tx.tag.create({ data: withCodeKey({ id, identifier: check.identifier, projectId }) });
+      await recordTagCreated(tx, { projectId, userId: opts.actor?.userId, source: TAG_SOURCE.equipmentEdit }, row);
+      return row;
+    });
   } catch (e) {
     // Код успели занять между проверкой и записью: тот же отказ, что у занятого заранее
     if (!isCodeKeyViolation(e)) throw e;
     return { ok: false, status: 409, identifier: check.identifier, corrected, existing: true, problem: `Тег «${check.identifier}» только что завели. Повторите: он будет предложен как существующий.` };
   }
-  await recordTagCreated(prisma, { projectId, userId: opts.actor?.userId, source: TAG_SOURCE.equipmentEdit }, made);
   return { ok: true, identifier: check.identifier, corrected, tagId: made.id, created: true };
 }
 
@@ -454,17 +459,22 @@ async function linkParentTag(prisma: any, projectId: string, componentId: string
 
   const metaById = new Map<string, any>(tags.map((t: any) => [t.id, safeMeta(t.metadata)]));
   const history: Array<TagChangeSet | null> = [];
+  const writes: Array<{ id: string; metadata: string }> = [];
   for (const patch of plan.patches) {
     const meta = { ...(metaById.get(patch.id) || {}) };
     meta.connections = patch.connections;
     if (patch.parentId) meta.parentId = patch.parentId; else delete meta.parentId;
     if (meta.parentBy !== 'hand') meta.parentBy = 'import';
-    await prisma.tag.update({ where: { id: patch.id }, data: { metadata: JSON.stringify(meta) } });
+    writes.push({ id: patch.id, metadata: JSON.stringify(meta) });
     changedTagIds.push(patch.id);
     const was = tags.find((t: any) => t.id === patch.id);
     if (was) history.push(updateSet({ id: was.id, projectId, metadata: was.metadata }, { id: was.id, metadata: meta }));
   }
-  await recordChangeSets(prisma, { projectId, userId: actor.userId, source: TAG_SOURCE.equipmentEdit }, history);
+  // Родство тегов и его история — одна транзакция
+  await inTagTransaction(prisma, async (tx: any) => {
+    for (const w of writes) await tx.tag.update({ where: { id: w.id }, data: { metadata: w.metadata } });
+    await recordChangeSets(tx, { projectId, userId: actor.userId, source: TAG_SOURCE.equipmentEdit }, history);
+  });
 
   const mineDecision = plan.decisions.find(d => d.childTagId === tagId && d.applied);
   return {

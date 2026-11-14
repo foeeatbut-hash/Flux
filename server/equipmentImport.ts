@@ -8,7 +8,7 @@ import { planTagParents, parentSetByHand, type TaggedPosition } from './equipmen
 import { importPolicyOfProject } from './routes/tagPolicy.js';
 import { notifyExporters } from './e3Impact.js';
 import { emitProjectDataChanged } from './entityChanged.js';
-import { TAG_SOURCE, recordChangeSets, updateSet, type TagChangeSet } from './tagHistory.js';
+import { TAG_SOURCE, recordChangeSets, updateSet, inTagTransaction, markTransactionClient, type TagChangeSet } from './tagHistory.js';
 import { nextProjectEntityId } from './entityIds.js';
 
 // Плоская карта параметров: ключ "группа||параметр" -> { value, unit }
@@ -102,6 +102,8 @@ export async function importEquipmentToDB(
   actor: { userId?: string | null } = {},
   identity: IdentityInput = {},
 ): Promise<ImportSummary> {
+  // Ввоз, вызванный внутри транзакции, пишет теги и их историю в ней же: так история тегов узнаёт транзакцию
+  if (identity.inTransaction) markTransactionClient(prisma);
   // Партия: всё, что записал один ввоз расчёта. Без неё «отменить импорт»
   // пришлось бы собирать по времени, а два импорта подряд слились бы в один.
   const batchId = `imp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -446,6 +448,7 @@ async function linkTagsByComposition(
   }
 
   const history: Array<TagChangeSet | null> = [];
+  const writes: Array<{ id: string; metadata: string }> = [];
   const rowById = new Map<string, any>(rows.map((t: any) => [t.id, t]));
   for (const patch of allPatches.values()) {
     const meta = { ...(metaById.get(patch.id) || {}) };
@@ -454,11 +457,15 @@ async function linkTagsByComposition(
     // Отметка «поставил импорт»: по ней следующий ввоз отличит свою связь от
     // руки инженера и не перебьёт чужое решение
     if (meta.parentBy !== 'hand') meta.parentBy = 'import';
-    await prisma.tag.update({ where: { id: patch.id }, data: { metadata: JSON.stringify(meta) } });
+    writes.push({ id: patch.id, metadata: JSON.stringify(meta) });
     const was = rowById.get(patch.id);
     if (was) history.push(updateSet({ id: was.id, projectId, metadata: was.metadata }, { id: was.id, metadata: meta }));
   }
-  await recordChangeSets(prisma, { projectId, userId: actor.userId, source: TAG_SOURCE.equipmentImport }, history);
+  // Родство тегов и его история — одна транзакция (при ввозе в транзакции — она же)
+  await inTagTransaction(prisma, async (tx: any) => {
+    for (const w of writes) await tx.tag.update({ where: { id: w.id }, data: { metadata: w.metadata } });
+    await recordChangeSets(tx, { projectId, userId: actor.userId, source: TAG_SOURCE.equipmentImport }, history);
+  });
 
   return { made, kept };
 }
