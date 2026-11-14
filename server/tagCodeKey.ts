@@ -50,7 +50,11 @@ export function isCodeKeyViolation(err: any): boolean {
  * регистр и NFD-запись, написание — старый повтор, у которого ключа нет.
  */
 export function findTagByCode(db: any, projectId: string, code: string, include?: Record<string, unknown>): Promise<any | null> {
-  return db.tag.findFirst({ where: { projectId, OR: [{ codeKey: tagCodeKey(code) }, { identifier: code }] }, ...(include ? { include } : {}) });
+  // Старший первым: среди старых повторов это тот, у кого ключ, — выбор не зависит от порядка выдачи базы
+  return db.tag.findFirst({
+    where: { projectId, OR: [{ codeKey: tagCodeKey(code) }, { identifier: code }] },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], ...(include ? { include } : {}),
+  });
 }
 /** Все теги проекта с таким кодом (старые повторы без ключа в том числе). */
 export function findTagsByCode(db: any, projectId: string, code: string, include?: Record<string, unknown>): Promise<any[]> {

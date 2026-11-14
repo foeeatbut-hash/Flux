@@ -53,11 +53,14 @@ export const CLASS_TONE: Record<ConflictClass, 'ok' | 'warn' | 'bad' | 'mute'> =
   offShape: 'mute',
 };
 
+// «Создать дубль» не предлагается: второй тег с тем же кодом в проекте не даёт завести
+// база (ключ кода, server/tagCodeKey.ts). Действие осталось в типе для старых сборок —
+// сервер отвечает на него пропуском с причиной.
 const OPTIONS: Record<ConflictClass, Action[]> = {
   new: ['create', 'skip'],
-  exactSame: ['skip', 'duplicate'],
-  exactFill: ['fill', 'skip', 'replace', 'duplicate'],
-  exactDiff: ['skip', 'fill', 'replace', 'duplicate'],
+  exactSame: ['skip'],
+  exactFill: ['fill', 'skip', 'replace'],
+  exactDiff: ['skip', 'fill', 'replace'],
   caseAlike: ['link', 'create', 'skip'],
   layoutAlike: ['link', 'create', 'skip'],
   fuzzyAlike: ['link', 'create', 'skip'],
