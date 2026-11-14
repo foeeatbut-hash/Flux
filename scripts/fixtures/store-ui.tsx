@@ -27,8 +27,11 @@ const state = () => ({
 });
 const cmp = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true });
 (window as any).__calls = [] as string[];
+// Каналы вместе с данными: наборы проверяют, что именно окно просит у главного процесса
+(window as any).__ipcLog = [] as Array<{ channel: string; data: unknown }>;
 (window as any).electron = { ipcRenderer: { invoke: async (channel: string, data: any) => {
   (window as any).__calls.push(channel);
+  (window as any).__ipcLog.push({ channel, data });
   if (channel === 'modules:state' || channel === 'modules:activate') return state();
   if (channel === 'modules:sync') {
     for (const r of data.releases || []) if (!verified.some((v) => v.moduleId === r.moduleId && v.version === r.version)) verified.push({ moduleId: r.moduleId, version: r.version, channel: 'production', author: 'k', manifest: JSON.parse(atob(r.chunks[0])) });

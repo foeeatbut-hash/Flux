@@ -116,6 +116,7 @@ jobs:
             node --import tsx "scripts/$check.ts"
           done
           SHOT="${{ runner.temp }}/store/store.png" node --import tsx scripts/test-modules-store-ui.ts
+          FLUX_STORE_SHOTS="${{ runner.temp }}/store-standalone" node --import tsx scripts/test-modules-store-standalone-ui.ts
           for check in test-remaining-identity-import-ui test-remaining-files-notes-ui test-remaining-engineering-registry-ui test-remaining-collaboration-handbook-ui test-remaining-shell-ui; do
             node --import tsx "scripts/$check.ts"
           done

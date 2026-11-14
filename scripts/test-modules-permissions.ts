@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { PERMISSION_KINDS, addedPermissions, grantItems, permissionLines, permissionsDigest, permissionsValid, parsePermissions, hasProgramPermission } from '../modules/permissions/registry';
+import { PERMISSION_KINDS, addedPermissions, grantItems, permissionLines, permissionsDigest, permissionsValid, parsePermissions, hasProgramPermission, hasAttachPermission } from '../modules/permissions/registry';
 import { validManifest } from '../modules/schemas';
 import { exportsOf } from '../modules/programs/model';
 import { diffPermissions } from '../modules/trust/diff';
@@ -47,7 +47,7 @@ ok('у старого манифеста нет заметных строк', OL
 
 console.log('Таблица видов');
 ok('в таблице чтение, подключения, интернет и локальная сеть', ['reads', 'connections', 'internet', 'lan'].every(id => PERMISSION_KINDS.some(k => k.id === id)));
-ok('подтверждают человек: чтение, подключения, интернет, сеть, программы; справочные строки — нет', PERMISSION_KINDS.filter(k => k.consent).map(k => k.id).join() === 'reads,connections,internet,lan,program');
+ok('подтверждают человек: чтение, подключения, интернет, сеть, программы; справочные строки — нет', PERMISSION_KINDS.filter(k => k.consent).map(k => k.id).join() === 'reads,connections,internet,lan,program,attach');
 ok('без объявлений: только чтение попадает в «подтвердить»', grantItems(m({ reads: [] })).length === 0 && grantItems(m()).length === 2);
 
 console.log('Интернет и локальная сеть');
@@ -127,6 +127,27 @@ const diffProgram = diffPermissions(m() as any, withProgram(callRates) as any);
 ok('разница владельца: новое обращение названо по идентификатору', diffProgram.widened && diffProgram.added.permissions?.length === 1 && diffProgram.added.permissions[0].startsWith('программа «rates»'));
 ok('сменили программу — новое и убранное; то же — пусто', diffPermissions(withProgram(callRates) as any, withProgram({ ...callRates, program: 'prices' }) as any).added.permissions?.length === 1 && !diffPermissions(withProgram(callRates) as any, withProgram(callRates) as any).widened);
 ok('Flux старше v3 просит обновиться', unmetRequirements(withProgram(callRates), { fluxVersion: '1.0.0', windows: true }).length === 0);
+
+console.log('Прикрепление результатов к проектам (kind attach): только заявление');
+const ATT = 'Прикрепляет к проекту таблицу рассчитанных параметров оборудования';
+const att = { kind: 'attach', does: ATT };
+const withAttach = (...permissions: any[]) => ({ ...base, id: 'attacher', contractVersion: 3, permissions }) as unknown as ModuleManifest;
+const attLines = permissionLines(withAttach(att));
+ok('строка «Прикрепляет результаты к проектам: …» заметна и идёт после обращения к программе, до «ничего не записывает»', attLines.some(l => l.kind === 'attach' && l.notable && l.text === `Прикрепляет результаты к проектам: ${ATT}`)
+  && attLines.findIndex(l => l.kind === 'attach') < attLines.findIndex(l => l.kind === 'write'));
+ok('строка «Ничего не записывает во Flux» остаётся: записи нет', attLines.some(l => l.text === 'Ничего не записывает во Flux'));
+ok('окно Store показывает ту же строку, что реестр', storeLines(withAttach(att)).some(l => l.kind === 'attach' && l.notable));
+ok('разрешение подтверждает человек', grantItems(withAttach(att)).some(i => i.line.kind === 'attach'));
+ok('отпечаток меняется с разрешением и с его текстом', permissionsDigest(withAttach(att)) !== permissionsDigest(m({ contractVersion: 3 })) && permissionsDigest(withAttach(att)) !== permissionsDigest(withAttach({ ...att, does: 'Прикрепляет к проекту сводку расчёта нагрузок по щиту' })));
+ok('повторное согласие: добавленное спрашивается заново, прежнее — нет', addedPermissions(m(), withAttach(att)).join() === `Прикрепляет результаты к проектам: ${ATT}` && addedPermissions(withAttach(att), withAttach(att)).length === 0);
+ok('разрешение «attach» нет в чужих видах: hasAttachPermission', hasAttachPermission(withAttach(att)) && !hasAttachPermission(withNet({ kind: 'internet', does: NET })) && !hasAttachPermission(m()));
+const abad = (...p: any[]) => !permissionsValid({ ...base, id: 'attacher', contractVersion: 3, permissions: p });
+ok('лишнее поле, без текста, с адресом, повтор — отказ; два текста — можно', abad({ ...att, program: 'x' }) && abad({ kind: 'attach' }) && abad({ kind: 'attach', does: 'Прикрепляет на https://example.com отчёт' })
+  && abad(att, att) && permissionsValid(withAttach(att, { ...att, does: 'Прикрепляет к проекту сводку расчёта нагрузок по щиту' })));
+ok('схема: attach только в договоре v3, как весь раздел permissions', validManifest({ ...base, id: 'attacher', contractVersion: 3, permissions: [att] }) && !validManifest({ ...base, id: 'attacher', permissions: [att] }));
+const diffAttach = diffPermissions(m() as any, withAttach(att) as any);
+ok('разница владельца: новое прикрепление названо, запрос расширен', diffAttach.widened && diffAttach.added.permissions?.length === 1 && diffAttach.added.permissions[0].startsWith('прикрепление к проектам'));
+ok('обновление Store остановится на согласии: новое разрешение не попадает в автообновление', addedPermissions(withNet({ kind: 'internet', does: NET }), withAttach(att, { kind: 'internet', does: NET })).length === 1);
 
 console.log('Методы для других программ (exports)');
 const EXP = 'Пересчитывает сумму из одной валюты в другую по курсу';

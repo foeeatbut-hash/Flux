@@ -10,7 +10,9 @@ import { kindOfOp, type ConnectCall, type GrantAsk } from '../../../modules/conn
 import { PAGE_LIMITS, type WindowOptions } from '../../../modules/page/model';
 import type { ProgramCall } from '../../../modules/programs/model';
 import { call } from '../call';
-import type { RunConnectReply, RunProgramReply } from '../../shared/runActions';
+import type { RunConnectReply, RunProgramReply, RunStorageInfo, RunStorageKeepReply, RunStorageLoadReply } from '../../shared/runActions';
+import { isStandalone } from '../../../modules/storage/model';
+import { keepRow } from './run/storageRow';
 import RunDialog from './RunDialog';
 import ProgramWindow, { type RunHost } from './run/ProgramWindow';
 import RunConnectPrompt, { type RunGrantChoice } from './run/RunConnectPrompt';
@@ -43,6 +45,8 @@ export default function Run({ id, signal = 0, onFail, onStarted, scene, stopSign
   // Ширина кадра страницы: так видно, как она ведёт себя в узком и широком окне Flux
   const [width, setWidth] = useState<number>(DEFAULT_MAIN.width);
   const kept = useRef<Record<string, unknown>>({});
+  // Хранилище запущенной программы: «N из 1 МиБ» у самостоятельной, «в памяти» у читающей данные Flux
+  const [storage, setStorage] = useState<RunStorageInfo | null>(null);
   const mainFrame = useRef<HTMLIFrameElement | null>(null);
   const notifiers = useRef(new Set<(kind: 'changed' | 'project-changed') => void>());
   const latest = useRef(pick);
@@ -89,7 +93,7 @@ export default function Run({ id, signal = 0, onFail, onStarted, scene, stopSign
 
   // Всё, что окна запуска берут у запуска: чтение тестовой базы, расчёт, сеть, подключения, вторая программа, файлы, окна
   const host: RunHost | null = started && manifest ? {
-    started, log: add, bus, kept, manifest, notifiers: notifiers.current, mainFrame, hangMs: hangLimit(),
+    started, log: add, bus, kept, keep: state => keepToDisk(state), manifest, notifiers: notifiers.current, mainFrame, hangMs: hangLimit(),
     base: {
       context: () => ({ projectId: latest.current.projectId || null, entry: latest.current.entry as LaunchContext['entry'], entityId: latest.current.entityId || null }),
       theme,
@@ -155,6 +159,27 @@ export default function Run({ id, signal = 0, onFail, onStarted, scene, stopSign
     setUnsaved: (key, text) => { if (text === null) unsaved.current.delete(key); else unsaved.current.set(key, text); },
   } : null;
 
+  // Самостоятельная программа пишет состояние на диск (область `studio`), остальные остаются в памяти окна. Предел и запись проверяет
+  // главный процесс; отказ видно в журнале тем же текстом, что у человека во Flux, а состояние в окне живёт до закрытия
+  const refreshStorage = () => call<RunStorageInfo>('runStorageInfo').then(setStorage).catch(() => setStorage(null));
+  const keepToDisk = async (state: Record<string, unknown>): Promise<void | { code: 'LIMIT' | 'FAILED' }> => {
+    if (!started || !isStandalone(started.manifest)) return;
+    try {
+      const reply = await call<RunStorageKeepReply>('runStorageKeep', { state });
+      const row = keepRow(reply);
+      if (row) add(row.kind, row.text, row.level);
+      void refreshStorage();
+      return 'code' in reply ? { code: reply.code } : undefined;
+    } catch (e) { add('хранилище', (e as Error).message, 'error'); return { code: 'FAILED' }; }
+  };
+  const clearStorage = async () => {
+    try {
+      const reply = await call<{ removed: boolean }>('runStorageClear');
+      kept.current = {};
+      add('хранилище', reply.removed ? 'очищено; перезапустите программу: она начнёт с пустого состояния' : 'уже пусто');
+    } catch (e) { add('хранилище', (e as Error).message, 'error'); }
+    void refreshStorage();
+  };
   const project = contexts.find(c => c.id === pick.projectId);
   const entities = pick.entry === 'equipment' ? project?.equipment : pick.entry === 'tag' ? project?.tags : [];
   const start = async () => {
@@ -170,7 +195,14 @@ export default function Run({ id, signal = 0, onFail, onStarted, scene, stopSign
     try {
       const reply = await call<Started>('runStart', { id, ...pick, entityId: pick.entry === 'start' ? '' : pick.entityId });
       if (mine !== attempt.current) return;
-      setStarted(reply); onStarted?.();
+      // Состояние самостоятельной программы читается с диска до того, как откроется её окно: первая же загрузка видит сохранённое
+      if (isStandalone(reply.manifest)) {
+        const loaded = await call<RunStorageLoadReply>('runStorageLoad');
+        if (mine !== attempt.current) return;
+        kept.current = loaded.state;
+        if (loaded.line) add('хранилище', loaded.line, loaded.failed ? 'error' : 'warn');
+      }
+      setStarted(reply); onStarted?.(); void refreshStorage();
     } catch (e) {
       if (mine !== attempt.current) return;
       setError((e as Error).message); onFail?.((e as Error).message);
@@ -242,6 +274,12 @@ export default function Run({ id, signal = 0, onFail, onStarted, scene, stopSign
         <button className="fx-btn fx-btn-primary" onClick={start}>{started ? 'Перезапустить' : 'Запустить'}</button>
         {started && <button className="fx-btn" onClick={shoot}>Снять обе темы</button>}
       </div>
+      {started && storage && (
+        <div className="row" data-testid="studio-storage">
+          <span className="fx-hint" role="status">{storage.text}</span>
+          {storage.standalone && <button className="fx-btn" onClick={clearStorage}>Очистить</button>}
+        </div>
+      )}
       {shots && <p className="fx-hint" role="status">{shots}</p>}
       {started && started.language === 'python' && <p className="fx-hint">Python исполняет общая среда Flux, в Studio её нет: форма откроется, расчёт — нет. Его проверит Flux при первом запуске выпуска.</p>}
       {declared && <p className="fx-hint" data-testid="studio-admin-hint">Политики администратора в Studio нет: во Flux администратор может запретить подключение или вызов другой программы, и тогда программа получит отказ.</p>}
