@@ -527,6 +527,22 @@
       "timeoutMs": 600000
     },
     {
+      "id": "modules-store-standalone-ui",
+      "path": "scripts/test-modules-store-standalone-ui.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "loopback-http"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_CHROME"
+        }
+      ],
+      "timeoutMs": 600000
+    },
+    {
       "id": "modules-naming",
       "path": "scripts/test-program-naming.ts",
       "layer": "unit",
@@ -598,6 +614,13 @@
           "layer": "windows-native",
           "claims": [
             "Состояние самостоятельной программы на диске в Electron: перезагрузка окна, предел 1 МиБ, битый файл, очистка; читающая данные Flux остаётся в памяти"
+          ]
+        },
+        {
+          "suite": "modules-store-standalone-ui",
+          "layer": "browser-live",
+          "claims": [
+            "Store на настоящих маршрутах и SQLite: метка «Работает без связи» только у самостоятельной программы без интернета, сети и обращений к программам; окно удаления говорит про данные на компьютере, и удаление просит стереть область released; замеры и снимки обеих тем"
           ]
         },
         {
