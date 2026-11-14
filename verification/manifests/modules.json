@@ -16,6 +16,8 @@
         "src/services/moduleDataService.ts",
         "modules/bridge.ts",
         "modules/contract.ts",
+        "modules/storage/model.ts",
+        "modules/storage/disk.ts",
         "modules/schemas.ts",
         "modules/protocol.ts",
         "modules/runtime/frame.ts",
@@ -382,6 +384,15 @@
     {
       "id": "modules-programs",
       "path": "scripts/test-modules-programs.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-storage",
+      "path": "scripts/test-modules-storage.ts",
       "layer": "unit",
       "platform": "any",
       "resources": [],
