@@ -86,6 +86,10 @@ export default function ProgramWindow({ host, spec, onClose, width }: Props) {
         loadState: () => hostRef.current.kept.current, keepState: state => { hostRef.current.kept.current = state; },
         offerFile: file => hostRef.current.offerFile(file),
         pickFile: request => hostRef.current.pickFile(request),
+        // Прикрепление к проектам только заложено: журнал показывает тот же отказ, что получит программа (во Flux — то же самое)
+        onAttach: ({ name, bytes, code }) => log('прикрепление', code === 'FORBIDDEN'
+          ? `${name} (${bytes} Б) — FORBIDDEN: в манифесте нет разрешения «attach»`
+          : `${name} (${bytes} Б) — UNAVAILABLE: прикрепление появится позже, ничего не записано`, 'warn'),
         onBeat: () => { beats.current++; lastBeat.current = Date.now(); setHung(false); },
         openWindow: (page, p, options) => hostRef.current.openWindow(page, p, options),
         dialog: request => new Promise<PageDialogAnswer>(resolve => {

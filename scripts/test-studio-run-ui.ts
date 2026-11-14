@@ -66,7 +66,7 @@ const PAGE = (extra: string) => `<!doctype html><html lang="ru"><head><meta char
 <body><main class="fx-body fx-stack"><h1 class="fx-title">Окна</h1><div class="fx-row">${extra}</div><p id="status" role="status"></p><ul id="got" aria-label="Сообщения"></ul></main>
 <script src="/_flux/flux.v1.js"></script><script src="/ui/app.js"></script></body></html>`;
 const BTN = (id: string, text: string) => `<button id="${id}" class="fx-btn" type="button">${text}</button>`;
-const INDEX = PAGE([['open', 'Открыть строку'], ['many', 'Открыть много'], ['send', 'Сказать окнам'], ['title', 'Заголовок'], ['title2', 'Другой заголовок'], ...CONNECTIONS.map(id => [`connect-${id}`, `Подключиться ${id}`]), ['program', 'Вызвать помощника'], ['save', 'Сохранить файл'], ['confirm', 'Спросить']].map(([id, t]) => BTN(id, t)).join(''));
+const INDEX = PAGE([['open', 'Открыть строку'], ['many', 'Открыть много'], ['send', 'Сказать окнам'], ['title', 'Заголовок'], ['title2', 'Другой заголовок'], ...CONNECTIONS.map(id => [`connect-${id}`, `Подключиться ${id}`]), ['program', 'Вызвать помощника'], ['save', 'Сохранить файл'], ['attach', 'Прикрепить к проекту'], ['confirm', 'Спросить']].map(([id, t]) => BTN(id, t)).join(''));
 const DETAIL = PAGE([['reply', 'Ответить'], ['title', 'Заголовок'], ['dirty', 'Есть правки'], ['clean', 'Правок нет'], ['confirm', 'Спросить'], ['prompt', 'Назвать']].map(([id, t]) => BTN(id, t)).join(''));
 const APP = `const $ = id => document.getElementById(id), say = text => { $('status').textContent = text; };
 const bind = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', () => { Promise.resolve().then(fn).catch(e => say('ошибка ' + (e.code || e.message))); }); };
@@ -84,6 +84,7 @@ bind('prompt', async () => say('prompt ' + await flux.dialogs.prompt({ title: '�
 for (const id of ${JSON.stringify(CONNECTIONS)}) bind('connect-' + id, async () => { const r = await flux.connect.call(id, { op: 'http', method: 'POST', path: '/api/x', body: '{}' }); say(id + ': ' + JSON.stringify(r)); });
 bind('program', async () => { const r = await flux.programs.call('helper', 'double', { n: 21 }); say('программа ' + JSON.stringify(r)); });
 bind('save', async () => say('файл ' + await flux.saveFile('a.csv', 'a;b', 'text/csv')));
+bind('attach', async () => say('прикрепление ' + await flux.attach('r.csv', 'a;b', 'text/csv')));
 flux.ready.then(() => say('готово'));
 `;
 
@@ -371,6 +372,12 @@ async function main() {
       await measure(page, `${theme}/запуск`);
       await page.screenshot({ path: path.join(shots, `studio-run-${theme}-4-programs.png`), fullPage: true });
 
+      // Прикрепление к проектам (только заложено): в манифесте нет разрешения «attach» — отказ FORBIDDEN, журнал показывает тот же отказ
+      await main.locator('#attach').dispatchEvent('click');
+      await main.locator('#status').filter({ hasText: 'FORBIDDEN' }).waitFor();
+      ok(`${theme}: flux.attach без разрешения — программа получила FORBIDDEN, ничего не записано`, (await status(main)) === 'ошибка FORBIDDEN');
+      ok(`${theme}: журнал: строка «прикрепление» с отказом FORBIDDEN и причиной`, (await page.locator('table.log tr', { hasText: 'прикрепление' }).first().innerText()).includes('r.csv (3 Б) — FORBIDDEN: в манифесте нет разрешения «attach»'));
+
       // Предел числа окон: вместе с главным их пять, как у окон Flux
       await main.locator('#many').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: /открыто \d+, отказ/ }).waitFor();
@@ -412,6 +419,9 @@ async function main() {
       ok(`${theme}: «Снять обе темы» вернула вид «Запуск» и записала оба снимка в проект`, (await runTab.getAttribute('aria-selected')) === 'true' && fs.existsSync(path.join(data, 'projects', projectId, 'store', 'light.png')) && fs.existsSync(path.join(data, 'projects', projectId, 'store', 'dark.png')));
       ok(`${theme}: после снимков тема окна вернулась`, (await page.evaluate(() => document.documentElement.classList.contains('dark'))) === (theme === 'dark'));
 
+      // Разрешение «attach» появилось в манифесте: тот же вызов получает UNAVAILABLE («появится позже»), а не успех
+      await service.handle('draftSave' as any, { id: projectId, path: 'manifest.json', text: JSON.stringify({ ...manifest, permissions: [...manifest.permissions, { kind: 'attach', does: 'Прикрепляет к проекту таблицу результатов расчёта' }] }, null, 2) } as any);
+
       // «Запустить» сверху из вида файла: запуск идёт заново и вид «Запуск» открывается сам; окна прежнего запуска закрыты
       await tabs.getByRole('tab', { name: 'manifest.json' }).click();
       await page.getByTestId('file-editor').waitFor();
@@ -419,6 +429,10 @@ async function main() {
       await runTab.waitFor();
       await main.locator('#status').filter({ hasText: 'готово' }).waitFor();
       ok(`${theme}: «Запустить» сверху из вида файла открыла «Запуск», программа запущена заново с одним окном`, (await runTab.getAttribute('aria-selected')) === 'true' && await scene.isVisible() && (await page.locator('[data-testid="program-window"]').count()) === 1 && (await tabs.getByRole('tab', { name: '«Запуск»' }).count()) === 1);
+      await main.locator('#attach').dispatchEvent('click');
+      await main.locator('#status').filter({ hasText: 'UNAVAILABLE' }).waitFor();
+      ok(`${theme}: flux.attach с разрешением в манифесте — UNAVAILABLE, а не успех; журнал: «UNAVAILABLE: прикрепление появится позже, ничего не записано»`, (await status(main)) === 'ошибка UNAVAILABLE' && (await page.locator('table.log').innerText()).includes('UNAVAILABLE: прикрепление появится позже, ничего не записано'));
+      await page.screenshot({ path: path.join(shots, `studio-run-${theme}-8-attach.png`), fullPage: true });
       const asksOld = asked().length;
       await press('once');
       await page.getByTestId('studio-grant-prompt').waitFor();

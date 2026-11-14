@@ -26,7 +26,8 @@ const defs = [
   { id: 'air-calc', name: 'Воздухообмен', color: '#059669', category: 'calc', summary: 'Расчёт воздухообмена по помещениям', versions: ['1.0.0', '1.0.1'], reads: ['project', 'tag'], installs: 6, rating: [2, 1, 0, 0, 0], roles: ['ENGINEER_VENT'] },
   { id: 'net-rates', name: 'Курсы валют', color: '#0e7490', category: 'other', summary: 'Курсы валют и цены из открытых сервисов', versions: ['1.0.0'], reads: ['project'], installs: 0, rating: [0, 0, 0, 0, 0], roles: [],
     permissions: [{ kind: 'internet', does: 'Показывает курсы валют из открытых сервисов' }, { kind: 'lan', does: 'Находит принтеры и контроллеры в сети предприятия' },
-      { kind: 'program', program: 'calc-load', does: 'Берёт у расчёта нагрузок суммарную мощность для отчёта' }] },
+      { kind: 'program', program: 'calc-load', does: 'Берёт у расчёта нагрузок суммарную мощность для отчёта' },
+      { kind: 'attach', does: 'Прикрепляет к проекту таблицу курсов на дату расчёта' }] },
   { id: 'other-x', name: 'Заметки инженера', color: '#be123c', category: 'other', summary: 'Свободные заметки к позиции', versions: ['1.0.0'], reads: ['tag'], installs: 1, rating: [0, 0, 0, 0, 0], roles: [] },
 ];
 
@@ -211,7 +212,7 @@ async function run() {
     await page.getByTestId('stx-dialog').waitFor();
     const notable = await page.$$eval('[data-testid="stx-dialog"] .stx-perm.is-notable', (els) => els.map((e) => { const cs = getComputedStyle(e); return { text: (e as HTMLElement).innerText, border: parseFloat(cs.borderTopWidth), weight: Number(cs.fontWeight), pad: parseFloat(cs.paddingLeft), mark: (e.firstElementChild as HTMLElement).innerText }; }));
     const plain = await page.$eval('[data-testid="stx-dialog"] .stx-perm:not(.is-notable)', (e) => { const cs = getComputedStyle(e); return { border: parseFloat(cs.borderTopWidth), weight: Number(cs.fontWeight) }; });
-    check('в окне установки три заметные строки: интернет, локальная сеть и другая программа (по названию из каталога)', notable.length === 3 && /любому адресу в интернете: Показывает курсы валют/.test(notable[0].text) && /устройствам в локальной сети: Находит принтеры/.test(notable[1].text) && /программе «Расчёт нагрузок»: Берёт у расчёта нагрузок/.test(notable[2].text));
+    check('в окне установки четыре заметные строки: интернет, локальная сеть, другая программа (по названию из каталога) и прикрепление к проектам', notable.length === 4 && /проектам: Прикрепляет к проекту таблицу курсов/.test(notable[3].text) && /любому адресу в интернете: Показывает курсы валют/.test(notable[0].text) && /устройствам в локальной сети: Находит принтеры/.test(notable[1].text) && /программе «Расчёт нагрузок»: Берёт у расчёта нагрузок/.test(notable[2].text));
     check('заметная строка отличается от обычной: рамка, жирнее, значок «!»', notable.every((n) => n.border >= 1 && n.weight >= 600 && n.mark === '!') && plain.border === 0 && plain.weight < 600);
     check('обычные строки на месте: чтение, «ничего не записывает»', /Читает во Flux: данные текущего проекта/.test(await page.getByTestId('stx-dialog').innerText()) && /Ничего не записывает/.test(await page.getByTestId('stx-dialog').innerText()));
     check('диалог без горизонтальной прокрутки', await page.getByTestId('stx-dialog').evaluate((e) => e.scrollWidth <= e.clientWidth + 1));

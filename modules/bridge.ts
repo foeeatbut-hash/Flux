@@ -57,6 +57,8 @@ export interface ModuleBridgeOptions {
      */
     pickFile?: (request: { accept: string[] }) => Promise<{ name: string; mime: string; bytes: Uint8Array } | 'cancelled' | 'limit'>;
     onBeat: () => void;
+    /** Попытка flux.attach получила отказ (хост записывает строку в журнал программы, как для файлов); сам отказ мост отправляет программе */
+    onAttach?: (attempt: { name: string; bytes: number; code: 'FORBIDDEN' | 'UNAVAILABLE' }) => void;
     /** Свои окна программы: Flux открывает обычное окно с этой страницей пакета; false — предел или страницы нет */
     openWindow: (page: string, params: Record<string, unknown>, options?: WindowOptions) => boolean;
     /**
@@ -255,7 +257,11 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     }
     // Прикрепление результата к проекту только заложено: без разрешения в манифесте — FORBIDDEN, с разрешением — UNAVAILABLE.
     // Данные не читаются, не сохраняются и никуда не передаются: ни одного обработчика записи нет ни в сервере, ни в Electron
-    if (message.op === 'attach') { answer({ code: hasAttachPermission(options.manifest) ? 'UNAVAILABLE' : 'FORBIDDEN' }); return; }
+    if (message.op === 'attach') {
+      const code = hasAttachPermission(options.manifest) ? 'UNAVAILABLE' : 'FORBIDDEN';
+      page.onAttach?.({ name: message.name, bytes: message.encoding === 'base64' ? Math.floor(message.data.length * 3 / 4) : new TextEncoder().encode(message.data).length, code });
+      answer({ code }); return;
+    }
     if (message.op === 'state-load') { answer({ data: page.loadState() }); return; }
     if (message.op === 'state-keep') {
       if (messageBytes(message.state) > PAGE_LIMITS.stateBytes) { answer({ code: 'LIMIT' }); return; }
