@@ -28,6 +28,7 @@
  * повтор получает честное «исход неизвестен» (OP_IN_FLIGHT) и проверяет данные
  * глазами. Новое действие человека — новый ключ, его это не блокирует; ключ
  * застревает только у автоматического повтора. Срок жизни — 7 суток, потом уборка.
+ * Тело ответа хранится сутки (BODY_TTL_MS): дальше повтор получает статус без тела.
  *
  * Что сохраняется из ответа:
  *  - JSON не больше 256 КиБ — целиком: повтор неотличим от первого ответа;
@@ -60,6 +61,13 @@ export const OP_REPLAYED_HEADER = 'X-Flux-Op-Replayed';
 export const MAX_STORED_BODY = 256 * 1024;
 /** Срок жизни расписки: дольше повтор по тому же ключу не ждут */
 export const RECEIPT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * Срок хранения тела ответа. Ключ ставится на каждую запись, и тела за неделю —
+ * это сотни мегабайт в общей базе. Повтор из-за обрыва приходит через секунды
+ * или минуты, поэтому тело живёт сутки; позже повтор всё так же не выполняется
+ * второй раз, но получает прежний статус и { replayed: true } вместо тела.
+ */
+export const BODY_TTL_MS = 24 * 60 * 60 * 1000;
 
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const OP_ID_FORMAT = /^[A-Za-z0-9_-]{8,64}$/;
@@ -202,20 +210,31 @@ function execute(req: Request, res: Response, next: NextFunction, prisma: any, k
   next();
 }
 
-/** Уборка: расписки (в том числе зависшие PENDING) старше 7 суток — пачками */
+/**
+ * Уборка пачками: расписки (в том числе зависшие PENDING) старше 7 суток
+ * удаляются, у выполненных старше суток стирается тело ответа (сама расписка
+ * остаётся и повтор по-прежнему не выполняется). Возвращает число удалённых.
+ */
 export async function cleanupOpReceipts(prisma: any, now: number = Date.now(), batch = 500): Promise<number> {
   const before = new Date(now - RECEIPT_TTL_MS);
   let removed = 0;
   for (;;) {
     const rows = await prisma.opReceipt.findMany({ where: { createdAt: { lt: before } }, select: { id: true }, take: batch });
-    if (!rows.length) return removed;
+    if (!rows.length) break;
     const r = await prisma.opReceipt.deleteMany({ where: { id: { in: rows.map((x: any) => x.id) } } });
     removed += r.count;
-    if (rows.length < batch) return removed;
+    if (!r.count || rows.length < batch) break;
   }
+  // Одним запросом, без цикла по пачкам: стёртые строки под условие больше не
+  // попадают, а цикл при несработавшей записи крутился бы без конца
+  await prisma.opReceipt.updateMany({
+    where: { state: 'DONE', createdAt: { lt: new Date(now - BODY_TTL_MS) }, NOT: { body: '' } },
+    data: { body: '' },
+  });
+  return removed;
 }
 
-/** При старте и раз в сутки; ошибка уборки (нет таблицы) работе не мешает */
+/** При старте и каждые шесть часов (тела живут сутки); ошибка уборки (нет таблицы) работе не мешает */
 export function startOpReceiptCleanup(getPrisma: () => any, log: (m: string) => void = () => {}): void {
   const run = () => {
     cleanupOpReceipts(getPrisma())
@@ -223,5 +242,5 @@ export function startOpReceiptCleanup(getPrisma: () => any, log: (m: string) => 
       .catch((e) => log(`[OpReceipt] уборка не удалась: ${e?.message || e}`));
   };
   setTimeout(run, 30 * 1000).unref();
-  setInterval(run, 24 * 60 * 60 * 1000).unref();
+  setInterval(run, 6 * 60 * 60 * 1000).unref();
 }

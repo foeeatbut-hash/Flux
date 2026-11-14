@@ -32,7 +32,7 @@ import express from 'express';
 import { registerVdrRoutes } from '../server/routes/vdr.js';
 import { bootstrapLocalDatabase } from '../server/databaseBootstrap.js';
 import { setPrisma, setBroadcaster } from '../server/context.js';
-import { opReceiptMiddleware, cleanupOpReceipts, canonicalJson, MAX_STORED_BODY, RECEIPT_TTL_MS } from '../server/opReceipt.js';
+import { opReceiptMiddleware, cleanupOpReceipts, canonicalJson, MAX_STORED_BODY, RECEIPT_TTL_MS, BODY_TTL_MS } from '../server/opReceipt.js';
 
 const require = createRequire(import.meta.url);
 const { PrismaClient } = require('../prisma-clients/client-sqlite');
@@ -308,6 +308,19 @@ async function main() {
     check('уборка: расписки старше 7 суток (и DONE, и зависшие PENDING) удалены пачками по 3, свежие целы',
       removed === 8 && left.length === 2 && left.every((x: any) => x.opId.startsWith('fresh-')), { removed, left });
     check('уборка повторно ничего не находит', (await cleanupOpReceipts(prisma, now, 3)) === 0);
+
+    // Тело ответа живёт сутки: ключ ставится на каждую запись, и тела за неделю раздули бы таблицу
+    await prisma.opReceipt.deleteMany({});
+    const dayOld = new Date(now - BODY_TTL_MS - 60_000);
+    const recent = new Date(now - BODY_TTL_MS + 3_600_000);
+    for (let i = 0; i < 4; i++) await prisma.opReceipt.create({ data: { actorId: 'c', opId: `day-done-${i}`, requestHash: 'h', state: 'DONE', status: 201, body: '{"id":1}', createdAt: dayOld } });
+    await prisma.opReceipt.create({ data: { actorId: 'c', opId: 'recent-done', requestHash: 'h', state: 'DONE', status: 201, body: '{"id":2}', createdAt: recent } });
+    const removedDay = await cleanupOpReceipts(prisma, now, 3);
+    const afterDay = await prisma.opReceipt.findMany({ select: { opId: true, body: true, state: true, status: true } });
+    check('уборка: у выполненных старше суток тело стёрто, расписка, статус и состояние целы; свежее тело цело',
+      removedDay === 0 && afterDay.length === 5
+      && afterDay.filter((x: any) => x.opId.startsWith('day-done-')).every((x: any) => x.body === '' && x.state === 'DONE' && x.status === 201)
+      && afterDay.find((x: any) => x.opId === 'recent-done')?.body === '{"id":2}', { removedDay, afterDay });
   } finally {
     server.close();
     await prisma.$disconnect();
