@@ -76,6 +76,8 @@ declare const flux: {
   };
   /** Отдать файл пользователю: Flux спросит и сохранит через системный диалог (до ~500 КБ) */
   saveFile(name: string, data: string | Uint8Array, mime?: string): Promise<'saved'>;
+  /** Прикрепить результат к проекту (заложено): нужно разрешение { kind: 'attach', does: '…' } в permissions manifest.json (contractVersion 3). Пока Flux ничего не прикрепляет: без разрешения FORBIDDEN, с разрешением UNAVAILABLE */
+  attach(name: string, data: string | Uint8Array, mime?: string): Promise<never>;
   /** Попросить у пользователя файл: Flux покажет системный диалог; программа получает имя и содержимое только выбранного файла (до ${PAGE_LIMITS.openBytes / 1024} КиБ). Отказ человека — ошибка CANCELLED */
   openFile(options?: { accept?: string[] }): Promise<{ name: string; size: number; mime: string; bytes(): Uint8Array; text(): string }>;
   /** Свои окна программы (до ${WINDOW_LIMITS.windows}): страница index.html или объявленная в manifest.json pages */

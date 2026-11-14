@@ -18,7 +18,7 @@ import { resources } from '../contract';
 import { PROGRAM_ID } from '../programs/model';
 import { ACCESS_NAMES, connectionsOf, describeConnection, humanText, parseConnections } from '../connections/model';
 
-export type PermissionLineKind = 'read' | 'open' | 'connect' | 'write' | 'run' | 'internet' | 'lan' | 'program';
+export type PermissionLineKind = 'read' | 'open' | 'connect' | 'write' | 'run' | 'internet' | 'lan' | 'program' | 'attach';
 export interface PermissionLine {
   kind: PermissionLineKind;
   text: string;
@@ -36,7 +36,7 @@ export type ProgramNames = (programId: string) => string | undefined;
 export interface PermissionItem { key: string; line: PermissionLine; label: string }
 
 export interface PermissionKind {
-  id: 'reads' | 'open' | 'connections' | 'internet' | 'lan' | 'program' | 'write' | 'run';
+  id: 'reads' | 'open' | 'connections' | 'internet' | 'lan' | 'program' | 'attach' | 'write' | 'run';
   /** Поле манифеста, где вид объявлен (для справочных строк — нет) */
   field?: 'reads' | 'connections' | 'permissions';
   /** Требуется ли подтверждение человека: справочные строки («ничего не записывает») подтверждать нечего */
@@ -78,6 +78,9 @@ export function parsePermissions(raw: unknown): ModulePermission[] | null {
     } else if (item.kind === 'program') {
       if (Object.keys(item).some(k => k !== 'kind' && k !== 'does' && k !== 'program') || typeof item.program !== 'string' || !PROGRAM_ID.test(item.program)) return null;
       permission = { kind: 'program', program: item.program, does: item.does.trim() };
+    } else if (item.kind === 'attach') {
+      if (Object.keys(item).some(k => k !== 'kind' && k !== 'does')) return null;
+      permission = { kind: 'attach', does: item.does.trim() };
     } else return null;
     if (out.some(p => p.kind === permission.kind && p.does === permission.does && (p as { program?: string }).program === (permission as { program?: string }).program)) return null;
     out.push(permission);
@@ -92,6 +95,12 @@ export const hasNetPermission = (manifest: { permissions?: unknown } | null | un
 /** Программа вправе вызывать методы другой программы: разрешение `program` на этот идентификатор объявлено в подписанном манифесте */
 export const hasProgramPermission = (manifest: { permissions?: unknown } | null | undefined, programId: string) =>
   permissionsOf(manifest).some(p => p.kind === 'program' && p.program === programId);
+/**
+ * Программа заявила, что прикрепляет результаты к проектам (`flux.attach`). Пока это только заявление: записи во Flux нет нигде,
+ * мост отвечает UNAVAILABLE даже при разрешении (modules/bridge.ts) — но разрешение уже подтверждается человеком и входит в отпечаток
+ */
+export const hasAttachPermission = (manifest: { permissions?: unknown } | null | undefined) =>
+  permissionsOf(manifest).some(p => p.kind === 'attach');
 /** Вызываемые программы, на которые у манифеста есть разрешение */
 export const programTargetsOf = (manifest: { permissions?: unknown } | null | undefined): string[] =>
   [...new Set(permissionsOf(manifest).flatMap(p => p.kind === 'program' ? [p.program] : []))];
@@ -121,6 +130,15 @@ const programKind: PermissionKind = {
     const text = `Обращается к программе «${names?.(p.program) || p.program}»: ${p.does}`;
     const key = `Обращается к программе «${p.program}»: ${p.does}`;
     return { key, label: `программа «${p.program}» — ${p.does}`, line: { kind: 'program', text, notable: true, stable: key } };
+  }),
+};
+
+/** Прикрепление результатов к проектам: заметная строка, как у сети; запись пока не работает (см. hasAttachPermission) */
+const attachKind: PermissionKind = {
+  id: 'attach', field: 'permissions', consent: true, check: permissionsCheck,
+  items: manifest => permissionsOf(manifest).flatMap(p => p.kind === 'attach' ? [p] : []).map(p => {
+    const text = `Прикрепляет результаты к проектам: ${p.does}`;
+    return { key: text, label: `прикрепление к проектам — ${p.does}`, line: { kind: 'attach', text, notable: true } };
   }),
 };
 
@@ -156,7 +174,8 @@ export const PERMISSION_KINDS: readonly PermissionKind[] = [
   netKind('internet'),
   netKind('lan'),
   programKind,
-  // Запись и запуск программ договор не даёт — строки остаются, чтобы отсутствие права было видно
+  attachKind,
+  // Запись в данные Flux и запуск программ договор не даёт (разрешение `attach` пока только заявление: записи нет) — строки остаются, чтобы отсутствие права было видно
   { id: 'write', consent: false, check: () => true, items: () => [{ key: 'write', label: 'запись', line: { kind: 'write', text: 'Ничего не записывает во Flux' } }] },
   { id: 'run', consent: false, check: () => true, items: () => [{ key: 'run', label: 'запуск', line: { kind: 'run', text: 'Не запускает программы на компьютере' } }] },
 ];

@@ -34,6 +34,7 @@ const NOTES: Record<string, string> = {
   FAILED: 'Не удалось выполнить.',
   LIMIT: 'Превышен предел (размер или частота запросов).',
   CANCELLED: 'Пользователь отказался.',
+  FORBIDDEN: 'Не разрешено: в манифесте нет разрешения «attach».',
   TIMEOUT: 'Не дождались ответа.',
   BUSY: 'Сейчас идёт много расчётов. Повторите чуть позже.',
   UNAVAILABLE: 'Недоступно: у программы нет такого механизма.',
@@ -167,6 +168,19 @@ const api = {
     if (typeof data === 'string') text = data;
     else { let raw = ''; for (let i = 0; i < data.length; i += 0x8000) raw += String.fromCharCode(...data.subarray(i, i + 0x8000)); text = btoa(raw); encoding = 'base64'; }
     return request('page', { op: 'file-offer', name, mime, data: text, encoding }, 120_000);
+  },
+  /**
+   * Прикрепить результат к проекту (заложено, договор v3): нужно разрешение `attach` в permissions манифеста. Пока Flux ничего не
+   * прикрепляет: без разрешения ошибка FORBIDDEN, с разрешением — UNAVAILABLE («появится позже»). Форма файла как у saveFile
+   */
+  attach(name: string, data: string | Uint8Array, mime = 'application/octet-stream'): Promise<never> {
+    let text: string, encoding: 'utf8' | 'base64' = 'utf8';
+    if (typeof data === 'string') text = data;
+    else { let raw = ''; for (let i = 0; i < data.length; i += 0x8000) raw += String.fromCharCode(...data.subarray(i, i + 0x8000)); text = btoa(raw); encoding = 'base64'; }
+    return request<never>('page', { op: 'attach', name, mime, data: text, encoding }, 20_000).catch((e: unknown) => {
+      if (e instanceof FluxError && e.code === 'UNAVAILABLE') throw new FluxError('UNAVAILABLE', 'Прикрепление результатов к проектам появится позже.');
+      throw e;
+    });
   },
   /**
    * Попросить у пользователя файл (добавлено к v2): Flux покажет системный диалог, человек выберет файл сам,

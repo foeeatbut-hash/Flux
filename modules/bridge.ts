@@ -6,7 +6,7 @@ import { validMessage } from './schemas';
 import { ComputeError, codeOf, type ComputeErrorCode } from './engine/types';
 import { encodeJson } from './engine/json';
 import type { ConnectCall, ConnectErrorCode, NetCall } from './connections/model';
-import { hasNetPermission, hasProgramPermission } from './permissions/registry';
+import { hasAttachPermission, hasNetPermission, hasProgramPermission } from './permissions/registry';
 import { PROGRAM_LIMITS, type ProgramCall, type ProgramCallErrorCode, type ProgramReply } from './programs/model';
 import { DIALOG_LIMITS, hasControlChars, openAcceptProblem, PAGE_LIMITS, saveNameProblem, WINDOW_LIMITS, WINDOW_OPTION_LIMITS, type PageDialog, type PageDialogAnswer, type WindowOptions } from './page/model';
 
@@ -196,7 +196,7 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
   let pickedAt = 0;
   let offeredAt = 0;
   async function runPage(message: { id: string } & PageOp) {
-    const answer = (result: { data: unknown } | { code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' }) => {
+    const answer = (result: { data: unknown } | { code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' | 'FORBIDDEN' | 'UNAVAILABLE' }) => {
       if (disposed) return;
       if ('code' in result) post({ flux: 'module', v: 1, session: options.session, type: 'page-error', id: message.id, code: result.code } as PageHostMessage);
       else post({ flux: 'module', v: 1, session: options.session, type: 'page-result', id: message.id, data: result.data } as PageHostMessage);
@@ -253,6 +253,9 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       answer(page.openWindow(message.page, message.params ?? {}, windowOptions ? { ...(windowOptions.title?.trim() ? { title: windowOptions.title.trim() } : {}), ...(windowOptions.width ? { width: windowOptions.width } : {}), ...(windowOptions.height ? { height: windowOptions.height } : {}) } : undefined)
         ? { data: null } : { code: 'LIMIT' }); return;
     }
+    // Прикрепление результата к проекту только заложено: без разрешения в манифесте — FORBIDDEN, с разрешением — UNAVAILABLE.
+    // Данные не читаются, не сохраняются и никуда не передаются: ни одного обработчика записи нет ни в сервере, ни в Electron
+    if (message.op === 'attach') { answer({ code: hasAttachPermission(options.manifest) ? 'UNAVAILABLE' : 'FORBIDDEN' }); return; }
     if (message.op === 'state-load') { answer({ data: page.loadState() }); return; }
     if (message.op === 'state-keep') {
       if (messageBytes(message.state) > PAGE_LIMITS.stateBytes) { answer({ code: 'LIMIT' }); return; }
