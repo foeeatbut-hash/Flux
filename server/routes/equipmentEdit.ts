@@ -8,6 +8,7 @@ import { importPolicyOfProject } from './tagPolicy.js';
 import { withBump } from '../equipmentVersion.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from '../equipmentHierarchy.js';
 import { TAG_SOURCE, recordTagCreated, recordChangeSets, updateSet, type TagChangeSet } from '../tagHistory.js';
+import { withCodeKey, findTagByCode, isCodeKeyViolation } from '../tagCodeKey.js';
 import { nextProjectEntityId } from '../entityIds.js';
 
 /**
@@ -292,10 +293,8 @@ export async function resolveTag(prisma: any, projectId: string, raw: unknown, o
   const check = validateTag(fix ? fix.identifier : written, policy);
   const corrected = fix ? { from: fix.from, what: fix.what } : undefined;
   if (!check.ok) return { ok: false, status: 400, identifier: check.identifier, problem: check.problem, fix: check.fix, corrected };
-  const existing = await prisma.tag.findFirst({
-    where: { projectId, identifier: check.identifier },
-    include: { componentElements: { select: { id: true, name: true } } },
-  });
+  // По ключу кода, а не только по написанию: «ahu-1» при «AHU-1» — тот же тег, а не второй
+  const existing = await findTagByCode(prisma, projectId, check.identifier, { componentElements: { select: { id: true, name: true } } });
   const busy = (existing?.componentElements || [])[0];
   if (busy) {
     return {
@@ -305,7 +304,14 @@ export async function resolveTag(prisma: any, projectId: string, raw: unknown, o
   }
   if (existing) return { ok: true, identifier: check.identifier, corrected, tagId: existing.id, existing: true };
   if (opts.dryRun) return { ok: true, identifier: check.identifier, corrected, created: true };
-  const made = await prisma.tag.create({ data: { id: await nextProjectEntityId(prisma, projectId, 'TAG'), identifier: check.identifier, projectId } });
+  let made: any;
+  try {
+    made = await prisma.tag.create({ data: withCodeKey({ id: await nextProjectEntityId(prisma, projectId, 'TAG'), identifier: check.identifier, projectId }) });
+  } catch (e) {
+    // Код успели занять между проверкой и записью: тот же отказ, что у занятого заранее
+    if (!isCodeKeyViolation(e)) throw e;
+    return { ok: false, status: 409, identifier: check.identifier, corrected, existing: true, problem: `Тег «${check.identifier}» только что завели. Повторите: он будет предложен как существующий.` };
+  }
   await recordTagCreated(prisma, { projectId, userId: opts.actor?.userId, source: TAG_SOURCE.equipmentEdit }, made);
   return { ok: true, identifier: check.identifier, corrected, tagId: made.id, created: true };
 }

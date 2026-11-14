@@ -18,6 +18,7 @@ import { resolveEquipmentSourceTargets, type EquipmentSourceTargetElement, type 
 import { importPolicyOfProject } from './tagPolicy.js';
 import { validateTag } from '../../equipment/tagPolicy.js';
 import { recordTagCreated, TAG_SOURCE } from '../tagHistory.js';
+import { withCodeKey, findTagsByCode } from '../tagCodeKey.js';
 import { blockKey } from '../specUtils.js';
 import { nextProjectEntityId } from '../entityIds.js';
 import { upsertEquipmentDocumentBindingInTransaction } from './equipmentDocumentBindings.js';
@@ -708,11 +709,11 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
           }
           const connectTagIds: string[] = [];
           for (const identifier of Array.isArray(proposal.tags) ? proposal.tags : []) {
-            const hits = await tx.tag.findMany({ where: { projectId, identifier }, include: { componentElements: { select: { id: true } } } });
+            const hits = await findTagsByCode(tx, projectId, identifier, { componentElements: { select: { id: true } } });
             if (hits.length > 1 || hits.some((tag: any) => (tag.componentElements || []).length)) throw Object.assign(new Error(`Тег «${identifier}» изменился или связан параллельно.`), { status: 409 });
             if (hits.length === 1) connectTagIds.push(hits[0].id);
             else {
-              const tag = await tx.tag.create({ data: { id: await nextProjectEntityId(tx, projectId, 'TAG', { inTransaction: true }), projectId, identifier } });
+              const tag = await tx.tag.create({ data: withCodeKey({ id: await nextProjectEntityId(tx, projectId, 'TAG', { inTransaction: true }), projectId, identifier }) });
               await recordTagCreated(tx, { projectId, userId: String(actor.id), source: TAG_SOURCE.equipmentImport }, tag);
               connectTagIds.push(tag.id);
             }

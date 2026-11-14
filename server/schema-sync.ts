@@ -13,6 +13,7 @@
 import { withSchemaConnection } from './schemaRuntime.js';
 import { createIndexSql, isDuplicateIndex } from './ddl.js';
 import { inspectSchema } from './schemaInspection.js';
+import { backfillTagCodeKeys } from './tagCodeKey.js';
 
 type Dialect = 'postgresql' | 'mysql' | 'sqlite';
 
@@ -503,6 +504,12 @@ async function syncSchema(prisma: any, dialect: Dialect, schemaText: string, log
     } catch (e: any) {
       log(`[Schema Sync] Ошибка при обработке ${model.name}: ${e.message}`);
     }
+  }
+
+  // Колонка и ключ кода тега уже созданы: теперь у старых тегов ключ заполняется (порядок
+  // «колонка → заполнение → ключ» не обязателен — пока ключ пуст, он ни с чем не конфликтует)
+  if (models.some((m) => m.name === 'Tag' && m.columns.some((c) => c.name === 'codeKey'))) {
+    try { await backfillTagCodeKeys(prisma, dialect, log); } catch (e: any) { log(`[Tag codeKey] Заполнение не выполнено: ${e?.message || e}`); }
   }
 
   if (applied.length) log(`[Schema Sync] База приведена к схеме: ${applied.join(', ')}`);

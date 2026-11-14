@@ -12,6 +12,7 @@ import {
   DEFAULT_TAG_POLICY, autoFixTag, identityKeyOf, similarityKeyOf, validateTag, type TagPolicy,
 } from '../equipment/tagPolicy.js';
 import { TAG_SOURCE, recordTagCreated } from './tagHistory.js';
+import { withCodeKey, duplicateOf } from './tagCodeKey.js';
 import { withBump } from './equipmentVersion.js';
 import { nextProjectEntityId } from './entityIds.js';
 import type { EntityIdOptions } from './entityIds.js';
@@ -228,7 +229,13 @@ export async function applyTagLinks(
 
     let tagId = link.existingTagId;
     if (link.action === 'create' || !tagId) {
-      const created = await prisma.tag.create({ data: { id: await nextProjectEntityId(prisma, projectId, 'TAG', options), identifier: link.identifier, projectId } });
+      let created: any;
+      try {
+        created = await prisma.tag.create({ data: withCodeKey({ id: await nextProjectEntityId(prisma, projectId, 'TAG', options), identifier: link.identifier, projectId }) });
+      } catch (e) {
+        // План говорил «создать», но код успели занять: ввоз отвечает отказом с занявшим тегом, а не 500
+        throw await duplicateOf(prisma, e, projectId, link.identifier);
+      }
       await recordTagCreated(prisma, { projectId, userId: actor.userId, source: TAG_SOURCE.equipmentImport }, created);
       tagId = created.id;
       res.created++;

@@ -8,6 +8,7 @@
 
 import type { Response } from 'express';
 import { nextProjectId } from './entityIds.js';
+import { isCodeKeyViolation } from './tagCodeKey.js';
 
 let _prisma: any = null;
 
@@ -79,6 +80,11 @@ export function sendError(res: Response, err: any, code = 500): void {
   if (res.headersSent) {
     console.error('[sendError] ответ уже начат, соединение закрыто:', err?.message || err);
     try { res.destroy(); } catch (_) { /* сокет уже закрыт */ }
+    return;
+  }
+  // Любой путь записи, не поймавший нарушение ключа кода сам, отвечает отказом, а не 500
+  if (isCodeKeyViolation(err)) {
+    res.status(409).json({ error: 'Тег с таким кодом уже заведён в этом проекте. Укажите другой код.', duplicate: true });
     return;
   }
   const status = statusOf(err, code);

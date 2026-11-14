@@ -14,7 +14,8 @@ import { fileBytes } from './fileChunks.js';
 import { canReadFile } from '../fileAccess.js';
 import { canSeeProject, hiddenProjectsOf } from './members.js';
 import { withBump, bumpElementsOfTags } from '../equipmentVersion.js';
-import { writeTag, writeTags, metadataPatchOf, tagWriteFailure, assertFreeTagCode } from '../tagWrite.js';
+import { writeTag, writeTags, metadataPatchOf, tagWriteFailure, tagFailure, assertFreeTagCode } from '../tagWrite.js';
+import { tagCodeKey, withCodeKey, isCodeKeyViolation } from '../tagCodeKey.js';
 import {
   TAG_SOURCE, tagChangeContext, recordChangeSets, recordTagCreated, recordTagUpdate, recordTagDeleted,
   updateSet, createdSet, deletedSet, type TagChangeSet,
@@ -96,7 +97,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       // Пустой код и код, уже занятый в проекте, не записываются: иначе двойное нажатие «Создать» заводило два тега
       const code = await assertFreeTagCode(prisma, projectId, identifier);
       const tag = await prisma.tag.create({
-        data: {
+        data: withCodeKey({
           id: await nextProjectEntityId(prisma, projectId, 'TAG'),
           projectId,
           identifier: code,
@@ -105,7 +106,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           fluid: fluid || null,
           brand: brand || null,
           metadata: metadata ? (typeof metadata === 'string' ? metadata : JSON.stringify(metadata)) : null
-        }
+        })
       });
       // Автор создания — из сессии, для любого пути создания (в metadata.createdBy
       // он был только у быстрой строки, и то именем, а не идентификатором)
@@ -113,7 +114,8 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       emitEntityChanged('tag', tag.id, req);
       res.json({ tag });
     } catch (err: any) {
-      const known = tagWriteFailure(err);
+      // Два одинаковых создания прошли проверку оба — второго остановил ключ кода
+      const known = await tagFailure(prisma, err, projectId, identifier);
       if (known) return res.status(known.status).json(known.body);
       res.status(500).json({ error: err.message });
     }
@@ -149,16 +151,18 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     const { rows, mode } = req.body;
     // Объявлено до try: при сбое посреди импорта уже сделанное всё равно попадает в историю
     const history: Array<TagChangeSet | null> = [];
+    let lastCode = '';
     try {
       if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
         let fp = await prisma.project.findFirst(); if (!fp) fp = await prisma.project.create({ data: { id: await nextProjectId(prisma), name: 'Общий Проект' } }); projectId = fp.id;
       }
       if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
       const existing = await prisma.tag.findMany({ where: { projectId } });
+      // Коды сравниваются по ключу (регистр, пробелы, NFC): тот же, что держит база
       const byCode = new Map<string, any>();
       const codeToId = new Map<string, string>();
       const changedTagIds = new Set<string>();
-      for (const t of existing) { const k = (t.identifier || '').trim(); if (k) { if (!byCode.has(k)) byCode.set(k, t); codeToId.set(k, t.id); } }
+      for (const t of existing) { const k = tagCodeKey(t.identifier); if (k) { if (!byCode.has(k)) byCode.set(k, t); codeToId.set(k, t.id); } }
       let created = 0, updated = 0; const dupes: string[] = [];
       const parentLinks: { childCode: string; parentCode: string }[] = [];
       let col = 0;
@@ -179,32 +183,41 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           fluid: r.fluid ? String(r.fluid) : null,
           wbs: r.wbs ? String(r.wbs) : null,
         };
-        const ex = byCode.get(code);
+        lastCode = code;
+        const key = tagCodeKey(code);
+        const ex = byCode.get(key);
         if (ex && mode === 'update') {
           let exMeta: any = {}; try { exMeta = ex.metadata ? JSON.parse(ex.metadata) : {}; } catch {}
           const merged = { ...exMeta, ...(r.name ? { mainName: String(r.name) } : {}), ...(r.actuality ? { actuality: String(r.actuality) } : {}) };
           if (!Array.isArray(merged.connections)) merged.connections = [];
-          const after = await prisma.tag.update({ where: { id: ex.id }, data: { ...baseData, metadata: JSON.stringify(merged) } });
+          // Найден по ключу — пишется как у тега: «ahu-1» из файла не переименовывает «AHU-1»
+          const after = await prisma.tag.update({ where: { id: ex.id }, data: withCodeKey({ ...baseData, identifier: ex.identifier, metadata: JSON.stringify(merged) }) });
           history.push(updateSet(ex, after));
           changedTagIds.add(after.id);
           // Следующая строка с тем же кодом сравнивается уже с записанным, а не с исходным
-          byCode.set(code, after);
-          updated++; codeToId.set(code, ex.id);
+          byCode.set(key, after);
+          updated++; codeToId.set(key, ex.id);
+        } else if (ex) {
+          // Код занят: второй тег с тем же кодом база не примет. Строка не пишется, код — в списке повторов
+          dupes.push(code);
+          if (r.parent) parentLinks.push({ childCode: code, parentCode: String(r.parent).trim() });
+          continue;
         } else {
-          if (ex) dupes.push(code);
           const meta: any = { connections: [], descriptions: [], x: 120 + (col % 6) * 360, y: topY + Math.floor(col / 6) * 150 };
           if (r.name) meta.mainName = String(r.name);
           if (r.actuality) meta.actuality = String(r.actuality);
-          const t = await prisma.tag.create({ data: { id: await nextProjectEntityId(prisma, projectId, 'TAG'), projectId, ...baseData, metadata: JSON.stringify(meta) } });
+          const t = await prisma.tag.create({ data: withCodeKey({ id: await nextProjectEntityId(prisma, projectId, 'TAG'), projectId, ...baseData, metadata: JSON.stringify(meta) }) });
           history.push(createdSet(t));
           changedTagIds.add(t.id);
-          created++; codeToId.set(code, t.id); col++;
+          // Повтор того же кода дальше по файлу — уже повтор, а не новый тег
+          byCode.set(key, t);
+          created++; codeToId.set(key, t.id); col++;
         }
         if (r.parent) parentLinks.push({ childCode: code, parentCode: String(r.parent).trim() });
       }
       const byParent: Record<string, string[]> = {};
       for (const { childCode, parentCode } of parentLinks) {
-        const childId = codeToId.get(childCode); const parentId = codeToId.get(parentCode);
+        const childId = codeToId.get(tagCodeKey(childCode)); const parentId = codeToId.get(tagCodeKey(parentCode));
         if (childId && parentId && childId !== parentId) (byParent[parentId] ||= []).push(childId);
       }
       for (const [parentId, childIds] of Object.entries(byParent)) {
@@ -220,6 +233,9 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       res.json({ created, updated, duplicates: [...new Set(dupes)] });
     } catch (err: any) {
       await recordChangeSets(prisma, tagChangeContext(req, String(projectId), TAG_SOURCE.tagImport), history);
+      // Код заняли между чтением и записью — отказ с кодом, а не 500
+      const known = await tagFailure(prisma, err, String(projectId), lastCode);
+      if (known) return res.status(known.status).json(known.body);
       res.status(500).json({ error: err.message });
     }
   });
@@ -244,6 +260,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       }[];
     };
     const history: Array<TagChangeSet | null> = [];
+    let lastCode = '';
     try {
       if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
         let fp = await prisma.project.findFirst();
@@ -253,6 +270,9 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
       const existing = await prisma.tag.findMany({ where: { projectId } });
       const byId = new Map(existing.map((t: any) => [t.id, t]));
+      // Занятые коды по ключу: второй тег с кодом, уже стоящим в проекте, база не примет
+      const takenKeys = new Set<string>(existing.map((t: any) => tagCodeKey(t.identifier)));
+      const refused: { identifier: string; reason: string }[] = [];
 
       // Новые карточки кладём под уже занятыми, а не в одну точку холста
       let maxY = 0;
@@ -312,12 +332,19 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
 
         // create и duplicate пишутся одинаково; разными их делает только то,
         // что duplicate выбран осознанно при уже существующем коде
+        if (takenKeys.has(tagCodeKey(code))) {
+          // «Создать дубль» больше невозможно: код один на проект. Строка пропущена, причина — в ответе
+          skipped.push(code);
+          refused.push({ identifier: code, reason: `Тег «${code}» уже заведён в этом проекте` });
+          continue;
+        }
+        lastCode = code;
         const pos = nextPos();
         const meta: any = { connections: [], descriptions: [], x: pos.x, y: pos.y };
         if (r.name) meta.mainName = String(r.name);
         if (r.actuality) meta.actuality = String(r.actuality);
         const t = await prisma.tag.create({
-          data: {
+          data: withCodeKey({
             id: await nextProjectEntityId(prisma, projectId, 'TAG'),
             projectId,
             identifier: code,
@@ -326,8 +353,9 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
             fluid: r.fluid ? String(r.fluid) : null,
             wbs: r.wbs ? String(r.wbs) : null,
             metadata: JSON.stringify(meta),
-          },
+          }),
         });
+        takenKeys.add(tagCodeKey(code));
         history.push(createdSet(t));
         changedTagIds.add(t.id);
         (action === 'duplicate' ? duplicated : created).push({ id: t.id, identifier: code });
@@ -335,9 +363,11 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
 
       await recordChangeSets(prisma, tagChangeContext(req, projectId, TAG_SOURCE.capture), history);
       emitEntitiesChanged('tag', changedTagIds, req);
-      res.json({ created, filled, duplicated, linked, skipped });
+      res.json({ created, filled, duplicated, linked, skipped, refused });
     } catch (err: any) {
       await recordChangeSets(prisma, tagChangeContext(req, String(projectId), TAG_SOURCE.capture), history);
+      const known = await tagFailure(prisma, err, String(projectId), lastCode);
+      if (known) return res.status(known.status).json(known.body);
       res.status(500).json({ error: err.message });
     }
   });
@@ -766,22 +796,38 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     if (!(await mayUseProject(req, projectId))) return res.status(403).json(NO_PROJECT);
 
     // Два одновременных запроса получали один номер: считаем и пишем по очереди в рамках проекта
-    const newTag = await serializeByProject(projectId, async () => {
-      const existingTags = await prisma.tag.findMany({
-        where: { projectId, identifier: { startsWith: prefix } },
-        select: { identifier: true },
+    let finalIdentifier = '';
+    let newTag: any;
+    try {
+      newTag = await serializeByProject(projectId, async () => {
+        // Другой процесс (или сервер общей базы) мог занять номер между чтением и записью:
+        // ключ кода его не пропустит, и тогда номер считается заново с уже записанным
+        for (let attempt = 1; ; attempt++) {
+          const existingTags = await prisma.tag.findMany({
+            where: { projectId, identifier: { startsWith: prefix } },
+            select: { identifier: true },
+          });
+          finalIdentifier = nextTagIdentifier(existingTags.map((t: any) => t.identifier), prefix, suffix || '');
+          try {
+            return await prisma.tag.create({
+              data: withCodeKey({
+                id: await nextProjectEntityId(prisma, projectId, 'TAG'),
+                projectId,
+                identifier: finalIdentifier,
+                metadata: metadata ? JSON.stringify(metadata) : null
+              }),
+              include: { equipment: true } // we just keep the include to match existing response
+            });
+          } catch (e) {
+            if (attempt >= 4 || !isCodeKeyViolation(e)) throw e;
+          }
+        }
       });
-      const finalIdentifier = nextTagIdentifier(existingTags.map((t: any) => t.identifier), prefix, suffix || '');
-      return prisma.tag.create({
-        data: {
-          id: await nextProjectEntityId(prisma, projectId, 'TAG'),
-          projectId,
-          identifier: finalIdentifier,
-          metadata: metadata ? JSON.stringify(metadata) : null
-        },
-        include: { equipment: true } // we just keep the include to match existing response
-      });
-    });
+    } catch (err: any) {
+      const known = await tagFailure(prisma, err, projectId, finalIdentifier);
+      if (known) return res.status(known.status).json(known.body);
+      return res.status(500).json({ error: err.message });
+    }
     await recordTagCreated(prisma, tagChangeContext(req, projectId, TAG_SOURCE.tags), newTag);
     emitEntityChanged('tag', newTag.id, req);
 

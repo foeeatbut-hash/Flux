@@ -7,6 +7,7 @@ import { planTagLinks, type TagLink } from '../equipmentTags.js';
 import { importPolicyOfProject } from './tagPolicy.js';
 import { validateTag } from '../../equipment/tagPolicy.js';
 import { TAG_SOURCE, tagChangeContext, recordChangeSets, createdSet, deletedSet, type TagChangeSet } from '../tagHistory.js';
+import { withCodeKey, findTagByCode } from '../tagCodeKey.js';
 
 /**
  * Конструктор: ведомости подбора оборудования по проекту.
@@ -458,11 +459,11 @@ export function registerBuilderRoutes(app: Express): void {
             tagId = own.id;
             linked++;
           } else if (l.action === 'create') {
-            const dup = await tx.tag.findFirst({ where: { projectId: list.projectId, identifier: l.identifier } });
+            const dup = await findTagByCode(tx, list.projectId, l.identifier);
             const brand = parse<any>(row.dataJson, {}).designation || null;
             if (dup) { tagId = dup.id; linked++; }
             else {
-              const made = await tx.tag.create({ data: { id: await nextProjectEntityId(tx, list.projectId, 'TAG', { inTransaction: true }), projectId: list.projectId, identifier: l.identifier, brand } });
+              const made = await tx.tag.create({ data: withCodeKey({ id: await nextProjectEntityId(tx, list.projectId, 'TAG', { inTransaction: true }), projectId: list.projectId, identifier: l.identifier, brand }) });
               tagId = made.id; createdTags.push(tagId); born.push(createdSet(made));
             }
           } else {
