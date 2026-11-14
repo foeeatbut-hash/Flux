@@ -6,7 +6,7 @@ import { validMessage } from './schemas';
 import { ComputeError, codeOf, type ComputeErrorCode } from './engine/types';
 import { encodeJson } from './engine/json';
 import type { ConnectCall, ConnectErrorCode, NetCall } from './connections/model';
-import { hasNetPermission, hasProgramPermission } from './permissions/registry';
+import { hasAttachPermission, hasNetPermission, hasProgramPermission } from './permissions/registry';
 import { PROGRAM_LIMITS, type ProgramCall, type ProgramCallErrorCode, type ProgramReply } from './programs/model';
 import { DIALOG_LIMITS, hasControlChars, openAcceptProblem, PAGE_LIMITS, saveNameProblem, WINDOW_LIMITS, WINDOW_OPTION_LIMITS, type PageDialog, type PageDialogAnswer, type WindowOptions } from './page/model';
 
@@ -48,8 +48,12 @@ export interface ModuleBridgeOptions {
    * без `ui: 'page'` в манифесте, любое действие страницы — отказ DENIED.
    */
   page?: {
-    loadState: () => Record<string, unknown>;
-    keepState: (state: Record<string, unknown>) => void;
+    /** Состояние страницы: окно держит его в памяти, а у самостоятельной программы читает с диска через главный процесс (modules/storage), поэтому ответ может быть асинхронным; сбой — исключение (программе уйдёт FAILED) */
+    loadState: () => Record<string, unknown> | Promise<Record<string, unknown>>;
+    /** Отказ — `{ code }` (предел хранилища, ошибка диска); `void` — сохранено. Состояние в памяти окна при отказе остаётся прежним */
+    keepState: (state: Record<string, unknown>) => void | { code: 'LIMIT' | 'FAILED' } | Promise<void | { code: 'LIMIT' | 'FAILED' }>;
+    /** Предел размера состояния, байт: 1 МиБ у самостоятельной программы (диск), прежние 256 КиБ у остальных (память). Нет поля — прежний */
+    stateLimit?: number;
     offerFile: (file: { name: string; mime: string; bytes: Uint8Array }) => Promise<'saved' | 'cancelled'>;
     /**
      * Файл пользователя (flux.openFile, добавлено к v2): окно Flux показывает системный диалог, человек выбирает файл,
@@ -57,6 +61,8 @@ export interface ModuleBridgeOptions {
      */
     pickFile?: (request: { accept: string[] }) => Promise<{ name: string; mime: string; bytes: Uint8Array } | 'cancelled' | 'limit'>;
     onBeat: () => void;
+    /** Попытка flux.attach получила отказ (хост записывает строку в журнал программы, как для файлов); сам отказ мост отправляет программе */
+    onAttach?: (attempt: { name: string; bytes: number; code: 'FORBIDDEN' | 'UNAVAILABLE' }) => void;
     /** Свои окна программы: Flux открывает обычное окно с этой страницей пакета; false — предел или страницы нет */
     openWindow: (page: string, params: Record<string, unknown>, options?: WindowOptions) => boolean;
     /**
@@ -196,7 +202,7 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
   let pickedAt = 0;
   let offeredAt = 0;
   async function runPage(message: { id: string } & PageOp) {
-    const answer = (result: { data: unknown } | { code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' }) => {
+    const answer = (result: { data: unknown } | { code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' | 'FORBIDDEN' | 'UNAVAILABLE' }) => {
       if (disposed) return;
       if ('code' in result) post({ flux: 'module', v: 1, session: options.session, type: 'page-error', id: message.id, code: result.code } as PageHostMessage);
       else post({ flux: 'module', v: 1, session: options.session, type: 'page-result', id: message.id, data: result.data } as PageHostMessage);
@@ -253,10 +259,24 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       answer(page.openWindow(message.page, message.params ?? {}, windowOptions ? { ...(windowOptions.title?.trim() ? { title: windowOptions.title.trim() } : {}), ...(windowOptions.width ? { width: windowOptions.width } : {}), ...(windowOptions.height ? { height: windowOptions.height } : {}) } : undefined)
         ? { data: null } : { code: 'LIMIT' }); return;
     }
-    if (message.op === 'state-load') { answer({ data: page.loadState() }); return; }
+    // Прикрепление результата к проекту только заложено: без разрешения в манифесте — FORBIDDEN, с разрешением — UNAVAILABLE.
+    // Данные не читаются, не сохраняются и никуда не передаются: ни одного обработчика записи нет ни в сервере, ни в Electron
+    if (message.op === 'attach') {
+      const code = hasAttachPermission(options.manifest) ? 'UNAVAILABLE' : 'FORBIDDEN';
+      page.onAttach?.({ name: message.name, bytes: message.encoding === 'base64' ? Math.floor(message.data.length * 3 / 4) : new TextEncoder().encode(message.data).length, code });
+      answer({ code }); return;
+    }
+    if (message.op === 'state-load') {
+      try { answer({ data: await page.loadState() }); } catch { answer({ code: 'FAILED' }); }
+      return;
+    }
     if (message.op === 'state-keep') {
-      if (messageBytes(message.state) > PAGE_LIMITS.stateBytes) { answer({ code: 'LIMIT' }); return; }
-      page.keepState(message.state); answer({ data: null }); return;
+      if (messageBytes(message.state) > (page.stateLimit ?? PAGE_LIMITS.stateBytes)) { answer({ code: 'LIMIT' }); return; }
+      try {
+        const refusal = await page.keepState(message.state);
+        answer(refusal && (refusal.code === 'LIMIT' || refusal.code === 'FAILED') ? { code: refusal.code } : { data: null });
+      } catch { answer({ code: 'FAILED' }); }
+      return;
     }
     if (message.op === 'file-pick') {
       if (!page.pickFile) { answer({ code: 'DENIED' }); return; }
@@ -312,7 +332,10 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     }
     if (--budget < 0) return;
     try {
-      if (messageBytes(message) > 1024 * 1024) return;
+      // Состояние самостоятельной программы — до 1 МиБ само по себе, а сообщение несёт ещё конверт; без запаса оно молча
+      // отбрасывалось бы здесь, и программа ждала бы ответа до таймаута. Запас дан только сообщению `state-keep`
+      const room = message.type === 'page' && message.op === 'state-keep' ? (options.page?.stateLimit ?? 0) + 1024 : 0;
+      if (messageBytes(message) > Math.max(1024 * 1024, room)) return;
     } catch (_) { return; }
     if (validMessage('ready', message)) {
       ready = true;

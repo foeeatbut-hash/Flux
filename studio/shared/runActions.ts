@@ -44,6 +44,15 @@ export type RunProgramReply = ProgramReply & { line?: string };
 /** Ответ `runSaveFile`: 'saved' — человек выбрал место и файл записан, 'cancelled' — отказ, слишком большой файл или занятый диалог */
 export type RunSaveReply = 'saved' | 'cancelled';
 
+/** Хранилище запущенной программы (`runStorageInfo`): у самостоятельной — диск области `studio`, у остальных — память окна */
+export interface RunStorageInfo { standalone: boolean; bytes: number | null; text: string }
+/** Состояние при запуске (`runStorageLoad`); `line` — строка для журнала запуска (битый файл, диск не отвечает) */
+export interface RunStorageLoadReply { standalone: boolean; state: Record<string, unknown>; line?: string; failed?: boolean }
+/** Ответ `runStorageKeep`: `LIMIT` и `FAILED` — отказы, текст `line` — тот же, что видит человек во Flux */
+export type RunStorageKeepReply =
+  | { ok: true; stored: boolean; bytes?: number; line?: string }
+  | { ok: false; code: 'LIMIT' | 'FAILED'; line: string };
+
 /** Аргументы действий (для окна и для проверок) */
 export interface RunActionArgs {
   runConnect: { connection: string; call: ConnectCall };
@@ -54,4 +63,8 @@ export interface RunActionArgs {
   testProgramRemove: { id: string };
   runProgram: { call: ProgramCall };
   runSaveFile: { name: string; mime: string; bytes: Uint8Array };
+  runStorageInfo: Record<string, never>;
+  runStorageLoad: Record<string, never>;
+  runStorageKeep: { state: Record<string, unknown> };
+  runStorageClear: Record<string, never>;
 }

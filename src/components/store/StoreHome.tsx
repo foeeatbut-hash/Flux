@@ -4,6 +4,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { categoryName, storeRows, type StoreListing } from '../../../modules/store/model';
+import { OFFLINE_HINT, WORKS_OFFLINE_LABEL, worksOffline } from '../../../modules/storage/model';
 import { ActionButton, ModuleIcon, Stars, type ActionKind } from './StoreParts';
 
 export type OnAct = (listing: StoreListing, kind: ActionKind) => void;
@@ -16,6 +17,7 @@ export function StoreCard({ listing, index = 0, onOpen, onAct }: { listing: Stor
     <div className="stx-card-body">
       <div className="stx-card-name">{listing.name}</div>
       <div className="stx-card-sub">{categoryName(listing.category)}{listing.testing ? ' · тестовая' : ''}</div>
+      {worksOffline(listing.manifest) && <div className="stx-card-sub" data-testid="stx-offline" title={OFFLINE_HINT}>{WORKS_OFFLINE_LABEL}</div>}
       <div className="stx-card-sub">{listing.rating.count ? <><Stars value={listing.rating.avg} /> {listing.rating.avg.toFixed(1)}</> : listing.developer}</div>
     </div>
     <ActionButton listing={listing} onAct={(k) => onAct(listing, k)} />

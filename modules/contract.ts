@@ -18,7 +18,9 @@ export interface LaunchContext {
 export type ModulePermission =
   | { kind: 'internet' | 'lan'; does: string }
   /** Обращение к другой программе (`flux.programs.call`): `program` — её идентификатор, метод должен быть в её `exports` */
-  | { kind: 'program'; program: string; does: string };
+  | { kind: 'program'; program: string; does: string }
+  /** Прикрепление результатов к проектам (`flux.attach`): пока только заявление, мост отвечает UNAVAILABLE даже при разрешении */
+  | { kind: 'attach'; does: string };
 /** Метод, который программа отдаёт другим программам (modules/programs/model.ts): `does` — текст для человека */
 export interface ModuleExport { method: string; does: string }
 /** Витрина Flux Store (modules/store/model.ts): необязательна, без неё программа попадает в «Прочее» */
@@ -91,6 +93,8 @@ export type PageOp =
   | { op: 'state-load' }
   | { op: 'state-keep'; state: Record<string, unknown> }
   | { op: 'file-offer'; name: string; mime?: string; data: string; encoding: 'utf8' | 'base64' }
+  /** Прикрепить результат к проекту (заложено): без разрешения `attach` — FORBIDDEN, с разрешением — UNAVAILABLE, записи нет нигде */
+  | { op: 'attach'; name: string; mime?: string; data: string; encoding: 'utf8' | 'base64' }
   /** Файл пользователя (добавлено к v2): диалог показывает Flux, программа получает имя и содержимое только выбранного файла */
   | { op: 'file-pick'; accept?: string[] }
   | { op: 'beat' }
@@ -108,7 +112,7 @@ export type PageOp =
 export type PageHostMessage =
   | { flux: 'module'; v: 1; session: string; type: 'page-result'; id: string; data: unknown }
   | { flux: 'module'; v: 1; session: string; type: 'page-message'; data: unknown }
-  | { flux: 'module'; v: 1; session: string; type: 'page-error'; id: string; code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' };
+  | { flux: 'module'; v: 1; session: string; type: 'page-error'; id: string; code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' | 'FORBIDDEN' | 'UNAVAILABLE' };
 export type BridgeError = 'READ_ONLY' | 'DENIED' | 'NO_PROJECT' | 'FAILED' | 'LIMIT';
 export type HostMessage =
   | { flux: 'module'; v: 1; session: string; type: 'event'; event: 'opened' | 'project-changed' | 'changed'; context: LaunchContext; theme: ThemeTokens }

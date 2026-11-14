@@ -93,6 +93,8 @@ async function units() {
   const env = { flux: 'module', v: 1, session: 's', id: 'a' };
   ok('state-load допустим', validMessage('page', { ...env, type: 'page', op: 'state-load' }));
   ok('file-offer без имени недопустим', !validMessage('page', { ...env, type: 'page', op: 'file-offer', data: 'x', encoding: 'utf8' }));
+  ok('attach допустим как file-offer; без имени и с лишним полем — нет', validMessage('page', { ...env, type: 'page', op: 'attach', name: 'a.txt', data: 'x', encoding: 'utf8' })
+    && !validMessage('page', { ...env, type: 'page', op: 'attach', data: 'x', encoding: 'utf8' }) && !validMessage('page', { ...env, type: 'page', op: 'attach', name: 'a.txt', data: 'x', encoding: 'utf8', project: 'p' }));
   ok('неизвестное действие недопустимо', !validMessage('page', { ...env, type: 'page', op: 'format-disk' }));
   ok('лишнее поле недопустимо', !validMessage('page', { ...env, type: 'page', op: 'beat', extra: 1 }));
   // Без объявления «ui: page» мост страницы не слушает вовсе
@@ -108,6 +110,22 @@ async function units() {
     await bridge.handle({ source: frame as never, origin: 'null', data: { ...env, type: 'page', op: 'state-load' } });
     ok(`${label}: действие страницы — DENIED`, sent.length === 1 && sent[0].type === 'page-error' && sent[0].code === 'DENIED');
   }
+  // attach (заложено): без разрешения FORBIDDEN, с разрешением UNAVAILABLE; страница при этом ничего не получает и никуда не пишется
+  let offered = 0, kept = 0;
+  const watching = { ...pageOptions, offerFile: async () => { offered++; return 'saved' as const; }, keepState: () => { kept++; } };
+  const attachCode = async (manifest: any) => {
+    const bridge = mk(manifest, watching);
+    await bridge.handle({ source: frame as never, origin: 'null', data: { flux: 'module', v: 1, session: 's', type: 'ready' } });
+    sent.length = 0;
+    await bridge.handle({ source: frame as never, origin: 'null', data: { ...env, type: 'page', op: 'attach', name: 'r.csv', mime: 'text/csv', data: 'a;b', encoding: 'utf8' } });
+    return sent.length === 1 && sent[0].type === 'page-error' ? sent[0].code : `не отказ: ${JSON.stringify(sent)}`;
+  };
+  const withAttach = { ...base, contractVersion: 3, ui: 'page', permissions: [{ kind: 'attach', does: 'Прикрепляет к проекту таблицу рассчитанных параметров' }] };
+  ok('attach без разрешения в манифесте — FORBIDDEN', await attachCode({ ...base, contractVersion: 3, ui: 'page' }) === 'FORBIDDEN');
+  ok('attach с чужим разрешением (интернет) — всё равно FORBIDDEN', await attachCode({ ...base, contractVersion: 3, ui: 'page', permissions: [{ kind: 'internet', does: 'Показывает курсы валют и погоду из открытых сервисов' }] }) === 'FORBIDDEN');
+  ok('attach с разрешением — UNAVAILABLE, а не успех: записи нет нигде', await attachCode(withAttach) === 'UNAVAILABLE');
+  ok('attach ничего не сохраняет и не предлагает файл', offered === 0 && kept === 0);
+  ok('attach из формы (не страница) — DENIED, как все действия страницы', await attachCode({ ...base, ui: undefined, contractVersion: 3, permissions: withAttach.permissions }) === 'DENIED');
 }
 
 

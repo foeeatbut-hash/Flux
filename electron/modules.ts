@@ -22,6 +22,8 @@ import { ModuleGrants } from './moduleGrants';
 import { ModuleDevRuns } from './moduleDevRuns';
 import { registerModuleDevRunsIpc } from './moduleDevRunsIpc';
 import { ModuleJournal } from './moduleJournal';
+import { ModuleStorage, storageRoot } from './moduleStorage';
+import { registerModuleStorageIpc } from './moduleStorageIpc';
 import { defaultComBackend, type ComBackend } from './moduleCom';
 import type { Lookup } from './moduleNet';
 
@@ -54,6 +56,8 @@ export interface ModuleProtocolOptions {
   /** Папка обмена с Studio (`<данные Flux>/dev-run`) и часы аренды: для проверок; в выпуске не передаются */
   devDir?: string;
   devNow?: () => number;
+  /** Корень хранилища программ (`<данные приложения>/program-data`): для проверок; в выпуске не передаётся */
+  storageDir?: string;
 }
 
 /**
@@ -195,11 +199,23 @@ export function setupModuleProtocol(distRoot: string, options: ModuleProtocolOpt
     if (dev) return controlsBlocked(dev) ? null : { manifest: dev.manifest, version: dev.claim.version, author: dev.claim.author, verifiedAt: dev.claim.iat };
     return currentRelease(runnable, selection.installed, controlsBlocked, moduleId);
   };
+  // Хранилище самостоятельной программы: область — `dev`, если запускается сборка из разработки именно этой версии (resolve выше
+  // отдаёт её же), иначе `released`; каналы выпуска делят одну область, поэтому смена канала данные не теряет
+  const storage = new ModuleStorage({
+    root: options.storageDir ?? storageRoot(app.getPath('userData')), userId: () => selection.active, journal, writtenBy: () => app.getVersion(),
+    locate: async (moduleId, version) => {
+      const verified = await resolve(moduleId, version);
+      if (!verified) return null;
+      const dev = devRuns.active().get(moduleId);
+      return { manifest: verified.manifest, version: verified.version, scope: dev && dev.claim.version === version ? 'dev' : 'released' };
+    },
+  });
+  registerModuleStorageIpc({ storage, ready, trusted: options.trusted });
   const programs = new ModuleProgramCalls({ resolve, current, userId: () => selection.active, journal, deniedByPolicy: (id, target) => grants.isDeniedByPolicy(id, target) });
   registerConnectionsIpc({
     service, programs, grants, journal, resolve, ready, userId: () => selection.active, trusted: options.trusted,
     installed: async () => { await ready; return [...runnable.values()].filter(r => selection.installed[r.manifest.id] || devRuns.isActive(r.manifest.id)).map(r => ({ manifest: r.manifest, version: r.claim.version, author: r.claim.author, verifiedAt: r.claim.iat })); },
   });
   app.on('before-quit', () => { devRuns.stop(); void service.shutdown(); void journal.flush(); });
-  return { service, journal, grants, devRuns };
+  return { service, journal, grants, devRuns, storage };
 }

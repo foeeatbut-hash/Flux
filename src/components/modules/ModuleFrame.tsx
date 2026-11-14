@@ -13,8 +13,10 @@ import { createProgramCaller } from '../../services/moduleProgramCall';
 import { journalEvent } from '../../services/moduleJournalClient';
 import { bridge as hostBridge } from '../../services/moduleReleaseService';
 import type { GrantAsk } from '../../../modules/connections/model';
-import { pageState, pageStateKey, joinPageBus, openModuleWindow, offerFileToUser, pickFileForProgram, pageTimings } from '../../services/modulePage';
+import { joinPageBus, openModuleWindow, offerFileToUser, pickFileForProgram, pageTimings } from '../../services/modulePage';
 import { pageHung } from '../../../modules/page/model';
+import { stateLimitFor } from '../../../modules/storage/model';
+import { createProgramStateStore } from '../../services/moduleStateStorage';
 import { useStore } from '../../store/store';
 import ConnectionPrompt from './ConnectionPrompt';
 import { useProgramWindow } from './useProgramWindow';
@@ -97,11 +99,11 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
       ask: ask => { const run = chain.then(() => new Promise<GrantChoice>(resolve => setAsking({ ask, resolve }))); chain = run.then(() => undefined, () => undefined); return run; },
       onDenied: info => setDenied(info),
     });
-    const stateKey = pageStateKey(userId, manifest.id, channel);
+    const programState = createProgramStateStore({ moduleId: manifest.id, version: manifest.version, userId, channel });
     const bus = isPage ? joinPageBus(manifest.id, data => bridgeRef.current?.deliver(data)) : null;
     const bridge = createModuleBridge({
       page: isPage ? {
-        loadState: () => pageState.load(stateKey), keepState: state => pageState.keep(stateKey, state),
+        loadState: programState.load, keepState: programState.keep, stateLimit: stateLimitFor(manifest),
         offerFile: file => offerFileToUser(manifest.name, file),
         pickFile: request => pickFileForProgram(manifest.name, request.accept),
         onBeat: () => { beats.current++; lastBeat.current = Date.now(); setHung(false); },

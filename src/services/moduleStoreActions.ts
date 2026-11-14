@@ -9,6 +9,7 @@
  */
 import { permissionsDigest, addedPermissions, unmetRequirements, updateAvailable, type StoreEnv, type StoreListing } from '../../modules/store/model';
 import { compareVersions } from '../../shared/versionCompare';
+import { isStandalone } from '../../modules/storage/model';
 import { useModuleStore } from '../store/moduleStoreState';
 import { useStore } from '../store/store';
 import { retainModuleCompute } from './moduleComputeHost';
@@ -128,6 +129,12 @@ export async function removeModule(listing: StoreListing, keepData: boolean): Pr
   try {
     await api.removeInstall(listing.moduleId, keepData);
     await local('modules:remove', { moduleId: listing.moduleId });
+    // Данные самостоятельной программы на этом компьютере остаются и вернутся при повторной установке (решение владельца 14 ноября 2026);
+    // стираются только по галочке «Удалить и данные программы». Автоматическая сверка со списком сервера (reconcile) данных не трогает
+    if (!keepData && isStandalone(listing.manifest)) {
+      const cleared = await local<{ ok: boolean }>('modules:state-clear', { moduleId: listing.moduleId, scope: 'released' }).catch(() => null);
+      if (cleared === null && hasLocalHost()) throw new Error('Программа удалена, но сохранённые ею данные не удалось стереть. Повторите удаление или очистите их вручную.');
+    }
   } finally { state().setBusy(listing.moduleId, null); }
   await refreshStore();
 }

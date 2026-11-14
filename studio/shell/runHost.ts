@@ -1,7 +1,7 @@
 /**
  * Полный запуск программы в Studio, главный процесс: подключения, вторая программа и файл пользователю.
  *
- * Сюда сходятся действия `runConnect`, `runConnectAnswer`, `runProgram`, `runSaveFile`, `testPrograms`, `testProgramInstall`,
+ * Сюда сходятся действия `runConnect`, `runConnectAnswer`, `runProgram`, `runSaveFile`, `runStorage*`, `testPrograms`, `testProgramInstall`,
  * `testProgramRemove` (договор — studio/shared/runActions.ts); сама служба разработчика (developer.ts) держит только запуск и
  * передаёт сюда, какая программа сейчас запущена. Данные Flux отсюда недостижимы: решения и журнал — в памяти, вторая программа
  * собирается из черновика и живёт в памяти оболочки.
@@ -20,6 +20,7 @@ import { RunConnections, type RunContext } from './runConnections';
 import { RunJournal } from './runJournal';
 import { RunPrograms } from './runPrograms';
 import { RunFileSaver, type SaveDialog } from './runSaveFile';
+import { RunStorage } from './runStorage';
 
 export interface RunHostDeps {
   current: () => (RunContext & { name: string }) | null;
@@ -33,6 +34,8 @@ export interface RunHostDeps {
   lookup?: Lookup;
   askTimeoutMs?: number;
   pickSaveFile?: SaveDialog;
+  /** Данные Studio и версия: хранилище самостоятельной программы (область `studio`) лежит в `program-data` рядом с ними */
+  storage: { dir: string; version: string };
 }
 
 export class RunHost {
@@ -40,11 +43,13 @@ export class RunHost {
   readonly connections: RunConnections;
   readonly programs: RunPrograms;
   private readonly saver: RunFileSaver;
+  readonly storage: RunStorage;
 
   constructor(private readonly deps: RunHostDeps) {
     this.connections = new RunConnections({ current: deps.current, emit: deps.emit, journal: this.journal, com: deps.com, lookup: deps.lookup, askTimeoutMs: deps.askTimeoutMs });
     this.programs = new RunPrograms({ current: deps.current, engine: deps.engine, journal: this.journal });
     this.saver = new RunFileSaver(deps.pickSaveFile);
+    this.storage = new RunStorage({ ...deps.storage, current: deps.current });
   }
 
   /** Список «вторая программа»: все свои черновики; вызвать можно только установленные */
@@ -78,6 +83,10 @@ export class RunHost {
         if (!run) throw new StudioFailure('Программа не запущена.');
         return this.saver.save(run.name, args) satisfies Promise<RunSaveReply>;
       }
+      case 'runStorageInfo': return this.storage.info();
+      case 'runStorageLoad': return this.storage.load();
+      case 'runStorageKeep': return this.storage.keep(args.state);
+      case 'runStorageClear': return this.storage.clear();
       case 'testPrograms': return this.rows();
       case 'testProgramInstall': { await this.install(String(args.id)); return this.rows(); }
       case 'testProgramRemove': { this.programs.remove(String(args.id)); return this.rows(); }

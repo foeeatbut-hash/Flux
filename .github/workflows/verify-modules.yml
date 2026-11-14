@@ -69,7 +69,7 @@ jobs:
         run: |
           node_modules/.bin/tsc --noEmit
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($suite in @('modules-contract', 'modules-page', 'modules-openfile', 'modules-windows', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'modules-languages', 'modules-wasm', 'modules-python', 'modules-parity', 'modules-scheduler', 'modules-compute', 'modules-ts-host', 'modules-programs', 'modules-permissions', 'modules-programs-engines', 'modules-controls', 'modules-connections', 'modules-no-bundled', 'architecture')) {
+          foreach ($suite in @('modules-contract', 'modules-page', 'modules-openfile', 'modules-windows', 'modules-data', 'modules-limits', 'modules-runtime', 'modules-worker', 'modules-form', 'modules-refresh', 'modules-languages', 'modules-wasm', 'modules-python', 'modules-parity', 'modules-scheduler', 'modules-compute', 'modules-ts-host', 'modules-programs', 'modules-permissions', 'modules-storage', 'modules-storage-host', 'modules-programs-engines', 'modules-controls', 'modules-connections', 'modules-no-bundled', 'architecture')) {
             node --import tsx "scripts/test-$suite.ts"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
@@ -96,6 +96,11 @@ jobs:
         run: |
           node --import tsx scripts/test-modules-page-native.ts 2>&1 | Tee-Object artifacts/modules-page-native.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Хранилище самостоятельной программы в Electron на Windows (диск, предел 1 МиБ, битый файл, очистка)
+        shell: pwsh
+        run: |
+          node --import tsx scripts/test-modules-storage-native.ts 2>&1 | Tee-Object artifacts/modules-storage-native.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Запуск из разработки (Studio → Flux) в Electron на Windows (папка обмена, согласие, срок аренды, «Убрать»)
         shell: pwsh
         run: |
@@ -110,6 +115,11 @@ jobs:
         shell: pwsh
         run: |
           node --import tsx scripts/test-modules-connections-native.ts 2>&1 | Tee-Object artifacts/modules-connections-native.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Самостоятельная программа без выбранного проекта в полном Flux, обе темы
+        shell: pwsh
+        run: |
+          node --import tsx scripts/test-modules-standalone-live.ts 2>&1 | Tee-Object artifacts/modules-standalone-live.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Пуск и карточки в полном Flux, обе темы
         shell: pwsh

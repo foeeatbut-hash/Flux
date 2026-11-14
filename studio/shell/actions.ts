@@ -5,7 +5,7 @@ export const DEVELOPER_ACTIONS = [
   'templates', 'drafts', 'draftCreate', 'draftImport', 'draftTree', 'draftFile', 'draftBinary', 'draftSave', 'draftRemoveFile', 'draftRemove', 'draftState',
   'projectOpenFolder', 'projectWatch', 'projectUnwatch', 'projectExport', 'projectImportArchive', 'fileMkdir', 'fileRename', 'fileSearch', 'fileImport', 'keyEnsure',
   'testBase', 'testBaseReset',
-  'build', 'runStart', 'runRead', 'runCompute', 'runShot', 'runPickFile', 'runNet', 'runConnect', 'runConnectAnswer', 'runStop', 'runProgram', 'runSaveFile', 'testPrograms', 'testProgramInstall', 'testProgramRemove', 'devRunStart', 'devRunStop', 'devRunState',
+  'build', 'runStart', 'runRead', 'runCompute', 'runShot', 'runPickFile', 'runNet', 'runConnect', 'runConnectAnswer', 'runStop', 'runProgram', 'runSaveFile', 'runStorageInfo', 'runStorageLoad', 'runStorageKeep', 'runStorageClear', 'testPrograms', 'testProgramInstall', 'testProgramRemove', 'devRunStart', 'devRunStop', 'devRunState',
   'historyList', 'historySave', 'historyCompare', 'historyPlan', 'historyRollback', 'historyRemove',
   'ownerNotes', 'releaseList',
   'check', 'publish', 'requests', 'errors', 'errorFixed',

@@ -34,6 +34,7 @@ const NOTES: Record<string, string> = {
   FAILED: 'Не удалось выполнить.',
   LIMIT: 'Превышен предел (размер или частота запросов).',
   CANCELLED: 'Пользователь отказался.',
+  FORBIDDEN: 'Не разрешено: в манифесте нет разрешения «attach».',
   TIMEOUT: 'Не дождались ответа.',
   BUSY: 'Сейчас идёт много расчётов. Повторите чуть позже.',
   UNAVAILABLE: 'Недоступно: у программы нет такого механизма.',
@@ -123,7 +124,7 @@ const api = {
   compute(input: Record<string, unknown>): Promise<ModuleOutput> {
     return request('compute', { input }, 120_000);
   },
-  /** Состояние: хранит Flux в памяти (общее для окон программы), переживает перезапуск страницы, но не закрытие Flux и не выход из профиля; до 256 КиБ */
+  /** Состояние (общее для окон программы, переживает перезапуск страницы). Программа, читающая данные Flux: хранится в памяти Flux, пропадает при закрытии Flux и выходе из профиля, до 256 КиБ. Самостоятельная программа (ничего не читает во Flux, открывается только из «Пуска»): хранится на диске этого компьютера у этого человека, переживает перезапуск и обновление Flux, до 1 МиБ; переполнение — ошибка LIMIT, сбой диска — FAILED */
   state: {
     get: () => request<Record<string, unknown>>('page', { op: 'state-load' }, 5000),
     set: (state: Record<string, unknown>) => request<null>('page', { op: 'state-keep', state }, 5000),
@@ -167,6 +168,19 @@ const api = {
     if (typeof data === 'string') text = data;
     else { let raw = ''; for (let i = 0; i < data.length; i += 0x8000) raw += String.fromCharCode(...data.subarray(i, i + 0x8000)); text = btoa(raw); encoding = 'base64'; }
     return request('page', { op: 'file-offer', name, mime, data: text, encoding }, 120_000);
+  },
+  /**
+   * Прикрепить результат к проекту (заложено, договор v3): нужно разрешение `attach` в permissions манифеста. Пока Flux ничего не
+   * прикрепляет: без разрешения ошибка FORBIDDEN, с разрешением — UNAVAILABLE («появится позже»). Форма файла как у saveFile
+   */
+  attach(name: string, data: string | Uint8Array, mime = 'application/octet-stream'): Promise<never> {
+    let text: string, encoding: 'utf8' | 'base64' = 'utf8';
+    if (typeof data === 'string') text = data;
+    else { let raw = ''; for (let i = 0; i < data.length; i += 0x8000) raw += String.fromCharCode(...data.subarray(i, i + 0x8000)); text = btoa(raw); encoding = 'base64'; }
+    return request<never>('page', { op: 'attach', name, mime, data: text, encoding }, 20_000).catch((e: unknown) => {
+      if (e instanceof FluxError && e.code === 'UNAVAILABLE') throw new FluxError('UNAVAILABLE', 'Прикрепление результатов к проектам появится позже.');
+      throw e;
+    });
   },
   /**
    * Попросить у пользователя файл (добавлено к v2): Flux покажет системный диалог, человек выберет файл сам,

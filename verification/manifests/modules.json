@@ -16,6 +16,11 @@
         "src/services/moduleDataService.ts",
         "modules/bridge.ts",
         "modules/contract.ts",
+        "modules/storage/model.ts",
+        "modules/storage/disk.ts",
+        "electron/moduleStorage.ts",
+        "electron/moduleStorageIpc.ts",
+        "src/services/moduleStateStorage.ts",
         "modules/schemas.ts",
         "modules/protocol.ts",
         "modules/runtime/frame.ts",
@@ -166,6 +171,15 @@
     {
       "id": "modules-native",
       "path": "scripts/test-modules-native.ts",
+      "layer": "windows-native",
+      "platform": "win32",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-standalone-live",
+      "path": "scripts/test-modules-standalone-live.ts",
       "layer": "windows-native",
       "platform": "win32",
       "resources": [],
@@ -389,6 +403,24 @@
       "timeoutMs": 900000
     },
     {
+      "id": "modules-storage",
+      "path": "scripts/test-modules-storage.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
+      "id": "modules-storage-host",
+      "path": "scripts/test-modules-storage-host.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "modules-permissions",
       "path": "scripts/test-modules-permissions.ts",
       "layer": "unit",
@@ -452,6 +484,15 @@
       "timeoutMs": 900000
     },
     {
+      "id": "modules-storage-native",
+      "path": "scripts/test-modules-storage-native.ts",
+      "layer": "windows-native",
+      "platform": "win32",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "modules-dev-run-native",
       "path": "scripts/test-modules-dev-run-native.ts",
       "layer": "windows-native",
@@ -472,6 +513,22 @@
     {
       "id": "modules-openfile",
       "path": "scripts/test-modules-openfile.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "loopback-http"
+      ],
+      "prerequisites": [
+        {
+          "kind": "env",
+          "name": "FLUX_CHROME"
+        }
+      ],
+      "timeoutMs": 600000
+    },
+    {
+      "id": "modules-store-standalone-ui",
+      "path": "scripts/test-modules-store-standalone-ui.ts",
       "layer": "browser-live",
       "platform": "any",
       "resources": [
@@ -543,6 +600,41 @@
           "layer": "windows-native",
           "claims": [
             "Полный Flux: вход, Пуск и карточки позиции и тега открывают настоящий модуль; замеры и снимки обеих тем"
+          ]
+        },
+        {
+          "suite": "modules-standalone-live",
+          "layer": "windows-native",
+          "claims": [
+            "Полный Flux без выбранного проекта: самостоятельная программа открывается из Пуска и работает; замеры и снимки обеих тем"
+          ]
+        },
+        {
+          "suite": "modules-storage-native",
+          "layer": "windows-native",
+          "claims": [
+            "Состояние самостоятельной программы на диске в Electron: перезагрузка окна, предел 1 МиБ, битый файл, очистка; читающая данные Flux остаётся в памяти"
+          ]
+        },
+        {
+          "suite": "modules-store-standalone-ui",
+          "layer": "browser-live",
+          "claims": [
+            "Store на настоящих маршрутах и SQLite: метка «Работает без связи» только у самостоятельной программы без интернета, сети и обращений к программам; окно удаления говорит про данные на компьютере, и удаление просит стереть область released; замеры и снимки обеих тем"
+          ]
+        },
+        {
+          "suite": "modules-storage-host",
+          "layer": "unit",
+          "claims": [
+            "Диск положен только самостоятельной программе, по человеку и области; порядок записей, отказы LIMIT и FAILED в журнале и мосте"
+          ]
+        },
+        {
+          "suite": "modules-storage",
+          "layer": "unit",
+          "claims": [
+            "Файл хранилища: путь, конверт, предел, атомарная запись и очередь, битый файл не затирается, удаление по точному пути"
           ]
         },
         {

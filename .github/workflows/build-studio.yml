@@ -79,6 +79,7 @@ jobs:
           node --import tsx scripts/test-studio-workspace.ts
           node --import tsx scripts/test-studio-history.ts
           node --import tsx scripts/test-studio-page.ts
+          node --import tsx scripts/test-studio-run-storage.ts
           node --import tsx scripts/test-studio-run-full.ts
           node --import tsx scripts/test-studio-translator.ts
           node --import tsx scripts/test-studio-tsbuild.ts

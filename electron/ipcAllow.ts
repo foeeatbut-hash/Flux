@@ -47,6 +47,11 @@ export const INVOKE_CHANNELS: ReadonlySet<string> = new Set([
   'modules:devRuns',
   'modules:devAccept',
   'modules:devRemove',
+  // Хранилище самостоятельной программы на диске: чтение, запись, очистка, объём (electron/moduleStorageIpc.ts)
+  'modules:state-load',
+  'modules:state-keep',
+  'modules:state-clear',
+  'modules:state-usage',
   'app:get-server-url',
   'app:get-database',
   'app:probe-database',

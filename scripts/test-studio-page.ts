@@ -122,6 +122,17 @@ async function main() {
   ok('в типах flux.d.ts обе формы fetch и пояснение про permissions', /fetch\(url: string, init\?: FluxFetchInit\)/.test(fluxPageTypes()) && /fetch\(connection: string, path: string, init\?: FluxFetchInit\)/.test(fluxPageTypes()) && /permissions/.test(fluxPageTypes()));
   ok('Studio знает действие runNet (пробный запуск ходит в сеть как Flux)', (require('../studio/shell/actions') as typeof import('../studio/shell/actions')).ALL_ACTIONS.includes('runNet'));
 
+  console.log('Прикрепление к проектам (flux.attach): только заложено');
+  const ATTACH = 'Прикрепляет к проекту таблицу рассчитанных параметров';
+  const attachItem = async (files: ProjectFiles) => (await check(files)).items.find(i => i.id === 'page-attach');
+  const attachCall = "flux.attach('result.csv', 'a;b', 'text/csv');";
+  ok('вызов с разрешением attach и v3 — проходит, пункт говорит, что Flux пока отвечает UNAVAILABLE', (await check(withNet(attachCall, [{ kind: 'attach', does: ATTACH }]))).ok && /UNAVAILABLE/.test((await attachItem(withNet(attachCall, [{ kind: 'attach', does: ATTACH }])))!.detail));
+  ok('вызов без разрешения → page-attach (Flux ответит FORBIDDEN)', (await attachItem(withNet(attachCall, null)))?.status === 'fail');
+  ok('разрешение объявлено, а flux.attach нет → page-attach (лишнее не просим)', (await attachItem(withNet('', [{ kind: 'attach', does: ATTACH }])))?.status === 'fail');
+  ok('ни вызова, ни разрешения — пункта нет', (await attachItem(withNet('', null))) === undefined);
+  ok('разрешение attach не считается разрешением сети: net.fetch по адресу всё равно требует internet', (await netItem(withNet(internetCall, [{ kind: 'attach', does: ATTACH }]))).status === 'fail');
+  ok('в типах flux.d.ts есть attach и коды FORBIDDEN / UNAVAILABLE', /attach\(name: string/.test(fluxPageTypes()) && /FORBIDDEN/.test(fluxPageTypes()) && /UNAVAILABLE/.test(fluxPageTypes()));
+
   console.log('Обращения к другим программам и методы exports');
   const CALL = 'Берёт у калькулятора курсов пересчёт сумм для отчёта';
   const EXPDO = 'Пересчитывает сумму из одной валюты в другую по курсу';

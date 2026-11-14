@@ -92,6 +92,21 @@ function netItem(manifest: ModuleManifest, scripts: string[]): CheckItem {
     problems.join('; ') || (calls ? `обращений flux.net.fetch: ${calls}; нужное объявлено (${[...declared].join(', ') || 'подключения'}); настоящую проверку делает запуск` : 'сеть не используется, разрешений сети нет'));
 }
 
+/**
+ * Прикрепление результатов к проектам (`flux.attach`): пока только заложено, Flux отвечает FORBIDDEN без разрешения `attach` в
+ * `permissions` и UNAVAILABLE с ним. Вызов без разрешения и лишнее разрешение — проблемы здесь, как у сети; нет ни вызова, ни разрешения — пункта нет.
+ */
+function attachItem(manifest: ModuleManifest, scripts: string[]): CheckItem | null {
+  const declared = (manifest.permissions || []).some(p => p.kind === 'attach');
+  const calls = scripts.reduce((n, body) => n + [...body.matchAll(/\bflux\s*\.\s*attach\s*\(/g)].length, 0);
+  if (!declared && !calls) return null;
+  const problems: string[] = [];
+  if (calls && !declared) problems.push('flux.attach без разрешения «attach» в permissions manifest.json: Flux ответит FORBIDDEN');
+  if (declared && !calls) problems.push('разрешение «attach» объявлено, но flux.attach в коде не вызывается: люди соглашаются на каждое разрешение, не просите лишнего');
+  return item('page-attach', 'Страница: прикрепление результатов к проектам', problems.length ? 'fail' : 'ok',
+    problems.join('; ') || `вызовов flux.attach: ${calls}; разрешение объявлено. Прикрепление пока не работает: Flux отвечает UNAVAILABLE («появится позже»), программа обязана это обработать`);
+}
+
 function readsUsedInCode(source: string): string[] {
   return [...new Set([...source.matchAll(/\.read\s*\(\s*['"]([a-z]+)['"]/g)].map(m => m[1]))];
 }
@@ -149,7 +164,7 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
   try { manifest = JSON.parse(text(files, 'manifest.json') || ''); } catch { contract.push('manifest.json не читается как JSON'); }
   if (manifest && !validManifest(manifest)) {
     // Разрешения и exports — формат v3: старый Flux не знает эти разделы и не примет такой выпуск за v1/v2
-    const asked = (manifest as ModuleManifest).permissions !== undefined ? 'permissions (интернет, локальная сеть, обращение к программам)' : (manifest as ModuleManifest).exports !== undefined ? 'exports (методы для других программ)' : '';
+    const asked = (manifest as ModuleManifest).permissions !== undefined ? 'permissions (интернет, локальная сеть, обращение к программам, прикрепление к проектам)' : (manifest as ModuleManifest).exports !== undefined ? 'exports (методы для других программ)' : '';
     contract.push(asked && (manifest as ModuleManifest).contractVersion !== 3
       ? `раздел ${asked} — формат v3: укажите contractVersion 3`
       : 'manifest.json не соответствует формату программы (id, версия, entries, reads, logic, language, для страницы — contractVersion 2 и ui, для permissions и exports — contractVersion 3; у обращения к программе — идентификатор, не равный своему, и текст для человека)');
@@ -163,7 +178,7 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
   const isPage = !!manifest && (manifest as ModuleManifest).ui === 'page';
   if (isPage) { const problem = pageProblem(files, (manifest as ModuleManifest).pages); if (problem) contract.push(problem); }
   else if (!files['form.json']) contract.push('нет form.json');
-  if (!isPage && (manifest as ModuleManifest | null)?.permissions?.length) contract.push('permissions (интернет, локальная сеть, обращение к программам) нужны только программе со своим экраном: flux.net.fetch и flux.programs.call есть на странице');
+  if (!isPage && (manifest as ModuleManifest | null)?.permissions?.length) contract.push('permissions (интернет, локальная сеть, обращение к программам, прикрепление к проектам) нужны только программе со своим экраном: flux.net.fetch и flux.programs.call есть на странице');
   if (isPage) {
     const need = (manifest as ModuleManifest).store?.requires?.flux;
     if (!need || compareVersions(need, PAGE_MIN_FLUX) < 0) contract.push(`для страницы укажите store.requires.flux не ниже ${PAGE_MIN_FLUX}: старый Flux её не запустит, а Store спрячет установку`);
@@ -237,6 +252,8 @@ export async function runChecks(input: CheckInput): Promise<CheckReport> {
     items.push(netItem(manifest, scripts));
     const programs = programsItem(manifest, scripts);
     if (programs) items.push(programs);
+    const attach = attachItem(manifest, scripts);
+    if (attach) items.push(attach);
     items.push(item('page-themes', 'Страница: работа в светлой и тёмной теме', themeIssues.length ? 'fail' : 'ok',
       themeIssues.join('; ') || 'цвета берутся из токенов темы Flux; вид в обеих темах подтверждают снимки (раздел «Запуск» → «Снять обе темы»)'));
   }
