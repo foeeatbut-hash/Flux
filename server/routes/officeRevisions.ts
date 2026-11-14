@@ -11,7 +11,7 @@ import { projectOfFile } from '../projectFields.js';
 import { canSeeProject } from './members.js';
 import { isPrivilegedUser } from '../accessPolicy.js';
 import { blockFingerprint, cleanQuery } from '../projectSlice.js';
-import { claimOfficeDocument, ensureOfficeRevisionTable, makeRevisionRow, officeSha256 } from '../officeRevisions.js';
+import { claimOfficeDocument, ensureOfficeRevisionTable, isOfficeRevisionKeyViolation, makeRevisionRow, officeRevisionConflict, officeSha256 } from '../officeRevisions.js';
 
 export interface OfficeRevisionDeps {
   chunkBytes: () => Promise<number>;
@@ -56,6 +56,23 @@ async function stableForIssue(req: Request, fileId: string, deps: OfficeRevision
     if (session && Number(session.dataSeq) > Number(session.savedSeq)) throw fail('Есть несохранённые общие правки. Дождитесь их сохранения.', 409);
   }
   return file;
+}
+
+/**
+ * Проигравший гонку за номер ревизии получает 409 с текущей ревизией, а не
+ * сырую ошибку базы. Код — отдельным полем: клиент опирается на него, а не на текст.
+ */
+async function raceLoser(db: any, documentId: string, error: any): Promise<Error | null> {
+  if (!isOfficeRevisionKeyViolation(error)) return null;
+  const max = await db.officeDocumentRevision.findFirst({ where: { documentId }, orderBy: { revision: 'desc' }, select: { revision: true } }).catch(() => null);
+  return officeRevisionConflict(max ? Number(max.revision) : null);
+}
+
+function sendRevisionError(res: Response, err: any) {
+  res.status(Number(err?.status) || 400).json({
+    error: String(err?.message || err), code: err?.code,
+    ...(err?.currentRevision !== undefined ? { currentRevision: err.currentRevision } : {}),
+  });
 }
 
 function publicRevision(row: any) {
@@ -173,31 +190,36 @@ export function registerOfficeRevisionRoutes(app: Express, deps: OfficeRevisionD
       const existing = await db.officeDocumentRevision.findFirst({ where: { fileId: file.id, status: 'ISSUED' }, orderBy: { createdAt: 'desc' }, select: PUBLIC_REVISION_SELECT });
       if (existing?.sha256 === currentSha) return res.json({ revision: publicRevision(existing), unchanged: true });
       if (existing) return res.status(423).json({ error: 'Документ выпущен и неизменяем. Создайте черновик новой ревизии.', code: 'OFFICE_REVISION_ISSUED' });
-      const draft = await db.officeDocumentRevision.findFirst({ where: { fileId: file.id, status: 'DRAFT' }, orderBy: { createdAt: 'desc' }, select: { id: true, documentId: true, revision: true, parentRevisionId: true } });
-      const documentId = draft?.documentId || file.id;
-      const latest = await db.officeDocumentRevision.findFirst({ where: { documentId }, orderBy: [{ revision: 'desc' }, { createdAt: 'desc' }] });
-      const max = await db.officeDocumentRevision.findFirst({ where: { documentId }, orderBy: { revision: 'desc' }, select: { revision: true } });
-      const revision = draft?.revision || Number(max?.revision || 0) + 1;
       const bindings = await readOfficeBindings(before).catch(() => null);
       const sourceKinds = [...new Set([
         ...(bindings?.rows || []).map((item) => String(item.sourceId || '')),
         ...(bindings?.anchors || []).flatMap((anchor: any) => (anchor.parts || []).map((part: any) => String(part?.binding?.sourceId || ''))),
       ].filter(Boolean))].sort();
       const sourceRevision = await currentSourceRevision(req, file);
-      const row = makeRevisionRow({
-        documentId, fileId: file.id, parentRevisionId: draft?.parentRevisionId || latest?.id || null,
-        revision, status: 'ISSUED', data: before, sourceSha: currentSha,
-        sourceKind: sourceKinds.join(',').slice(0, 120) || 'document', sourceRevision,
-        schemaVersion: bindings?.schemaVersion || 1, userId: String(user.id),
-      });
-      const saved = await db.$transaction(async (tx: any) => {
-        if (!(await claimOfficeDocument(tx, file))) return false;
-        await tx.officeDocumentRevision.create({ data: row });
-        return true;
-      }, { timeout: 120_000 });
-      if (!saved) return res.status(409).json({ error: 'Документ изменился во время выпуска. Повторите после обновления.' });
+      // Номер считается только внутри транзакции и после захвата документа: рассчитанный до неё
+      // успевает устареть, пока соседний выпуск того же документа записывается
+      let documentId = file.id;
+      let row: ReturnType<typeof makeRevisionRow> | null = null;
+      try {
+        row = await db.$transaction(async (tx: any) => {
+          if (!(await claimOfficeDocument(tx, file))) return null;
+          const draft = await tx.officeDocumentRevision.findFirst({ where: { fileId: file.id, status: 'DRAFT' }, orderBy: { createdAt: 'desc' }, select: { id: true, documentId: true, revision: true, parentRevisionId: true } });
+          documentId = draft?.documentId || file.id;
+          const latest = await tx.officeDocumentRevision.findFirst({ where: { documentId }, orderBy: [{ revision: 'desc' }, { createdAt: 'desc' }] });
+          const max = await tx.officeDocumentRevision.findFirst({ where: { documentId }, orderBy: { revision: 'desc' }, select: { revision: true } });
+          const made = makeRevisionRow({
+            documentId, fileId: file.id, parentRevisionId: draft?.parentRevisionId || latest?.id || null,
+            revision: draft?.revision || Number(max?.revision || 0) + 1, status: 'ISSUED', data: before, sourceSha: currentSha,
+            sourceKind: sourceKinds.join(',').slice(0, 120) || 'document', sourceRevision,
+            schemaVersion: bindings?.schemaVersion || 1, userId: String(user.id),
+          });
+          await tx.officeDocumentRevision.create({ data: made });
+          return made;
+        }, { timeout: 120_000 });
+      } catch (error: any) { throw (await raceLoser(db, documentId, error)) || error; }
+      if (!row) return res.status(409).json({ error: 'Документ изменился во время выпуска. Повторите после обновления.' });
       res.status(201).json({ revision: publicRevision(row) });
-    } catch (err: any) { res.status(Number(err?.status) || 400).json({ error: String(err?.message || err), code: err?.code }); }
+    } catch (err: any) { sendRevisionError(res, err); }
   });
 
   app.post('/api/office/revisions/:fileId/draft', async (req: Request, res: Response) => {
@@ -227,29 +249,34 @@ export function registerOfficeRevisionRoutes(app: Express, deps: OfficeRevisionD
       const siblings = await db.fileNode.findMany({ where: { folderId: home.folderId, deletedAt: null, scope: home.scope, ownerId: home.ownerId }, select: { name: true } });
       const baseName = source.name.replace(/(\.[^.]+)?$/, ` (черновик R${Number(base.revision) + 1})$1`);
       const name = freeName(cleanName(baseName, source.name), new Set(siblings.map((item: any) => String(item.name).toLowerCase())));
-      const max = await db.officeDocumentRevision.findFirst({ where: { documentId: base.documentId }, orderBy: { revision: 'desc' }, select: { revision: true } });
-      const revisionNumber = Number(max?.revision || base.revision) + 1;
-      const draftRow = makeRevisionRow({ documentId: base.documentId, fileId: 'pending', parentRevisionId: base.id,
-        revision: revisionNumber, status: 'DRAFT', data, sourceSha: base.sha256,
-        sourceKind: base.sourceKind || 'document', sourceRevision,
-        schemaVersion: base.schemaVersion, userId: String(user.id) });
-      const made = await db.$transaction(async (tx: any) => {
-        const fresh = await tx.fileNode.findUnique({ where: { id: source.id } });
-        if (!fresh || fresh.updatedAt.getTime() !== source.updatedAt.getTime()) return null;
-        const claimed = await tx.fileNode.updateMany({ where: { id: fresh.id, updatedAt: fresh.updatedAt, deletedAt: null }, data: { updatedAt: new Date(Math.max(Date.now(), fresh.updatedAt.getTime() + 1)) } });
-        if (Number(claimed?.count) !== 1) return null;
-        const created = await tx.fileNode.create({ data: {
-          name, filePath: home.dir + name, size: data.length, type: source.type, department: home.department || source.department,
-          statusCode: 'D', revision: String(revisionNumber), scope: home.scope, ownerId: home.ownerId, folderId: home.folderId,
-          createdById: user.id, updatedById: user.id,
-        } });
-        for (let i = 0, idx = 0; i < data.length; i += step, idx++) await tx.fileChunk.create({ data: { fileId: created.id, idx, data: data.subarray(i, i + step) } });
-        await tx.officeDocumentRevision.create({ data: { ...draftRow, fileId: created.id } });
-        return created;
-      }, { timeout: 120_000 });
-      if (!made) return res.status(409).json({ error: 'Исходный документ изменился во время создания черновика.' });
-      res.status(201).json({ fileId: made.id, name: made.name, revision: publicRevision({ ...draftRow, fileId: made.id }), sha256: officeSha256(data) });
-    } catch (err: any) { res.status(Number(err?.status) || 400).json({ error: String(err?.message || err), code: err?.code }); }
+      // Номер черновика считается внутри транзакции, после захвата исходного файла (см. issue выше)
+      let draftRow: ReturnType<typeof makeRevisionRow> | null = null;
+      let made: any = null;
+      try {
+        made = await db.$transaction(async (tx: any) => {
+          const fresh = await tx.fileNode.findUnique({ where: { id: source.id } });
+          if (!fresh || fresh.updatedAt.getTime() !== source.updatedAt.getTime()) return null;
+          const claimed = await tx.fileNode.updateMany({ where: { id: fresh.id, updatedAt: fresh.updatedAt, deletedAt: null }, data: { updatedAt: new Date(Math.max(Date.now(), fresh.updatedAt.getTime() + 1)) } });
+          if (Number(claimed?.count) !== 1) return null;
+          const max = await tx.officeDocumentRevision.findFirst({ where: { documentId: base.documentId }, orderBy: { revision: 'desc' }, select: { revision: true } });
+          const revisionNumber = Number(max?.revision || base.revision) + 1;
+          const created = await tx.fileNode.create({ data: {
+            name, filePath: home.dir + name, size: data.length, type: source.type, department: home.department || source.department,
+            statusCode: 'D', revision: String(revisionNumber), scope: home.scope, ownerId: home.ownerId, folderId: home.folderId,
+            createdById: user.id, updatedById: user.id,
+          } });
+          for (let i = 0, idx = 0; i < data.length; i += step, idx++) await tx.fileChunk.create({ data: { fileId: created.id, idx, data: data.subarray(i, i + step) } });
+          draftRow = makeRevisionRow({ documentId: base.documentId, fileId: created.id, parentRevisionId: base.id,
+            revision: revisionNumber, status: 'DRAFT', data, sourceSha: base.sha256,
+            sourceKind: base.sourceKind || 'document', sourceRevision,
+            schemaVersion: base.schemaVersion, userId: String(user.id) });
+          await tx.officeDocumentRevision.create({ data: draftRow });
+          return created;
+        }, { timeout: 120_000 });
+      } catch (error: any) { throw (await raceLoser(db, base.documentId, error)) || error; }
+      if (!made || !draftRow) return res.status(409).json({ error: 'Исходный документ изменился во время создания черновика.' });
+      res.status(201).json({ fileId: made.id, name: made.name, revision: publicRevision(draftRow), sha256: officeSha256(data) });
+    } catch (err: any) { sendRevisionError(res, err); }
   });
 
   app.get('/api/office/revisions/:fileId/compare', async (req: Request, res: Response) => {

@@ -29,7 +29,7 @@ import { registerOfficeFileRoutes } from './server/routes/officeFiles.js';
 import { registerOfficeConvertRoutes } from './server/routes/officeConvert.js';
 import { registerOfficeVersionRoutes } from './server/routes/officeVersions.js';
 import { registerOfficeRevisionRoutes } from './server/routes/officeRevisions.js';
-import { ensureOfficeRevisionTable, isIssuedOfficeFile, immutableOfficeFileError } from './server/officeRevisions.js';
+import { ensureOfficeRevisionTable, isIssuedOfficeFile, immutableOfficeFileError, reportOfficeRevisionDuplicates } from './server/officeRevisions.js';
 import { registerOfficeEnglishRoutes } from './server/routes/officeEnglish.js';
 import { registerProjectDataRoutes } from './server/routes/projectData.js';
 import { ensureDiskProject } from './server/systemFolders.js';
@@ -534,6 +534,8 @@ startupDatabaseReady = (async () => {
       const applied = result.applied;
       if (applied.length) logInit(`[Schema Sync] Локальная база дополнена: ${applied.join('; ')}`);
     }
+    // Повторы номеров ревизий Office мешают уникальному ключу: только чтение и строка в журнал
+    await reportOfficeRevisionDuplicates(prisma, logInit);
 
     logInit('[Startup DB Feed Check] Verifying records in User table...');
     const userCount = await prisma.user.count();
