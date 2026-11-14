@@ -17,6 +17,7 @@
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
@@ -66,7 +67,7 @@ const PAGE = (extra: string) => `<!doctype html><html lang="ru"><head><meta char
 <body><main class="fx-body fx-stack"><h1 class="fx-title">Окна</h1><div class="fx-row">${extra}</div><p id="status" role="status"></p><ul id="got" aria-label="Сообщения"></ul></main>
 <script src="/_flux/flux.v1.js"></script><script src="/ui/app.js"></script></body></html>`;
 const BTN = (id: string, text: string) => `<button id="${id}" class="fx-btn" type="button">${text}</button>`;
-const INDEX = PAGE([['open', 'Открыть строку'], ['many', 'Открыть много'], ['send', 'Сказать окнам'], ['title', 'Заголовок'], ['title2', 'Другой заголовок'], ...CONNECTIONS.map(id => [`connect-${id}`, `Подключиться ${id}`]), ['program', 'Вызвать помощника'], ['save', 'Сохранить файл'], ['attach', 'Прикрепить к проекту'], ['confirm', 'Спросить']].map(([id, t]) => BTN(id, t)).join(''));
+const INDEX = PAGE([['open', 'Открыть строку'], ['many', 'Открыть много'], ['send', 'Сказать окнам'], ['title', 'Заголовок'], ['title2', 'Другой заголовок'], ...CONNECTIONS.map(id => [`connect-${id}`, `Подключиться ${id}`]), ['program', 'Вызвать помощника'], ['save', 'Сохранить файл'], ['attach', 'Прикрепить к проекту'], ['keep', 'Записать состояние'], ['load', 'Прочитать состояние'], ['confirm', 'Спросить']].map(([id, t]) => BTN(id, t)).join(''));
 const DETAIL = PAGE([['reply', 'Ответить'], ['title', 'Заголовок'], ['dirty', 'Есть правки'], ['clean', 'Правок нет'], ['confirm', 'Спросить'], ['prompt', 'Назвать']].map(([id, t]) => BTN(id, t)).join(''));
 const APP = `const $ = id => document.getElementById(id), say = text => { $('status').textContent = text; };
 const bind = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', () => { Promise.resolve().then(fn).catch(e => say('ошибка ' + (e.code || e.message))); }); };
@@ -84,6 +85,8 @@ bind('prompt', async () => say('prompt ' + await flux.dialogs.prompt({ title: '�
 for (const id of ${JSON.stringify(CONNECTIONS)}) bind('connect-' + id, async () => { const r = await flux.connect.call(id, { op: 'http', method: 'POST', path: '/api/x', body: '{}' }); say(id + ': ' + JSON.stringify(r)); });
 bind('program', async () => { const r = await flux.programs.call('helper', 'double', { n: 21 }); say('программа ' + JSON.stringify(r)); });
 bind('save', async () => say('файл ' + await flux.saveFile('a.csv', 'a;b', 'text/csv')));
+bind('keep', async () => { await flux.state.set({ n: 1, text: 'сохранено', pad: 'я'.repeat(1500) }); say('состояние записано'); });
+bind('load', async () => say('состояние ' + JSON.stringify(await flux.state.get())));
 bind('attach', async () => say('прикрепление ' + await flux.attach('r.csv', 'a;b', 'text/csv')));
 flux.ready.then(() => say('готово'));
 `;
@@ -372,11 +375,19 @@ async function main() {
       await measure(page, `${theme}/запуск`);
       await page.screenshot({ path: path.join(shots, `studio-run-${theme}-4-programs.png`), fullPage: true });
 
+      const stateFile = path.join(data, 'program-data', createHash('sha256').update('studio', 'utf8').digest('hex').slice(0, 32), manifest.id, 'studio', 'state.json');
+      // Хранилище: программа читает данные Flux (reads не пуст) — состояние только в памяти окна, диска нет и кнопки «Очистить» тоже
+      const storageRow = page.getByTestId('studio-storage');
+      ok(`${theme}: у программы, читающей данные Flux: «Хранилище: в памяти — программа читает данные Flux», кнопки «Очистить» нет`, (await storageRow.innerText()).includes('Хранилище: в памяти — программа читает данные Flux') && (await storageRow.getByRole('button', { name: 'Очистить' }).count()) === 0);
+      await main.locator('#keep').dispatchEvent('click');
+      await main.locator('#status').filter({ hasText: 'состояние записано' }).waitFor();
+      ok(`${theme}: состояние такой программы на диск не попало`, !fs.existsSync(stateFile));
+
       // Прикрепление к проектам (только заложено): в манифесте нет разрешения «attach» — отказ FORBIDDEN, журнал показывает тот же отказ
       await main.locator('#attach').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: 'FORBIDDEN' }).waitFor();
       ok(`${theme}: flux.attach без разрешения — программа получила FORBIDDEN, ничего не записано`, (await status(main)) === 'ошибка FORBIDDEN');
-      ok(`${theme}: журнал: строка «прикрепление» с отказом FORBIDDEN и причиной`, (await page.locator('table.log tr', { hasText: 'прикрепление' }).first().innerText()).includes('r.csv (3 Б) — FORBIDDEN: в манифесте нет разрешения «attach»'));
+      ok(`${theme}: журнал: строка «прикрепление» с отказом FORBIDDEN и причиной`, (await page.locator('table.log tr', { hasText: 'прикрепление' }).first().innerText()).includes('r.csv (3 Б) — FORBIDDEN: у программы нет разрешения прикреплять результаты к проектам'));
 
       // Предел числа окон: вместе с главным их пять, как у окон Flux
       await main.locator('#many').dispatchEvent('click');
@@ -420,7 +431,7 @@ async function main() {
       ok(`${theme}: после снимков тема окна вернулась`, (await page.evaluate(() => document.documentElement.classList.contains('dark'))) === (theme === 'dark'));
 
       // Разрешение «attach» появилось в манифесте: тот же вызов получает UNAVAILABLE («появится позже»), а не успех
-      await service.handle('draftSave' as any, { id: projectId, path: 'manifest.json', text: JSON.stringify({ ...manifest, permissions: [...manifest.permissions, { kind: 'attach', does: 'Прикрепляет к проекту таблицу результатов расчёта' }] }, null, 2) } as any);
+      await service.handle('draftSave' as any, { id: projectId, path: 'manifest.json', text: JSON.stringify({ ...manifest, reads: [], entries: ['start'], permissions: [...manifest.permissions, { kind: 'attach', does: 'Прикрепляет к проекту таблицу результатов расчёта' }] }, null, 2) } as any);
 
       // «Запустить» сверху из вида файла: запуск идёт заново и вид «Запуск» открывается сам; окна прежнего запуска закрыты
       await tabs.getByRole('tab', { name: 'manifest.json' }).click();
@@ -433,6 +444,28 @@ async function main() {
       await main.locator('#status').filter({ hasText: 'UNAVAILABLE' }).waitFor();
       ok(`${theme}: flux.attach с разрешением в манифесте — UNAVAILABLE, а не успех; журнал: «UNAVAILABLE: прикрепление появится позже, ничего не записано»`, (await status(main)) === 'ошибка UNAVAILABLE' && (await page.locator('table.log').innerText()).includes('UNAVAILABLE: прикрепление появится позже, ничего не записано'));
       await page.screenshot({ path: path.join(shots, `studio-run-${theme}-8-attach.png`), fullPage: true });
+
+      // Самостоятельная программа (reads пуст, место запуска только «Пуск»): состояние пишется на диск, область studio
+      ok(`${theme}: у самостоятельной программы строка «Хранилище: 0 КиБ из 1 МиБ» и кнопка «Очистить»`, (await storageRow.innerText()).includes('Хранилище: 0 КиБ из 1 МиБ') && (await storageRow.getByRole('button', { name: 'Очистить' }).count()) === 1);
+      await main.locator('#keep').dispatchEvent('click');
+      await main.locator('#status').filter({ hasText: 'состояние записано' }).waitFor();
+      await storageRow.getByText(/Хранилище: \d+(,\d)? КиБ из 1 МиБ/).waitFor();
+      await page.waitForFunction(() => !/: 0 КиБ/.test(document.querySelector('[data-testid="studio-storage"]')?.textContent || ''));
+      ok(`${theme}: состояние записано в <данные Studio>/program-data/…/studio/state.json, строка показывает занятое`, fs.existsSync(stateFile) && JSON.parse(fs.readFileSync(stateFile, 'utf8')).state.n === 1 && !(await storageRow.innerText()).includes(': 0 КиБ'));
+      await page.screenshot({ path: path.join(shots, `studio-run-${theme}-9-storage.png`), fullPage: true });
+      await page.locator('.studio-bottom').getByRole('button', { name: 'Перезапустить' }).click();
+      await main.locator('#status').filter({ hasText: 'готово' }).waitFor();
+      await main.locator('#load').dispatchEvent('click');
+      await main.locator('#status').filter({ hasText: '"n":1' }).waitFor();
+      ok(`${theme}: после перезапуска запуска программа читает сохранённое состояние: ${await status(main)}`, (await status(main)).includes('"text":"сохранено"'));
+      await storageRow.getByRole('button', { name: 'Очистить' }).click();
+      await page.getByText(/очищено; перезапустите программу/).first().waitFor();
+      ok(`${theme}: «Очистить» удалила файл области studio, строка снова «0 КиБ», журнал записал очистку`, !fs.existsSync(stateFile) && (await storageRow.innerText()).includes('Хранилище: 0 КиБ из 1 МиБ'));
+      await page.locator('.studio-bottom').getByRole('button', { name: 'Перезапустить' }).click();
+      await main.locator('#status').filter({ hasText: 'готово' }).waitFor();
+      await main.locator('#load').dispatchEvent('click');
+      await main.locator('#status').filter({ hasText: 'состояние {}' }).waitFor();
+      ok(`${theme}: после очистки и перезапуска состояние пустое`, true);
       const asksOld = asked().length;
       await press('once');
       await page.getByTestId('studio-grant-prompt').waitFor();

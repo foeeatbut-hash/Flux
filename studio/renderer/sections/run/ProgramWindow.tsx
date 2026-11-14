@@ -20,6 +20,8 @@ export interface RunHost {
   bus: PageBus;
   /** Состояние окна программы (flux.state): одно на программу, как во Flux */
   kept: { current: Record<string, unknown> };
+  /** Состояние страницы изменилось: у самостоятельной программы хозяин запуска пишет его в хранилище области `studio` */
+  keep: (state: Record<string, unknown>) => void;
   /** То, что мост берёт у запуска как есть */
   base: Pick<ModuleBridgeOptions, 'context' | 'theme' | 'read' | 'compute' | 'net' | 'connect' | 'program' | 'onComputeError' | 'onLog' | 'onFailure'>;
   manifest: ModuleManifest;
@@ -83,12 +85,12 @@ export default function ProgramWindow({ host, spec, onClose, width }: Props) {
       ...h.base,
       frame: () => frame.current?.contentWindow || null, session, manifest,
       page: isPage ? {
-        loadState: () => hostRef.current.kept.current, keepState: state => { hostRef.current.kept.current = state; },
+        loadState: () => hostRef.current.kept.current, keepState: state => { hostRef.current.kept.current = state; hostRef.current.keep(state); },
         offerFile: file => hostRef.current.offerFile(file),
         pickFile: request => hostRef.current.pickFile(request),
         // Прикрепление к проектам только заложено: журнал показывает тот же отказ, что получит программа (во Flux — то же самое)
         onAttach: ({ name, bytes, code }) => log('прикрепление', code === 'FORBIDDEN'
-          ? `${name} (${bytes} Б) — FORBIDDEN: в манифесте нет разрешения «attach»`
+          ? `${name} (${bytes} Б) — FORBIDDEN: у программы нет разрешения прикреплять результаты к проектам`
           : `${name} (${bytes} Б) — UNAVAILABLE: прикрепление появится позже, ничего не записано`, 'warn'),
         onBeat: () => { beats.current++; lastBeat.current = Date.now(); setHung(false); },
         openWindow: (page, p, options) => hostRef.current.openWindow(page, p, options),

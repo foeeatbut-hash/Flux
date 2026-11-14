@@ -137,7 +137,7 @@ export class DeveloperService {
     this.runHost = new RunHost({
       current: () => this.run ? { id: this.run.id, manifest: this.run.manifest, name: this.run.name } : null,
       emit: event => deps.emit?.('studio:run', event), engine: deps.engine, com: deps.com, lookup: deps.lookup, askTimeoutMs: deps.askTimeoutMs, pickSaveFile: deps.pickSaveFile,
-      build: id => this.buildProgram(id),
+      build: id => this.buildProgram(id), storage: { dir: deps.dir, version: deps.version },
       drafts: () => this.drafts.list().map(({ id }) => ({ id, manifest: (() => { try { return this.manifestOf({ 'manifest.json': this.drafts.readAny(id, 'manifest.json') }); } catch { return null; } })() })),
     });
     // Папки прежнего запуска, не дожившего до «Убрать» (вылет, выключение питания), убираются при старте
@@ -324,7 +324,8 @@ export class DeveloperService {
       }
       case 'runNet': return this.runNet(args);
       // Полный запуск: подключения, вторая программа, файл пользователю (договор — studio/shared/runActions.ts)
-      case 'runConnect': case 'runConnectAnswer': case 'runProgram': case 'runSaveFile': case 'testPrograms': return this.runHost.handle(action, args);
+      case 'runConnect': case 'runConnectAnswer': case 'runProgram': case 'runSaveFile': case 'testPrograms':
+      case 'runStorageInfo': case 'runStorageLoad': case 'runStorageKeep': case 'runStorageClear': return this.runHost.handle(action, args);
       case 'testProgramInstall': case 'testProgramRemove': return this.runHost.handle(action, { id: moduleId(args.id) });
       case 'runStop': { await this.stopRun(); return { stopped: true }; }
       case 'devRunStart': return this.startDevRun(moduleId(args.id));
