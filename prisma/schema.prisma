@@ -475,12 +475,17 @@ model Tag {
   metadata    String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime? @updatedAt // для индикатора «данные изменились» в Конструкторе
+  /// Ключ кода без регистра и крайних пробелов (NFC): по нему база не даёт завести
+  /// второй такой же код в проекте. NULL — у старых повторов, найденных при заполнении.
+  codeKey     String?
 
   project           Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   equipment         Equipment?         @relation(fields: [equipmentId], references: [id], onDelete: SetNull)
   mainFiles         FileNode[]         @relation("FileMainTags")
   additionalFiles   FileNode[]         @relation("FileAdditionalTags")
   componentElements ComponentElement[]
+
+  @@unique([projectId, codeKey])
 }
 
 model EquipmentSystem {
@@ -1332,7 +1337,9 @@ model OfficeDocumentRevision {
   createdById       String?
   createdAt         DateTime @default(now())
 
-  @@index([documentId, revision])
+  /// Один номер — одна выпущенная ревизия и один черновик: выпуск черновика
+  /// берёт его номер, поэтому статус входит в ключ.
+  @@unique([documentId, revision, status])
   @@index([fileId, status])
 }
 
@@ -1664,6 +1671,22 @@ model FeedbackMutationReceipt {
   createdAt       DateTime @default(now())
 
   @@unique([actorId, clientRequestId])
+  @@index([createdAt])
+}
+
+/// Расписка о выполненном запросе записи (заголовок X-Flux-Op-Id): повтор с тем
+/// же ключом получает прежний ответ, а не выполняется второй раз.
+model OpReceipt {
+  id          String   @id @default(uuid())
+  actorId     String
+  opId        String
+  requestHash String
+  state       String   @default("PENDING") // PENDING | DONE
+  status      Int      @default(0)
+  body        String   @default("")
+  createdAt   DateTime @default(now())
+
+  @@unique([actorId, opId])
   @@index([createdAt])
 }
 

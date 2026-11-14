@@ -29,12 +29,13 @@ import { registerOfficeFileRoutes } from './server/routes/officeFiles.js';
 import { registerOfficeConvertRoutes } from './server/routes/officeConvert.js';
 import { registerOfficeVersionRoutes } from './server/routes/officeVersions.js';
 import { registerOfficeRevisionRoutes } from './server/routes/officeRevisions.js';
-import { ensureOfficeRevisionTable, isIssuedOfficeFile, immutableOfficeFileError } from './server/officeRevisions.js';
+import { ensureOfficeRevisionTable, isIssuedOfficeFile, immutableOfficeFileError, reportOfficeRevisionDuplicates } from './server/officeRevisions.js';
 import { registerOfficeEnglishRoutes } from './server/routes/officeEnglish.js';
 import { registerProjectDataRoutes } from './server/routes/projectData.js';
 import { ensureDiskProject } from './server/systemFolders.js';
 import { canWriteFile, FILE_NOT_FOUND } from './server/fileAccess.js';
 import { registerActionLog } from './server/actionLog.js';
+import { opReceiptMiddleware, startOpReceiptCleanup } from './server/opReceipt.js';
 import { officeHub } from './server/officeRooms.js';
 import { ensureRemoteSchema } from './server/schema-sync.js';
 import { ensureSchemaColumns as ensureLocalSchema } from './server/localSchema.js';
@@ -533,6 +534,8 @@ startupDatabaseReady = (async () => {
       const applied = result.applied;
       if (applied.length) logInit(`[Schema Sync] Локальная база дополнена: ${applied.join('; ')}`);
     }
+    // Повторы номеров ревизий Office мешают уникальному ключу: только чтение и строка в журнал
+    await reportOfficeRevisionDuplicates(prisma, logInit);
 
     logInit('[Startup DB Feed Check] Verifying records in User table...');
     const userCount = await prisma.user.count();
@@ -851,6 +854,9 @@ app.use(personLicenseMiddleware({
   },
   readOnlyPost: p => /^\/api\/archives\/[^/]+\/(list|test|extract-preview|edit-preview)\/?$/i.test(p),
 }));
+// Ключ повтора записи (X-Flux-Op-Id) — server/opReceipt.ts. Стоит после проверки входа
+// (личность из authUser) и лицензии, до всех маршрутов записи
+app.use(opReceiptMiddleware({ getPrisma: () => prisma, log: logInit }));
 registerPersonLicenseRoutes(app);
 
 // Журнал действий — server/actionLog.ts. Пишет сервер: запись, которую делает
@@ -1260,6 +1266,7 @@ async function startServer() {
   };
   setTimeout(sweepChatFiles, 5 * 60 * 1000).unref();
   setInterval(sweepChatFiles, 6 * 60 * 60 * 1000).unref();
+  startOpReceiptCleanup(() => prisma, logInit);
 
   httpServer.listen(PORT, listenHost(), () => {
     logInit(`[Server listener started] Express backend server successfully running on port ${PORT}`);

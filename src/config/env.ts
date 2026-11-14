@@ -153,6 +153,12 @@ if (typeof window !== 'undefined') {
       if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
         const csrf = csrfCookie();
         if (csrf && sameOrigin) headers.set('X-Flux-CSRF', csrf);
+        // Ключ повтора записи (server/opReceipt.ts): один логический запрос — один ключ.
+        // Автоповтора здесь нет; кто повторяет запрос сам (очередь действий без связи,
+        // К6), обязан передать свой X-Flux-Op-Id — тогда он сохранится и при повторе
+        if (!headers.get('X-Flux-Op-Id')) {
+          try { headers.set('X-Flux-Op-Id', crypto.randomUUID()); } catch (_) { /* старый webview без crypto.randomUUID — запрос идёт без ключа */ }
+        }
       }
       init = { ...(init || {}), headers, credentials: sameOrigin ? 'include' : 'omit' };
     }

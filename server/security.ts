@@ -39,7 +39,7 @@ export function corsOriginAllowed(origin: string | undefined, host: string | und
   return !!host && o.host.toLowerCase() === String(host).toLowerCase();
 }
 
-const ALLOW_HEADERS = 'Content-Type, Authorization, Idempotency-Key, X-Requested-With, X-Flux-Trace, X-Flux-Interaction, X-Chunk-SHA256, X-Base-SHA256, X-Autosave, X-Office-Session, X-Flux-CSRF, X-Flux-Auth-Transport';
+const ALLOW_HEADERS = 'Content-Type, Authorization, Idempotency-Key, X-Requested-With, X-Flux-Trace, X-Flux-Interaction, X-Chunk-SHA256, X-Base-SHA256, X-Autosave, X-Office-Session, X-Flux-CSRF, X-Flux-Auth-Transport, X-Flux-Op-Id';
 
 export function corsMiddleware(req: Request, res: Response, next: NextFunction) {
   const origin = req.get('origin');
@@ -54,7 +54,7 @@ export function corsMiddleware(req: Request, res: Response, next: NextFunction) 
     // не пропустит их предварительным запросом, и сломается это только там, где
     // окно и сервер на разных машинах, — то есть у заказчика, а не на своей
     res.setHeader('Access-Control-Allow-Headers', ALLOW_HEADERS);
-    res.setHeader('Access-Control-Expose-Headers', 'X-Flux-Trace, X-Flux-Error, X-Collab-Required, X-Current-SHA256, X-Base-SHA256, X-File-Name');
+    res.setHeader('Access-Control-Expose-Headers', 'X-Flux-Trace, X-Flux-Error, X-Flux-Op-Replayed, X-Collab-Required, X-Current-SHA256, X-Base-SHA256, X-File-Name');
   }
   // Чужому происхождению заголовков не даём — браузер сам не пустит ответ
   if (req.method === 'OPTIONS') return res.sendStatus(corsOriginAllowed(origin, req.get('host')) ? 200 : 403);

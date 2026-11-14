@@ -199,6 +199,8 @@ const result = (value: string, tags?: string[]) => ({
         },
       },
       tag: {
+        // Код в проекте не занят: «создать» создаёт (занятый привязывается, см. applyTagLinks)
+        findFirst: async () => null,
         create: async ({ data }: any) => { created.push(data); return { id: 'new1', ...data }; },
         // `projectId` здесь не для полноты: без него применение решений обязано
         // отказать — тег чужого проекта привязывать нельзя

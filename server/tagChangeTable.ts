@@ -44,6 +44,10 @@ export const TAG_CHANGE_TABLES: TableSpec[] = [{
 let ready = false;
 onDatabaseSwapped(() => { ready = false; });
 
+/** Таблица уже проверена в этом процессе: запись внутри транзакции может её не готовить. */
+export const tagChangeTableReady = (): boolean => ready;
+export function markTagChangeTableReady(): void { ready = true; }
+
 /**
  * Убедиться, что таблица есть. Ошибка не глотается, а возвращается текстом:
  * историю, которую не удалось записать, должно быть видно в журнале.

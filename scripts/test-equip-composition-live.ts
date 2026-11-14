@@ -139,6 +139,14 @@ const get = (path: string) => call('GET', path);
     units, category: 'AHU', fileName: 'проба.XML', projectId, tagLinks,
   });
   ok('повтор прошёл', again.status === 200, again.data);
+  // Раньше повтор молча заводил второй тег с тем же кодом: код один на проект (ключ codeKey),
+  // «создать» с занятым кодом привязывает существующий тег, а не заводит новый
+  const afterAgain = await get(`/api/projects/${projectId}/tags`);
+  const keyOf = (c: string) => c.trim().normalize('NFC').toLowerCase();
+  const codesAgain = ((afterAgain.data?.tags || []) as any[]).map((t: any) => keyOf(String(t.identifier)));
+  ok('после повтора в проекте ровно один тег с каждым кодом', new Set(codesAgain).size === codesAgain.length, codesAgain);
+  ok('после повтора тег установки один, и у него ключ кода', codesAgain.filter((c) => c === keyOf('PR-01-AS-001')).length === 1
+    && ((afterAgain.data?.tags || []) as any[]).filter((t: any) => t.codeKey === keyOf('PR-01-AS-001')).length === 1);
   const got2 = await get(`/api/projects/${projectId}/systems`);
   const comps2 = (got2.data?.systems || []).flatMap((s: any) =>
     (s.monoblocks || []).flatMap((m: any) => m.components || []));

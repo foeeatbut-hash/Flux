@@ -12,9 +12,11 @@
  *    тег историю сохраняет (таблица не связана с Tag, см. tagChangeTable.ts).
  *  - Пустая правка записи не оставляет: сравнивается содержимое, а не факт
  *    запроса. Раскладка карточек (x, y) и служебные пометки правкой не считаются.
- *  - Запись идёт ПОСЛЕ изменения тега и ошибкой его не откатывает: тег важнее
- *    своего журнала, а внутри транзакции PostgreSQL один сбой записи журнала
- *    сорвал бы и саму правку. Сбой не молчит — он пишется в журнал сервера.
+ *  - Тег и его история — одна транзакция (`inTagTransaction`): не записалась
+ *    история — не записался и тег, иначе правка остаётся в базе без следа и без
+ *    автора, а этого журнал и должен не допускать. Внутри транзакции
+ *    `recordChangeSets` ошибку не глотает. Вне транзакции (клиент, а не её
+ *    «tx») она по-прежнему только пишется в журнал сервера и тег не откатывает.
  *  - Автор — только из сессии запроса (`authUser`), никогда из тела: идентификатор
  *    коллеги виден всем, и подписать правку чужим именем было бы тривиально.
  *
@@ -28,7 +30,7 @@ import { randomUUID } from 'node:crypto';
 import type { Request } from 'express';
 import { getDialect, type Dialect } from './ddl.js';
 import { clientDialect } from './schemaRuntime.js';
-import { ensureTagChangeTable } from './tagChangeTable.js';
+import { ensureTagChangeTable, tagChangeTableReady, markTagChangeTableReady } from './tagChangeTable.js';
 
 /** Откуда пришла правка. Закрытый список: по нему строится фильтр в паспорте тега. */
 export const TAG_SOURCE = {
@@ -276,17 +278,57 @@ export const deletedSet = (tag: { id: string; projectId?: string; identifier?: s
   ({ tagId: tag.id, projectId: tag.projectId, entries: [{ kind: TAG_CHANGE_KIND.deleted, field: 'identifier', before: text(tag.identifier), after: null }] });
 
 /**
- * Записать наборы изменений одной операции. Возвращает число записанных строк;
- * не бросает. Строки одной операции получают время с шагом в миллисекунду:
- * порядок внутри неё стабилен, и при чтении «по времени» они не перемешиваются.
+ * Клиенты транзакций, о которых известно, что это транзакция. Признака у самого
+ * клиента нет: у «tx» Prisma метод `$transaction` на месте, поэтому по форме
+ * его от клиента базы не отличить. Транзакции открывает `inTagTransaction`;
+ * чужую (ввоз оборудования идёт в одной) помечает тот, кто её принял.
+ */
+const transactions = new WeakSet<object>();
+export function markTransactionClient<T>(tx: T): T { if (tx && typeof tx === 'object') transactions.add(tx as object); return tx; }
+export const isTransactionClient = (db: any): boolean => !!db && typeof db === 'object' && transactions.has(db);
+
+/**
+ * Транзакция для записи тега вместе с его историей. Таблица истории готовится ДО
+ * неё: внутри транзакции SQLite держит единственное соединение, и подготовка
+ * через внешний клиент ждала бы конца транзакции, пока та ждёт её. Клиент,
+ * который уже транзакция (ввоз оборудования идёт одной), используется как есть.
+ */
+export async function inTagTransaction<T>(db: any, fn: (tx: any) => Promise<T>, options?: { timeout?: number; maxWait?: number }): Promise<T> {
+  if (isTransactionClient(db) || typeof db?.$transaction !== 'function') return fn(db);
+  // Подставной клиент без SQL (проверки на памяти) истории не пишет — таблицу ему готовить нечем
+  if (isDb(db)) {
+    const why = await ensureTagChangeTable();
+    if (why) throw new Error(why);
+  }
+  return db.$transaction((tx: any) => fn(markTransactionClient(tx)), options ?? { timeout: 15000 });
+}
+
+/**
+ * Записать наборы изменений одной операции. Возвращает число записанных строк.
+ * Строки одной операции получают время с шагом в миллисекунду: порядок внутри
+ * неё стабилен, и при чтении «по времени» они не перемешиваются.
+ *
+ * Внутри транзакции (`db` — клиент транзакции) ошибка НЕ глотается: транзакция
+ * откатывается вместе с тегом. Вне транзакции — как прежде: пишется в журнал
+ * сервера и не бросается.
  */
 export async function recordChangeSets(prisma: any, ctx: TagChangeContext, sets: Array<TagChangeSet | null | undefined>): Promise<number> {
   const live = sets.filter((s): s is TagChangeSet => !!s && s.entries.length > 0);
   if (!live.length) return 0;
   if (!isDb(prisma)) return 0;
+  const strict = isTransactionClient(prisma);
   try {
-    const why = await ensureTagChangeTable();
-    if (why) throw new Error(why);
+    if (strict) {
+      // Готовить таблицу через внешний клиент здесь нельзя (см. inTagTransaction): только проверить её этим же клиентом
+      if (!tagChangeTableReady()) {
+        const d = clientDialect(prisma, getDialect());
+        await prisma.$queryRawUnsafe(`SELECT ${quote(d, 'id')} FROM ${quote(d, 'TagChange')} WHERE ${quote(d, 'id')} = ''`);
+        markTagChangeTableReady();
+      }
+    } else {
+      const why = await ensureTagChangeTable();
+      if (why) throw new Error(why);
+    }
     // Связи пишутся кодами: по идентификатору человек не поймёт, кого с кем связали
     const linkIds = live.flatMap((s) => s.entries).filter((e) => e.link).flatMap((e) => [e.before, e.after]).filter((v): v is string => !!v);
     const codes = await codesOf(prisma, [...new Set(linkIds)]);
@@ -308,6 +350,7 @@ export async function recordChangeSets(prisma: any, ctx: TagChangeContext, sets:
     return rows.length;
   } catch (e: any) {
     console.error('[История тегов] запись не удалась:', e?.message || e);
+    if (strict) throw e;
     return 0;
   }
 }

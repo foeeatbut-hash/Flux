@@ -11,7 +11,8 @@
 import {
   DEFAULT_TAG_POLICY, autoFixTag, identityKeyOf, similarityKeyOf, validateTag, type TagPolicy,
 } from '../equipment/tagPolicy.js';
-import { TAG_SOURCE, recordTagCreated } from './tagHistory.js';
+import { TAG_SOURCE, recordTagCreated, inTagTransaction } from './tagHistory.js';
+import { withCodeKey, duplicateOf, findTagByCode, isCodeKeyViolation } from './tagCodeKey.js';
 import { withBump } from './equipmentVersion.js';
 import { nextProjectEntityId } from './entityIds.js';
 import type { EntityIdOptions } from './entityIds.js';
@@ -228,10 +229,33 @@ export async function applyTagLinks(
 
     let tagId = link.existingTagId;
     if (link.action === 'create' || !tagId) {
-      const created = await prisma.tag.create({ data: { id: await nextProjectEntityId(prisma, projectId, 'TAG', options), identifier: link.identifier, projectId } });
-      await recordTagCreated(prisma, { projectId, userId: actor.userId, source: TAG_SOURCE.equipmentImport }, created);
-      tagId = created.id;
-      res.created++;
+      // «Создать» с кодом, который в проекте уже есть (повтор того же ввоза, тот же код в двух
+      // файлах одного ввоза, тег, заведённый параллельно), — не второй тег, а привязка к
+      // существующему: дальше она идёт по тем же правилам, что у «привязать к существующему»
+      // (чужой проект — пропуск, занятый другой позицией — оставлен как был)
+      const known = await findTagByCode(prisma, projectId, link.identifier);
+      if (known) tagId = known.id;
+      else {
+        let created: any;
+        try {
+          const id = await nextProjectEntityId(prisma, projectId, 'TAG', options);
+          // Тег и его история — одна транзакция (при ввозе в транзакции — она же)
+          created = await inTagTransaction(prisma, async (tx: any) => {
+            const row = await tx.tag.create({ data: withCodeKey({ id, identifier: link.identifier, projectId }) });
+            await recordTagCreated(tx, { projectId, userId: actor.userId, source: TAG_SOURCE.equipmentImport }, row);
+            return row;
+          });
+        } catch (e) {
+          // Ключ сработал между проверкой и записью: перечитываем и идём по правилу привязки.
+          // Исключение — ввоз внутри одной транзакции PostgreSQL: после нарушения ключа она
+          // отменена целиком, перечитать нечем, и ввоз отвечает отказом с занявшим тегом (409)
+          if (!isCodeKeyViolation(e)) throw e;
+          const raced = await findTagByCode(prisma, projectId, link.identifier).catch(() => null);
+          if (!raced) throw await duplicateOf(prisma, e, projectId, link.identifier);
+          tagId = raced.id;
+        }
+        if (created) { tagId = created.id; res.created++; }
+      }
     }
 
     const tag = await prisma.tag.findUnique({

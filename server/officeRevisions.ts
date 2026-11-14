@@ -1,19 +1,109 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { ensureTables } from './ddl.js';
+import { createIndexSql, ensureTables, getDialect, isDuplicateIndex } from './ddl.js';
 import { getPrisma } from './context.js';
-import { oncePerDatabase } from './schemaRuntime.js';
+import { clientDialect, oncePerDatabase, withSchemaConnection } from './schemaRuntime.js';
+import { inspectSchema } from './schemaInspection.js';
 
 export const officeSha256 = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex');
 
 let schemaError: string | null = null;
 
+/**
+ * Один номер — одна выпущенная ревизия и один черновик: выпуск черновика
+ * берёт его номер, поэтому статус входит в ключ. Имя — то же, что даёт схеме
+ * Prisma и автомиграция (server/schema-sync.ts), чтобы ключ не завёлся дважды.
+ */
+export const OFFICE_REVISION_KEY = 'OfficeDocumentRevision_documentId_revision_status_key';
+const OFFICE_REVISION_KEY_COLUMNS = ['documentId', 'revision', 'status'];
+
+export interface OfficeRevisionDuplicate { documentId: string; revision: number; status: string; rows: number }
+
+/**
+ * Группы строк с одним [documentId, revision, status] — повторы, из-за которых
+ * ключ нельзя создать. Только чтение: ничего не удаляется и не правится
+ * (flux-data-safety), разбирать их будет человек по этому списку.
+ */
+export async function findOfficeRevisionDuplicates(db: any): Promise<OfficeRevisionDuplicate[]> {
+  const groups = await db.officeDocumentRevision.groupBy({
+    by: ['documentId', 'revision', 'status'],
+    _count: { _all: true },
+    having: { id: { _count: { gt: 1 } } },
+  });
+  return groups.map((g: any) => ({ documentId: String(g.documentId), revision: Number(g.revision), status: String(g.status), rows: Number(g._count?._all ?? g._count) }));
+}
+
+/** Для старта сервера: число групп повторов в журнал. Не падает и ничего не пишет в базу. */
+export async function reportOfficeRevisionDuplicates(db: any, log: (message: string) => void): Promise<number> {
+  try {
+    const groups = await findOfficeRevisionDuplicates(db);
+    if (groups.length) {
+      const sample = groups.slice(0, 5).map(g => `${g.documentId} R${g.revision} ${g.status} ×${g.rows}`).join('; ');
+      log(`[Office Revisions] Повторов номера ревизии: ${groups.length} групп (документ, номер, статус), ключ уникальности не создан, данные не тронуты. Первые: ${sample}`);
+    } else log('[Office Revisions] Повторов номера ревизии нет: 0 групп.');
+    return groups.length;
+  } catch (e: any) {
+    log(`[Office Revisions] Отчёт о повторах номеров ревизий не получен: ${e?.message || e}`);
+    return 0;
+  }
+}
+
+/**
+ * Досоздать на уже установленной базе уникальный ключ ревизий (до него таблица
+ * держала только обычный индекс). Повторы в таблице ключ не пускают: тогда ключ
+ * не создаётся, причина пишется в журнал, старт не падает, строки не трогаются —
+ * так же ведёт себя ensureUniqueKeys в schema-sync. Ключ, уже созданный
+ * автомиграцией под тем же набором колонок, считается готовым.
+ */
+export async function ensureOfficeRevisionKey(db: any, log: (message: string) => void = (m) => console.warn(m)): Promise<boolean> {
+  try {
+    const dialect = clientDialect(db, getDialect());
+    return await withSchemaConnection(db, async (connection) => {
+      const table = 'OfficeDocumentRevision';
+      const current = (await inspectSchema(connection, dialect, [{ table, cols: [] }])).get(table);
+      const wanted = [...OFFICE_REVISION_KEY_COLUMNS].sort().join(',');
+      for (const index of current?.indexes.values() || []) {
+        if (index.unique && index.valid && !index.partial && [...index.columns].sort().join(',') === wanted) return true;
+      }
+      const duplicates = await findOfficeRevisionDuplicates(db);
+      if (duplicates.length) {
+        log(`[Office Revisions] Не удалось создать ключ ${OFFICE_REVISION_KEY} (${OFFICE_REVISION_KEY_COLUMNS.join(', ')}): в журнале ${duplicates.length} групп повторов. Данные не тронуты.`);
+        return false;
+      }
+      try {
+        await connection.$executeRawUnsafe(createIndexSql(dialect, table, OFFICE_REVISION_KEY, OFFICE_REVISION_KEY_COLUMNS, true));
+      } catch (e: any) {
+        // Автомиграция или соседний процесс успели раньше — цель достигнута
+        if (!isDuplicateIndex(e?.message)) throw e;
+      }
+      return true;
+    });
+  } catch (e: any) {
+    log(`[Office Revisions] Ключ ${OFFICE_REVISION_KEY} не создан: ${e?.message || e}. Данные не тронуты.`);
+    return false;
+  }
+}
+
+/** Нарушение уникального ключа: код Prisma или сырой текст движка. */
+export function isOfficeRevisionKeyViolation(error: any): boolean {
+  return error?.code === 'P2002'
+    || /Unique constraint|UNIQUE constraint|duplicate key|Duplicate entry|ER_DUP_ENTRY/i.test(String(error?.message || ''));
+}
+
+/** Проигравшему гонку: номер ревизии уже занят, текущая — в ответе. */
+export function officeRevisionConflict(current: number | null) {
+  return Object.assign(new Error(
+    `Номер ревизии уже занят: другой пользователь только что выпустил или создал ревизию этого документа${current ? ` (сейчас R${current})` : ''}. Обновите список ревизий и повторите.`,
+  ), { status: 409, code: 'OFFICE_REVISION_CONFLICT', currentRevision: current });
+}
+
 /** Подстраховка для уже установленной базы, пока штатная миграция не применит модель. */
 export async function ensureOfficeRevisionTable(): Promise<void> {
   const db = getPrisma();
   const error = await oncePerDatabase(db, 'office-document-revisions', async () => {
-    try { await (db as any).officeDocumentRevision.count(); return ''; }
+    let failure = '';
+    try { await (db as any).officeDocumentRevision.count(); }
     catch {
-      return ensureTables(db, [{
+      failure = await ensureTables(db, [{
         table: 'OfficeDocumentRevision',
         cols: [
           { name: 'id', kind: 'text', pk: true },
@@ -32,11 +122,13 @@ export async function ensureOfficeRevisionTable(): Promise<void> {
           { name: 'createdAt', kind: 'time', notNull: true, def: 'now' },
         ],
         indexes: [
-          { name: 'OfficeDocumentRevision_document_revision_idx', cols: ['documentId', 'revision'] },
           { name: 'OfficeDocumentRevision_file_status_idx', cols: ['fileId', 'status'] },
         ],
       }]);
     }
+    // Ключ — отдельным шагом и не валит старт: повторы в старой таблице его не пускают
+    if (!failure) await ensureOfficeRevisionKey(db);
+    return failure;
   });
   if (error) schemaError = error;
   else schemaError = null;

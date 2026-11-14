@@ -26,7 +26,8 @@
 
 import { bumpElementsOfTags } from './equipmentVersion.js';
 import { renameTagInVdr } from './vdrTags.js';
-import { parseMetadata } from './tagHistory.js';
+import { parseMetadata, inTagTransaction } from './tagHistory.js';
+import { TagDuplicate, tagCodeKey, withCodeKey, duplicateOf, isCodeKeyViolation } from './tagCodeKey.js';
 
 export type MetadataPatch = Record<string, unknown>;
 
@@ -55,25 +56,24 @@ export class TagConflict extends Error {
   constructor(public readonly tag: any) { super('Тег изменился с тех пор, как вы его читали'); }
 }
 export class TagBadRequest extends Error {}
-/** Код тега уже занят в проекте: два тега с одним кодом смешивают позиции в спецификации и документах */
-export class TagDuplicate extends Error {
-  constructor(public readonly identifier: string) { super(`Тег «${identifier}» уже заведён в этом проекте. Укажите другой код.`); }
-}
-
-/** Сравнение кодов, как на экране «Тегов» (checkTagExists): без пробелов по краям и без учёта регистра */
-export const tagCodeKey = (identifier: unknown): string => String(identifier ?? '').trim().toLowerCase();
+/** Ключ кода и отказ «код занят» живут в tagCodeKey.ts; здесь — прежний адрес для остальных модулей. */
+export { TagDuplicate, tagCodeKey };
 
 /**
  * Код тега, пригодный к записи: не пустой и не занятый другим тегом проекта.
  * Прежний `PUT`/`POST` принимали и пустой код, и повтор — оба дефекта
  * находились двойным нажатием «Создать» и переименованием в код соседа.
+ *
+ * Это ранний понятный отказ, а не защита: между чтением и записью код успевает
+ * занять другой запрос. Защита — ключ `Tag.codeKey` (см. tagCodeKey.ts).
  */
 export async function assertFreeTagCode(db: any, projectId: string, identifier: unknown, exceptId?: string): Promise<string> {
   const code = String(identifier ?? '').trim();
   if (!code) throw new TagBadRequest('Код тега не может быть пустым');
   const key = tagCodeKey(code);
   const same = await db.tag.findMany({ where: { projectId }, select: { id: true, identifier: true } });
-  if (same.some((t: any) => t.id !== exceptId && tagCodeKey(t.identifier) === key)) throw new TagDuplicate(code);
+  const taken = same.find((t: any) => t.id !== exceptId && tagCodeKey(t.identifier) === key);
+  if (taken) throw new TagDuplicate(code, { id: String(taken.id), identifier: String(taken.identifier) });
   return code;
 }
 
@@ -184,7 +184,8 @@ async function attemptWrite(tx: any, id: string, input: TagWriteInput): Promise<
   // выставляет её сам), а переносу карточки версию менять нельзя. «Не нашлось» (P2025)
   // — это и есть «успели изменить»
   try {
-    const tag = await tx.tag.update({ where: { id, updatedAt: cur.updatedAt ?? null }, data });
+    // Код меняется — ключ меняется с ним: в базе нет пути, где identifier правится без codeKey
+    const tag = await tx.tag.update({ where: { id, updatedAt: cur.updatedAt ?? null }, data: withCodeKey(data) });
     // Код тега — часть позиции: изменился — версия позиции выросла
     if ('identifier' in data) {
       await bumpElementsOfTags(tx, [id]);
@@ -211,15 +212,36 @@ async function writeInTx(tx: any, id: string, input: TagWriteInput): Promise<Tag
  * Записать правку в одном теге: слияние, сверка версии, условное обновление.
  * Бросает TagNotFound, TagConflict, TagBadRequest.
  */
-export const writeTag = (prisma: any, id: string, input: TagWriteInput): Promise<TagWriteResult> =>
-  prisma.$transaction((tx: any) => writeInTx(tx, id, input), { timeout: 15000 });
+export async function writeTag(
+  prisma: any, id: string, input: TagWriteInput,
+  /** Что записать в той же транзакции после правки (история тега): не записалось — не записался и тег */
+  hooks: { record?: (tx: any, result: TagWriteResult) => Promise<void> } = {},
+): Promise<TagWriteResult> {
+  try {
+    return await inTagTransaction(prisma, async (tx: any) => {
+      const result = await writeInTx(tx, id, input);
+      if (hooks.record) await hooks.record(tx, result);
+      return result;
+    }, { timeout: 15000 });
+  } catch (e) {
+    // Переименование проиграло гонку за код: проверка в attemptWrite его пропустила, остановил ключ
+    if (isCodeKeyViolation(e)) {
+      const own = await prisma.tag.findUnique({ where: { id }, select: { projectId: true } }).catch(() => null);
+      throw await duplicateOf(prisma, e, own?.projectId, input.fields?.identifier);
+    }
+    throw e;
+  }
+}
 
 /**
  * Массовая запись: все теги одной транзакцией, как и было, — либо всё, либо
  * ничего. Несуществующие теги пропускаются и возвращаются списком `missing`.
  */
-export async function writeTags(prisma: any, items: Array<{ id: string; input: TagWriteInput }>): Promise<{ results: TagWriteResult[]; missing: string[] }> {
-  return prisma.$transaction(async (tx: any) => {
+export async function writeTags(
+  prisma: any, items: Array<{ id: string; input: TagWriteInput }>,
+  hooks: { record?: (tx: any, results: TagWriteResult[]) => Promise<void> } = {},
+): Promise<{ results: TagWriteResult[]; missing: string[] }> {
+  return inTagTransaction(prisma, async (tx: any) => {
     const results: TagWriteResult[] = [];
     const missing: string[] = [];
     for (const { id, input } of items) {
@@ -227,8 +249,17 @@ export async function writeTags(prisma: any, items: Array<{ id: string; input: T
         if (e instanceof TagNotFound) missing.push(id); else throw e;
       }
     }
+    if (hooks.record) await hooks.record(tx, results);
     return { results, missing };
   }, { timeout: 120000, maxWait: 15000 });
+}
+
+/**
+ * То же, но сначала узнаёт нарушение ключа кода: создание, проигравшее гонку,
+ * отвечает отказом «код занят» с занявшим тегом, а не 500.
+ */
+export async function tagFailure(prisma: any, err: unknown, projectId: string, identifier: unknown): Promise<{ status: number; body: Record<string, unknown> } | null> {
+  return tagWriteFailure(await duplicateOf(prisma, err, projectId, identifier));
 }
 
 /** Ошибка записи → ответ HTTP; null — это не наша ошибка. */
@@ -236,7 +267,8 @@ export function tagWriteFailure(err: unknown): { status: number; body: Record<st
   if (err instanceof TagNotFound) return { status: 404, body: { error: err.message } };
   if (err instanceof TagBadRequest) return { status: 400, body: { error: err.message } };
   // Занятый код — не конфликт версий: экрану нечего перечитывать, человек должен выбрать другой код
-  if (err instanceof TagDuplicate) return { status: 409, body: { error: err.message, duplicate: true } };
+  // `code` — как заведён отказанный код, `existing` — тег, который его занял (если удалось прочитать)
+  if (err instanceof TagDuplicate) return { status: 409, body: { error: err.message, duplicate: true, code: err.identifier, existing: err.existing ?? null } };
   // В ответе — текущий тег: экран заменяет им свою копию и просит повторить правку
   if (err instanceof TagConflict) return { status: 409, body: { error: err.message, conflict: true, tag: err.tag } };
   return null;

@@ -27,7 +27,9 @@ export function memoryEquipmentDb(): MemoryDb {
   const settings = new Map<string, Row>();
   const links = new Set<string>(); // `${elementId}|${tagId}`
 
-  const fits = (row: Row, where: Row = {}) => Object.entries(where).every(([k, v]) => {
+  const fits = (row: Row, where: Row = {}): boolean => Object.entries(where).every(([k, v]) => {
+    // Поиск тега по коду: «по написанию или по ключу» (server/tagCodeKey.ts)
+    if (k === 'OR' && Array.isArray(v)) return v.some((w: Row) => fits(row, w));
     if (v && typeof v === 'object' && !(v instanceof Date)) {
       if (Array.isArray((v as any).in)) return (v as any).in.includes(row[k]);
       if ((v as any).gte instanceof Date) return new Date(row[k]).getTime() >= (v as any).gte.getTime();
@@ -125,6 +127,7 @@ export function memoryEquipmentDb(): MemoryDb {
     tag: {
       findMany: async ({ where, select }: any) => tags.filter(t => fits(t, where)).map(t => tagView(t, select?.componentElements)),
       findUnique: async ({ where, include }: any) => { const t = tags.find(x => x.id === where.id); return t ? tagView(t, include?.componentElements) : null; },
+      findFirst: async ({ where, include }: any) => { const t = tags.find(x => fits(x, where)); return t ? tagView(t, include?.componentElements) : null; },
       create: async ({ data }: any) => { const r = { id: id('tag'), createdAt: new Date(), metadata: null, ...data }; tags.push(r); return { ...r }; },
       update: async ({ where, data }: any) => ({ ...patch(tags.find(t => t.id === where.id)!, data) }),
     },
