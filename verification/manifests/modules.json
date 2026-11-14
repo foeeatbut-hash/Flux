@@ -475,6 +475,15 @@
       "timeoutMs": 900000
     },
     {
+      "id": "modules-storage-native",
+      "path": "scripts/test-modules-storage-native.ts",
+      "layer": "windows-native",
+      "platform": "win32",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "modules-dev-run-native",
       "path": "scripts/test-modules-dev-run-native.ts",
       "layer": "windows-native",

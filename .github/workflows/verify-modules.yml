@@ -96,6 +96,11 @@ jobs:
         run: |
           node --import tsx scripts/test-modules-page-native.ts 2>&1 | Tee-Object artifacts/modules-page-native.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Хранилище самостоятельной программы в Electron на Windows (диск, предел 1 МиБ, битый файл, очистка)
+        shell: pwsh
+        run: |
+          node --import tsx scripts/test-modules-storage-native.ts 2>&1 | Tee-Object artifacts/modules-storage-native.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Запуск из разработки (Studio → Flux) в Electron на Windows (папка обмена, согласие, срок аренды, «Убрать»)
         shell: pwsh
         run: |
