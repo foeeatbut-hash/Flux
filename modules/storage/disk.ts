@@ -53,7 +53,9 @@ export interface StorageEnvelope { format: number; program: string; writtenBy: s
 export type ReadResult =
   | { ok: true; state: Record<string, unknown>; bytes: number; savedAt: string | null; broken?: { kept: string } }
   | { ok: false; code: 'FAILED' };
-export type WriteResult = { ok: true; bytes: number; broken?: { kept: string } } | { ok: false; code: StorageErrorCode; bytes?: number };
+/** `reason` — код и текст первой ошибки диска для журнала и проверок (человеку не показывается): без него «FAILED» на чужом компьютере не разобрать */
+export type WriteResult = { ok: true; bytes: number; broken?: { kept: string } } | { ok: false; code: StorageErrorCode; bytes?: number; reason?: string };
+const reasonOf = (e: unknown) => { const err = e as NodeJS.ErrnoException | undefined; return `${err?.code ?? 'ERR'}: ${String(err?.message ?? e).slice(0, 200)}`; };
 
 const isMissing = (e: unknown) => (e as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
 /** Файл крупнее предела состояния с запасом на конверт не может быть нашим: читать его целиком незачем */
@@ -98,12 +100,41 @@ async function setAside(fs: StorageFs, dir: string, now: Date): Promise<string |
  */
 export async function readEnvelope(fs: StorageFs, target: StorageTarget, options: { now?: Date } = {}): Promise<ReadResult> {
   const dir = dirOf(target);
+  return withLock(dir, () => readLocked(fs, target, dir, options));
+}
+async function readLocked(fs: StorageFs, target: StorageTarget, dir: string, options: { now?: Date }): Promise<ReadResult> {
   const found = await inspect(fs, path.join(dir, STORAGE_FILE), target.programId);
   if (found.kind === 'missing') return { ok: true, state: {}, bytes: 0, savedAt: null };
   if (found.kind === 'error') return { ok: false, code: 'FAILED' };
   if (found.kind === 'ok') return { ok: true, state: found.envelope.state, bytes: found.bytes, savedAt: found.envelope.savedAt };
   const kept = await setAside(fs, dir, options.now ?? new Date());
   return kept ? { ok: true, state: {}, bytes: 0, savedAt: null, broken: { kept } } : { ok: false, code: 'FAILED' };
+}
+
+/**
+ * Работы с одной областью идут по очереди внутри процесса. На Windows переименование временного файла поверх целевого, пока другое
+ * переименование в тот же файл не закончилось, отказывает (EPERM/EBUSY); на Linux гонка тихо проходит и скрывает ту же ошибку.
+ * Окна одной программы пишут одновременно, поэтому очередь здесь, у самого файла, а не только у вызывающего.
+ */
+const locks = new Map<string, Promise<unknown>>();
+function withLock<T>(key: string, job: () => Promise<T>): Promise<T> {
+  const run = (locks.get(key) ?? Promise.resolve()).then(job, job);
+  const tail = run.then(() => undefined, () => undefined);
+  locks.set(key, tail);
+  // Очередь не копится по мёртвым путям: пока никто не встал следом, запись о ней убирается
+  void tail.then(() => { if (locks.get(key) === tail) locks.delete(key); });
+  return run;
+}
+/** Антивирус и индексатор Windows ненадолго держат только что записанный файл: переименование повторяется, а не сдаётся с первого раза */
+const RENAME_RETRY = ['EPERM', 'EBUSY', 'EACCES'];
+async function renameWithRetry(fs: StorageFs, from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try { await fs.rename(from, to); return; }
+    catch (e) {
+      if (attempt >= 5 || !RENAME_RETRY.includes((e as NodeJS.ErrnoException | undefined)?.code ?? '')) throw e;
+      await new Promise(resolve => setTimeout(resolve, 15 * (attempt + 1)));
+    }
+  }
 }
 
 let counter = 0;
@@ -115,8 +146,11 @@ let counter = 0;
 export async function writeEnvelope(fs: StorageFs, target: StorageTarget, input: { writtenBy: string; state: unknown; now?: Date }): Promise<WriteResult> {
   const dir = dirOf(target);
   const bytes = stateBytes(input.state);
-  if (bytes === null || !isPlainObject(input.state)) return { ok: false, code: 'FAILED' };
+  if (bytes === null || !isPlainObject(input.state)) return { ok: false, code: 'FAILED', reason: 'состояние не объект JSON' };
   if (bytes > STORAGE_LIMIT_BYTES) return { ok: false, code: 'LIMIT', bytes };
+  return withLock(dir, () => writeLocked(fs, target, dir, bytes, input as { writtenBy: string; state: Record<string, unknown>; now?: Date }));
+}
+async function writeLocked(fs: StorageFs, target: StorageTarget, dir: string, bytes: number, input: { writtenBy: string; state: Record<string, unknown>; now?: Date }): Promise<WriteResult> {
   const now = input.now ?? new Date();
   const envelope: StorageEnvelope = { format: STORAGE_FORMAT, program: target.programId, writtenBy: String(input.writtenBy).slice(0, 64), savedAt: now.toISOString(), state: input.state };
   const text = JSON.stringify(envelope);
@@ -126,18 +160,18 @@ export async function writeEnvelope(fs: StorageFs, target: StorageTarget, input:
     await fs.mkdir(dir, { recursive: true });
     let broken: { kept: string } | undefined;
     const found = await inspect(fs, file, target.programId);
-    if (found.kind === 'error') return { ok: false, code: 'FAILED' };
+    if (found.kind === 'error') return { ok: false, code: 'FAILED', reason: 'файл хранилища не прочитан' };
     if (found.kind === 'broken') {
       const kept = await setAside(fs, dir, now);
-      if (!kept) return { ok: false, code: 'FAILED' };
+      if (!kept) return { ok: false, code: 'FAILED', reason: 'повреждённый файл не удалось отложить' };
       broken = { kept };
     }
     await fs.writeFile(tmp, text, { encoding: 'utf8', flag: 'wx' });
-    await fs.rename(tmp, file);
+    await renameWithRetry(fs, tmp, file);
     return { ok: true, bytes, ...(broken ? { broken } : {}) };
-  } catch {
+  } catch (e) {
     await fs.rm(tmp, { recursive: true, force: true }).catch(() => undefined);
-    return { ok: false, code: 'FAILED' };
+    return { ok: false, code: 'FAILED', reason: reasonOf(e) };
   }
 }
 
@@ -154,6 +188,9 @@ export async function storageUsage(fs: StorageFs, target: StorageTarget): Promis
  */
 export async function clearStorage(fs: StorageFs, target: StorageTarget): Promise<{ ok: true; removed: boolean } | { ok: false; code: 'FAILED' }> {
   const dir = dirOf(target);
+  return withLock(dir, () => clearLocked(fs, dir));
+}
+async function clearLocked(fs: StorageFs, dir: string): Promise<{ ok: true; removed: boolean } | { ok: false; code: 'FAILED' }> {
   try {
     try { await fs.lstat(dir); } catch (e) { if (isMissing(e)) return { ok: true, removed: false }; throw e; }
     await fs.rm(dir, { recursive: true, force: true });

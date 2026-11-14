@@ -128,9 +128,35 @@ async function battery(label: string, model: Model, disk: Disk): Promise<Battery
     // ── 6. Параллельные записи ───────────────────────────────────────────────
     const parT = target({ programId: 'parallel' });
     const writes = await Promise.all(Array.from({ length: 25 }, (_, i) => disk.writeEnvelope(real, parT, { writtenBy: '1', state: { i } })));
-    ok('25 одновременных записей проходят', writes.every(w => w.ok));
+    const firstFail = writes.find(w => !w.ok) as { reason?: string } | undefined;
+    // Код и текст первой ошибки — в названии проверки: на чужой ОС (Windows в CI) иначе остаётся гадать
+    ok(`25 одновременных записей проходят${firstFail ? ` — первая ошибка: ${firstFail.reason}` : ''}`, writes.every(w => w.ok));
     const parRead = await disk.readEnvelope(real, parT);
     ok('итог — одно целое состояние, временных файлов нет', parRead.ok && typeof (parRead.state as any).i === 'number' && ls(path.dirname(file(parT))).join() === 'state.json');
+
+    // Windows: переименование поверх файла, в который уже идёт другое переименование, отказывает (EPERM). Подставной диск
+    // воспроизводит это на любой ОС: запись поверх занятого файла падает, пока в него переименовывают
+    const winT = target({ programId: 'winlike' });
+    const inRename = new Set<string>();
+    const winLike = flaky({ rename: async (a: string, b: string) => {
+      if (inRename.has(b)) throw fail('EPERM');
+      inRename.add(b);
+      try { await new Promise(r => setTimeout(r, 5)); return await fs.promises.rename(a, b); } finally { inRename.delete(b); }
+    } });
+    const winWrites = await Promise.all(Array.from({ length: 25 }, (_, i) => disk.writeEnvelope(winLike, winT, { writtenBy: '1', state: { i } })));
+    ok(`диск, где одновременное переименование в один файл отказывает (Windows): 25 записей проходят${winWrites.find(w => !w.ok) ? ` — первая ошибка: ${(winWrites.find(w => !w.ok) as any).reason}` : ''}`, winWrites.every(w => w.ok));
+    ok('последняя запись из очереди — итог', ((await disk.readEnvelope(real, winT)) as any).state.i === 24 && ls(path.dirname(file(winT))).join() === 'state.json');
+    // Файл ненадолго занят антивирусом или индексатором: переименование повторяется
+    const busyT = target({ programId: 'busy' });
+    let busyLeft = 3;
+    const busyFs = flaky({ rename: async (a: string, b: string) => { if (busyLeft-- > 0) throw fail('EBUSY'); return fs.promises.rename(a, b); } });
+    const busyWrite = await disk.writeEnvelope(busyFs, busyT, { writtenBy: '1', state: { v: 1 } });
+    ok(`файл занят три попытки подряд — запись проходит с повтором${busyWrite.ok ? '' : ` — ${(busyWrite as any).reason}`}`, busyWrite.ok && ((await disk.readEnvelope(real, busyT)) as any).state.v === 1);
+    const stuckBusy = await disk.writeEnvelope(flaky({ rename: async () => { throw fail('EBUSY'); } }), target({ programId: 'busy2' }), { writtenBy: '1', state: { v: 1 } });
+    ok('файл занят насовсем — FAILED с кодом ошибки, временный файл убран', stuckBusy.ok === false && /^EBUSY/.test((stuckBusy as any).reason) && ls(path.dirname(file(target({ programId: 'busy2' })))).length === 0);
+    const enoentOnce = (() => { let n = 1; return flaky({ rename: async (a: string, b: string) => { if (n-- > 0) throw fail('ENOENT'); return fs.promises.rename(a, b); } }); })();
+    const enoent = await disk.writeEnvelope(enoentOnce, target({ programId: 'noent' }), { writtenBy: '1', state: { v: 1 } });
+    ok('другие ошибки (не EPERM/EBUSY/EACCES) не повторяются', enoent.ok === false && /^ENOENT/.test((enoent as any).reason));
 
     // ── 7. Битый файл не затирается ──────────────────────────────────────────
     const brokenCases: Array<[string, (p: string, id: string) => void]> = [
@@ -254,7 +280,7 @@ async function main() {
     { name: 'предел в записи не проверяется', file: 'disk', from: "if (bytes > STORAGE_LIMIT_BYTES) return { ok: false, code: 'LIMIT', bytes };", to: '' },
     { name: 'размер считается знаками, а не байтами', file: 'model', from: 'return json === undefined ? null : new TextEncoder().encode(json).length;', to: 'return json === undefined ? null : json.length;' },
     { name: 'предел записи на 4 КиБ мягче', file: 'model', from: 'export const STORAGE_LIMIT_BYTES = 1024 * 1024;', to: 'export const STORAGE_LIMIT_BYTES = 1024 * 1024 + 4096;' },
-    { name: 'запись не атомарная: старый файл удаляется до замены', file: 'disk', from: 'await fs.rename(tmp, file);', to: 'await fs.rm(file, { recursive: true, force: true }); await fs.rename(tmp, file);' },
+    { name: 'запись не атомарная: старый файл удаляется до замены', file: 'disk', from: 'await renameWithRetry(fs, tmp, file);', to: 'await fs.rm(file, { recursive: true, force: true }); await renameWithRetry(fs, tmp, file);' },
     { name: 'временный файл остаётся после сбоя', file: 'disk', from: 'await fs.rm(tmp, { recursive: true, force: true }).catch(() => undefined);', to: '' },
     { name: 'битый файл на месте не откладывается при записи', file: 'disk', from: "if (found.kind === 'broken') {", to: "if (false as boolean) {" },
     { name: 'чтение не откладывает битый файл', file: 'disk', from: 'const kept = await setAside(fs, dir, options.now ?? new Date());', to: "const kept = 'state.broken-20261114T101112-345.json';" },
@@ -266,7 +292,7 @@ async function main() {
     { name: 'огромный файл читается целиком', file: 'disk', from: ' || info.size > MAX_FILE_BYTES) return', to: ') return' },
     { name: 'отказ диска на чтении считается «файла нет»', file: 'disk', from: "try { info = await fs.lstat(file); } catch (e) { return isMissing(e) ? { kind: 'missing' } : { kind: 'error' }; }", to: "try { info = await fs.lstat(file); } catch (e) { return { kind: 'missing' }; }" },
     { name: 'не удалось отложить — всё равно отдаём пустое', file: 'disk', from: "return kept ? { ok: true, state: {}, bytes: 0, savedAt: null, broken: { kept } } : { ok: false, code: 'FAILED' };", to: "return { ok: true, state: {}, bytes: 0, savedAt: null, broken: { kept: kept ?? '' } };" },
-    { name: 'не удалось отложить — запись всё равно идёт', file: 'disk', from: "if (!kept) return { ok: false, code: 'FAILED' };\n      broken = { kept };", to: "broken = { kept: kept ?? '' };" },
+    { name: 'не удалось отложить — запись всё равно идёт', file: 'disk', from: "if (!kept) return { ok: false, code: 'FAILED', reason: 'повреждённый файл не удалось отложить' };\n      broken = { kept };", to: "broken = { kept: kept ?? '' };" },
     { name: 'отложенный файл перезаписывает прежний отложенный', file: 'disk', from: 'try { await fs.lstat(target); continue; } catch (e) { if (!isMissing(e)) return null; }', to: '' },
     { name: 'идентификатор программы в пути не проверяется', file: 'disk', from: "|| !PROGRAM_ID.test(programId)", to: '' },
     { name: 'идентификатор человека кладётся в путь как есть', file: 'disk', from: 'return path.join(root, userDirName(userId), programId, scope);', to: 'return path.join(root, userId, programId, scope);' },
@@ -276,6 +302,10 @@ async function main() {
     { name: 'удаление сносит все области программы', file: 'disk', from: 'await fs.rm(dir, { recursive: true, force: true });\n    await fs.rmdir', to: 'await fs.rm(path.dirname(dir), { recursive: true, force: true });\n    await fs.rmdir' },
     { name: 'удаление сносит все программы человека', file: 'disk', from: 'await fs.rm(dir, { recursive: true, force: true });\n    await fs.rmdir', to: 'await fs.rm(path.dirname(path.dirname(dir)), { recursive: true, force: true });\n    await fs.rmdir' },
     { name: 'пустая папка программы рекурсивно сносится вместе с другими областями', file: 'disk', from: 'await fs.rmdir(path.dirname(dir)).catch(() => undefined);', to: 'await fs.rm(path.dirname(dir), { recursive: true, force: true });' },
+    { name: 'записи в один файл идут без очереди (на Windows одновременное переименование отказывает)', file: 'disk', from: 'const run = (locks.get(key) ?? Promise.resolve()).then(job, job);', to: 'const run = job();' },
+    { name: 'переименование не повторяется при занятом файле', file: 'disk', from: 'if (attempt >= 5 || !RENAME_RETRY.includes(', to: 'if (attempt >= 0 || !RENAME_RETRY.includes(' },
+    { name: 'повторяется любая ошибка переименования', file: 'disk', from: "const RENAME_RETRY = ['EPERM', 'EBUSY', 'EACCES'];", to: "const RENAME_RETRY = ['EPERM', 'EBUSY', 'EACCES', 'ENOENT'];" },
+    { name: 'отказ записи без кода ошибки', file: 'disk', from: "return { ok: false, code: 'FAILED', reason: reasonOf(e) };", to: "return { ok: false, code: 'FAILED' };" },
     { name: 'сбой удаления выдаётся за успех', file: 'disk', from: "} catch { return { ok: false, code: 'FAILED' }; }\n}", to: '} catch { return { ok: true, removed: true }; }\n}' },
     { name: 'метка «без связи» не учитывает интернет', file: 'model', from: "p.kind === 'internet' || ", to: '' },
     { name: 'метка «без связи» не учитывает локальную сеть', file: 'model', from: "|| p.kind === 'lan'", to: '' },
