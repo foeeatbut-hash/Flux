@@ -11,17 +11,21 @@ import { pageHung, type WindowOptions, type PageDialog, type PageDialogAnswer } 
 import type { ModuleManifest } from '../../../../modules/contract';
 import RunDialog from '../RunDialog';
 import { dialogAnswerLine, dialogStartLine } from '../../work/programDialog';
+import { STORAGE_LIMIT_BYTES, isStandalone } from '../../../../modules/storage/model';
 import { CLOSE_TITLE, DEFAULT_MAIN, DEFAULT_WINDOW, closeRequest, windowTitle, type Log, type PageBus, type Started, type WindowSpec } from './model';
 
 /** Общее для всех окон запуска: то, что не зависит от окна (чтение, расчёт, сеть, подключения, другие программы, файлы) */
+/** Запас над пределом хранилища для окна запуска: состояние чуть больше 1 МиБ доходит до главного процесса и получает от него LIMIT */
+const STUDIO_LIMIT_MARGIN = 64 * 1024;
+
 export interface RunHost {
   started: Started;
   log: Log;
   bus: PageBus;
   /** Состояние окна программы (flux.state): одно на программу, как во Flux */
   kept: { current: Record<string, unknown> };
-  /** Состояние страницы изменилось: у самостоятельной программы хозяин запуска пишет его в хранилище области `studio` */
-  keep: (state: Record<string, unknown>) => void;
+  /** Состояние страницы изменилось: у самостоятельной программы хозяин запуска пишет его в хранилище области `studio`; отказ уходит программе */
+  keep: (state: Record<string, unknown>) => Promise<void | { code: 'LIMIT' | 'FAILED' }>;
   /** То, что мост берёт у запуска как есть */
   base: Pick<ModuleBridgeOptions, 'context' | 'theme' | 'read' | 'compute' | 'net' | 'connect' | 'program' | 'onComputeError' | 'onLog' | 'onFailure'>;
   manifest: ModuleManifest;
@@ -85,7 +89,15 @@ export default function ProgramWindow({ host, spec, onClose, width }: Props) {
       ...h.base,
       frame: () => frame.current?.contentWindow || null, session, manifest,
       page: isPage ? {
-        loadState: () => hostRef.current.kept.current, keepState: state => { hostRef.current.kept.current = state; hostRef.current.keep(state); },
+        loadState: () => hostRef.current.kept.current,
+        // Предел и запись решает главный процесс: при LIMIT прежнее состояние остаётся и в окне, при отказе диска состояние живёт в окне до закрытия
+        keepState: async state => {
+          const refusal = await hostRef.current.keep(state);
+          if (!refusal || refusal.code === 'FAILED') hostRef.current.kept.current = state;
+          return refusal || undefined;
+        },
+        // Окно пропускает чуть больше предела, чтобы отказ по пределу дал главный процесс (с текстом для журнала), а не молчаливый отказ окна
+        stateLimit: isStandalone(manifest) ? STORAGE_LIMIT_BYTES + STUDIO_LIMIT_MARGIN : undefined,
         offerFile: file => hostRef.current.offerFile(file),
         pickFile: request => hostRef.current.pickFile(request),
         // Прикрепление к проектам только заложено: журнал показывает тот же отказ, что получит программа (во Flux — то же самое)

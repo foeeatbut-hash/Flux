@@ -67,7 +67,7 @@ const PAGE = (extra: string) => `<!doctype html><html lang="ru"><head><meta char
 <body><main class="fx-body fx-stack"><h1 class="fx-title">Окна</h1><div class="fx-row">${extra}</div><p id="status" role="status"></p><ul id="got" aria-label="Сообщения"></ul></main>
 <script src="/_flux/flux.v1.js"></script><script src="/ui/app.js"></script></body></html>`;
 const BTN = (id: string, text: string) => `<button id="${id}" class="fx-btn" type="button">${text}</button>`;
-const INDEX = PAGE([['open', 'Открыть строку'], ['many', 'Открыть много'], ['send', 'Сказать окнам'], ['title', 'Заголовок'], ['title2', 'Другой заголовок'], ...CONNECTIONS.map(id => [`connect-${id}`, `Подключиться ${id}`]), ['program', 'Вызвать помощника'], ['save', 'Сохранить файл'], ['attach', 'Прикрепить к проекту'], ['keep', 'Записать состояние'], ['load', 'Прочитать состояние'], ['confirm', 'Спросить']].map(([id, t]) => BTN(id, t)).join(''));
+const INDEX = PAGE([['open', 'Открыть строку'], ['many', 'Открыть много'], ['send', 'Сказать окнам'], ['title', 'Заголовок'], ['title2', 'Другой заголовок'], ...CONNECTIONS.map(id => [`connect-${id}`, `Подключиться ${id}`]), ['program', 'Вызвать помощника'], ['save', 'Сохранить файл'], ['attach', 'Прикрепить к проекту'], ['keep', 'Записать состояние'], ['load', 'Прочитать состояние'], ['keepbig', 'Записать много'], ['confirm', 'Спросить']].map(([id, t]) => BTN(id, t)).join(''));
 const DETAIL = PAGE([['reply', 'Ответить'], ['title', 'Заголовок'], ['dirty', 'Есть правки'], ['clean', 'Правок нет'], ['confirm', 'Спросить'], ['prompt', 'Назвать']].map(([id, t]) => BTN(id, t)).join(''));
 const APP = `const $ = id => document.getElementById(id), say = text => { $('status').textContent = text; };
 const bind = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', () => { Promise.resolve().then(fn).catch(e => say('ошибка ' + (e.code || e.message))); }); };
@@ -86,6 +86,7 @@ for (const id of ${JSON.stringify(CONNECTIONS)}) bind('connect-' + id, async () 
 bind('program', async () => { const r = await flux.programs.call('helper', 'double', { n: 21 }); say('программа ' + JSON.stringify(r)); });
 bind('save', async () => say('файл ' + await flux.saveFile('a.csv', 'a;b', 'text/csv')));
 bind('keep', async () => { await flux.state.set({ n: 1, text: 'сохранено', pad: 'я'.repeat(1500) }); say('состояние записано'); });
+bind('keepbig', async () => { try { await flux.state.set({ pad: 'я'.repeat(540000) }); say('записано'); } catch (e) { say('ошибка ' + e.code); } });
 bind('load', async () => say('состояние ' + JSON.stringify(await flux.state.get())));
 bind('attach', async () => say('прикрепление ' + await flux.attach('r.csv', 'a;b', 'text/csv')));
 flux.ready.then(() => say('готово'));
@@ -458,6 +459,15 @@ async function main() {
       await main.locator('#load').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: '"n":1' }).waitFor();
       ok(`${theme}: после перезапуска запуска программа читает сохранённое состояние: ${await status(main)}`, (await status(main)).includes('"text":"сохранено"'));
+      // Больше предела 1 МиБ: отказ даёт главный процесс, программа получает LIMIT, журнал — тот же текст, что у человека; сохранённое цело
+      await main.locator('#keepbig').dispatchEvent('click');
+      await main.locator('#status').filter({ hasText: /LIMIT|записано/ }).waitFor();
+      ok(`${theme}: состояние больше 1 МиБ — программа получила LIMIT, а не успех: ${await status(main)}`, (await status(main)) === 'ошибка LIMIT');
+      ok(`${theme}: журнал: «LIMIT: Хранилище программы заполнено: … из 1 МиБ», сохранённое состояние цело`, /LIMIT: Хранилище программы заполнено: [\d,]+ МиБ из 1 МиБ/.test(await page.locator('table.log').innerText()) && JSON.parse(fs.readFileSync(stateFile, 'utf8')).state.n === 1);
+      await page.screenshot({ path: path.join(shots, `studio-run-${theme}-10-limit.png`), fullPage: true });
+      await main.locator('#load').dispatchEvent('click');
+      await main.locator('#status').filter({ hasText: '"n":1' }).waitFor();
+      ok(`${theme}: после отказа окно по-прежнему отдаёт прежнее состояние`, (await status(main)).includes('"text":"сохранено"'));
       await storageRow.getByRole('button', { name: 'Очистить' }).click();
       await page.getByText(/очищено; перезапустите программу/).first().waitFor();
       ok(`${theme}: «Очистить» удалила файл области studio, строка снова «0 КиБ», журнал записал очистку`, !fs.existsSync(stateFile) && (await storageRow.innerText()).includes('Хранилище: 0 КиБ из 1 МиБ'));

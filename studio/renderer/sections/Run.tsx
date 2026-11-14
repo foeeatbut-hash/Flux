@@ -162,13 +162,15 @@ export default function Run({ id, signal = 0, onFail, onStarted, scene, stopSign
   // Самостоятельная программа пишет состояние на диск (область `studio`), остальные остаются в памяти окна. Предел и запись проверяет
   // главный процесс; отказ видно в журнале тем же текстом, что у человека во Flux, а состояние в окне живёт до закрытия
   const refreshStorage = () => call<RunStorageInfo>('runStorageInfo').then(setStorage).catch(() => setStorage(null));
-  const keepToDisk = (state: Record<string, unknown>) => {
+  const keepToDisk = async (state: Record<string, unknown>): Promise<void | { code: 'LIMIT' | 'FAILED' }> => {
     if (!started || !isStandalone(started.manifest)) return;
-    void call<RunStorageKeepReply>('runStorageKeep', { state }).then(reply => {
+    try {
+      const reply = await call<RunStorageKeepReply>('runStorageKeep', { state });
       const row = keepRow(reply);
       if (row) add(row.kind, row.text, row.level);
       void refreshStorage();
-    }).catch(e => add('хранилище', (e as Error).message, 'error'));
+      return 'code' in reply ? { code: reply.code } : undefined;
+    } catch (e) { add('хранилище', (e as Error).message, 'error'); return { code: 'FAILED' }; }
   };
   const clearStorage = async () => {
     try {
