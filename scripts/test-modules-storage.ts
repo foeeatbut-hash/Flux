@@ -64,6 +64,7 @@ async function battery(label: string, model: Model, disk: Disk): Promise<Battery
     ok('предел состояния: диск 1 МиБ у самостоятельной, память 256 КиБ у остальных', model.stateLimitFor(manifest()) === 1024 * 1024 && model.stateLimitFor(manifest({ reads: ['tag'] })) === 256 * 1024);
     ok('размер состояния — байты UTF-8, а не знаки', model.stateBytes({ t: 'я' }) === model.stateBytes({ t: 'a' })! + 1 && model.stateBytes({ n: 1n }) === null);
     ok('текст отказа называет размер и предел', model.storageFullText(1.3 * 1024 * 1024) === 'Хранилище программы заполнено: 1,3 МиБ из 1 МиБ' && model.storageUsageText(12 * 1024) === 'Хранилище: 12 КиБ из 1 МиБ' && model.sizeText(3 * 1024) === '3 КиБ');
+    ok('меньше килобайта — в байтах, пустое — «0 Б» (не «0 КиБ» при сохранённых данных)', model.sizeText(0) === '0 Б' && model.sizeText(312) === '312 Б' && model.sizeText(1023) === '1023 Б' && model.sizeText(1024) === '1 КиБ' && model.storageUsageText(312) === 'Хранилище: 312 Б из 1 МиБ');
 
     // ── 2. Путь ──────────────────────────────────────────────────────────────
     const dir = disk.storagePath(root, 'user-1', 'notes', 'released');
@@ -278,6 +279,7 @@ async function main() {
   console.log('2. Мутации: каждая защита выключается по одной, батарея обязана заметить');
   const mutants: Array<{ name: string; file: 'model' | 'disk'; from: string; to: string }> = [
     { name: 'предел в записи не проверяется', file: 'disk', from: "if (bytes > STORAGE_LIMIT_BYTES) return { ok: false, code: 'LIMIT', bytes };", to: '' },
+    { name: 'малое состояние показывается как «0 КиБ»', file: 'model', from: 'if (bytes < 1024) return `${Math.max(0, Math.round(bytes))} Б`;', to: '' },
     { name: 'размер считается знаками, а не байтами', file: 'model', from: 'return json === undefined ? null : new TextEncoder().encode(json).length;', to: 'return json === undefined ? null : json.length;' },
     { name: 'предел записи на 4 КиБ мягче', file: 'model', from: 'export const STORAGE_LIMIT_BYTES = 1024 * 1024;', to: 'export const STORAGE_LIMIT_BYTES = 1024 * 1024 + 4096;' },
     { name: 'запись не атомарная: старый файл удаляется до замены', file: 'disk', from: 'await renameWithRetry(fs, tmp, file);', to: 'await fs.rm(file, { recursive: true, force: true }); await renameWithRetry(fs, tmp, file);' },

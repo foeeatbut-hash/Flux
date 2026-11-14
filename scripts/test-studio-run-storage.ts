@@ -42,14 +42,14 @@ async function main() {
 
     console.log('Самостоятельная программа: диск области studio');
     run = { id: 'r2', manifest: standalone };
-    ok('пока пусто: «Хранилище: 0 КиБ из 1 МиБ»', (await storage.info()).text === 'Хранилище: 0 КиБ из 1 МиБ' && (await storage.info()).standalone);
+    ok('пока пусто: «Хранилище: 0 Б из 1 МиБ»', (await storage.info()).text === 'Хранилище: 0 Б из 1 МиБ' && (await storage.info()).standalone);
     const kept = await storage.keep({ notes: ['первая', 'вторая'] });
     ok('запись прошла, файл лежит в <данные>/program-data/<человек>/<программа>/studio/state.json', 'stored' in kept && kept.stored === true && fs.existsSync(path.join(folder('notes'), 'state.json')));
     const envelope = JSON.parse(fs.readFileSync(path.join(folder('notes'), 'state.json'), 'utf8'));
     ok('формат файла: format 1, программа, версия записавшего, состояние', envelope.format === 1 && envelope.program === 'notes' && envelope.writtenBy === '9.9.9' && envelope.state.notes.length === 2);
     ok('другие области Flux (released, dev) не созданы', !fs.existsSync(folder('notes', 'released')) && !fs.existsSync(folder('notes', 'dev')));
     ok('переживает перезапуск службы: новая служба читает то же', JSON.stringify((await make().load()).state) === JSON.stringify({ notes: ['первая', 'вторая'] }));
-    ok('строка показывает занятое', /^Хранилище: \d+(,\d)? КиБ из 1 МиБ$/.test((await storage.info()).text) && (await storage.info()).bytes! > 0);
+    ok('строка показывает занятое', /^Хранилище: \d+(,\d)? (Б|КиБ) из 1 МиБ$/.test((await storage.info()).text) && (await storage.info()).bytes! > 0);
 
     console.log('Предел 1 МиБ проверяет главный процесс');
     const before = fs.readFileSync(path.join(folder('notes'), 'state.json'), 'utf8');

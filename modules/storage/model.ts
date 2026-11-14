@@ -63,8 +63,9 @@ export function stateBytes(state: unknown): number | null {
   } catch { return null; }
 }
 
-/** «12 КиБ», «1,3 МиБ»: человеку и разработчику одинаково */
+/** «312 Б», «12 КиБ», «1,3 МиБ»: человеку и разработчику одинаково. Меньше килобайта — в байтах: «0 КиБ» при сохранённых данных читалось бы как «пусто» */
 export function sizeText(bytes: number): string {
+  if (bytes < 1024) return `${Math.max(0, Math.round(bytes))} Б`;
   if (bytes < 1024 * 1024) {
     const kib = bytes / 1024;
     return `${kib < 10 ? (Math.round(kib * 10) / 10).toString().replace('.', ',') : Math.round(kib)} КиБ`;

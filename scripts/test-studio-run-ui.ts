@@ -447,11 +447,11 @@ async function main() {
       await page.screenshot({ path: path.join(shots, `studio-run-${theme}-8-attach.png`), fullPage: true });
 
       // Самостоятельная программа (reads пуст, место запуска только «Пуск»): состояние пишется на диск, область studio
-      ok(`${theme}: у самостоятельной программы строка «Хранилище: 0 КиБ из 1 МиБ» и кнопка «Очистить»`, (await storageRow.innerText()).includes('Хранилище: 0 КиБ из 1 МиБ') && (await storageRow.getByRole('button', { name: 'Очистить' }).count()) === 1);
+      ok(`${theme}: у самостоятельной программы строка «Хранилище: 0 Б из 1 МиБ» и кнопка «Очистить»`, (await storageRow.innerText()).includes('Хранилище: 0 Б из 1 МиБ') && (await storageRow.getByRole('button', { name: 'Очистить' }).count()) === 1);
       await main.locator('#keep').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: 'состояние записано' }).waitFor();
-      await storageRow.getByText(/Хранилище: \d+(,\d)? КиБ из 1 МиБ/).waitFor();
-      await page.waitForFunction(() => !/: 0 КиБ/.test(document.querySelector('[data-testid="studio-storage"]')?.textContent || ''));
+      await storageRow.getByText(/Хранилище: \d+(,\d)? (Б|КиБ) из 1 МиБ/).waitFor();
+      await page.waitForFunction(() => !/: 0 Б /.test(document.querySelector('[data-testid="studio-storage"]')?.textContent || ''));
       ok(`${theme}: состояние записано в <данные Studio>/program-data/…/studio/state.json, строка показывает занятое`, fs.existsSync(stateFile) && JSON.parse(fs.readFileSync(stateFile, 'utf8')).state.n === 1 && !(await storageRow.innerText()).includes(': 0 КиБ'));
       await page.screenshot({ path: path.join(shots, `studio-run-${theme}-9-storage.png`), fullPage: true });
       await page.locator('.studio-bottom').getByRole('button', { name: 'Перезапустить' }).click();
@@ -470,7 +470,7 @@ async function main() {
       ok(`${theme}: после отказа окно по-прежнему отдаёт прежнее состояние`, (await status(main)).includes('"text":"сохранено"'));
       await storageRow.getByRole('button', { name: 'Очистить' }).click();
       await page.getByText(/очищено; перезапустите программу/).first().waitFor();
-      ok(`${theme}: «Очистить» удалила файл области studio, строка снова «0 КиБ», журнал записал очистку`, !fs.existsSync(stateFile) && (await storageRow.innerText()).includes('Хранилище: 0 КиБ из 1 МиБ'));
+      ok(`${theme}: «Очистить» удалила файл области studio, строка снова «0 Б», журнал записал очистку`, !fs.existsSync(stateFile) && (await storageRow.innerText()).includes('Хранилище: 0 Б из 1 МиБ'));
       await page.locator('.studio-bottom').getByRole('button', { name: 'Перезапустить' }).click();
       await main.locator('#status').filter({ hasText: 'готово' }).waitFor();
       await main.locator('#load').dispatchEvent('click');
