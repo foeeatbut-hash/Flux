@@ -101,7 +101,7 @@
   `StorageScope = 'released' | 'dev' | 'studio'`.
 
 Исполнитель А — Flux (в):
-- [ ] А1. `modules/storage/` + набор проверок; push.
+- [x] А1. `modules/storage/` + набор проверок; push.
 - [ ] А2. Главный процесс Flux: IPC хранилища (`released`/`dev`), предел,
       атомарная запись, битый файл; окно программы (`ModuleFrame`,
       `pageStateMemory`) — диск для самостоятельной, память для остальных.
@@ -146,3 +146,15 @@
   сообщение старый мост отвергает схемой. Поднятие до v4 заставило бы все прежние программы v3 без нужды показывать «обновите Flux».
   Цена решения: старый Flux v3 скажет общее «манифест не соответствует», а не «обновите». Если владелец хочет честное «обновите» — нужен v4.
 - Дальше: Б2 (окно установки/разница/согласие на настоящей службе, снимки; Studio — редактор разрешений и журнал), Б3 после А1.
+
+Исполнитель А:
+- А1 готов и запушен: `modules/storage/model.ts` (без Node: `isStandalone`, `worksOffline`, `STORAGE_LIMIT_BYTES` 1 МиБ, `MEMORY_LIMIT_BYTES` 256 КиБ,
+  `stateLimitFor`, `stateBytes`, `sizeText`, тексты `storageFullText(bytes)`, `storageUsageText(bytes)`, `STORAGE_DELETE_NOTICE`, `STORAGE_IN_MEMORY_TEXT`,
+  `WORKS_OFFLINE_LABEL`, тип `StorageScope`) и `modules/storage/disk.ts` (только главный процесс). Набор `scripts/test-modules-storage.ts` (138 проверок, 34 мутации).
+- Для Б3 (Studio): все функции диска принимают одну цель `target = { root, userId, programId, scope }`, где `root` — `<данные приложения>/program-data`:
+  `storagePath(root, userId, programId, scope)` (папка области), `readEnvelope(fs, target, {now?})` → `{ok, state, bytes, savedAt, broken?: {kept}}` или `{ok:false, code:'FAILED'}`,
+  `writeEnvelope(fs, target, {writtenBy, state})` → `{ok, bytes, broken?}` | `{ok:false, code:'LIMIT'|'FAILED', bytes?}`, `storageUsage(fs, target)` → байты | 0 | null (файл негоден),
+  `clearStorage(fs, target)` → `{ok, removed}`. `fs` — `fs.promises` (тип `StorageFs`). Идентификатор человека у Studio — свой, область `studio`.
+  Неверный id программы или область: `storagePath` бросает, `clearStorage` отвергает промисом — ловить.
+- Решение по признаку: `isStandalone` требует непустой `entries`, целиком из `start` (программа без мест запуска самостоятельной не считается).
+- Дальше: А2 (IPC в главном процессе, асинхронный `state-load/state-keep` в мосте — править `modules/bridge.ts` минимально; Б1 уже запушен).
