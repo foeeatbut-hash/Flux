@@ -19,17 +19,28 @@ import type { ProjectFiles } from './templates';
 
 export interface ControlsOutcome { kind: 'done'; report: ControlsReport; cases: number; slowestMs: number }
 export interface ControlsUnavailable { kind: 'unavailable'; reason: string }
+/**
+ * Пределы одного расчёта в Studio. Время — та же константа, что у Flux (LIMITS.timeoutMs); память WebAssembly задана максимумом
+ * в самом файле (LIMITS.wasmMaxPages / wasmCommandMaxPages проверяет тот же код, что у Flux), а куча потока JavaScript — только
+ * здесь: Flux считает TypeScript в окне Chromium, у Studio потока такой защиты нет, пока её не поставить.
+ */
+export const COMPUTE_LIMITS = { timeoutMs: LIMITS.timeoutMs, heapMb: 256 } as const;
+
 export interface ControlsEngine {
+  /** Пределы, с которыми движок считает; нужны запуску программы и проверкам (сверка с Flux) */
+  readonly limits?: { timeoutMs: number; heapMb: number };
   /** Один расчёт для запуска программы на WebAssembly: вход → выход, с теми же пределами */
   compute(language: ModuleLanguage, files: ProjectFiles, logicPath: string, input: unknown): Promise<ModuleOutput>;
   run(language: ModuleLanguage, files: ProjectFiles, logicPath: string, controlsText: string): Promise<ControlsOutcome | ControlsUnavailable | { kind: 'invalid'; reason: string }>;
 }
 
 export function createControlsEngine(options: { workerFile: string; timeoutMs?: number; maxHeapMb?: number }): ControlsEngine {
-  const timeoutMs = options.timeoutMs ?? LIMITS.timeoutMs;
+  const timeoutMs = options.timeoutMs ?? COMPUTE_LIMITS.timeoutMs;
+  const heapMb = options.maxHeapMb ?? COMPUTE_LIMITS.heapMb;
   const runCase = (job: Record<string, unknown>): Promise<string> => new Promise((resolve, reject) => {
     const worker = new Worker(options.workerFile, {
-      workerData: job, resourceLimits: { maxOldGenerationSizeMb: options.maxHeapMb ?? 256, maxYoungGenerationSizeMb: 32 },
+      // Свои переменные среды потоку не нужны: у считающей логики нет доступа к тому, что лежит в окружении Studio
+      workerData: job, env: {}, resourceLimits: { maxOldGenerationSizeMb: heapMb, maxYoungGenerationSizeMb: 32 },
     });
     const fail = (code: ComputeErrorCode, detail = '') => { clearTimeout(timer); void worker.terminate(); reject(new ComputeError(code, detail)); };
     const timer = setTimeout(() => fail('TIMEOUT', `больше ${Math.round(timeoutMs / 1000)} с`), timeoutMs);
@@ -50,12 +61,15 @@ export function createControlsEngine(options: { workerFile: string; timeoutMs?: 
     if (language === 'typescript') {
       const compiled = compileLogic(Buffer.from(logic).toString('utf8'), logicPath);
       if (compiled.problem) throw new ComputeError('ABI', compiled.problem);
+      // Тот же предел файла логики, что у Flux (src/services/moduleCompute.ts): собранный JS больше 1 МиБ не запускается
+      if (Buffer.byteLength(compiled.code) > LIMITS.tsFileBytes) throw new ComputeError('ABI', 'файл логики больше 1 МиБ');
       code = compiled.code;
     }
     return { kind: language === 'wasm' ? 'wasm' : 'typescript', code, bytes: language === 'wasm' ? logic : undefined, input: encodeJson(input), seed: 0 };
   };
 
   return {
+    limits: { timeoutMs, heapMb },
     async compute(language, files, logicPath, input) {
       return parseComputeOutput(await runCase(job(language, files, logicPath, input))) as ModuleOutput;
     },

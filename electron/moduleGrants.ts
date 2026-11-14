@@ -33,7 +33,8 @@ export class ModuleGrants {
   private loaded: Promise<void> | null = null;
   /** Какие программы сейчас запущены из разработки; решения по ним идут в отдельную область (DEV_KEY) */
   private isDev: (moduleId: string) => boolean = () => false;
-  constructor(private file: string) {}
+  /** `file` = null: решения живут только в памяти (Studio: запуск программы не читает и не пишет grants.json Flux) */
+  constructor(private file: string | null) {}
 
   setDevScope(isDev: (moduleId: string) => boolean) { this.isDev = isDev; }
   private keyOf(userId: string, moduleId: string, connection: string) {
@@ -46,6 +47,7 @@ export class ModuleGrants {
 
   load(): Promise<void> {
     return this.loaded ||= (async () => {
+      if (!this.file) return;
       try {
         const file = JSON.parse(await fs.readFile(this.file, 'utf8')) as { rows?: Record<string, Row>; policy?: string[] };
         // Политика хранится рядом с решениями: без связи с сервером запрет администратора не пропадает после перезапуска
@@ -106,6 +108,7 @@ export class ModuleGrants {
   }
 
   private async save() {
+    if (!this.file) return;
     try {
       await fs.mkdir(path.dirname(this.file), { recursive: true });
       const tmp = `${this.file}.${process.pid}.tmp`;

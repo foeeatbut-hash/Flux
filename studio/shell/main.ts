@@ -187,6 +187,12 @@ export function startShell(sections: ShellSection[] = []): void {
         if (!win) return null;
         return showDataFileDialog(dialog, win, options);
       },
+      // Файл от запущенной программы: человек выбирает место в системном диалоге, файл пишет главный процесс (studio/shell/runSaveFile.ts)
+      pickSaveFile: async ({ title, defaultName }) => {
+        if (!win) return null;
+        const r = await dialog.showSaveDialog(win, { title, defaultPath: path.join(app.getPath('downloads'), defaultName), buttonLabel: 'Сохранить' });
+        return r.canceled || !r.filePath ? null : r.filePath;
+      },
       pickFolder: async title => {
         if (!win) return null;
         const picked = await dialog.showOpenDialog(win, { title, properties: ['openDirectory', 'createDirectory'] });

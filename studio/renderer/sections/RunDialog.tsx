@@ -7,10 +7,11 @@ import Modal from '../work/Modal';
 import type { PageDialog, PageDialogAnswer } from '../../../modules/page/model';
 import { dialogCancel, dialogCancelLabel, dialogOkLabel, dialogSubmit } from '../work/programDialog';
 
-export default function RunDialog({ program, request, onAnswer }: { program: string; request: PageDialog; onAnswer: (answer: PageDialogAnswer) => void }) {
+/** `scoped` — диалог поверх своего окна программы, а не всего окна Studio: окно программы блокируется само, остальные работают */
+export default function RunDialog({ program, request, onAnswer, scoped }: { program: string; request: PageDialog; onAnswer: (answer: PageDialogAnswer) => void; scoped?: boolean }) {
   const [value, setValue] = useState(request.kind === 'prompt' ? request.value ?? '' : '');
   const cancel = dialogCancel(request);
-  return <Modal title={`${program} — ${request.title}`} onClose={() => onAnswer(cancel)}>
+  return <Modal title={`${program} — ${request.title}`} onClose={() => onAnswer(cancel)} scoped={scoped}>
     <form onSubmit={e => { e.preventDefault(); onAnswer(dialogSubmit(request, value)); }} data-testid="studio-run-dialog">
       {request.text && <p className="fx-hint" style={{ whiteSpace: 'pre-wrap' }}>{request.text}</p>}
       {request.kind === 'prompt' && <div className="field"><label htmlFor="run-dialog-input">{request.label}</label>

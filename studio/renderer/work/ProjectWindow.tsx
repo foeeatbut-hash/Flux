@@ -27,6 +27,9 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
   const [panel, setPanel] = useState<PanelTab>('run');
   const [panelOpen, setPanelOpen] = useState(true);
   const [runSignal, setRunSignal] = useState(0);
+  // Окна запущенной программы лежат в основной области, у вкладок: туда их кладёт запуск из нижней панели
+  const [scene, setScene] = useState<HTMLElement | null>(null);
+  const [runStop, setRunStop] = useState(0);
   const [problems, setProblems] = useState<Problem[]>([]);
   const [publishing, setPublishing] = useState(false);
   const [busy, setBusy] = useState('');
@@ -71,6 +74,7 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
   const run = async () => {
     if (!(await area.current?.saveAll())) return;
     setPanel('run'); setPanelOpen(true); setRunSignal(n => n + 1);
+    area.current?.openRun();
   };
   // «Собрать»: TypeScript собирается внутри Studio; ошибки идут в «Проблемы» с файлом и строкой
   const hasTs = (tree?.entries || []).some(e => !e.dir && isTsSource(e.path));
@@ -147,10 +151,10 @@ export default function ProjectWindow({ id, onBack, keyState }: { id: string; on
             onRenamed={(a, b) => area.current?.renamed(a, b)} onDeleted={p => area.current?.deleted(p)} onError={setError} />
         </aside>
         <div className="studio-center">
-          <EditorArea ref={area} id={id} entries={tree?.entries || []} notes={notes?.notes || []} onDirty={setDirty} onError={setError} onSaved={() => void reload()} />
+          <EditorArea ref={area} id={id} entries={tree?.entries || []} notes={notes?.notes || []} onDirty={setDirty} onError={setError} onSaved={() => void reload()} onScene={setScene} onRunClose={() => setRunStop(n => n + 1)} />
         </div>
       </div>
-      <BottomPanel id={id} tab={panel} onTab={setPanel} open={panelOpen} onToggle={() => setPanelOpen(o => !o)} runSignal={runSignal}
+      <BottomPanel id={id} tab={panel} onTab={setPanel} open={panelOpen} onToggle={() => setPanelOpen(o => !o)} runSignal={runSignal} scene={scene} runStop={runStop} onRunStarted={() => area.current?.openRun()}
         problems={problems} onProblems={setProblems} onGo={goto} right={keyState.right} onRequestRight={() => void keyState.request()} rightError={keyState.error} requestsVersion={requestsVersion} notes={notes}
         history={{ version: historyVersion, getDirty: () => area.current?.dirty() ?? [], saveAll: async () => (await area.current?.saveAll()) ?? false, onNote: setNote,
           onRolledBack: restorePoint => { setNote(`Проект возвращён к выбранной версии. Прежнее состояние сохранено: «${REASON_TEXT[restorePoint.reason]}» от ${formatTime(restorePoint.time)}.`); setHistoryVersion(n => n + 1); void reload(); } }} />

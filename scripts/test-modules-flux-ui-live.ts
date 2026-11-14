@@ -119,7 +119,10 @@ async function main() {
     await page.addInitScript('globalThis.__name = (fn) => fn');
     await page.evaluate('globalThis.__name = (fn) => fn');
     await page.setViewportSize({ width: 1440, height: 900 });
-    page.setDefaultTimeout(15000);
+    // Окно берёт экраны у сервера разработки, и каждый экран при первом открытии собирается на лету. На Windows CI вход
+    // (строка fill), перезагрузка и первый показ «Оборудования» падали по пределу 15 с: по журналу страница сообщала
+    // FLUX_LOAD_OK меньше чем за секунду до истечения предела. Предел ожидания — с запасом на холодную сборку экрана.
+    page.setDefaultTimeout(60000);
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
     await page.locator('input').nth(0).fill(creds.admin.symbol);

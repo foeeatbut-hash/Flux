@@ -247,6 +247,8 @@ Linux: подписанные выпуски, окно запроса в обе�
 и журнал на экране). Снимки — артефакт CI (`artifacts/modules-shots`), в git их нет. Не проверено на этом
 этапе: E3 вживую и работа помощника COM с реальным E3 — у владельца.
 
+Общий код используется и запуском Studio: тот же `ModuleConnections` в `studio/shared/runConnections.ts`, см. `studio.md`, «Полный запуск в Studio»; решения согласия в запуске Studio живут в памяти (`ModuleGrants(null)`) до закрытия Studio и `grants.json` не трогают.
+
 ## Реестр разрешений: интернет и локальная сеть (договор v3)
 
 Что программа получает, считает таблица `modules/permissions/registry.ts`: чтение разделов, подключения, `internet`, `lan`. Из неё строятся
@@ -279,6 +281,8 @@ Linux: подписанные выпуски, окно запроса в обе�
 версии при отзыве, журнал без содержимого, клиент, метод на TypeScript из подписанного `build/logic.js`, запрет администратора `@program:<id>` (роль, все, снятие, другая пара), проверка выпуска и мутации защит; движки подставные),
 `test-modules-programs-engines` (те же вызовы на настоящих Pyodide, WebAssembly и TypeScript в Chromium: успех, `TIMEOUT`, `LIMIT`, `FAILED`, контрольные примеры, запрет администратора, журнал),
 `test-modules-ts-host` (метод на TypeScript в настоящем Chromium: настоящий изолированный кадр, Worker и CSP — нет сети, нет состояния, пределы, мутации); в Electron на Windows — случаи вызова метода на TypeScript и Python в `test-modules-compute-native`. Все три набора вызова (`modules-programs`, `modules-permissions`, `modules-programs-engines`) входят в манифест проверок и `verify-modules.yml`.
+
+Общий код используется и запуском Studio (`studio/shared/runPrograms.ts`, см. `studio.md`, «Полный запуск в Studio»); решения в запуске Studio — в памяти (`ModuleGrants(null)`).
 
 ## Страница программы (договор v2)
 
