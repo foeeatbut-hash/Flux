@@ -443,6 +443,10 @@ export function ensureSchemaColumns(dbPath: string, logInit: (message: string) =
           logInit('[DB Migrate] Добавлена колонка FileNode.ownerId');
         }
       }
+      // Расписки повтора записи (X-Flux-Op-Id, server/opReceipt.ts); общую базу создаёт schema-sync
+      db.exec('CREATE TABLE IF NOT EXISTS "OpReceipt" ("id" TEXT PRIMARY KEY NOT NULL, "actorId" TEXT NOT NULL, "opId" TEXT NOT NULL, "requestHash" TEXT NOT NULL, "state" TEXT NOT NULL DEFAULT \'PENDING\', "status" INTEGER NOT NULL DEFAULT 0, "body" TEXT NOT NULL DEFAULT \'\', "createdAt" DATETIME NOT NULL DEFAULT current_timestamp)');
+      try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "OpReceipt_actorId_opId_key" ON "OpReceipt"("actorId", "opId")'); } catch (e) {}
+      try { db.exec('CREATE INDEX IF NOT EXISTS "OpReceipt_createdAt_idx" ON "OpReceipt"("createdAt")'); } catch (e) {}
     } finally {
       db.close();
     }
