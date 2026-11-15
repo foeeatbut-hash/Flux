@@ -7,7 +7,7 @@
 ## Шаги
 
 - [x] 1. Словарь `src/lib/refusalTexts.ts`, `server/equipmentStale.ts`, набор `test-refusal-texts`
-- [ ] 2. Таблица `OpenRecord`, `server/openRecords.ts`, маршруты, набор `test-open-records`
+- [x] 2. Таблица `OpenRecord`, `server/openRecords.ts`, маршруты, набор `test-open-records`
 - [ ] 3. `versionGuard`: `openCheck`, `RecordOpen`, `sendRecordOpen`, `sendRecordGone`
 - [ ] 4. Маршруты оборудования, `tags` в `current`, набор маршрутов
 - [ ] 5. Храповик `test-architecture`, манифест наборов
@@ -19,4 +19,6 @@
 
 ## Где остановился
 
-Шаг 1 готов (tsc 0, test-refusal-texts 27 проверок, 4 мутации убиты). Дальше — шаг 2.
+Шаги 1–2 готовы (tsc 0; test-refusal-texts 27 проверок; test-open-records 46 проверок, мутации убиты).
+Клиенты Prisma пересозданы в этой копии (`npx prisma generate --schema=...` для трёх схем); package.json клиентов помечены skip-worktree, не коммитить.
+Дальше — шаг 3 (`versionGuard`).
