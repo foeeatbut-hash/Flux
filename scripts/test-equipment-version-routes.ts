@@ -17,13 +17,14 @@
  *  • текст отказа — из словаря по случаю (правка, удаление, создание внутри), без кода;
  *  • отказ по позиции несёт в `current` теги `[{ id, code }]`;
  *  • записи уже нет — 404 `RECORD_GONE` с текстом словаря и без записи в базу (удаление удалённого — 200);
- *  • два человека: позиция или установка, открытая (или с открытой вложенной на любой глубине) у
- *    коллеги, не удаляется — 409 `RECORD_OPEN`, держатели и запись названы, в базе ничего не
+ *  • два человека: позиция, открытая у коллеги, или установка, открытая (или с открытой вложенной
+ *    позицией) у коллеги, не удаляется; открытая вложенная позиция удалению позиции-владельца не мешает
+ *    (вложенные поднимаются на уровень выше, версия растёт) — 409 `RECORD_OPEN`, держатели и запись названы, в базе ничего не
  *    изменилось; свои окна, несвежие отметки (больше 90 с) и чужие записи удалению не мешают;
  *    таблицы открытых записей нет — удаление идёт.
  *
  * Мутации, которыми набор проверен (каждая роняет его): убрать `openCheck` у удаления позиции;
- * убрать его у удаления установки; не смотреть вложенные (позиции и установки); убрать `tags` из
+ * убрать его у удаления установки; не смотреть вложенные у установки; смотреть вложенные у позиции; убрать `tags` из
  * `current`; вернуть 404 без кода; вернуть прежнюю строку отказа вместо словаря.
  */
 import assert from 'node:assert/strict';
@@ -372,24 +373,24 @@ async function main() {
       check('клиент без версии (старая сборка) открытую позицию тоже не удалит', open409(withoutVersion) && same(before, await world()), withoutVersion);
     }
     {
-      await seed();
-      await holds('u-petrova', 'ComponentElement', 'C2');
-      const before = await world();
-      const r = await send(delPosition, await versionOf(delPosition.target));
-      check('открыта вложенная позиция: удаление владельца отказано, названа вложенная',
-        open409(r) && r.body?.record?.id === 'C2' && r.body.record.name === 'Двигатель'
-        && r.body?.error === deleteOpenNestedText({ noun: 'position', name: 'Вентилятор' }, { noun: 'position', name: 'Двигатель' }, petrova), r.body);
-      check('открыта вложенная позиция: в базе не изменилось ничего', same(before, await world()));
-    }
-    {
+      // Вложенные не удаляются, а поднимаются на уровень выше: открытая у коллеги вложенная владельцу не мешает
       await seed();
       await raw.componentElement.create({ data: { id: 'C4', name: 'Датчик ПТС', itemCode: 'FAN-1/м/д', monoblockId: 'M1', role: 'ДАТЧИК', parentElementId: 'C2' } });
+      await holds('u-petrova', 'ComponentElement', 'C2');
       await holds('u-petrova', 'ComponentElement', 'C4');
       const before = await world();
       const r = await send(delPosition, await versionOf(delPosition.target));
-      check('открыта позиция на два уровня глубже: удаление отказано', open409(r) && r.body?.record?.id === 'C4', r);
-      check('открыта позиция на два уровня глубже: в базе не изменилось ничего', same(before, await world()));
+      const after = await world();
+      check('открыта вложенная у коллеги: владелец удаляется', r.status === 200 && !comp(after, 'C1'), r);
+      check('открытая вложенная цела и поднята на уровень выше', !!comp(after, 'C2') && comp(after, 'C2').parentElementId === null && comp(after, 'C4')?.parentElementId === 'C2', after.components.map((c: any) => [c.id, c.parentElementId]));
+      check('у поднятой вложенной версия выросла на 1: сохранение коллеги по старой версии получит отказ, а не затрёт',
+        comp(after, 'C2').version === comp(before, 'C2').version + 1, [comp(before, 'C2').version, comp(after, 'C2').version]);
+      const staleSave = await fetch(`${origin}/api/equipment/component/C2/class`, {
+        method: 'PUT', headers: { 'content-type': 'application/json', 'x-test-user': 'u-petrova' }, body: JSON.stringify({ equipClass: 'ВЕНТИЛЯТОР', expectedVersion: comp(before, 'C2').version }),
+      });
+      check('правка коллеги по версии до подъёма — 409 VERSION_CONFLICT', staleSave.status === 409 && (await staleSave.json() as any).code === 'VERSION_CONFLICT');
     }
+
     {
       await seed();
       await holds('u-petrova', 'ComponentElement', 'C3');

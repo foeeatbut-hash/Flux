@@ -8,7 +8,7 @@ import { importPolicyOfProject } from './tagPolicy.js';
 import { keepVersion } from '../versionBump.js';
 import { expectedVersionOf, assertExpectedVersion, guardedWrite, guardedDelete, sendRecordGone } from '../versionGuard.js';
 import { staleElement, staleElementDelete, staleElementInside, staleMonoblock, badVersion } from '../equipmentStale.js';
-import { replyEquipmentError, elementCascade } from '../equipmentRefusal.js';
+import { replyEquipmentError } from '../equipmentRefusal.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from '../equipmentHierarchy.js';
 import { TAG_SOURCE, recordTagCreated, recordChangeSets, updateSet, inTagTransaction, type TagChangeSet } from '../tagHistory.js';
 import { withCodeKey, findTagByCode, isCodeKeyViolation } from '../tagCodeKey.js';
@@ -64,8 +64,9 @@ export function registerEquipmentEditRoutes(app: Express): void {
       let children: Array<{ id: string; name: string }> = [];
       const gone = await guardedDelete(prisma, {
         model: 'componentElement', id: req.params.id, expectedVersion, staleMessage: staleElementDelete,
-        // Позиция и всё вложенное не должны быть открыты у коллеги: ему было бы нечего сохранять
-        openCheck: { userId: String(me?.id || ''), cascade: elementCascade },
+        // Сама позиция не должна быть открыта у коллеги. Вложенные не смотрим: они не удаляются, а
+        // поднимаются на уровень выше (их версия растёт, коллега при сохранении получит отказ по версии)
+        openCheck: { userId: String(me?.id || '') },
         // Всё, что идёт вместе с удалением, — в той же транзакции и по тому, что
         // прочитано в ней: не записалось оно, не удалилась и позиция
         before: async (db: any, current: any) => {

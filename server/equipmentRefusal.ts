@@ -6,7 +6,8 @@
  * знает только оборудование:
  *  • отказ по позиции несёт в `current` теги — `[{ id, code }]` (у «сырой» строки
  *    позиции тегов нет), иначе экрану нечего сравнить с показанным;
- *  • что уйдёт вместе с позицией и с установкой — для защиты открытой записи.
+ *  • что уйдёт вместе с установкой — для защиты открытой записи (у позиции каскада нет:
+ *    вложенные не удаляются, а поднимаются на уровень выше).
  */
 
 import type { Response } from 'express';
@@ -49,29 +50,6 @@ export async function replyEquipmentError(res: Response, err: any): Promise<void
 }
 
 const nameOf = (r: any): string => String(r?.name || r?.itemCode || '').trim();
-
-/**
- * Вложенное в позицию: все позиции под ней, на любую глубину. Удаление поднимает
- * детей на уровень выше, но человек, открывший датчик на двигателе, не должен
- * увидеть, что у него из-под рук убрали владельца: защита смотрит всё вложенное.
- * Читает только через `db` транзакции.
- */
-export async function elementCascade(db: any, current: any): Promise<OpenRef[]> {
-  const out: OpenRef[] = [];
-  const seen = new Set<string>([current.id]);
-  let frontier = [current.id];
-  while (frontier.length) {
-    const rows = await db.componentElement.findMany({ where: { parentElementId: { in: frontier } }, select: { id: true, name: true, itemCode: true } });
-    frontier = [];
-    for (const r of rows) {
-      if (seen.has(r.id)) continue;
-      seen.add(r.id);
-      frontier.push(r.id);
-      out.push({ model: 'ComponentElement', id: r.id, name: nameOf(r) });
-    }
-  }
-  return out;
-}
 
 /** Вложенное в установку: её блоки и все позиции этих блоков. */
 export async function systemCascade(db: any, current: any): Promise<OpenRef[]> {
