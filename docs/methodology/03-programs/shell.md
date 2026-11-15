@@ -416,6 +416,37 @@ POST/PUT/PATCH/DELETE к `/api/` заголовок `X-Flux-Op-Id` (`crypto.rand
   но получает прежний статус и `{ replayed: true }`.
 - Набор — `scripts/test-op-receipt.ts`.
 
+### Версия записи и сверка (`version`, `expectedVersion`)
+
+У двенадцати синхронизируемых моделей (Project, Tag, EquipmentSystem,
+Monoblock, ComponentElement, DocRegister, DocRegisterItem, ConstructorDoc,
+FileNode, Dictionary, DictionaryItem, TagTemplate) есть целая колонка
+`version`. Два общих места, второго способа нет:
+
+- **Кто двигает** — `server/versionBump.ts`, расширение клиента базы,
+  подключённое в `createPrismaClient` (`server.ts`). Всякий `update`,
+  `updateMany`, `upsert` по этим моделям получает «версия + 1», если запись не
+  задала версию сама. Маршруту двигать версию не нужно. Запись, которая не
+  должна считаться правкой, оборачивается в `keepVersion(data)`. Сырой SQL и
+  вложенные записи идут мимо расширения — каждое такое место вносится в
+  перечень раздела 10 `scripts/test-architecture.ts` с причиной.
+- **Кто сверяет** — `server/versionGuard.ts`: `guardedWrite` и `guardedDelete`
+  (чтение, сверка, «сравни и поменяй» в одной транзакции), `expectedVersionOf`
+  (разбор присланного), `sendVersionConflict` (ответ 409). Копии сверки по
+  маршрутам не пишутся.
+
+Договор маршрута записи: клиент шлёт `expectedVersion` — `version` записи,
+которую показывал экран (в теле; у `DELETE` — `?expectedVersion=`). Чужая
+версия — 409 `{ error, code: 'VERSION_CONFLICT', current }`: текст для
+человека по-русски, код отдельным полем, `current` — запись как сейчас.
+Нечитаемая версия — 400. Запрос без версии принимается и сверяется с
+собственным чтением сервера. Экран узнаёт отказ по коду, а не по тексту,
+перечитывает данные и оставляет набранное в поле. У тега поле API `version` —
+это `updatedAt`, целая версия идёт отдельным именем.
+
+Какие маршруты уже сверяют — `docs/roadmap/offline-work.md`, «К пункту 0.5».
+Проверки: `test-version-bump`, `test-version-guard`.
+
 ### Окно «Сообщить о проблеме» (кнопка верхней панели)
 
 - Черновик (`useComposer`, ключ `quick`) живёт только для неотправленного
