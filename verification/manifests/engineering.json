@@ -818,6 +818,27 @@
       "timeoutMs": 900000
     },
     {
+      "id": "eng-equipment-version-client",
+      "path": "scripts/test-equipment-version-client.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "eng-equipment-version-ui",
+      "path": "scripts/test-equipment-version-ui.ts",
+      "layer": "browser-live",
+      "platform": "any",
+      "resources": [
+        "sqlite-fixture",
+        "playwright"
+      ],
+      "prerequisites": [],
+      "timeoutMs": 300000
+    },
+    {
       "id": "eng-project-entity-ids",
       "path": "scripts/test-entity-ids.ts",
       "layer": "api-db",
@@ -4261,6 +4282,20 @@
           "layer": "api-db",
           "claims": [
             "Каталожные effective-параметры нельзя изменить через обычные API-маршруты; XML и manual overrides сохраняют каталог неизменным."
+          ]
+        },
+        {
+          "suite": "eng-equipment-version-client",
+          "layer": "unit",
+          "claims": [
+            "Каждое действие экрана над позицией, блоком и установкой отправляет версию записи, которую видел экран; отказ по версии узнаётся по коду, а не по тексту."
+          ]
+        },
+        {
+          "suite": "eng-equipment-version-ui",
+          "layer": "browser-live",
+          "claims": [
+            "При правке типа, значения и удалении по устаревшей версии экран показывает отказ сервера, перечитывает данные, не затирает чужую правку и не теряет набранное; повтор после перечитывания проходит."
           ]
         }
       ],

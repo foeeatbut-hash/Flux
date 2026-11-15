@@ -21,18 +21,24 @@
  * полей при проигрыше гонки повторяется (она «поставь эти поля» и от повтора
  * не меняет смысла), а выпуск ревизии — нет: второй выпуск — это ещё одна
  * ревизия, которую человек не просил, поэтому проигравший получает 409.
+ *
+ * Общий приём («сравни и поменяй» по целой версии, отказ с текущей записью)
+ * живёт в server/versionGuard.ts и служит всем моделям; здесь остаётся то,
+ * что принадлежит ВДР: сверка по `updatedAt` и по номеру ревизии, которые
+ * присылают уже выпущенные клиенты.
  */
 
-/** Запись не применена: строку или реестр до этого изменили. */
-export class VdrConflict extends Error {
-  constructor(message: string) { super(message); this.name = 'VdrConflict'; }
-}
+import { VersionConflict, inTransaction, guardedWrite } from './versionGuard.js';
+import { bumpedData } from './versionBump.js';
 
-/** Внутренний сигнал «проиграл гонку, можно перечитать и повторить». */
+export { inTransaction };
+
+/** Запись не применена: строку или реестр до этого изменили. Тот же класс, что у общего места сверки. */
+export const VdrConflict = VersionConflict;
+export type VdrConflict = VersionConflict;
+
+/** Внутренний сигнал «проиграл гонку» (только у выпуска ревизии). */
 class RaceLost extends Error {}
-
-/** Попыток повтора правки полей у клиента без ожидаемой версии. */
-const RETRIES = 4;
 
 /** Время в тексте отказа: «04.11.2026 14:32». */
 export function whenText(value: Date | string | null | undefined): string {
@@ -40,8 +46,6 @@ export function whenText(value: Date | string | null | undefined): string {
   if (!d || Number.isNaN(d.getTime())) return '';
   return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
-
-const sameInstant = (a: any, b: any): boolean => new Date(a).getTime() === new Date(b).getTime();
 
 /**
  * Ожидаемая версия из тела запроса: строка с датой или ничего.
@@ -55,14 +59,6 @@ export function expectedStamp(raw: unknown): string | undefined | null {
 /** Ожидаемая ревизия из тела запроса: непустая строка или ничего. */
 export function expectedRevisionOf(raw: unknown): string | undefined {
   return typeof raw === 'string' && raw.trim() ? raw.trim() : undefined;
-}
-
-/**
- * Транзакция, если база их умеет. Заглушки проверок без `$transaction`
- * получают сам клиент: сверка «сравни и поменяй» остаётся в силе.
- */
-export function inTransaction<T>(prisma: any, fn: (db: any) => Promise<T>): Promise<T> {
-  return typeof prisma.$transaction === 'function' ? prisma.$transaction(fn) : fn(prisma);
 }
 
 interface GuardedUpdate<R> {
@@ -85,30 +81,11 @@ interface GuardedUpdate<R> {
 
 /**
  * Правка записи под сверкой версии. Возвращает запись до и после и то, что
- * вернул `build`. Нет записи — `null`.
+ * вернул `build`. Нет записи — `null`. Сама сверка — общая (versionGuard.ts);
+ * здесь ВДР добавляет сверку по `updatedAt`, которую шлёт клиент.
  */
 export async function guardedUpdate<R = undefined>(prisma: any, opts: GuardedUpdate<R>): Promise<{ before: any; after: any; extra?: R } | null> {
-  const attempts = opts.expectedUpdatedAt ? 1 : RETRIES;
-  for (let n = 1; ; n++) {
-    try {
-      return await inTransaction(prisma, async (db) => {
-        const current = await db[opts.model].findUnique({ where: { id: opts.id } });
-        if (!current) return null;
-        if (opts.expectedUpdatedAt && !sameInstant(current.updatedAt, opts.expectedUpdatedAt)) {
-          throw new VdrConflict(opts.staleMessage(current));
-        }
-        const { data, extra } = await opts.build(current, db);
-        const swapped = await db[opts.model].updateMany({ where: { id: current.id, updatedAt: current.updatedAt }, data });
-        if (swapped.count !== 1) throw new RaceLost();
-        const after = await db[opts.model].findUnique({ where: { id: current.id } });
-        if (opts.after) await opts.after(db, current, after);
-        return { before: current, after, extra };
-      });
-    } catch (e) {
-      if (!(e instanceof RaceLost)) throw e;
-      if (n >= attempts) throw new VdrConflict(opts.expectedUpdatedAt ? 'Запись уже изменили, пока вы её правили.' : 'Запись меняют одновременно, повторите действие.');
-    }
-  }
+  return guardedWrite<R>(prisma, { ...opts, matchUpdatedAt: true });
 }
 
 /**
@@ -131,11 +108,11 @@ export async function guardedIssue<R>(prisma: any, opts: {
       const current = await db[opts.model].findUnique({ where: { id: opts.id } });
       if (!current) return null;
       if (opts.expectedRevision !== undefined && opts.expectedRevision !== current.revision) {
-        throw new VdrConflict(await opts.staleMessage(db, current));
+        throw new VdrConflict(await opts.staleMessage(db, current), current);
       }
       const { data, extra } = opts.next(current);
       const swapped = await db[opts.model].updateMany({
-        where: { id: current.id, revision: current.revision, updatedAt: current.updatedAt }, data,
+        where: { id: current.id, revision: current.revision, updatedAt: current.updatedAt, version: current.version }, data: bumpedData(data),
       });
       if (swapped.count !== 1) throw new RaceLost();
       if (opts.after) await opts.after(db, current, extra);
@@ -146,6 +123,6 @@ export async function guardedIssue<R>(prisma: any, opts: {
     if (!(e instanceof RaceLost)) throw e;
     // Проигравший гонку: победитель уже записан, его и называем в отказе
     const fresh = await prisma[opts.model].findUnique({ where: { id: opts.id } });
-    throw new VdrConflict(fresh ? await opts.staleMessage(prisma, fresh) : 'Запись уже изменили.');
+    throw new VdrConflict(fresh ? await opts.staleMessage(prisma, fresh) : 'Запись уже изменили.', fresh);
   }
 }

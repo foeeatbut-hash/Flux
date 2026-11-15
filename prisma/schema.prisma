@@ -47,6 +47,8 @@ model User {
 
 model Project {
   id          String   @id @default(uuid())
+  // Целая версия записи: растёт при каждой принятой записи (server/versionBump.ts), сверяется с тем, что видел клиент (server/versionGuard.ts)
+  version Int @default(1)
   name        String
   code        String   @default("") // Код проекта
   customer    String   @default("") // Заказчик
@@ -73,6 +75,8 @@ model Project {
 // bindings — привязки умных блоков (наша бизнес-логика, отдельно от движка).
 model ConstructorDoc {
   id          String    @id @default(uuid())
+  // Целая версия записи: растёт при каждой принятой записи (server/versionBump.ts), сверяется с тем, что видел клиент (server/versionGuard.ts)
+  version Int @default(1)
   projectId   String
   name        String    @default("Без названия")
   kind        String    @default("DOC") // "DOC" | "TEMPLATE"
@@ -117,6 +121,8 @@ model ConstructorDocVersion {
 // документа; документ Конструктора привязывается через docId.
 model DocRegister {
   id                  String   @id @default(uuid())
+  // Целая версия записи: растёт при каждой принятой записи (server/versionBump.ts), сверяется с тем, что видел клиент (server/versionGuard.ts)
+  version Int @default(1)
   projectId           String
   name                String   @default("ВДР")
   vendor              String   @default("")
@@ -155,6 +161,8 @@ model DocRegister {
 
 model DocRegisterItem {
   id             String    @id @default(uuid())
+  // Целая версия записи: растёт при каждой принятой записи (server/versionBump.ts), сверяется с тем, что видел клиент (server/versionGuard.ts)
+  version Int @default(1)
   registerId     String
   projectId      String
   contractorNo   String    @default("")
@@ -320,6 +328,8 @@ model DocRegisterItemRevision {
 
 model Dictionary {
   id        String           @id @default(uuid())
+  // Целая версия записи: растёт при каждой принятой записи (server/versionBump.ts), сверяется с тем, что видел клиент (server/versionGuard.ts)
+  version Int @default(1)
   projectId String
   name      String
   items     DictionaryItem[]
@@ -329,6 +339,8 @@ model Dictionary {
 
 model DictionaryItem {
   id           String           @id @default(uuid())
+  // Целая версия записи: растёт при каждой принятой записи (server/versionBump.ts), сверяется с тем, что видел клиент (server/versionGuard.ts)
+  version Int @default(1)
   dictionaryId String
   code         String
   nameRu       String
@@ -341,6 +353,8 @@ model DictionaryItem {
 
 model TagTemplate {
   id         String @id @default(uuid())
+  // Целая версия записи: растёт при каждой принятой записи (server/versionBump.ts), сверяется с тем, что видел клиент (server/versionGuard.ts)
+  version Int @default(1)
   projectId  String @unique
   schemaJson String
 
@@ -368,6 +382,8 @@ model Folder {
 
 model FileNode {
   id          String   @id @default(uuid())
+  // Целая версия записи: растёт при каждой принятой записи (server/versionBump.ts), сверяется с тем, что видел клиент (server/versionGuard.ts)
+  version Int @default(1)
   name        String
   filePath    String
   /// Откуда файл принесли из Windows — по этому пути выгрузка предложит ту же папку
@@ -465,6 +481,8 @@ model Equipment {
 
 model Tag {
   id          String    @id @default(uuid())
+  // Целая версия записи: растёт при каждой принятой записи (server/versionBump.ts), сверяется с тем, что видел клиент (server/versionGuard.ts)
+  version Int @default(1)
   identifier  String // e.g. AHU-2
   brand       String? // Марка
   department  String?
@@ -490,6 +508,8 @@ model Tag {
 
 model EquipmentSystem {
   id         String      @id @default(uuid())
+  // Целая версия записи: растёт при каждой принятой записи (server/versionBump.ts), сверяется с тем, что видел клиент (server/versionGuard.ts)
+  version Int @default(1)
   name       String // e.g. "у1"
   projectId  String
   category   String      @default("AHU") // Возможные значения: "AHU", "FAN", "VALVE", "CURTAIN"
@@ -501,6 +521,8 @@ model EquipmentSystem {
 
 model Monoblock {
   id         String             @id @default(uuid())
+  // Целая версия записи: растёт при каждой принятой записи (server/versionBump.ts), сверяется с тем, что видел клиент (server/versionGuard.ts)
+  version Int @default(1)
   name       String // e.g. "мн1"
   systemId   String
   system     EquipmentSystem    @relation(fields: [systemId], references: [id], onDelete: Cascade)

@@ -2,6 +2,7 @@ import { setSecretDataDir } from './server/mail/secret.js';
 import { buildDatabaseClient } from './server/databaseClient.js';
 import 'express-async-errors';
 import { ensureUserProfileSchema } from './server/userProfileSchema.js';
+import { withVersionBump } from './server/versionBump.js';
 import { traceRequest, traceDatabase, traceSockets, recordServerError } from './server/diagnostics.js';
 import express, { Request, Response } from 'express';
 import path from 'path';
@@ -334,10 +335,14 @@ async function syncRemoteSchema(client: any, dbUrl: string, forceDialect?: 'sqli
   }
 }
 
-// Клиент базы отдаётся под наблюдением: операции связываются с запросом,
-// который их вызвал. Обёртка не меняет ни результата, ни ошибки
+// Клиент базы отдаётся с ростом версии записей (server/versionBump.ts: один
+// слой на все пути записи, в том числе внутри транзакций) и под наблюдением:
+// операции связываются с запросом, который их вызвал. Наблюдение — снаружи,
+// оно не меняет ни результата, ни ошибки. Все клиенты сервера (запуск и
+// переключение базы) получаются здесь — второго места, где версия не росла
+// бы, нет
 function createPrismaClient(dbType: string, dbUrl: string) {
-  return traceDatabase(buildPrismaClient(dbType, dbUrl));
+  return traceDatabase(withVersionBump(buildPrismaClient(dbType, dbUrl)));
 }
 
 function buildPrismaClient(dbType: string, dbUrl: string) {

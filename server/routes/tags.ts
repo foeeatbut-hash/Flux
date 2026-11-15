@@ -13,7 +13,10 @@ import { parseExcel, parseXML, importParsedDataToDB } from '../excelParser.js';
 import { fileBytes } from './fileChunks.js';
 import { canReadFile } from '../fileAccess.js';
 import { canSeeProject, hiddenProjectsOf } from './members.js';
-import { withBump, bumpElementsOfTags } from '../equipmentVersion.js';
+import { bumpElementsOfTags } from '../equipmentVersion.js';
+import { keepVersion } from '../versionBump.js';
+import { VersionConflict, expectedVersionOf, guardedWrite, guardedDelete, sendVersionConflict } from '../versionGuard.js';
+import { staleElement, staleSystem, badVersion } from '../equipmentStale.js';
 import { writeTag, writeTags, metadataPatchOf, tagWriteFailure, tagFailure, assertFreeTagCode } from '../tagWrite.js';
 import { tagCodeKey, withCodeKey, isCodeKeyViolation } from '../tagCodeKey.js';
 import {
@@ -637,41 +640,49 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     const prisma = getPrisma();
     const { id } = req.params;
     try {
+      // Версия установки, которую клиент видел: в строке запроса, у DELETE тела нет
+      const expectedVersion = expectedVersionOf(req.query.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
       // Что уйдёт вместе с установкой, узнаём до удаления: после него теги уже
       // свободны, но открытые окна об этом не знают, пока не придёт событие.
-      const found = await prisma.equipmentSystem.findUnique({
-        where: { id },
-        select: { id: true, name: true, projectId: true, monoblocks: { select: { id: true, components: { select: { id: true, tags: { select: { id: true, identifier: true } } } } } } },
-      });
-      if (!found) return res.json({ success: true, alreadyGone: true });
+      let found: any = null;
       const elementIds: string[] = [];
       const freedTags = new Map<string, string>();
-      for (const mono of found.monoblocks || []) for (const component of mono.components || []) {
-        elementIds.push(component.id);
-        for (const tag of component.tags || []) freedTags.set(tag.id, tag.identifier);
-      }
-      // Каскада на уровне базы может не быть: в локальной SQLite таблицы заведены
-      // без внешних ключей, и прежнее удаление оставляло позиции сиротами — они
-      // не показывались в разделе, но продолжали держать свои теги «занятыми».
-      // Поэтому всё внутри снимаем явно, как при удалении одной позиции.
       let detached: DetachedSource[] = [];
-      await prisma.$transaction(async (tx: any) => {
-        // Привязка XML (и её запись в журнале привязок) не должна пережить
-        // установку: иначе повторная загрузка того же XML упирается в 409
-        detached = await detachXmlSourcesInTransaction(tx, found.projectId, { systemIds: [id], elementIds });
-        for (const mono of found.monoblocks || []) for (const component of mono.components || []) {
-          if (component.tags?.length) {
-            await tx.componentElement.update({
-              where: { id: component.id },
-              data: { tags: { disconnect: component.tags.map((t: any) => ({ id: t.id })) } },
-            });
+      const gone = await guardedDelete(prisma, {
+        model: 'equipmentSystem', id, expectedVersion, staleMessage: staleSystem,
+        // Всё внутри установки снимается в той же транзакции, что и она сама, и по
+        // прочитанному в ней: опоздавший с устаревшей версией не снесёт то, что успели поправить
+        before: async (db: any) => {
+          found = await db.equipmentSystem.findUnique({
+            where: { id },
+            select: { id: true, name: true, projectId: true, monoblocks: { select: { id: true, components: { select: { id: true, tags: { select: { id: true, identifier: true } } } } } } },
+          });
+          for (const mono of found.monoblocks || []) for (const component of mono.components || []) {
+            elementIds.push(component.id);
+            for (const tag of component.tags || []) freedTags.set(tag.id, tag.identifier);
           }
-        }
-        const monoIds = (found.monoblocks || []).map((m: any) => m.id);
-        if (monoIds.length) await tx.componentElement.deleteMany({ where: { monoblockId: { in: monoIds } } });
-        await tx.monoblock.deleteMany({ where: { systemId: id } });
-        await tx.equipmentSystem.delete({ where: { id } });
+          // Каскада на уровне базы может не быть: в локальной SQLite таблицы заведены
+          // без внешних ключей, и прежнее удаление оставляло позиции сиротами — они
+          // не показывались в разделе, но продолжали держать свои теги «занятыми».
+          // Поэтому всё внутри снимаем явно, как при удалении одной позиции.
+          // Привязка XML (и её запись в журнале привязок) не должна пережить
+          // установку: иначе повторная загрузка того же XML упирается в 409
+          detached = await detachXmlSourcesInTransaction(db, found.projectId, { systemIds: [id], elementIds });
+          for (const mono of found.monoblocks || []) for (const component of mono.components || []) {
+            if (component.tags?.length) {
+              await db.componentElement.update({
+                where: { id: component.id },
+                data: { tags: { disconnect: component.tags.map((t: any) => ({ id: t.id })) } },
+              });
+            }
+          }
+          const monoIds = (found.monoblocks || []).map((m: any) => m.id);
+          if (monoIds.length) await db.componentElement.deleteMany({ where: { monoblockId: { in: monoIds } } });
+          await db.monoblock.deleteMany({ where: { systemId: id } });
+        },
       });
+      if (!gone) return res.json({ success: true, alreadyGone: true });
       emitEntitiesChanged('tag', freedTags.keys(), req);
       emitEntitiesChanged('element', elementIds, req);
       for (const source of detached) broadcast('entity:changed', { kind: 'equipment-source', id: source.sourceId, projectId: found.projectId, at: Date.now() });
@@ -690,6 +701,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       } catch (_) { /* журнал не обязан существовать, удаление уже состоялось */ }
       res.json({ success: true, freedTags: [...freedTags.values()], detachedSources: detached });
     } catch (error: any) {
+      if (error instanceof VersionConflict) return sendVersionConflict(res, error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -712,19 +724,24 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           error: `Тег «${existing.identifier}» уже привязан к «${takenBy.name || takenBy.itemCode}». Один тег — одно изделие: сначала отвяжите его там.`,
         });
       }
-      const component = await prisma.componentElement.update({
-        where: { id: componentId },
-        data: withBump({
-          tags: {
-            connect: { id: tagId }
-          }
-        }),
-        include: { tags: true }
+      const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
+      // Версию растит запись под сверкой; связь `updateMany` не умеет и ставится следом
+      // в той же транзакции, уже без второго роста версии
+      const done = await guardedWrite(prisma, {
+        model: 'componentElement', id: componentId, expectedVersion, staleMessage: staleElement,
+        build: () => ({ data: {} }),
+        after: async (db: any) => {
+          await db.componentElement.update({ where: { id: componentId }, data: keepVersion({ tags: { connect: { id: tagId } } }) });
+        },
       });
-      emitEntityChanged('element', component.id, req);
+      if (!done) return res.status(404).json({ error: 'Компонент не найден' });
+      const component = await prisma.componentElement.findUnique({ where: { id: componentId }, include: { tags: true } });
+      emitEntityChanged('element', componentId, req);
       emitEntityChanged('tag', tagId, req);
       res.json({ component });
     } catch (error: any) {
+      if (error instanceof VersionConflict) return sendVersionConflict(res, error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -734,19 +751,22 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     const prisma = getPrisma();
     const { componentId, tagId } = req.params;
     try {
-      const component = await prisma.componentElement.update({
-        where: { id: componentId },
-        data: withBump({
-          tags: {
-            disconnect: { id: tagId }
-          }
-        }),
-        include: { tags: true }
+      const expectedVersion = expectedVersionOf(req.query.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
+      const done = await guardedWrite(prisma, {
+        model: 'componentElement', id: componentId, expectedVersion, staleMessage: staleElement,
+        build: () => ({ data: {} }),
+        after: async (db: any) => {
+          await db.componentElement.update({ where: { id: componentId }, data: keepVersion({ tags: { disconnect: { id: tagId } } }) });
+        },
       });
-      emitEntityChanged('element', component.id, req);
+      if (!done) return res.status(404).json({ error: 'Компонент не найден' });
+      const component = await prisma.componentElement.findUnique({ where: { id: componentId }, include: { tags: true } });
+      emitEntityChanged('element', componentId, req);
       emitEntityChanged('tag', tagId, req);
       res.json({ component });
     } catch (error: any) {
+      if (error instanceof VersionConflict) return sendVersionConflict(res, error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -788,21 +808,18 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     const prisma = getPrisma();
     const { componentId } = req.params;
     try {
-      // Без проверки несуществующий номер давал P2025 и ответ 500
-      const existing = await prisma.componentElement.findUnique({ where: { id: componentId }, select: { id: true } });
-      if (!existing) return res.status(404).json({ error: 'Компонент не найден' });
-      const component = await prisma.componentElement.update({
-        where: { id: componentId },
-        data: {
-          hasConflict: false,
-          conflictType: null
-        },
-        include: {
-          tags: true
-        }
+      const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
+      // Нет позиции — 404, а не P2025 и 500; рост версии — на записи под сверкой
+      const done = await guardedWrite(prisma, {
+        model: 'componentElement', id: componentId, expectedVersion, staleMessage: staleElement,
+        build: () => ({ data: { hasConflict: false, conflictType: null } }),
       });
+      if (!done) return res.status(404).json({ error: 'Компонент не найден' });
+      const component = await prisma.componentElement.findUnique({ where: { id: componentId }, include: { tags: true } });
       res.json({ component });
     } catch (error: any) {
+      if (error instanceof VersionConflict) return sendVersionConflict(res, error);
       res.status(500).json({ error: error.message });
     }
   });

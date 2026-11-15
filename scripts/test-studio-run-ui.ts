@@ -440,7 +440,20 @@ async function main() {
       await page.getByRole('button', { name: 'Запустить' }).first().click();
       await runTab.waitFor();
       await main.locator('#status').filter({ hasText: 'готово' }).waitFor();
-      ok(`${theme}: «Запустить» сверху из вида файла открыла «Запуск», программа запущена заново с одним окном`, (await runTab.getAttribute('aria-selected')) === 'true' && await scene.isVisible() && (await page.locator('[data-testid="program-window"]').count()) === 1 && (await tabs.getByRole('tab', { name: '«Запуск»' }).count()) === 1);
+      // Четыре условия порознь: составная проверка дважды падала в тёмной теме на CI (PR 172 и 173),
+      // и по журналу было не видно, какое из условий ложно. Значения — в названии проверки.
+      const relaunch = {
+        selected: await runTab.getAttribute('aria-selected'),
+        scene: await scene.isVisible(),
+        windows: await page.locator('[data-testid="program-window"]').count(),
+        runTabs: await tabs.getByRole('tab', { name: '«Запуск»' }).count(),
+        status: await status(main).catch((e: any) => `нет: ${String(e?.message || e).split('\n')[0]}`),
+      };
+      const seen = JSON.stringify(relaunch);
+      ok(`${theme}: «Запустить» сверху из вида файла открыла «Запуск» (видели: ${seen})`, relaunch.selected === 'true');
+      ok(`${theme}: после «Запустить» из вида файла сцена запуска видна (видели: ${seen})`, relaunch.scene);
+      ok(`${theme}: программа запущена заново с одним окном (видели: ${seen})`, relaunch.windows === 1);
+      ok(`${theme}: вкладка «Запуск» одна (видели: ${seen})`, relaunch.runTabs === 1);
       await main.locator('#attach').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: 'UNAVAILABLE' }).waitFor();
       ok(`${theme}: flux.attach с разрешением в манифесте — UNAVAILABLE, а не успех; журнал: «UNAVAILABLE: прикрепление появится позже, ничего не записано»`, (await status(main)) === 'ошибка UNAVAILABLE' && (await page.locator('table.log').innerText()).includes('UNAVAILABLE: прикрепление появится позже, ничего не записано'));

@@ -5,7 +5,9 @@ import { ROLES, roleById, roleFits, type RoleId } from '../../equipment/roles.js
 import { isClassId } from '../../equipment/classes.js';
 import { autoFixTag, validateTag } from '../../equipment/tagPolicy.js';
 import { importPolicyOfProject } from './tagPolicy.js';
-import { withBump } from '../equipmentVersion.js';
+import { keepVersion } from '../versionBump.js';
+import { VersionConflict, expectedVersionOf, assertExpectedVersion, guardedWrite, guardedDelete, sendVersionConflict } from '../versionGuard.js';
+import { staleElement, staleMonoblock, badVersion } from '../equipmentStale.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from '../equipmentHierarchy.js';
 import { TAG_SOURCE, recordTagCreated, recordChangeSets, updateSet, inTagTransaction, type TagChangeSet } from '../tagHistory.js';
 import { withCodeKey, findTagByCode, isCodeKeyViolation } from '../tagCodeKey.js';
@@ -33,6 +35,12 @@ import { nextProjectEntityId } from '../entityIds.js';
 
 const authUserOf = (req: Request) => (req as any).authUser || null;
 
+/** Отказ по версии — 409 с кодом и текущей записью, остальное — как у всех маршрутов. */
+const replyError = (res: Response, err: any): void => {
+  if (err instanceof VersionConflict) { sendVersionConflict(res, err); return; }
+  sendError(res, err);
+};
+
 export function registerEquipmentEditRoutes(app: Express): void {
   /**
    * Удалить позицию оборудования.
@@ -50,47 +58,56 @@ export function registerEquipmentEditRoutes(app: Express): void {
     try {
       const prisma = getPrisma();
       const me = authUserOf(req);
-      const found = await prisma.componentElement.findUnique({
-        where: { id: req.params.id },
-        include: {
-          tags: { select: { id: true, identifier: true } },
-          monoblock: { select: { id: true, name: true, systemId: true } },
+      // Версия, которую клиент видел: в строке запроса, у DELETE тела нет
+      const expectedVersion = expectedVersionOf(req.query.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
+
+      let found: any = null;
+      let children: Array<{ id: string; name: string }> = [];
+      const gone = await guardedDelete(prisma, {
+        model: 'componentElement', id: req.params.id, expectedVersion, staleMessage: staleElement,
+        // Всё, что идёт вместе с удалением, — в той же транзакции и по тому, что
+        // прочитано в ней: не записалось оно, не удалилась и позиция
+        before: async (db: any, current: any) => {
+          found = await db.componentElement.findUnique({
+            where: { id: current.id },
+            include: {
+              tags: { select: { id: true, identifier: true } },
+              monoblock: { select: { id: true, name: true, systemId: true } },
+            },
+          });
+          /**
+           * Что стояло внутри — не исчезает вместе с владельцем.
+           *
+           * Датчик, заведённый инженером на двигателе, к удаляемому двигателю
+           * отношения не имеет: его ставили руками и ради него держат тег. Дети
+           * поднимаются на уровень выше, и об этом сказано в ответе — молча
+           * растворяться позиция не должна.
+           */
+          children = await db.componentElement.findMany({
+            where: { parentElementId: current.id },
+            select: { id: true, name: true },
+          });
+          // Сначала снимаем теги: иначе удаление позиции унесло бы связь молча,
+          // и тег остался бы числиться занятым. Версию самой позиции не двигаем:
+          // условие удаления держится за прочитанную, а позиция тут же исчезает
+          if (found.tags?.length) {
+            await db.componentElement.update({
+              where: { id: current.id },
+              data: keepVersion({ tags: { disconnect: found.tags.map((t: any) => ({ id: t.id })) } }),
+            });
+          }
+          // Дети меняют владельца — это их правка, и их версия растёт (расширение клиента базы)
+          if (children.length) {
+            await db.componentElement.updateMany({
+              where: { parentElementId: current.id },
+              data: { parentElementId: current.parentElementId ?? null },
+            });
+          }
         },
       });
-      if (!found) return res.json({ ok: true, alreadyGone: true });
-
+      if (!gone) return res.json({ ok: true, alreadyGone: true });
       const tags = (found.tags || []).map((t: any) => t.identifier);
-
-      /**
-       * Что стояло внутри — не исчезает вместе с владельцем.
-       *
-       * Датчик, заведённый инженером на двигателе, к удаляемому двигателю
-       * отношения не имеет: его ставили руками и ради него держат тег. Дети
-       * поднимаются на уровень выше, и об этом сказано в ответе — молча
-       * растворяться позиция не должна.
-       */
-      const children = await prisma.componentElement.findMany({
-        where: { parentElementId: found.id },
-        select: { id: true, name: true },
-      });
-
-      await prisma.$transaction(async (tx: any) => {
-        // Сначала снимаем теги: иначе удаление позиции унесло бы связь молча,
-        // и тег остался бы числиться занятым
-        if (found.tags?.length) {
-          await tx.componentElement.update({
-            where: { id: found.id },
-            data: { tags: { disconnect: found.tags.map((t: any) => ({ id: t.id })) } },
-          });
-        }
-        if (children.length) {
-          await tx.componentElement.updateMany({
-            where: { parentElementId: found.id },
-            data: { parentElementId: found.parentElementId ?? null },
-          });
-        }
-        await tx.componentElement.delete({ where: { id: found.id } });
-      });
 
       // После отвязки теги становятся свободными, а дочерние позиции меняют
       // владельца; открытые разделы перечитывают эти сущности по событиям.
@@ -115,7 +132,7 @@ export function registerEquipmentEditRoutes(app: Express): void {
         ok: true, name: found.name, itemCode: found.itemCode, freedTags: tags,
         ...(children.length ? { moved: children.map((c: any) => c.name) } : {}),
       });
-    } catch (err: any) { sendError(res, err); }
+    } catch (err: any) { replyError(res, err); }
   });
 
   /**
@@ -174,13 +191,16 @@ export function registerEquipmentEditRoutes(app: Express): void {
       if (equipClass && !isClassId(equipClass)) {
         return res.status(400).json({ error: `Типа «${equipClass}» нет в справочнике типов` });
       }
-      const row = await getPrisma().componentElement.update({
-        where: { id: req.params.id },
-        data: withBump({ equipClass: equipClass || null, equipKind: equipKind || null }),
+      const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
+      const done = await guardedWrite(getPrisma(), {
+        model: 'componentElement', id: req.params.id, expectedVersion, staleMessage: staleElement,
+        build: () => ({ data: { equipClass: equipClass || null, equipKind: equipKind || null } }),
       });
-      emitEntitiesChanged('element', [row.id], req);
-      res.json({ ok: true, equipClass: row.equipClass || '', equipKind: row.equipKind || '' });
-    } catch (err: any) { sendError(res, err); }
+      if (!done) return res.status(404).json({ error: 'Позиция не найдена' });
+      emitEntitiesChanged('element', [done.after.id], req);
+      res.json({ ok: true, equipClass: done.after.equipClass || '', equipKind: done.after.equipKind || '', version: done.after.version });
+    } catch (err: any) { replyError(res, err); }
   });
 
   /**
@@ -201,8 +221,8 @@ export function registerEquipmentEditRoutes(app: Express): void {
         include: { monoblock: { select: { id: true, name: true, systemId: true, system: { select: { projectId: true } } } } },
       });
       if (!parent) return res.status(404).json({ error: 'Позиция, внутрь которой добавляют, не найдена' });
-      await createPosition(req, res, { monoblockId: parent.monoblockId, parent, projectId: parent.monoblock?.system?.projectId || '' });
-    } catch (err: any) { sendError(res, err); }
+      await createPosition(req, res, { monoblockId: parent.monoblockId, parent, owner: { row: parent, stale: staleElement }, projectId: parent.monoblock?.system?.projectId || '' });
+    } catch (err: any) { replyError(res, err); }
   });
 
   /**
@@ -217,8 +237,8 @@ export function registerEquipmentEditRoutes(app: Express): void {
         where: { id: req.params.id }, include: { system: { select: { projectId: true } } },
       });
       if (!mono) return res.status(404).json({ error: 'Моноблок не найден' });
-      await createPosition(req, res, { monoblockId: mono.id, parent: null, projectId: mono.system?.projectId || '', base: mono.name });
-    } catch (err: any) { sendError(res, err); }
+      await createPosition(req, res, { monoblockId: mono.id, parent: null, owner: { row: mono, stale: staleMonoblock }, projectId: mono.system?.projectId || '', base: mono.name });
+    } catch (err: any) { replyError(res, err); }
   });
 
   /**
@@ -244,22 +264,35 @@ export function registerEquipmentEditRoutes(app: Express): void {
   app.post('/api/equipment/component/:id/tag', async (req: Request, res: Response) => {
     try {
       const prisma = getPrisma();
+      const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
       const comp = await prisma.componentElement.findUnique({
         where: { id: req.params.id }, include: { monoblock: { select: { system: { select: { projectId: true } } } } },
       });
       if (!comp) return res.status(404).json({ error: 'Позиция не найдена' });
+      // До заведения тега: отказ по устаревшей карточке не должен оставить новый тег в реестре
+      assertExpectedVersion(comp, expectedVersion, staleElement);
       const projectId = comp.monoblock?.system?.projectId || '';
       const actor = { userId: authUserOf(req)?.id };
       const tag = await resolveTag(prisma, projectId, req.body?.identifier, { actor });
       if (!tag.ok) return res.status(tag.status || 400).json({ error: tag.problem, fix: tag.fix, field: 'tag' });
-      await prisma.componentElement.update({ where: { id: comp.id }, data: withBump({ tags: { connect: { id: tag.tagId } } }) });
+      // Версию растит запись под сверкой; связь тега `updateMany` не умеет и ставится следом
+      // в той же транзакции, уже без второго роста версии
+      const done = await guardedWrite(prisma, {
+        model: 'componentElement', id: comp.id, expectedVersion, staleMessage: staleElement,
+        build: () => ({ data: {} }),
+        after: async (db: any) => {
+          await db.componentElement.update({ where: { id: comp.id }, data: keepVersion({ tags: { connect: { id: tag.tagId } } }) });
+        },
+      });
+      if (!done) return res.status(404).json({ error: 'Позиция не найдена' });
       const parentLink = await linkParentTag(prisma, projectId, comp.id, tag.tagId!, actor);
       // Реестр тегов и другие открытые окна перечитывают запись сразу; событие
       // для позиции обновляет занятость тега и карточку оборудования.
     emitEntitiesChanged('tag', parentLink.changedTagIds, req);
     emitEntitiesChanged('element', [comp.id], req);
-      res.json({ ok: true, identifier: tag.identifier, created: tag.created, corrected: tag.corrected, parentTag: parentLink.parentTag });
-    } catch (err: any) { sendError(res, err); }
+      res.json({ ok: true, identifier: tag.identifier, created: tag.created, corrected: tag.corrected, parentTag: parentLink.parentTag, version: done.after.version });
+    } catch (err: any) { replyError(res, err); }
   });
 }
 
@@ -324,10 +357,16 @@ export async function resolveTag(prisma: any, projectId: string, raw: unknown, o
 /** Общая часть обоих входов «завести позицию»: внутрь позиции и в моноблок */
 async function createPosition(
   req: Request, res: Response,
-  at: { monoblockId: string; parent: any | null; projectId: string; base?: string },
+  at: { monoblockId: string; parent: any | null; owner: { row: any; stale: (current: any) => string }; projectId: string; base?: string },
 ): Promise<void> {
   const prisma = getPrisma();
   const me = authUserOf(req);
+  // Позиция заводится «по месту»: клиент присылает версию владельца, которого видел
+  // (позиции или моноблока). Сверка — до заведения тега и до любой записи, чтобы
+  // отказ не оставил после себя ничего. Сам владелец не меняется и версию не растит.
+  const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
+  if (expectedVersion === null) { badVersion(res); return; }
+  assertExpectedVersion(at.owner.row, expectedVersion, at.owner.stale);
   const name = String(req.body?.name || '').trim();
   if (!name) { res.status(400).json({ error: 'У позиции должно быть название' }); return; }
   const role = String(req.body?.role || 'ПРОЧЕЕ').trim() as RoleId;
@@ -401,7 +440,7 @@ async function createPosition(
   const fits = roleFits(parentRole, role);
   res.json({
     ok: true,
-    component: { id: created.id, itemCode: created.itemCode, name: created.name, role: created.role },
+    component: { id: created.id, itemCode: created.itemCode, name: created.name, role: created.role, version: created.version },
     parentTag,
     tag: tag ? { identifier: tag.identifier, created: !!tag.created, corrected: tag.corrected } : null,
     ...(fits ? {} : {
