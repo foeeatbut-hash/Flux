@@ -1453,6 +1453,16 @@ input, textarea, [contenteditable="true"], [contenteditable=""],
   .fx-label { font-size: 12px; line-height: 16px; font-weight: 500; color: var(--flux-text-muted); }
   .fx-hint { font-size: 12px; line-height: 16px; color: var(--flux-text-muted); }
   .fx-error { font-size: 12px; line-height: 16px; color: var(--flux-bad-text); }
+  /* ── Отказ с перечнем «было → стало» (components/ui/ConflictNotice): красная полоса слева, фон — мягкий красный токен ── */
+  .fx-conflict { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px 10px; font-size: 12px; line-height: 16px; color: var(--flux-text); background: var(--flux-bad-soft); border: 1px solid var(--flux-line); border-left: 2px solid var(--flux-bad); border-radius: var(--flux-radius-sm); }
+  .fx-conflict-message { margin: 0; color: var(--flux-bad-text); overflow-wrap: anywhere; }
+  .fx-conflict-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+  .fx-conflict-list li { display: flex; flex-wrap: wrap; gap: 0 4px; overflow-wrap: anywhere; }
+  .fx-conflict-field { color: var(--flux-text-muted); }
+  .fx-conflict-was { color: var(--flux-text-muted); text-decoration: line-through; }
+  .fx-conflict-arrow { color: var(--flux-text-faint); }
+  .fx-conflict-now { font-weight: 500; }
+  .fx-conflict-group { margin: 0; font-size: 12px; font-weight: 500; color: var(--flux-text); }
 
   /* ── Таблица: шапка 28, строка — плотность из настроек ── */
   .fx-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; font-variant-numeric: tabular-nums; }

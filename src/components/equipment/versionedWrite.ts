@@ -13,17 +13,31 @@
  * Отказ узнаётся по полю `code`, а не по тексту или одному статусу: у 409 в этих
  * же маршрутах есть и другие причины («тег уже занят»), и перечитывать при них
  * нечего. Текст отказа читает человек, поэтому по нему ничего не решается.
+ * Кодов три: `VERSION_CONFLICT` (запись изменили), `RECORD_GONE` (запись уже
+ * удалили), `RECORD_OPEN` (удалять нельзя: запись открыта у коллеги).
  *
  * Модуль без React и без браузера: наборы гоняют его с подставным `fetch`.
  */
 
 export const VERSION_CONFLICT = 'VERSION_CONFLICT';
+/** Запись, по которой шла правка, уже удалили (404) */
+export const RECORD_GONE = 'RECORD_GONE';
+/** Удаляемая запись (или вложенная в неё) сейчас открыта у коллеги (409) */
+export const RECORD_OPEN = 'RECORD_OPEN';
+
+/** Кто держит запись открытой и какая именно запись: как их присылает сервер при `RECORD_OPEN` */
+export interface OpenHolder { userId: string; name: string }
+export interface OpenRecordInfo { model: string; id: string; name: string }
 
 export type WriteResult =
   /** Запись принята; `data` — разобранный ответ (пустой объект, если тела нет) */
   | { kind: 'ok'; data: any }
-  /** Запись изменили раньше: `message` — текст сервера, `current` — запись, какой она стала */
-  | { kind: 'conflict'; message: string; current: any }
+  /** Запись изменили раньше: `message` — текст сервера, `current` — запись, какой она стала, `data` — тело отказа целиком */
+  | { kind: 'conflict'; message: string; current: any; data: any }
+  /** Запись уже удалили (404 с кодом): правка не записана, перечитывать есть что — запись из дерева исчезнет */
+  | { kind: 'gone'; message: string; data: any }
+  /** Удалить нельзя: запись открыта у коллеги. `holders` — у кого, `record` — какая запись держит (может быть вложенной) */
+  | { kind: 'open'; message: string; holders: OpenHolder[]; record: OpenRecordInfo | null; data: any }
   /** Другой отказ сервера (нет права, занятый тег, ошибка): перечитывать нечего */
   | { kind: 'refused'; status: number; message: string; data: any }
   /** Сервер не ответил */
@@ -56,6 +70,23 @@ export function conflictOf(status: number, body: any): { message: string; curren
   return { message: String(body.error || 'Запись изменили, пока вы её правили'), current: body.current ?? null };
 }
 
+/** Запись удалена в ответе сервера: 404 и ровно код `RECORD_GONE`. */
+export function goneOf(status: number, body: any): { message: string } | null {
+  if (status !== 404 || !body || typeof body !== 'object' || body.code !== RECORD_GONE) return null;
+  return { message: String(body.error || 'Запись уже удалили') };
+}
+
+/** Запись открыта у коллеги в ответе сервера: 409 и ровно код `RECORD_OPEN`. */
+export function openOf(status: number, body: any): { message: string; holders: OpenHolder[]; record: OpenRecordInfo | null } | null {
+  if (status !== 409 || !body || typeof body !== 'object' || body.code !== RECORD_OPEN) return null;
+  const holders = (Array.isArray(body.holders) ? body.holders : [])
+    .filter((h: any) => h && typeof h === 'object')
+    .map((h: any) => ({ userId: String(h.userId ?? ''), name: String(h.name ?? '') }));
+  const r = body.record;
+  const record = r && typeof r === 'object' ? { model: String(r.model ?? ''), id: String(r.id ?? ''), name: String(r.name ?? '') } : null;
+  return { message: String(body.error || 'Запись сейчас открыта у коллеги'), holders, record };
+}
+
 /**
  * Отправить запись с версией и разобрать ответ. Не бросает: сеть и отказ
  * приходят результатом, чтобы вызывающий не забыл ни одну из веток.
@@ -78,7 +109,11 @@ export async function writeVersioned(
   }
   const data = await res.json().catch(() => ({}));
   const conflict = conflictOf(res.status, data);
-  if (conflict) return { kind: 'conflict', ...conflict };
+  if (conflict) return { kind: 'conflict', ...conflict, data };
+  const gone = goneOf(res.status, data);
+  if (gone) return { kind: 'gone', ...gone, data };
+  const open = openOf(res.status, data);
+  if (open) return { kind: 'open', ...open, data };
   if (!res.ok) return { kind: 'refused', status: res.status, message: String(data?.error || ''), data };
   return { kind: 'ok', data };
 }
@@ -86,7 +121,7 @@ export async function writeVersioned(
 /** Текст для человека о неудавшейся записи; у принятой — пустая строка. */
 export function failureText(result: WriteResult, fallback: string): string {
   if (result.kind === 'ok') return '';
-  if (result.kind === 'conflict' || result.kind === 'offline') return result.message;
+  if (result.kind === 'conflict' || result.kind === 'gone' || result.kind === 'open' || result.kind === 'offline') return result.message;
   return result.message || fallback;
 }
 

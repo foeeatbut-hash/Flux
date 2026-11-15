@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 import {
-  VERSION_CONFLICT, conflictOf, failureText, versionIn, versionToSend, withVersion, withVersionQuery, writeVersioned,
+  RECORD_GONE, RECORD_OPEN, VERSION_CONFLICT, conflictOf, goneOf, openOf, failureText, versionIn, versionToSend, withVersion, withVersionQuery, writeVersioned,
 } from '../src/components/equipment/versionedWrite';
 
 const root = path.resolve(__dirname, '..');
@@ -109,6 +109,55 @@ const bodyOf = (c: { init?: RequestInit }) => JSON.parse(String(c.init?.body ?? 
     ok('код есть, текста нет — conflict с запасным текстом', r.kind === 'conflict' && r.message.length > 0 && r.current === null);
   }
   same('conflictOf: не объект и пустое тело', [conflictOf(409, null), conflictOf(409, 'x'), conflictOf(409, {})], [null, null, null]);
+
+  console.log('3б. Запись удалена и запись открыта у коллеги — тоже по коду');
+  {
+    const f = fakeFetch(404, { error: 'Позицию «Клапан Б» уже удалили. Ваша правка не записана.', code: RECORD_GONE });
+    const r = await writeVersioned('/api/equipment/component/c1/class', 'PUT', {}, 5, f.fetcher);
+    ok('404 с кодом — gone с текстом сервера', r.kind === 'gone' && r.message === 'Позицию «Клапан Б» уже удалили. Ваша правка не записана.');
+    same('текст для человека', failureText(r, 'запасной'), 'Позицию «Клапан Б» уже удалили. Ваша правка не записана.');
+  }
+  {
+    const f = fakeFetch(404, { error: 'Не найдено' });
+    const r = await writeVersioned('/api/equipment/component/c1/class', 'PUT', {}, 5, f.fetcher);
+    ok('404 без кода — не gone (по тексту и статусу не узнаётся)', r.kind === 'refused' && r.status === 404);
+  }
+  {
+    const f = fakeFetch(409, { error: 'Запись удалили', code: RECORD_GONE });
+    const r = await writeVersioned('/api/equipment/component/c1/class', 'PUT', {}, 5, f.fetcher);
+    ok('код gone при чужом статусе (409) — не gone', r.kind === 'refused');
+  }
+  {
+    const body = {
+      error: 'Позиция «Клапан Б» сейчас открыта у сотрудника: Иванов И. И. Удалить её нельзя, пока запись открыта.', code: RECORD_OPEN,
+      holders: [{ userId: 'u2', name: 'Иванов И. И.' }], record: { model: 'ComponentElement', id: 'c1', name: 'Клапан Б' },
+    };
+    const f = fakeFetch(409, body);
+    const r = await writeVersioned('/api/equipment/component/c1', 'DELETE', undefined, 3, f.fetcher);
+    ok('409 с кодом открытой записи — open', r.kind === 'open');
+    if (r.kind === 'open') {
+      same('кто держит', r.holders, [{ userId: 'u2', name: 'Иванов И. И.' }]);
+      same('какая запись', r.record, { model: 'ComponentElement', id: 'c1', name: 'Клапан Б' });
+      same('текст — тот, что прислал сервер', r.message, body.error);
+    }
+    same('текст для человека', failureText(r, 'x'), body.error);
+  }
+  {
+    const f = fakeFetch(409, { code: RECORD_OPEN });
+    const r = await writeVersioned('/api/systems/s1', 'DELETE', undefined, 3, f.fetcher);
+    ok('open без перечня и текста — запасной текст, пустые holders и record', r.kind === 'open' && r.message.length > 0 && r.holders.length === 0 && r.record === null);
+  }
+  {
+    const f = fakeFetch(409, { error: 'Запись открыта', holders: [{ userId: 'u2', name: 'Иванов' }] });
+    const r = await writeVersioned('/api/systems/s1', 'DELETE', undefined, 3, f.fetcher);
+    ok('409 с holders, но без кода — не open', r.kind === 'refused');
+  }
+  same('goneOf / openOf: мусор не разбирается', [goneOf(404, null), goneOf(404, 'x'), openOf(409, null), openOf(409, {}), openOf(500, { code: RECORD_OPEN })], [null, null, null, null, null]);
+  {
+    const f = fakeFetch(409, { error: 'Позицию изменили', code: VERSION_CONFLICT, current: { id: 'c1' } });
+    const r = await writeVersioned('/api/equipment/component/c1/class', 'PUT', {}, 5, f.fetcher);
+    ok('conflict несёт и тело отказа целиком', r.kind === 'conflict' && (r.data as any).code === VERSION_CONFLICT);
+  }
 
   console.log('4. Сбои, которые не должны ронять экран');
   {
