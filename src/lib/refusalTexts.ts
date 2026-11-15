@@ -42,6 +42,9 @@ export const NOUNS = {
   position: { nom: 'позиция', acc: 'позицию', prep: 'позиции', gender: 'f' },
   system: { nom: 'установка', acc: 'установку', prep: 'установке', gender: 'f' },
   block: { nom: 'блок', acc: 'блок', prep: 'блоке', gender: 'm' },
+  tag: { nom: 'тег', acc: 'тег', prep: 'теге', gender: 'm' },
+  register: { nom: 'реестр', acc: 'реестр', prep: 'реестре', gender: 'm' },
+  registerItem: { nom: 'строка реестра', acc: 'строку реестра', prep: 'строке реестра', gender: 'f' },
 } as const satisfies Record<string, Noun>;
 
 export type RefusalNoun = keyof typeof NOUNS;
