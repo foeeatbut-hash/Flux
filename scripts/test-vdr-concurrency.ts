@@ -120,7 +120,7 @@ async function main() {
     const put1 = await send('PUT', `/api/vdr/items/${row.id}`, { titleRu: 'Первое', expectedUpdatedAt: seen.updatedAt });
     check('PUT с актуальной версией проходит и отдаёт новую updatedAt', put1.status === 200 && put1.body.item.titleRu === 'Первое' && put1.body.item.updatedAt !== seen.updatedAt, put1.body);
     const put2 = await send('PUT', `/api/vdr/items/${row.id}`, { titleRu: 'Устаревшее', expectedUpdatedAt: seen.updatedAt });
-    check('PUT по устаревшей версии — 409 с текущей строкой', put2.status === 409 && put2.body.current?.item?.titleRu === 'Первое', put2.body);
+    check('PUT по устаревшей версии — 409 с текущей строкой', put2.status === 409 && put2.body.code === 'VERSION_CONFLICT' && put2.body.conflict === true && put2.body.current?.item?.titleRu === 'Первое', put2.body);
     check('устаревший PUT ничего не записал', (await getItem(register.id, row.id)).titleRu === 'Первое');
     const put3 = await send('PUT', `/api/vdr/items/${row.id}`, { titleEn: 'Old client' });
     check('PUT без ожидаемой версии (старый клиент) сливает поля как раньше', put3.status === 200 && put3.body.item.titleEn === 'Old client' && put3.body.item.titleRu === 'Первое', put3.body);
@@ -147,7 +147,7 @@ async function main() {
     const regUp = await send('POST', `/api/vdr/registers/${reg.id}/revision-up`, { description: 'Обычный', expectedRevision: 'A' });
     check('revision-up реестра с ожидаемой ревизией: A → B', regUp.status === 200 && regUp.body.register.revision === 'B' && regUp.body.register.revisions.length === 1, regUp.body);
     const regStale = await send('POST', `/api/vdr/registers/${reg.id}/revision-up`, { expectedRevision: 'A' });
-    check('revision-up по устаревшей ревизии — 409 с текстом и текущим реестром', regStale.status === 409 && /B/.test(regStale.body.error) && regStale.body.current?.register?.revision === 'B', regStale.body);
+    check('revision-up по устаревшей ревизии — 409 с текстом и текущим реестром', regStale.status === 409 && regStale.body.code === 'VERSION_CONFLICT' && /B/.test(regStale.body.error) && regStale.body.current?.register?.revision === 'B', regStale.body);
     for (let round = 1; round <= 5; round++) {
       const r2 = await newRegister();
       const results = await Promise.all([
@@ -171,7 +171,7 @@ async function main() {
     const rp1 = await send('PUT', `/api/vdr/registers/${reg.id}`, { vendor: 'Поставщик 1', expectedUpdatedAt: regSeen.updatedAt });
     check('PUT реестра с актуальной версией проходит', rp1.status === 200 && rp1.body.register.vendor === 'Поставщик 1', rp1.body);
     const rp2 = await send('PUT', `/api/vdr/registers/${reg.id}`, { vendor: 'Устаревшее', expectedUpdatedAt: regSeen.updatedAt });
-    check('PUT реестра по устаревшей версии — 409 с текущим реестром', rp2.status === 409 && rp2.body.current?.register?.vendor === 'Поставщик 1', rp2.body);
+    check('PUT реестра по устаревшей версии — 409 с текущим реестром', rp2.status === 409 && rp2.body.code === 'VERSION_CONFLICT' && rp2.body.current?.register?.vendor === 'Поставщик 1', rp2.body);
     const rp3 = await send('PUT', `/api/vdr/registers/${reg.id}`, { owner: 'Заказчик' });
     check('PUT реестра без версии (старый клиент) сливает поля', rp3.status === 200 && rp3.body.register.owner === 'Заказчик' && rp3.body.register.vendor === 'Поставщик 1', rp3.body);
     const rp4 = await send('PUT', `/api/vdr/registers/${reg.id}`, { revisions: [], revision: 'A' });

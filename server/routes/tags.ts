@@ -673,8 +673,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
             if (component.tags?.length) {
               await db.componentElement.update({
                 where: { id: component.id },
-                // Позиция тут же удаляется: рост её версии никому не нужен
-                data: keepVersion({ tags: { disconnect: component.tags.map((t: any) => ({ id: t.id })) } }),
+                data: { tags: { disconnect: component.tags.map((t: any) => ({ id: t.id })) } },
               });
             }
           }
