@@ -59,6 +59,17 @@ export function inTransaction<T>(prisma: any, fn: (db: any) => Promise<T>): Prom
 
 const sameInstant = (a: any, b: any): boolean => new Date(a).getTime() === new Date(b).getTime();
 
+/**
+ * Сравнение версии клиента с прочитанной записью — единственное место, где оно
+ * записано. `guardedWrite` и `guardedDelete` зовут его сами; маршрут зовёт его
+ * там, где до записи есть побочное действие, которое нельзя делать по
+ * устаревшей карточке (завести тег, создать позицию по месту): проверка идёт
+ * до него, а запись всё равно сверяется под `updateMany where version`.
+ */
+export function assertExpectedVersion(current: any, expectedVersion: number | undefined, staleMessage: (current: any) => string): void {
+  if (expectedVersion !== undefined && current.version !== expectedVersion) throw new VersionConflict(staleMessage(current), current);
+}
+
 const RACE_WITH_EXPECTATION = 'Запись уже изменили, пока вы её правили.';
 const RACE_WITHOUT_EXPECTATION = 'Запись меняют одновременно, повторите действие.';
 
@@ -97,9 +108,7 @@ export async function guardedWrite<R = undefined>(prisma: any, opts: GuardedWrit
       return await inTransaction(prisma, async (db) => {
         const current = await db[opts.model].findUnique({ where: { id: opts.id } });
         if (!current) return null;
-        if (opts.expectedVersion !== undefined && current.version !== opts.expectedVersion) {
-          throw new VersionConflict(opts.staleMessage(current), current);
-        }
+        assertExpectedVersion(current, opts.expectedVersion, opts.staleMessage);
         if (opts.expectedUpdatedAt && !sameInstant(current.updatedAt, opts.expectedUpdatedAt)) {
           throw new VersionConflict(opts.staleMessage(current), current);
         }
@@ -144,9 +153,7 @@ export async function guardedDelete(prisma: any, opts: GuardedDeleteOptions): Pr
     return await inTransaction(prisma, async (db) => {
       const current = await db[opts.model].findUnique({ where: { id: opts.id } });
       if (!current) return null;
-      if (opts.expectedVersion !== undefined && current.version !== opts.expectedVersion) {
-        throw new VersionConflict(opts.staleMessage(current), current);
-      }
+      assertExpectedVersion(current, opts.expectedVersion, opts.staleMessage);
       if (opts.before) await opts.before(db, current);
       const gone = await db[opts.model].deleteMany({ where: { id: current.id, version: current.version } });
       if (gone.count !== 1) throw new RaceLost();
