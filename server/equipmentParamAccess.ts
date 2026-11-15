@@ -1,5 +1,7 @@
 import { bindingKey, sourceInfo } from './equipmentCatalog.js';
 import { getPrisma } from './context.js';
+import { VersionConflict, assertExpectedVersion } from './versionGuard.js';
+import { staleElement } from './equipmentStale.js';
 
 type CatalogState = { id: string; value: string } | null;
 const conflict = () => Object.assign(new Error('Источник карточки изменился. Обновите данные перед правкой.'), { status: 409 });
@@ -21,8 +23,16 @@ export async function assertEquipmentParamEditable(element: any, key: string, gr
   return { id: stored.id, value: stored.value };
 }
 
-/** Право на ручную правку относится к проверенному снимку, а не к любой будущей привязке. */
-export async function writeEditableEquipmentParam(prisma: any, element: any, expected: CatalogState, update: { where: unknown; data: unknown }): Promise<any> {
+/**
+ * Право на ручную правку относится к проверенному снимку, а не к любой будущей привязке.
+ *
+ * `expectedVersion` — версия позиции, которую видел клиент: не совпала с прочитанной —
+ * `VersionConflict` (маршрут отвечает 409 с кодом и текущей записью). Без неё сверка
+ * идёт только с собственным чтением маршрута: запись под `where version`, проигрыш
+ * гонки — тот же отказ, а не 500.
+ */
+export async function writeEditableEquipmentParam(prisma: any, element: any, expected: CatalogState, update: { where: unknown; data: unknown }, expectedVersion?: number): Promise<any> {
+  assertExpectedVersion(element, expectedVersion, staleElement);
   try {
     return await prisma.$transaction(async (tx: any) => {
       const current = await tx.appSetting.findFirst({ where: { key: bindingKey(element.id), userId: null } });
@@ -37,6 +47,11 @@ export async function writeEditableEquipmentParam(prisma: any, element: any, exp
     }, { isolationLevel: 'Serializable' });
   } catch (error: any) {
     if (error?.code === 'P2034') throw conflict();
+    // Позицию успели изменить (или убрать) между чтением маршрута и записью: версия в условии не нашла строку
+    if (error?.code === 'P2025') {
+      const fresh = await prisma.componentElement.findUnique({ where: { id: element.id } }).catch(() => null);
+      throw new VersionConflict(staleElement(fresh || element), fresh);
+    }
     throw error;
   }
 }

@@ -370,10 +370,11 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
   const registerOut = (r: any) => ({ ...r, columnsConfig: parseJson(r.columnsConfig, []), revisions: parseJson(r.revisions, []) });
   const itemOut = (i: any) => ({ ...i, extra: parseJson(i.extra, {}) });
 
-  // Отказ 409: текст для человека и текущее состояние, чтобы клиент показал
-  // его и перечитал запись, а не затёр чужое
+  // Отказ 409: текст для человека, код отдельным полем (общий для всех маршрутов,
+  // server/versionGuard.ts) и текущее состояние, чтобы клиент показал текст и
+  // перечитал запись, а не затёр чужое
   const conflictReply = async (res: Response, err: VdrConflict, current: () => Promise<any>) =>
-    res.status(409).json({ error: err.message, conflict: true, current: await current().catch(() => null) });
+    res.status(409).json({ error: err.message, code: 'VERSION_CONFLICT', conflict: true, current: await current().catch(() => null) });
   const badStamp = (res: Response) => res.status(400).json({ error: 'Ожидаемая версия записи не читается' });
 
   // Правка реквизитов. Поля сливаются: приходит только то, что человек менял.

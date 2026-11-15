@@ -8,6 +8,8 @@ import { cleanChoices } from '../equipmentResolve.js';
 import { withBump } from '../equipmentVersion.js';
 import { cleanTagLinks } from './equipmentDraft.js';
 import { assertEquipmentParamEditable, writeEditableEquipmentParam } from '../equipmentParamAccess.js';
+import { VersionConflict, expectedVersionOf, sendVersionConflict } from '../versionGuard.js';
+import { badVersion } from '../equipmentStale.js';
 
 // Оборудование, ядро: план и запись импорта расчёта в категорию, категории,
 // разрешение конфликтов параметров и ручная правка полей.
@@ -47,6 +49,15 @@ const DEFAULT_CATEGORIES = [
   { id: 'VALVE', label: 'Клапаны', composite: false },
   { id: 'CURTAIN', label: 'Воздушные завесы', composite: false },
 ];
+
+/**
+ * Ответ на сбой ручной правки параметра. Версия, которую видел клиент, — 409 с кодом и
+ * текущей записью; прочее, как раньше, по статусу ошибки (карточку источника, права каталога).
+ */
+function paramEditFailure(res: Response, err: any): void {
+  if (err instanceof VersionConflict) { sendVersionConflict(res, err); return; }
+  res.status(err.status || 500).json({ error: err.message });
+}
 
 export function registerEquipmentCoreRoutes(app: Express): void {
 
@@ -143,6 +154,8 @@ export function registerEquipmentCoreRoutes(app: Express): void {
     try {
       const { id } = req.params;
       const { group, key, action, value } = req.body;
+      const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
       const comp = await prisma.componentElement.findUnique({ where: { id } });
       if (!comp) return res.status(404).json({ error: 'Элемент не найден' });
       const catalogState = await assertEquipmentParamEditable(comp, String(key || ''), String(group || ''));
@@ -172,10 +185,10 @@ export function registerEquipmentCoreRoutes(app: Express): void {
           hasConflict: remaining.length > 0,
           status: remaining.length > 0 ? 'CONFLICT' : 'OK',
         }),
-      });
+      }, expectedVersion);
       emitEntityChanged('element', updated.id, req);
       res.json({ success: true, component: updated });
-    } catch (err: any) { res.status(err.status || (err.code === 'P2025' ? 409 : 500)).json({ error: err.code === 'P2025' ? 'Карточка изменилась. Обновите данные перед правкой.' : err.message }); }
+    } catch (err: any) { paramEditFailure(res, err); }
   });
 
   // Ручное изменение любого параметра
@@ -184,6 +197,8 @@ export function registerEquipmentCoreRoutes(app: Express): void {
     try {
       const { id } = req.params;
       const { group, key, value } = req.body;
+      const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
       const comp = await prisma.componentElement.findUnique({ where: { id } });
       if (!comp) return res.status(404).json({ error: 'Элемент не найден' });
       const catalogState = await assertEquipmentParamEditable(comp, String(key || ''), String(group || ''));
@@ -197,10 +212,10 @@ export function registerEquipmentCoreRoutes(app: Express): void {
       overrides[`${group}||${key}`] = p.value;
       const updated = await writeEditableEquipmentParam(prisma, comp, catalogState, {
         where: { id, version: Number(comp.version || 1) }, data: withBump({ specs: JSON.stringify(specsObj), overrides: JSON.stringify(overrides) }),
-      });
+      }, expectedVersion);
       emitEntityChanged('element', updated.id, req);
       res.json({ success: true, component: updated });
-    } catch (err: any) { res.status(err.status || (err.code === 'P2025' ? 409 : 500)).json({ error: err.code === 'P2025' ? 'Карточка изменилась. Обновите данные перед правкой.' : err.message }); }
+    } catch (err: any) { paramEditFailure(res, err); }
   });
 
   // 2. Accept a field discrepancy from conflict
@@ -211,6 +226,8 @@ export function registerEquipmentCoreRoutes(app: Express): void {
     if (!fieldName) {
       return res.status(400).json({ error: 'fieldName is required' });
     }
+    const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
+    if (expectedVersion === null) return badVersion(res);
 
     try {
       const component = await prisma.componentElement.findUnique({
@@ -242,12 +259,12 @@ export function registerEquipmentCoreRoutes(app: Express): void {
           hasConflict: hasRemainingConflicts,
           status: hasRemainingConflicts ? 'CONFLICT' : 'OK'
         })
-      });
+      }, expectedVersion);
 
       emitEntityChanged('element', updated.id, req);
       res.json({ success: true, component: updated });
     } catch (error: any) {
-      res.status(error.status || (error.code === 'P2025' ? 409 : 500)).json({ error: error.code === 'P2025' ? 'Карточка изменилась. Обновите данные перед правкой.' : error.message });
+      paramEditFailure(res, error);
     }
   });
 
@@ -259,6 +276,8 @@ export function registerEquipmentCoreRoutes(app: Express): void {
     if (!fieldName) {
       return res.status(400).json({ error: 'fieldName is required' });
     }
+    const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
+    if (expectedVersion === null) return badVersion(res);
 
     try {
       const component = await prisma.componentElement.findUnique({
@@ -287,12 +306,12 @@ export function registerEquipmentCoreRoutes(app: Express): void {
           hasConflict: hasRemainingConflicts,
           status: hasRemainingConflicts ? 'CONFLICT' : 'OK'
         })
-      });
+      }, expectedVersion);
 
       emitEntityChanged('element', updated.id, req);
       res.json({ success: true, component: updated });
     } catch (error: any) {
-      res.status(error.status || (error.code === 'P2025' ? 409 : 500)).json({ error: error.code === 'P2025' ? 'Карточка изменилась. Обновите данные перед правкой.' : error.message });
+      paramEditFailure(res, error);
     }
   });
 }
