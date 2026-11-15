@@ -54,6 +54,7 @@ import TagPickerModal, { type PickerTag } from '../components/equipment/TagPicke
 import { compositionOf } from '../../equipment/composition';
 import SaveViewDialog, { type ViewParam } from '../components/equipment/SaveViewDialog';
 import ImportOperations, { type OperationBatch } from '../components/equipment/ImportOperations';
+import { writeVersioned, failureText, versionIn, type WriteResult, type VersionedKind } from '../components/equipment/versionedWrite';
 
 import { useShallow } from 'zustand/react/shallow';
 const api = (p: string) => `/api${p}`;
@@ -536,6 +537,14 @@ export default function Equipment() {
     loadOps();
   };
 
+  /**
+   * Версия записи, какой её показывает экран сейчас (из дерева), а не какой она
+   * была у окна, открытого раньше: окно выбора тега держит снимок позиции.
+   */
+  const versionOf = (kind: VersionedKind, id: string | undefined | null, fallback?: number) => versionIn(systems, kind, id) ?? fallback;
+  /** Запись по устаревшей версии отклонена: перечитать то, что видит экран (правка человека остаётся у него в форме) */
+  const staleAfter = (r: WriteResult) => { if (r.kind === 'conflict') { void loadSystems(); void loadTags(); } };
+
   /** Сохранить набор характеристик шаблоном вида — он появится в «Таблице». */
   const saveView = async (body: { name: string; scope: string; role: string; fields: ViewParam[] }): Promise<string> => {
     try {
@@ -558,20 +567,19 @@ export default function Equipment() {
    */
   const addPosition = async (body: AddPositionBody): Promise<string> => {
     try {
-      const url = addTo?.id ? `/equipment/component/${addTo.id}/position` : `/equipment/monoblock/${addTo?.monoblockId}/position`;
-      const res = await fetch(api(url), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) return data?.error || 'Не удалось завести позицию';
+      // Позиция встаёт под родителя и меняет его (тег родителя): версия — родителя
+      const r = await writeVersioned(
+        api(addTo?.id ? `/equipment/component/${addTo.id}/position` : `/equipment/monoblock/${addTo?.monoblockId}/position`),
+        'POST', { ...body }, addTo?.id ? versionOf('component', addTo.id) : versionOf('monoblock', addTo?.monoblockId));
+      if (r.kind !== 'ok') { staleAfter(r); return failureText(r, 'Не удалось завести позицию'); }
+      const data = r.data;
       addToast(
         data?.parentTag ? `Позиция заведена, родитель тега — «${data.parentTag}»` : 'Позиция заведена',
         'success',
       );
       if (data?.tag?.corrected) addToast(`Тег исправлен: ${data.tag.corrected.what} — записан «${data.tag.identifier}»`, 'info');
       if (data?.warning) addToast(data.warning, 'info');
-      loadSystems(); loadTags();
+      await loadSystems(); loadTags();
       return '';
     } catch (_) { return 'Сервер не ответил'; }
   };
@@ -590,13 +598,11 @@ export default function Equipment() {
   };
   const addInside = (c: Component) => setAddTo({ id: c.id, name: blockLabel(c as any), role: c.role, parentTag: parentTagOf(c, true) });
   const createTag = async (c: Component, identifier: string): Promise<string> => {
-    const r = await fetch(api(`/equipment/component/${c.id}/tag`), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier }),
-    }).catch(() => null);
-    const d = await r?.json().catch(() => ({}));
-    if (!r?.ok) return d?.error || 'Сервер не ответил';
+    const r = await writeVersioned(api(`/equipment/component/${c.id}/tag`), 'POST', { identifier }, versionOf('component', c.id, c.version));
+    if (r.kind !== 'ok') { staleAfter(r); return failureText(r, 'Не удалось завести тег'); }
+    const d = r.data;
     addToast(d.corrected ? `Тег исправлен (${d.corrected.what}) и привязан: «${d.identifier}»` : `Тег «${d.identifier}» заведён и привязан`, 'success');
-    setTagPickerFor(null); loadSystems(); loadTags();
+    setTagPickerFor(null); await loadSystems(); loadTags();
     return '';
   };
   const cvOf = (c: Component) => viewOf(catView.view, clsOf(c), visibility[c.equipType] || []);
@@ -607,19 +613,21 @@ export default function Equipment() {
 
   // ── Действия ──
   const resolveConflict = async (comp: Component, c: ParamConflict, action: 'accept' | 'manual', value?: string) => {
-    const r = await fetch(api(`/equipment/component/${comp.id}/resolve`), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ group: c.group, key: c.key, action, value }),
-    });
-    if (r.ok) { addToast(action === 'accept' ? 'Принято значение расчёта' : 'Сохранено вручную', 'success'); loadSystems(); }
+    const r = await writeVersioned(api(`/equipment/component/${comp.id}/resolve`), 'POST', { group: c.group, key: c.key, action, value }, versionOf('component', comp.id, comp.version));
+    if (r.kind === 'ok') { addToast(action === 'accept' ? 'Принято значение расчёта' : 'Сохранено вручную', 'success'); await loadSystems(); return; }
+    staleAfter(r); addToast(failureText(r, 'Не удалось записать значение'), 'error');
   };
 
-  const overrideParam = async (comp: Component, group: string, key: string, value: string) => {
-    const r = await fetch(api(`/equipment/component/${comp.id}/override`), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ group, key, value }),
-    });
-    if (r.ok) { addToast('Параметр изменён', 'success'); loadSystems(); }
+  /**
+   * Правка значения руками. Возвращает текст отказа или пустую строку: карточка
+   * держит поле открытым с набранным значением, пока запись не принята, — при
+   * отказе по версии человек видит, что изменилось, и решает, записывать ли своё.
+   */
+  const overrideParam = async (comp: Component, group: string, key: string, value: string): Promise<string> => {
+    const r = await writeVersioned(api(`/equipment/component/${comp.id}/override`), 'POST', { group, key, value }, versionOf('component', comp.id, comp.version));
+    if (r.kind !== 'ok') { staleAfter(r); return failureText(r, 'Не удалось записать значение'); }
+    addToast('Параметр изменён', 'success'); await loadSystems();
+    return '';
   };
 
   const openHistory = async (comp: Component) => {
@@ -632,11 +640,10 @@ export default function Equipment() {
 
   const linkTag = async (comp: Component, tagId: string) => {
     try {
-      const r = await fetch(api(`/components/${comp.id}/tags/${tagId}`), { method: 'POST' });
-      if (!r.ok) {
-        // 409 = тег уже привязан к другому изделию (один тег — одно изделие)
-        const d = await r.json().catch(() => ({}));
-        addToast(d.error || 'Не удалось привязать тег', 'error');
+      const r = await writeVersioned(api(`/components/${comp.id}/tags/${tagId}`), 'POST', {}, versionOf('component', comp.id, comp.version));
+      if (r.kind !== 'ok') {
+        // 409 без кода = тег уже привязан к другому изделию (один тег — одно изделие)
+        staleAfter(r); addToast(failureText(r, 'Не удалось привязать тег'), 'error');
         return;
       }
       addToast('Тег привязан', 'success');
@@ -646,7 +653,9 @@ export default function Equipment() {
     setTagPickerFor(null); loadSystems(); loadTags();
   };
   const unlinkTag = async (comp: Component, tagId: string) => {
-    await fetch(api(`/components/${comp.id}/tags/${tagId}`), { method: 'DELETE' }).catch(() => {});
+    const r = await writeVersioned(api(`/components/${comp.id}/tags/${tagId}`), 'DELETE', undefined, versionOf('component', comp.id, comp.version));
+    // Раньше отказ глотался молча: тег оставался на месте без единого слова
+    if (r.kind !== 'ok') { staleAfter(r); addToast(failureText(r, 'Не удалось отвязать тег'), 'error'); }
     loadSystems(); loadTags();
   };
 
@@ -655,9 +664,9 @@ export default function Equipment() {
     // Ответ сервера проверяется: раньше при отказе всё равно писали «Удалено»,
     // а освободившиеся теги в окне привязки оставались «занятыми» до перезахода
     try {
-      const res = await fetch(api(`/systems/${unit.id}`), { method: 'DELETE' });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(payload?.error || 'отказ сервера');
+      const r = await writeVersioned(api(`/systems/${unit.id}`), 'DELETE', undefined, versionOf('system', unit.id, (unit as any).version));
+      if (r.kind !== 'ok') { staleAfter(r); throw new Error(failureText(r, 'отказ сервера')); }
+      const payload = r.data;
       // Локальные папки ревизий снятых привязок принадлежали удалённой установке
       if (activeProject?.id) for (const gone of payload?.detachedSources || []) {
         try { removeEquipmentSourceBinding(activeProject.id, gone.sourceId, gone.tagId || '', gone.elementId); } catch (_) { /* хранилище недоступно: на сервере привязка уже снята */ }
@@ -676,8 +685,8 @@ export default function Equipment() {
     } catch (_) { /* без E3 удаление идёт как раньше */ }
     if (!await openConfirm(`Удалить «${blockLabel(c)}»?`, deleteWarning(c as any, e3Links), { confirmLabel: 'Удалить', tone: 'danger' })) return;
     try {
-      const res = await fetch(api(`/equipment/component/${c.id}`), { method: 'DELETE' });
-      if (!res.ok) throw new Error('отказ сервера');
+      const r = await writeVersioned(api(`/equipment/component/${c.id}`), 'DELETE', undefined, versionOf('component', c.id, c.version));
+      if (r.kind !== 'ok') { staleAfter(r); addToast(failureText(r, 'Не удалось удалить позицию'), 'error'); return; }
       if (selectedBlockId === c.id) setSelectedBlockId(null);
       addToast(deletedNote(c as any), 'success');
       loadSystems();
