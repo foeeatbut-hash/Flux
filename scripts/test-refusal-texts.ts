@@ -13,7 +13,7 @@ import {
   VERSION_CONFLICT, RECORD_GONE, RECORD_OPEN, NOUNS,
   editChangedText, deleteChangedText, createInsideChangedText, bulkChangedText,
   editGoneText, createInsideGoneText, deleteGoneText, deleteOpenText, deleteOpenNestedText,
-  racedText, nothingChangedText, type RefusalNoun,
+  racedText, nothingChangedText, openCheckUnavailableText, type RefusalNoun,
 } from '../src/lib/refusalTexts.js';
 
 let checks = 0;
@@ -50,6 +50,8 @@ same('удаление открытой', deleteOpenText('position', 'X', ivanov
 same('удаление, открыто вложенное', deleteOpenNestedText({ noun: 'system', name: 'X' }, { noun: 'position', name: 'Y' }, ivanov),
   'В установке «X» сейчас открыта позиция «Y» у сотрудника: Иванов И. И. Удалить установку нельзя, пока запись открыта.');
 same('одновременная запись без версии', racedText(), 'Запись меняют одновременно, повторите действие.');
+same('не удалось проверить открытые записи', openCheckUnavailableText(),
+  'Не удалось проверить, открыта ли запись у других сотрудников. Ничего не удалено — повторите позже.');
 same('различий в показанном нет', nothingChangedText(), 'Изменения не затронули то, что показано на экране.');
 
 // Мужской род: блок — «открыт», «его», «не удалён», «в который»
@@ -77,7 +79,7 @@ for (const noun of Object.keys(NOUNS) as RefusalNoun[]) {
     editChangedText(noun, 'N'), deleteChangedText(noun, 'N'), createInsideChangedText(noun, 'N'),
     editGoneText(noun, 'N'), createInsideGoneText(noun), deleteGoneText(noun),
     deleteOpenText(noun, 'N', ivanov), deleteOpenNestedText({ noun, name: 'N' }, { noun, name: 'M' }, ivanov),
-    bulkChangedText(), racedText(), nothingChangedText(),
+    bulkChangedText(), racedText(), nothingChangedText(), openCheckUnavailableText(),
   ];
   check(`«${noun}»: тексты целые, непустые и без кода`, texts.every((t) => t.length > 12 && !FORBIDDEN.test(t)), texts.filter((t) => t.length <= 12 || FORBIDDEN.test(t)));
   check(`«${noun}»: тексты начинаются с большой буквы и кончаются точкой`, texts.every((t) => /^[А-ЯЁ]/.test(t) && /[.]$/.test(t)), texts);

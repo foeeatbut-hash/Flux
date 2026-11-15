@@ -123,6 +123,11 @@ export function deleteOpenNestedText(outer: { noun: RefusalNoun; name?: unknown 
   return `В ${o.prep}${quoted(outer.name)} сейчас ${byGender(i, 'открыта', 'открыт', 'открыто')} ${i.nom}${quoted(inner.name)} ${holdersText(holders)} Удалить ${o.acc} нельзя, пока запись открыта.`;
 }
 
+/** Открытые у других записи прочесть не удалось: удалять вслепую нельзя (ответ 503) */
+export function openCheckUnavailableText(): string {
+  return 'Не удалось проверить, открыта ли запись у других сотрудников. Ничего не удалено — повторите позже.';
+}
+
 /** Две записи одновременно, версии у клиента не было (старая сборка) */
 export function racedText(): string {
   return 'Запись меняют одновременно, повторите действие.';

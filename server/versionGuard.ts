@@ -20,9 +20,18 @@
  * Версию двигает и расширение клиента (server/versionBump.ts), но запись
  * здесь добавляет её рост сама: сверка не должна зависеть от того, подключено
  * ли расширение к клиенту (заглушки и проверки на голом клиенте).
+ *
+ * Удаление, кроме версии, сверяется с открытыми записями (`openCheck`): то, что
+ * коллега сейчас держит на экране, не удаляется (server/openRecords.ts).
+ * Правка записи, которой уже нет, отвечает 404 с кодом (`sendRecordGone`).
  */
 
 import { bumpedData } from './versionBump.js';
+import { findOpen, isMissingTable, NOUN_OF_MODEL, schemaModelOf, type OpenHolder, type OpenRef } from './openRecords.js';
+import {
+  RECORD_GONE, RECORD_OPEN, VERSION_CONFLICT, createInsideGoneText, deleteOpenNestedText, deleteOpenText,
+  editGoneText, openCheckUnavailableText, racedText, type RefusalNoun,
+} from '../src/lib/refusalTexts.js';
 
 /** Запись не применена: запись до этого изменили. `current` — какой она стала (`null`, если уже не прочесть). */
 export class VersionConflict extends Error {
@@ -34,6 +43,25 @@ export class VersionConflict extends Error {
 
 /** Внутренний сигнал «проиграл гонку, можно перечитать и повторить». */
 class RaceLost extends Error {}
+
+/** Удаление отклонено: запись (или то, что уйдёт вместе с ней) открыта у другого сотрудника. */
+export class RecordOpen extends Error {
+  constructor(message: string, public holders: OpenHolder[], public record: { model: string; id: string; name: string }) {
+    super(message);
+    this.name = 'RecordOpen';
+  }
+}
+
+/** Открытые записи прочесть не удалось (не «таблицы нет», а иной сбой): удалять вслепую нельзя. */
+export class OpenCheckUnavailable extends Error {
+  constructor(public cause?: unknown) {
+    super(openCheckUnavailableText());
+    this.name = 'OpenCheckUnavailable';
+  }
+}
+
+/** Внутренний сигнал: таблицы открытых записей нет, удаление идёт без этой защиты. */
+class OpenTableMissing extends Error {}
 
 /** Попыток повтора правки у клиента без ожидаемой версии. */
 const RETRIES = 4;
@@ -71,7 +99,7 @@ export function assertExpectedVersion(current: any, expectedVersion: number | un
 }
 
 const RACE_WITH_EXPECTATION = 'Запись уже изменили, пока вы её правили.';
-const RACE_WITHOUT_EXPECTATION = 'Запись меняют одновременно, повторите действие.';
+const RACE_WITHOUT_EXPECTATION = racedText();
 
 export interface GuardedWriteOptions<R> {
   /** Делегат клиента: `tag`, `docRegisterItem`… */
@@ -131,6 +159,25 @@ export async function guardedWrite<R = undefined>(prisma: any, opts: GuardedWrit
   }
 }
 
+/**
+ * Защита открытой записи при удалении.
+ *
+ * Проверяется в той же транзакции, до удаления и до всего, что делает `before`:
+ * отказ откатывает транзакцию, и ничего не записано. Свои окна человеку не
+ * мешают (`userId` — тот, кто удаляет).
+ */
+export interface OpenCheckOptions {
+  /** Кто удаляет: его окна в расчёт не идут */
+  userId: string;
+  /**
+   * Что ещё уйдёт вместе с записью (установка → блоки → позиции; позиция →
+   * вложенные), с названиями для текста отказа. Читать — только через `db`.
+   */
+  cascade?: (db: any, current: any) => Promise<OpenRef[]>;
+  /** Название записи в тексте; по умолчанию `name`, затем `itemCode`. */
+  nameOf?: (row: any) => string;
+}
+
 export interface GuardedDeleteOptions {
   model: string;
   id: string;
@@ -141,6 +188,45 @@ export interface GuardedDeleteOptions {
    * записалось оно — не удалилась и запись.
    */
   before?: (db: any, current: any) => Promise<void>;
+  /**
+   * Не удалять запись, открытую у другого сотрудника. Без него удаление идёт
+   * как раньше: места вне оборудования внесены в перечень храповика
+   * (scripts/test-architecture.ts) до своей очереди.
+   */
+  openCheck?: OpenCheckOptions;
+}
+
+const defaultName = (row: any): string => String(row?.name || row?.itemCode || '').trim();
+
+/** Названия существительных нет — ошибка разработчика, а не пользователя: падаем всегда, не только при открытой записи. */
+function nounOfModel(model: string): RefusalNoun {
+  const noun = NOUN_OF_MODEL[model];
+  if (!noun) throw new Error(`Для модели «${model}» нет существительного в NOUN_OF_MODEL (server/openRecords.ts): добавьте строку.`);
+  return noun;
+}
+
+/** Отказ по первой найденной открытой записи: сама удаляемая — раньше вложенных. */
+async function assertNotOpen(db: any, opts: GuardedDeleteOptions, current: any): Promise<void> {
+  const check = opts.openCheck!;
+  const nameOf = check.nameOf || defaultName;
+  const self: OpenRef = { model: schemaModelOf(opts.model), id: current.id, name: nameOf(current) };
+  const selfNoun = nounOfModel(self.model);
+  const nested = check.cascade ? await check.cascade(db, current) : [];
+  for (const r of nested) nounOfModel(r.model);
+  let hits: Awaited<ReturnType<typeof findOpen>>;
+  try {
+    hits = await findOpen(db, { userId: check.userId, records: [self, ...nested] });
+  } catch (e) {
+    // Общая база создана версией без таблицы: защиты пока нет, а удаление не должно из-за этого вставать
+    if (isMissingTable(e)) throw new OpenTableMissing();
+    throw new OpenCheckUnavailable(e);
+  }
+  const hit = hits[0];
+  if (!hit) return;
+  const text = hit.model === self.model && hit.id === self.id
+    ? deleteOpenText(selfNoun, self.name, hit.holders)
+    : deleteOpenNestedText({ noun: selfNoun, name: self.name }, { noun: nounOfModel(hit.model), name: hit.name }, hit.holders);
+  throw new RecordOpen(text, hit.holders, { model: hit.model, id: hit.id, name: hit.name || '' });
 }
 
 /**
@@ -149,30 +235,76 @@ export interface GuardedDeleteOptions {
  * удалённую запись; нет записи — `null`.
  */
 export async function guardedDelete(prisma: any, opts: GuardedDeleteOptions): Promise<{ before: any } | null> {
-  try {
-    return await inTransaction(prisma, async (db) => {
-      const current = await db[opts.model].findUnique({ where: { id: opts.id } });
-      if (!current) return null;
-      assertExpectedVersion(current, opts.expectedVersion, opts.staleMessage);
-      if (opts.before) await opts.before(db, current);
-      const gone = await db[opts.model].deleteMany({ where: { id: current.id, version: current.version } });
-      if (gone.count !== 1) throw new RaceLost();
-      return { before: current };
-    });
-  } catch (e) {
-    if (!(e instanceof RaceLost)) throw e;
-    // Проигравший гонку: победитель уже записан, его и показываем в отказе
-    const fresh = await prisma[opts.model].findUnique({ where: { id: opts.id } }).catch(() => null);
-    throw new VersionConflict(RACE_WITH_EXPECTATION, fresh);
+  let guarded = !!opts.openCheck;
+  for (;;) {
+    try {
+      return await inTransaction(prisma, async (db) => {
+        const current = await db[opts.model].findUnique({ where: { id: opts.id } });
+        if (!current) return null;
+        assertExpectedVersion(current, opts.expectedVersion, opts.staleMessage);
+        if (guarded) await assertNotOpen(db, opts, current);
+        if (opts.before) await opts.before(db, current);
+        const gone = await db[opts.model].deleteMany({ where: { id: current.id, version: current.version } });
+        if (gone.count !== 1) throw new RaceLost();
+        return { before: current };
+      });
+    } catch (e) {
+      // Транзакция с отказом чтения откатилась целиком (в PostgreSQL после сбоя запроса она негодна) —
+      // повторяем удаление без защиты
+      if (e instanceof OpenTableMissing && guarded) { guarded = false; continue; }
+      if (!(e instanceof RaceLost)) throw e;
+      // Проигравший гонку: победитель уже записан, его и показываем в отказе
+      const fresh = await prisma[opts.model].findUnique({ where: { id: opts.id } }).catch(() => null);
+      throw new VersionConflict(RACE_WITH_EXPECTATION, fresh);
+    }
   }
 }
+
+type Res = { status: (code: number) => { json: (body: unknown) => unknown } };
 
 /**
  * Ответ 409: текст для человека (по-русски, без кода) и текущая запись, чтобы
  * экран показал отказ и перечитал её, а не затёр чужое. Код — отдельным полем.
  * `present` — как маршрут обычно отдаёт эту запись (разбор JSON-полей и т. п.).
  */
-export function sendVersionConflict(res: { status: (code: number) => { json: (body: unknown) => unknown } }, e: VersionConflict, present?: (record: any) => unknown): unknown {
+export function sendVersionConflict(res: Res, e: VersionConflict, present?: (record: any) => unknown): unknown {
   const current = e.current && present ? present(e.current) : e.current ?? null;
-  return res.status(409).json({ error: e.message, code: 'VERSION_CONFLICT', current });
+  return res.status(409).json({ error: e.message, code: VERSION_CONFLICT, current });
+}
+
+/**
+ * Ответ 409 «запись открыта у другого сотрудника»: текст, кто держит и какая
+ * именно запись открыта (при вложенной — она, а не удаляемая).
+ */
+export function sendRecordOpen(res: Res, e: RecordOpen): unknown {
+  return res.status(409).json({
+    error: e.message, code: RECORD_OPEN,
+    holders: e.holders.map((h) => ({ userId: h.userId, name: h.name })),
+    record: e.record,
+  });
+}
+
+/**
+ * Ответ 404 «записи уже нет» при правке или при создании внутри неё: текст из
+ * словаря, код отдельным полем. Названия у несуществующей записи нет — только слово.
+ */
+export function sendRecordGone(res: Res, noun: RefusalNoun, opts: { inside?: boolean; name?: unknown } = {}): unknown {
+  const error = opts.inside ? createInsideGoneText(noun) : editGoneText(noun, opts.name);
+  return res.status(404).json({ error, code: RECORD_GONE });
+}
+
+/** 503: открытые записи прочесть не удалось, ничего не удалено. */
+export function sendOpenCheckUnavailable(res: Res, e: OpenCheckUnavailable): unknown {
+  return res.status(503).json({ error: e.message });
+}
+
+/**
+ * Один ответ на все отказы защиты записи: версия, открытая запись, сбой чтения
+ * открытых. Возвращает `true`, если ответ дан; иначе ошибка не наша.
+ */
+export function sendGuardRefusal(res: Res, e: unknown, present?: (record: any) => unknown): boolean {
+  if (e instanceof VersionConflict) { sendVersionConflict(res, e, present); return true; }
+  if (e instanceof RecordOpen) { sendRecordOpen(res, e); return true; }
+  if (e instanceof OpenCheckUnavailable) { sendOpenCheckUnavailable(res, e); return true; }
+  return false;
 }
