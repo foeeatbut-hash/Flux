@@ -33,7 +33,6 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { findChromeOrUndefined } from './chromePath';
 import { classTitle } from '../equipment/classes';
-import { TYPE_AUTO } from '../src/components/equipment/changeRules';
 
 const require = createRequire(import.meta.url);
 const SHOTS = process.env.FLUX_EQUIPMENT_SHOTS || '/tmp/flux-equipment-version';
@@ -210,7 +209,8 @@ async function main() {
     await refusal.waitFor({ timeout: 15000 });
     const refusalText = (await refusal.locator('[data-conflict-message]').textContent())!;
     check('виден текст отказа сервера', refusalText === await staleText('eq-fan', 1), refusalText);
-    same('виден перечень: тип определялся сам, стал «Фильтр · Карманный»', await changesOf(refusal), [{ label: 'Тип', was: TYPE_AUTO, now: 'Фильтр · Карманный' }]);
+    same('виден перечень: тип был «Вентилятор», стал «Фильтр · Карманный»', await changesOf(refusal), [{ label: 'Тип', was: 'Вентилятор', now: 'Фильтр · Карманный' }]);
+    check('перечень читается и без стилей: «было» и «стало» названы словами, между частями пробелы', (await refusal.locator('[data-conflict-change]').first().textContent()) === 'Тип: было Вентилятор → стало Фильтр · Карманный', await refusal.locator('[data-conflict-change]').first().textContent());
     check('отказ — role="alert"', await refusal.locator('[role=alert]').count() === 1);
     check('окно типа не закрылось, выбор человека остался в полях', await typeDialog.locator('select').inputValue() === 'КЛАПАН' && await typeDialog.locator('input').inputValue() === 'Воздушный');
     await page.getByText('УВ-1 · v2').first().waitFor({ timeout: 15000 });
@@ -269,7 +269,7 @@ async function main() {
     // Тот же запрос, что отправил экран: служба отказывает по версии и ничего не удаляет — берём её точный текст
     const staleDelete = await call('DELETE', `/api/equipment/component/eq-valve?expectedVersion=${valveBefore.version}`);
     check('виден текст отказа сервера окном, а не всплывающей строкой', staleDelete.status === 409 && (await deleteRefusal.locator('[data-conflict-message]').textContent()) === staleDelete.body.error, staleDelete.body);
-    same('виден перечень: тип стал «Привод»', await changesOf(deleteRefusal), [{ label: 'Тип', was: TYPE_AUTO, now: classTitle('ПРИВОД') }]);
+    same('виден перечень: тип был «Клапан · Воздушный», стал «Привод»', await changesOf(deleteRefusal), [{ label: 'Тип', was: 'Клапан · Воздушный', now: classTitle('ПРИВОД') }]);
     await shot('delete-position-refusal');
     await page.getByRole('button', { name: 'Понятно' }).click();
     check('окно отказа закрывается кнопкой', await page.locator('[data-refusal-dialog]').count() === 0);

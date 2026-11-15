@@ -55,12 +55,17 @@ export function tagRows(record: any): Array<{ label: string; value: unknown }> {
 /** Поправка типа в базе пуста — экран показывает угаданный тип, и «—» про него соврал бы: человек видел «Клапан», а не пусто. */
 export const TYPE_AUTO = 'определяется сам';
 
-/** Тип и вид — как их видит человек: «Вентилятор · Радиальный»; пусто — тип определяется сам. */
+/** Тип и вид — как их видит человек (`shownType`, если экран его назвал): «Вентилятор · Радиальный»; пусто — тип определяется сам. */
 export function typeText(record: any): string {
+  // Экран кладёт сюда тип, который показывал (угаданный или поправленный): «было» не пустое, если тип у позиции был
+  if (record?.shownType) return String(record.shownType);
   const cls = String(record?.equipClass ?? '').trim();
   const kind = String(record?.equipKind ?? '').trim();
   return [cls ? classTitle(cls) : '', kind].filter(Boolean).join(' · ') || TYPE_AUTO;
 }
+
+/** Поправка типа в базе как есть: по ней видно, менял ли её кто-то. */
+const rawType = (r: any) => `${String(r?.equipClass ?? '').trim()}|${String(r?.equipKind ?? '').trim()}`;
 
 export const COMPONENT_RULES: ChangeRule[] = [
   { label: 'Название', value: (r) => r.name },
@@ -86,6 +91,8 @@ export const RULES: Record<EquipmentRecordKind, ChangeRule[]> = {
 };
 
 /** Перечень изменений записи оборудования; `shown` — из дерева экрана, `current` — из отказа. */
-export function equipmentChanges(kind: EquipmentRecordKind, shown: unknown, current: unknown): FieldChange[] {
+export function equipmentChanges(kind: EquipmentRecordKind, shown: any, current: any): FieldChange[] {
+  // Угаданный тип экрана сравнивать с сырой поправкой из отказа нельзя: тип не менялся, а строка «Тип» появилась бы
+  if (kind === 'component' && shown?.shownType && current && rawType(shown) === rawType(current)) shown = { ...shown, shownType: undefined };
   return changesBetween(shown, current, RULES[kind]);
 }

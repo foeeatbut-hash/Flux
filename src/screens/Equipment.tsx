@@ -43,7 +43,7 @@ import { findLatestBoundDocument, loadEquipmentDocumentBindings, resolveEquipmen
 import type { EquipmentDocumentBinding } from '../../equipment/documentBindings';
 import PositionTree, { blockLabel, type TreeMode } from '../components/equipment/PositionTree';
 import PositionList from '../components/equipment/PositionList';
-import { classifyAll, classTitle } from '../../equipment/classes';
+import { classifyAll, classTitle, classLabel } from '../../equipment/classes';
 import { compareTags } from '../../equipment/notes';
 import { compositionView } from '../lib/cardComposition';
 import CategoryViewDialog from '../components/equipment/CategoryViewDialog';
@@ -55,7 +55,7 @@ import { compositionOf } from '../../equipment/composition';
 import SaveViewDialog, { type ViewParam } from '../components/equipment/SaveViewDialog';
 import ImportOperations, { type OperationBatch } from '../components/equipment/ImportOperations';
 import { writeVersioned, versionIn, recordIn, type WriteResult, type VersionedKind } from '../components/equipment/versionedWrite';
-import { refusalOf, needsReread, plainRefusal, type Refusal } from '../components/equipment/conflictView';
+import { refusalOf, needsReread, plainRefusal, withShownType, type Refusal } from '../components/equipment/conflictView';
 import { useRefusalDialog } from '../components/equipment/useRefusalDialog';
 import { useEquipmentOpenRecords } from '../components/equipment/useEquipmentOpenRecords';
 import { deleteGoneText } from '../lib/refusalTexts';
@@ -552,7 +552,8 @@ export default function Equipment() {
    * Отказ записи → что показать человеку. `shown` — запись, какой её видел экран в МОМЕНТ действия:
    * её берут до перечитывания дерева, иначе сравнивать с отказом было бы нечем.
    */
-  const refuse = (r: WriteResult, kind: VersionedKind, shown: unknown, fallback: string): Refusal => { staleAfter(r); return refusalOf(r, kind, shown, fallback)!; };
+  const refuse = (r: WriteResult, kind: VersionedKind, shown: unknown, fallback: string): Refusal => { staleAfter(r); return refusalOf(r, kind, kind === 'component' && shown ? withShownType(shown as object, shownTypeOf((shown as any).id)) : shown, fallback)!; };
+  const shownTypeOf = (id: string) => { const t = types.get(id); return t ? classLabel(t) : undefined; };
   // Окно отказа для действий без формы (удаление, отвязка тега): перечень изменений в всплывающую строку не помещается
   const refusals = useRefusalDialog(addToast);
   // Открытой считается выбранная позиция или установка и запись, над которой открыто окно правки

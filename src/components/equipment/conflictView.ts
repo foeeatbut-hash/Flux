@@ -42,3 +42,8 @@ export function refusalOf(result: WriteResult, recordKind: EquipmentRecordKind, 
 
 /** Нужно ли после отказа перечитать дерево: запись изменили или исчезла — экран устарел; чужая занятость и сеть его не меняют. */
 export const needsReread = (result: WriteResult): boolean => result.kind === 'conflict' || result.kind === 'gone';
+
+/** Запись для сравнения с типом, который экран показывал (угаданный правилами или поправленный): в базе поправка может быть пуста. */
+export function withShownType<T extends object>(record: T, shownType: string | undefined): T & { shownType?: string } {
+  return shownType ? { ...record, shownType } : record;
+}

@@ -26,11 +26,10 @@ function ChangeList({ changes }: { changes: FieldChange[] }) {
     <ul className="fx-conflict-list" data-conflict-changes>
       {changes.map((c, i) => (
         <li key={`${c.label}-${i}`} data-conflict-change>
-          <span className="fx-conflict-field">{c.label}:</span>
-          <span className="fx-conflict-was">{c.was}</span>
-          <span className="fx-conflict-arrow" aria-hidden="true">→</span>
-          <span className="sr-only">стало</span>
-          <span className="fx-conflict-now">{c.now}</span>
+          <span className="fx-conflict-field">{c.label}:</span>{' '}
+          <span className="sr-only">было </span><span className="fx-conflict-was">{c.was}</span>{' '}
+          <span className="fx-conflict-arrow" aria-hidden="true">→</span>{' '}
+          <span className="sr-only">стало </span><span className="fx-conflict-now">{c.now}</span>
         </li>
       ))}
     </ul>

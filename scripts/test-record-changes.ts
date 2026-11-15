@@ -56,7 +56,12 @@ same('название и обозначение', equipmentChanges('component',
 ]);
 {
   const t = equipmentChanges('component', shownFan, currentFan({ equipClass: 'ФИЛЬТР', equipKind: 'Карманный' }));
-  same('тип: класс и вид одной строкой, было — «определяется сам» (поправки не было, а не «пусто»)', [t.length, t[0]?.label, t[0]?.was, /Карманный/.test(t[0]?.now || '')], [1, 'Тип', TYPE_AUTO, true]);
+  same('тип: класс и вид одной строкой, было — «определяется сам» (поправки не было и экран тип не называл)', [t.length, t[0]?.label, t[0]?.was, /Карманный/.test(t[0]?.now || '')], [1, 'Тип', TYPE_AUTO, true]);
+}
+{
+  const withGuess = { ...shownFan, shownType: 'Вентилятор' };
+  same('тип экрана назван — «было» не пустое', equipmentChanges('component', withGuess, currentFan({ equipClass: 'ФИЛЬТР', equipKind: 'Карманный' })).map((c) => [c.label, c.was]), [['Тип', 'Вентилятор']]);
+  same('тип не менялся, а экран его угадал — строки «Тип» нет', equipmentChanges('component', withGuess, currentFan({ name: 'Другой' })).map((c) => c.label), ['Название']);
 }
 same('состояние', equipmentChanges('component', shownFan, currentFan({ status: 'CONFLICT' })), [{ label: 'Состояние', was: 'OK', now: 'CONFLICT' }]);
 same('число экземпляров', equipmentChanges('component', shownFan, currentFan({ instanceNo: 2, instanceCount: 3 })), [

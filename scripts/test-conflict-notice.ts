@@ -29,9 +29,10 @@ console.log('1. Одна запись');
   ok('role="alert"', out.includes('role="alert"'));
   ok('текст отказа показан', out.includes('Позицию «Вентилятор А» изменили, пока вы её правили.'));
   same('по строке на каждое изменение', count(out, '<li '), 2);
-  ok('поле, было и стало — каждое на своём месте', /fx-conflict-field">Тип:<\/span><span class="fx-conflict-was">—<\/span>.*?fx-conflict-now">Фильтр · Карманный</.test(out));
+  ok('поле, было и стало — каждое на своём месте', /fx-conflict-field">Тип:<\/span> <span class="sr-only">было <\/span><span class="fx-conflict-was">—<\/span>.*?fx-conflict-now">Фильтр · Карманный</.test(out));
   ok('было стоит раньше, чем стало', out.indexOf('1000 м3/ч') < out.indexOf('2000 м3/ч'));
-  ok('стрелка не читается диктором, вместо неё слово «стало»', out.includes('aria-hidden="true">→') && out.includes('>стало<'));
+  ok('стрелка не читается диктором, вместо неё слова «было» и «стало»', out.includes('aria-hidden="true">→') && out.includes('>стало <') && out.includes('>было <'));
+  ok('строка читается как текст: «Тип: было — → стало Фильтр · Карманный»', out.replace(/<[^>]+>/g, '').includes('Тип: было — → стало Фильтр · Карманный'));
   ok('группы нет', !out.includes('data-conflict-group'));
 }
 

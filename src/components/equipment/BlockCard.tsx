@@ -11,7 +11,8 @@ import TypeChip from './TypeChip';
 import CatalogSourcePanel from './CatalogSourcePanel';
 import E3SchemeLine from './E3SchemeLine';
 import RefusalView from './RefusalView';
-import { plainRefusal, type Refusal } from './conflictView';
+import { plainRefusal, withShownType, type Refusal } from './conflictView';
+import { classLabel } from '../../../equipment/classes';
 
 function sectionNotes(groups: any[]) {
   const notes: string[] = [];
@@ -108,7 +109,7 @@ export default function BlockCard(props: any) {
               </button>
             )}
             {/* Тип и вид — угаданные правилом, с поправкой по нажатию */}
-            <TypeChip componentId={comp.id} version={comp.version} shown={comp} typed={props.typed} onSaved={() => onReload?.()} say={props.say || (() => {})} />
+            <TypeChip componentId={comp.id} version={comp.version} shown={withShownType(comp, props.typed ? classLabel(props.typed) : undefined)} typed={props.typed} onSaved={() => onReload?.()} say={props.say || (() => {})} />
             <span className="text-2xs text-slate-400 font-mono">{unitName} · v{comp.version}</span>
           </div>
           {/* Имя переносится, а не обрывается: «Электродвигатель 160М6-УХЛ2-400-IM1001»
