@@ -10,7 +10,7 @@
  *
  * Когда шлём:
  *  - при смене списка — сразу (PUT);
- *  - пока что-то открыто — каждые `BEAT_MS` (15 с), иначе отметка протухнет
+ *  - пока что-то открыто — каждые `OPEN_BEAT_MS` (15 с), иначе отметка протухнет
  *    (сервер считает её живой 90 с). Пока Flux открыт и на связи, отметки идут и
  *    запись занята сколько угодно: срока освобождения нет;
  *  - при закрытии окна — пустой список маяком (POST с `keepalive`: он доживает
@@ -22,10 +22,11 @@
  *
  * Модуль без React: наборы гоняют его с подставным `fetch` и таймером.
  */
-import { BEAT_MS } from './presenceTime';
+// Срок удара и пределы — одни для сервера и окна (lib/openRecordTime)
+import { OPEN_BEAT_MS } from './openRecordTime';
 
 export const OPEN_RECORDS_URL = '/api/open-records';
-export { BEAT_MS as OPEN_RECORDS_BEAT_MS };
+export { OPEN_BEAT_MS as OPEN_RECORDS_BEAT_MS };
 
 /** Запись, открытая в окне: модель базы и id. */
 export interface OpenRecordRef { model: string; id: string }
@@ -65,7 +66,7 @@ const keyOf = (r: OpenRecordRef) => `${r.model}\u0000${r.id}`;
 export function createOpenRecordsClient(options: OpenRecordsOptions = {}): OpenRecordsClient {
   const holderKey = options.holderKey || newHolderKey();
   const url = options.url || OPEN_RECORDS_URL;
-  const beatMs = options.beatMs ?? BEAT_MS;
+  const beatMs = options.beatMs ?? OPEN_BEAT_MS;
   const fetcher: Fetcher = options.fetcher || ((u, i) => fetch(u, i));
   const timers: Timers = options.timers || { set: (fn, ms) => setInterval(fn, ms), clear: (h) => clearInterval(h as any) };
 

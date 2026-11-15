@@ -4,7 +4,7 @@
 
 - [x] 1. `recordChanges.ts`, `changeRules.ts`, `test-record-changes` (23 проверки, 3 мутации убивают)
 - [x] 2. `versionedWrite` (gone, open), `ConflictNotice`, `openRecords.ts` + хук `components/useOpenRecords.ts`; наборы test-open-records-client (25), test-conflict-notice (18), test-equipment-version-client (60)
-- [ ] 3. Экран «Оборудование»
+- [x] 3. Экран «Оборудование» (Equipment.tsx +24 строки): RefusalView в TypeChip, BlockCard, AddPositionDialog, TagPickerModal; окно отказа для удаления, отвязки, «принять значение»; useEquipmentOpenRecords
 - [ ] 4. Набор `test-equipment-version-ui`
 - [ ] 5. Страница `equipment.md`
 
