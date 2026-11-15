@@ -5,6 +5,8 @@ import { useEscapeClose } from '../../lib/useDismiss';
 import { ROLES, roleById, roleFits, roleTitle } from '../../../equipment/roles';
 import { CLASSES, classById, isClassId } from '../../../equipment/classes';
 import { useTagCheck, tagHint, tagPrefixOf } from './useTagCheck';
+import RefusalView from './RefusalView';
+import { plainRefusal, type Refusal } from './conflictView';
 
 /**
  * Завести позицию внутри существующей — руками.
@@ -46,7 +48,8 @@ interface Props {
   freeTags?: string[];
   onClose: () => void;
   /** Завести позицию; вернуть текст ошибки или пусто при успехе */
-  onSubmit: (body: AddPositionBody) => Promise<string>;
+  /** Пусто — позиция заведена; иначе отказ: текст и, если запись изменили, перечень «было → стало» */
+  onSubmit: (body: AddPositionBody) => Promise<Refusal | null>;
 }
 
 interface Row { key: string; value: string; unit: string }
@@ -68,7 +71,7 @@ export default function AddPositionDialog({ target, projectId, freeTags = [], on
   const check = useTagCheck(projectId, tag === tagPrefixOf(target.parentTag || '') ? '' : tag);
   const [rows, setRows] = React.useState<Row[]>([{ key: '', value: '', unit: '' }]);
   const [busy, setBusy] = React.useState(false);
-  const [error, setError] = React.useState('');
+  const [error, setError] = React.useState<Refusal | null>(null);
 
   const fits = roleFits(parentRole, role);
 
@@ -76,9 +79,9 @@ export default function AddPositionDialog({ target, projectId, freeTags = [], on
     setRows((cur) => cur.map((r, n) => (n === i ? { ...r, ...patch } : r)));
 
   const submit = async () => {
-    if (!name.trim()) { setError('У позиции должно быть название'); return; }
+    if (!name.trim()) { setError(plainRefusal('У позиции должно быть название')); return; }
     setBusy(true);
-    setError('');
+    setError(null);
     // Одна приставка без продолжения — не тег: человек не стал его заводить
     const typed = tag.trim() === tagPrefixOf(target.parentTag || '') ? '' : tag.trim();
     const why = await onSubmit({
@@ -181,7 +184,7 @@ export default function AddPositionDialog({ target, projectId, freeTags = [], on
             </button>
           </div>
 
-          {error && <div className="text-2xs text-rose-600 dark:text-rose-400">{error}</div>}
+          <RefusalView refusal={error} />
         </div>
 
         <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2">

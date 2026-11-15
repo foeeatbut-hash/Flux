@@ -19,11 +19,10 @@
  * Модуль без React и без браузера: наборы гоняют его с подставным `fetch`.
  */
 
-export const VERSION_CONFLICT = 'VERSION_CONFLICT';
-/** Запись, по которой шла правка, уже удалили (404) */
-export const RECORD_GONE = 'RECORD_GONE';
-/** Удаляемая запись (или вложенная в неё) сейчас открыта у коллеги (409) */
-export const RECORD_OPEN = 'RECORD_OPEN';
+import { VERSION_CONFLICT, RECORD_GONE, RECORD_OPEN } from '../../lib/refusalTexts';
+
+/** Коды отказов — из словаря, общего с сервером (`lib/refusalTexts`): запись об «изменили», «удалили» и «открыта у коллеги» */
+export { VERSION_CONFLICT, RECORD_GONE, RECORD_OPEN };
 
 /** Кто держит запись открытой и какая именно запись: как их присылает сервер при `RECORD_OPEN` */
 export interface OpenHolder { userId: string; name: string }
@@ -127,15 +126,20 @@ export function failureText(result: WriteResult, fallback: string): string {
 
 export type VersionedKind = 'system' | 'monoblock' | 'component';
 
-/** Версия записи в дереве установок, как её показывает экран; нет записи — `undefined`. */
-export function versionIn(systems: any[], kind: VersionedKind, id: string | undefined | null): number | undefined {
+/** Запись дерева установок, какой её показывает экран; нет записи — `undefined`. */
+export function recordIn(systems: any[], kind: VersionedKind, id: string | undefined | null): any | undefined {
   if (!id) return undefined;
   for (const system of systems || []) {
-    if (kind === 'system' && system.id === id) return versionToSend(system.version);
+    if (kind === 'system' && system.id === id) return system;
     for (const mono of system.monoblocks || []) {
-      if (kind === 'monoblock' && mono.id === id) return versionToSend(mono.version);
-      if (kind === 'component') for (const comp of mono.components || []) if (comp.id === id) return versionToSend(comp.version);
+      if (kind === 'monoblock' && mono.id === id) return mono;
+      if (kind === 'component') for (const comp of mono.components || []) if (comp.id === id) return comp;
     }
   }
   return undefined;
+}
+
+/** Версия записи в дереве установок, как её показывает экран; нет записи — `undefined`. */
+export function versionIn(systems: any[], kind: VersionedKind, id: string | undefined | null): number | undefined {
+  return versionToSend(recordIn(systems, kind, id)?.version);
 }

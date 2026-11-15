@@ -10,6 +10,8 @@ import { normalizeSpecs, type ParamConflict } from '../../lib/specs';
 import TypeChip from './TypeChip';
 import CatalogSourcePanel from './CatalogSourcePanel';
 import E3SchemeLine from './E3SchemeLine';
+import RefusalView from './RefusalView';
+import { plainRefusal, type Refusal } from './conflictView';
 
 function sectionNotes(groups: any[]) {
   const notes: string[] = [];
@@ -83,12 +85,12 @@ export default function BlockCard(props: any) {
   const { change, clear } = useEntityChanged('element', comp?.id, me?.id);
   const [editKey, setEditKey] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
-  // Отказ сервера на правку: поле остаётся открытым с набранным значением, под ним — текст отказа
-  const [editError, setEditError] = useState('');
-  const closeEdit = () => { setEditKey(null); setEditError(''); };
+  // Отказ сервера на правку: поле остаётся открытым с набранным значением, под ним — текст отказа и перечень изменений
+  const [editError, setEditError] = useState<Refusal | null>(null);
+  const closeEdit = () => { setEditKey(null); setEditError(null); };
   const submitOverride = async (group: string, key: string) => {
-    const why = await onOverride(comp, group, key, editVal);
-    if (why) setEditError(why); else closeEdit();
+    const why: Refusal | string | null = await onOverride(comp, group, key, editVal);
+    if (why) setEditError(typeof why === 'string' ? plainRefusal(why) : why); else closeEdit();
   };
 
   return (
@@ -106,7 +108,7 @@ export default function BlockCard(props: any) {
               </button>
             )}
             {/* Тип и вид — угаданные правилом, с поправкой по нажатию */}
-            <TypeChip componentId={comp.id} version={comp.version} typed={props.typed} onSaved={() => onReload?.()} say={props.say || (() => {})} />
+            <TypeChip componentId={comp.id} version={comp.version} shown={comp} typed={props.typed} onSaved={() => onReload?.()} say={props.say || (() => {})} />
             <span className="text-2xs text-slate-400 font-mono">{unitName} · v{comp.version}</span>
           </div>
           {/* Имя переносится, а не обрывается: «Электродвигатель 160М6-УХЛ2-400-IM1001»
@@ -250,7 +252,7 @@ export default function BlockCard(props: any) {
                             <button type="button" onClick={() => void submitOverride(g.title, p.key)} className="text-emerald-600 cursor-pointer" title="Записать (Enter)"><Check className="w-3.5 h-3.5" /></button>
                             <button type="button" onClick={closeEdit} className="text-slate-400 cursor-pointer" title="Отмена (Esc)"><X className="w-3.5 h-3.5" /></button>
                           </span>
-                          {editError && <div role="alert" data-edit-error className="fx-error col-span-full">{editError}</div>}
+                          {editError && <div data-edit-error className="col-span-full"><RefusalView refusal={editError} /></div>}
                         </>
                       ) : (
                         <>
@@ -264,10 +266,10 @@ export default function BlockCard(props: any) {
                             <span className="flex items-center gap-1 shrink-0">
                               <span className="text-2xs text-rose-500">→ {conf.newValue}</span>
                               <button type="button" onClick={() => onResolve(comp, conf, 'accept')} className="p-0.5 text-emerald-600 hover:bg-emerald-100 dark:hover:bg-emerald-950 rounded cursor-pointer" title="Принять значение из расчёта"><Check className="w-3.5 h-3.5" /></button>
-                              <button type="button" onClick={() => { setEditKey(token); setEditVal(conf.newValue); setEditError(''); }} className="p-0.5 text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-950 rounded cursor-pointer" title="Изменить вручную"><Pencil className="w-3.5 h-3.5" /></button>
+                              <button type="button" onClick={() => { setEditKey(token); setEditVal(conf.newValue); setEditError(null); }} className="p-0.5 text-amber-600 hover:bg-amber-100 dark:hover:bg-amber-950 rounded cursor-pointer" title="Изменить вручную"><Pencil className="w-3.5 h-3.5" /></button>
                             </span>
                           ) : (
-                            <button type="button" onClick={() => { setEditKey(token); setEditVal(p.value); setEditError(''); }} className="p-0.5 text-slate-300 hover:text-amber-500 cursor-pointer" title="Изменить вручную"><Pencil className="w-3 h-3" /></button>
+                            <button type="button" onClick={() => { setEditKey(token); setEditVal(p.value); setEditError(null); }} className="p-0.5 text-slate-300 hover:text-amber-500 cursor-pointer" title="Изменить вручную"><Pencil className="w-3 h-3" /></button>
                           )}
                           {showAllParams && (
                             <button type="button" onClick={() => toggleHidden(comp.equipType, token)} className="text-slate-300 hover:text-slate-500 cursor-pointer shrink-0" title={pHidden ? 'Показывать' : 'Скрыть'}>

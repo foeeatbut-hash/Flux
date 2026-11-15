@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { Plus, Search, Tag as TagIcon, X } from 'lucide-react';
 import { WindowDialog } from '../ui/WindowDialog';
 import { useTagCheck, tagHint, tagPrefixOf } from './useTagCheck';
+import RefusalView from './RefusalView';
+import type { Refusal } from './conflictView';
 
 /**
  * Привязать тег к позиции: найти в реестре или завести новый.
@@ -27,9 +29,10 @@ interface Props {
   currentComponentId: string;
   /** Тег родителя позиции — от него берётся приставка нового тега */
   parentTag?: string;
-  onPick: (tagId: string) => void;
-  /** Завести по написанию и привязать; вернуть текст ошибки или пусто */
-  onCreate: (identifier: string) => Promise<string>;
+  /** Привязать выбранный; отказ (изменили позицию, тег занят) показывается в окне, окно остаётся открытым */
+  onPick: (tagId: string) => Promise<Refusal | null>;
+  /** Завести по написанию и привязать; вернуть отказ или пусто */
+  onCreate: (identifier: string) => Promise<Refusal | null>;
   onClose: () => void;
 }
 
@@ -40,7 +43,7 @@ const tagName = (t: PickerTag): string => {
 export default function TagPickerModal({ projectId, tags, currentComponentId, parentTag, onPick, onCreate, onClose }: Props) {
   const [query, setQuery] = useState(() => tagPrefixOf(parentTag || ''));
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<Refusal | null>(null);
   // Префикс подставляется сам и по определению «оборванный» (кончается дефисом):
   // ругаться на него, пока человек ничего не набрал, значит открывать окно с ошибкой
   const [typed, setTyped] = useState(false);
@@ -69,8 +72,15 @@ export default function TagPickerModal({ projectId, tags, currentComponentId, pa
 
   const create = async () => {
     setBusy(true);
-    setError('');
+    setError(null);
     const why = await onCreate(query.trim());
+    setBusy(false);
+    if (why) setError(why);
+  };
+  const pick = async (tagId: string) => {
+    setBusy(true);
+    setError(null);
+    const why = await onPick(tagId);
     setBusy(false);
     if (why) setError(why);
   };
@@ -88,15 +98,16 @@ export default function TagPickerModal({ projectId, tags, currentComponentId, pa
             autoFocus
             type="search"
             value={query}
-            onChange={(e) => { setQuery(e.target.value); setTyped(true); setError(''); }}
+            onChange={(e) => { setQuery(e.target.value); setTyped(true); setError(null); }}
             onKeyDown={(e) => { if (e.key === 'Enter' && canCreate && !filtered.length) create(); }}
             placeholder="Поиск или новый тег: 3700-B01-TE-001"
             className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs focus:outline-none focus:border-emerald-500 text-slate-800 dark:text-slate-100"
           />
         </div>
-        <div className={`min-h-[18px] text-2xs mb-2 ${(typed && check.state === 'bad') || error ? 'text-rose-600 dark:text-rose-400' : check.corrected ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
-          {error || (typed || check.state !== 'bad' ? tagHint(check) : '')}
+        <div className={`min-h-[18px] text-2xs mb-2 ${(typed && check.state === 'bad') || error?.kind === 'plain' ? 'text-rose-600 dark:text-rose-400' : check.corrected ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`}>
+          {error?.kind === 'plain' ? error.message : (typed || check.state !== 'bad' ? tagHint(check) : '')}
         </div>
+        {error && error.kind !== 'plain' && <div className="mb-2" data-picker-refusal><RefusalView refusal={error} /></div>}
         {canCreate && (
           <button type="button" onClick={create} disabled={busy}
             className="w-full mb-2 flex items-center gap-2 px-3 py-2 rounded-lg text-left text-xs border border-dashed border-emerald-400 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 cursor-pointer disabled:opacity-50">
@@ -118,8 +129,8 @@ export default function TagPickerModal({ projectId, tags, currentComponentId, pa
             return (
               <button type="button"
                 key={t.id}
-                disabled={taken}
-                onClick={() => onPick(t.id)}
+                disabled={taken || busy}
+                onClick={() => void pick(t.id)}
                 title={linkedHere ? 'Уже привязан к этому изделию' : holder ? `Занят: ${holder.name || holder.itemCode}` : 'Привязать'}
                 className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-xs ${taken
                   ? 'opacity-45 cursor-not-allowed'

@@ -2,7 +2,9 @@ import React from 'react';
 import { Check, RotateCcw, X } from 'lucide-react';
 import { CLASSES, classById, classLabel, type Classified } from '../../../equipment/classes';
 import { useEscapeClose } from '../../lib/useDismiss';
-import { writeVersioned, failureText } from './versionedWrite';
+import { writeVersioned } from './versionedWrite';
+import { refusalOf, type Refusal } from './conflictView';
+import RefusalView from './RefusalView';
 
 /**
  * Тип и вид позиции в шапке карточки — с поправкой по нажатию.
@@ -17,49 +19,53 @@ interface Props {
   componentId: string;
   /** Версия позиции, как её показывает экран: с ней сервер сверяет поправку */
   version?: number;
+  /** Позиция, какой её показывает экран: с ней сравнивается запись из отказа, чтобы показать, что изменилось */
+  shown?: unknown;
   typed: Classified | undefined;
   /** Поправка записана или отклонена из-за чужой правки — карточке пора перечитать данные */
   onSaved: () => void;
   say: (text: string, kind?: 'success' | 'error' | 'info') => void;
 }
 
-export default function TypeChip({ componentId, version, typed, onSaved, say }: Props) {
+export default function TypeChip({ componentId, version, shown, typed, onSaved, say }: Props) {
   const [open, setOpen] = React.useState(false);
   const [cls, setCls] = React.useState<string>(typed?.cls || 'ПРОЧЕЕ');
   const [kind, setKind] = React.useState<string>(typed?.kind || '');
   const [busy, setBusy] = React.useState(false);
-  // Отказ по версии: текст сервера под полями; выбранное человеком не затирается перечитанным
-  const [refusal, setRefusal] = React.useState('');
+  // Отказ по версии: текст сервера и перечень изменений под полями; выбранное человеком не затирается перечитанным
+  const [refusal, setRefusal] = React.useState<Refusal | null>(null);
   const keepChoice = React.useRef(false);
   // Окно типа закрывается и по Esc, а не только крестиком
   useEscapeClose(open, () => setOpen(false));
 
   // Окно закрыто — пометка «не перезаписывать выбор» и текст отказа больше не нужны
-  React.useEffect(() => { if (!open) { keepChoice.current = false; setRefusal(''); } }, [open]);
+  React.useEffect(() => { if (!open) { keepChoice.current = false; setRefusal(null); } }, [open]);
 
   React.useEffect(() => {
     // После отказа по версии перечитанная позиция приходит новым `typed`; выбор человека остаётся в полях
     if (keepChoice.current) { keepChoice.current = false; return; }
     setCls(typed?.cls || 'ПРОЧЕЕ');
     setKind(typed?.kind || '');
-    setRefusal('');
+    setRefusal(null);
   }, [componentId, typed?.cls, typed?.kind]);
 
   const manual = !!typed && (typed.cls !== typed.auto.cls || typed.kind !== typed.auto.kind);
 
   const save = async (next: { equipClass: string; equipKind: string }) => {
     setBusy(true);
-    setRefusal('');
+    setRefusal(null);
     try {
       const r = await writeVersioned(`/api/equipment/component/${componentId}/class`, 'PUT', next, version);
-      if (r.kind === 'conflict') {
-        // Позицию изменили, пока окно было открыто: окно не закрывается, выбор остаётся, данные перечитываются
+      // Перечень «было → стало» собирается из позиции, какой её видел экран ДО перечитывания
+      const refused = refusalOf(r, 'component', shown, 'Не удалось записать тип');
+      if (refused && refused.kind !== 'plain') {
+        // Позицию изменили или удалили, пока окно было открыто: окно не закрывается, выбор остаётся, данные перечитываются
         keepChoice.current = true;
-        setRefusal(failureText(r, 'Не удалось записать тип'));
+        setRefusal(refused);
         onSaved();
         return;
       }
-      if (r.kind !== 'ok') { say(failureText(r, 'Не удалось записать тип'), 'error'); return; }
+      if (refused) { say(refused.message, 'error'); return; }
       say(next.equipClass || next.equipKind ? 'Тип позиции поправлен' : 'Тип снова угадывается', 'success');
       setOpen(false);
       onSaved();
@@ -104,7 +110,7 @@ export default function TypeChip({ componentId, version, typed, onSaved, say }: 
             </datalist>
           </label>
           <div className="text-2xs text-slate-400">Угадано: {classLabel(typed.auto)}</div>
-          {refusal && <div role="alert" data-type-refusal className="fx-error">{refusal}</div>}
+          {refusal && <div data-type-refusal><RefusalView refusal={refusal} /></div>}
           <div className="flex items-center gap-1.5 pt-1">
             {manual && (
               <button type="button" disabled={busy} onClick={() => save({ equipClass: '', equipKind: '' })}

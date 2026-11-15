@@ -10,6 +10,7 @@
  * отказ читают с экранного диктора сразу, как только он появился.
  */
 import type { FieldChange } from '../../lib/recordChanges';
+import { nothingChangedText } from '../../lib/refusalTexts';
 
 export interface ConflictGroup {
   /** Название записи: «Вентилятор А» */
@@ -17,8 +18,8 @@ export interface ConflictGroup {
   changes: FieldChange[];
 }
 
-/** Когда различий в показанных полях нет, а версия выросла: тот же текст, что у сервера (словарь отказов) */
-export const NO_SHOWN_CHANGES = 'Изменения не затронули то, что показано на экране.';
+/** Когда различий в показанных полях нет, а версия выросла: текст из словаря отказов */
+export const NO_SHOWN_CHANGES = nothingChangedText();
 
 function ChangeList({ changes }: { changes: FieldChange[] }) {
   return (
