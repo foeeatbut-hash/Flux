@@ -96,7 +96,7 @@ Dictionary 3/3; DictionaryItem 6/6; TagTemplate 2/2; ConstructorDoc 1/1 (мар�
       test-version-guard (34), vdr-concurrency (без правок набора), tag-code-key, tag-history-tx,
       op-receipt, architecture (раздел 10), equipment-xml-routes-sqlite, project-delete-sqlite,
       database-client, tsc. Мутации — в отчёте исполнителя A; перенос тега по холсту — на keepVersion.
-- [ ] Исполнитель B: маршруты оборудования (сервер) + набор
+- [x] Исполнитель B: маршруты оборудования (сервер) + набор. Прошли: test-equipment-version-routes (222 проверки, 14 мутаций убиты + двойной рост версии), version-guard, version-bump, architecture, equipment-xml-routes-sqlite, equipment-param-access, equipment-source-orphan, vdr-concurrency/-permissions/-realtime/-tag-link, op-receipt, tag-code-key, tag-history-tx, tsc.
 - [ ] Исполнитель C: экран «Оборудование» (клиент) + набор интерфейса
 - [ ] Документы: offline-work.md, страницы программ, plan.md; удалить файлы хода
 
@@ -151,3 +151,37 @@ Dictionary 3/3; DictionaryItem 6/6; TagTemplate 2/2; ConstructorDoc 1/1 (мар�
 ### Для тестов маршрутов
 Клиент без расширения (`new PrismaClient`) версию не растит нигде, кроме `guardedWrite`/`guardedIssue`:
 наборы, проверяющие рост версии у маршрута, собирают клиента `withVersionBump(raw)`.
+
+
+## Договор B (как сделано)
+
+Общее для всех маршрутов ниже. Версия — целое `version` записи; клиент берёт её из того, что отдал сервер
+(`GET /api/projects/:projectId/systems` отдаёт `version` у установки, моноблока и позиции: там `include`, колонки не режутся),
+и после успеха берёт новую из ответа.
+- Версия идёт в теле как `expectedVersion`; у `DELETE` — в строке запроса `?expectedVersion=N`.
+- Нечитаемая (не целое ≥ 1) — 400 `{ error }`, запись не тронута. Версии нет (старый клиент) — работает как раньше.
+- Чужая — 409 `{ error: текст по-русски, code: 'VERSION_CONFLICT', current: сырая строка записи }`; ничего не записано
+  (в том числе не заведён тег). Тексты — `server/equipmentStale.ts`. Кто и когда изменил — в текст не входит: у позиции `updatedAt` не
+  ведётся, у установки и моноблока колонки нет, автора правки не хранит ни одна модель.
+- Сравнение — одно место `assertExpectedVersion` (`server/versionGuard.ts`); `guardedWrite`/`guardedDelete` зовут его сами.
+
+| Маршрут | Версия какой записи | Где клиент её берёт | Что в успешном ответе |
+|---|---|---|---|
+| PUT `/api/equipment/component/:id/class` | позиция | `component.version` | `{ ok, equipClass, equipKind, version }` |
+| POST `/api/equipment/component/:id/tag` | позиция | `component.version` | `{ ok, identifier, created, corrected, parentTag, version }` |
+| DELETE `/api/equipment/component/:id?expectedVersion=` | позиция | `component.version` | `{ ok, name, itemCode, freedTags, moved? }`; нет записи — `{ ok, alreadyGone }`. Дети при перевешивании растут на 1 |
+| POST `/api/equipment/component/:id/position` | владелец-позиция (не растёт) | `component.version` владельца | `component: { id, itemCode, name, role, version: 1 }` — версия новой позиции |
+| POST `/api/equipment/monoblock/:id/position` | моноблок (не растёт) | `monoblock.version` | то же |
+| POST `/api/equipment/component/:id/resolve`, `…/override` | позиция | `component.version` | `{ success, component }` (с новой `version`) |
+| POST `/api/components/:id/accept-field`, `…/manual-edit-field` | позиция | `component.version` | `{ success, component }` |
+| POST и DELETE `/api/components/:componentId/tags/:tagId` | позиция (DELETE — `?expectedVersion=`) | `component.version` | `{ component }` с `tags` и новой `version` |
+| POST `/api/components/:componentId/resolve-conflict` | позиция | `component.version` | `{ component }` |
+| DELETE `/api/systems/:id?expectedVersion=` | установка | `system.version` | `{ success, freedTags, detachedSources }`; нет записи — `{ success, alreadyGone }` |
+
+Особенности:
+- Создание «по месту» сверяет версию владельца ДО заведения тега и позиции и владельца не двигает (версия растёт только у новой — 1);
+  сверка не атомарна с самим созданием: создание ничего не перезаписывает.
+- Привязка/отвязка тега: версию растит запись под `updateMany where version`, связь ставится следом в той же транзакции через `keepVersion` (двойного роста нет).
+- resolve/override/accept-field/manual-edit-field: старое состояние каталога по-прежнему 409 без кода («Источник карточки изменился»); сверка версии — в `writeEditableEquipmentParam(…, expectedVersion)`; проигрыш гонки (P2025) теперь тоже `VERSION_CONFLICT`, а не текст без кода.
+- Ответы ВДР (`conflictReply`) получили `code: 'VERSION_CONFLICT'`; `conflict: true`, `current` прежние. Не помечены: 409 «ревизия не выпущена» и «план устарел» (не версионные).
+- Новое в `server/routes/tags.ts`: нет позиции → 404 (раньше 500) у привязки/отвязки/resolve-conflict.
