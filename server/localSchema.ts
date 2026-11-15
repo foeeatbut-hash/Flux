@@ -237,6 +237,11 @@ export function ensureSchemaColumns(dbPath: string, logInit: (message: string) =
       // Присутствие: одна строка на человека, «в сети» — свежая отметка
       db.exec('CREATE TABLE IF NOT EXISTS "Presence" ("userId" TEXT NOT NULL PRIMARY KEY, "at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)');
       db.exec('CREATE INDEX IF NOT EXISTS "Presence_at_idx" ON "Presence"("at")');
+      // Открытые записи: какие позиции и установки сейчас на экранах сотрудников (удалить такую нельзя)
+      db.exec('CREATE TABLE IF NOT EXISTS "OpenRecord" ("id" TEXT NOT NULL PRIMARY KEY, "model" TEXT NOT NULL, "recordId" TEXT NOT NULL, "userId" TEXT NOT NULL, "holderKey" TEXT NOT NULL, "at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "OpenRecord_model_recordId_holderKey_key" ON "OpenRecord"("model", "recordId", "holderKey")');
+      db.exec('CREATE INDEX IF NOT EXISTS "OpenRecord_holderKey_idx" ON "OpenRecord"("holderKey")');
+      db.exec('CREATE INDEX IF NOT EXISTS "OpenRecord_at_idx" ON "OpenRecord"("at")');
       // Файл обновления кусками: у сотрудников общая только база
       db.exec('CREATE TABLE IF NOT EXISTS "AppUpdateChunk" ("id" TEXT NOT NULL PRIMARY KEY, "version" TEXT NOT NULL DEFAULT \'\', "idx" INTEGER NOT NULL DEFAULT 0, "data" BLOB NOT NULL)');
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "AppUpdateChunk_version_idx_key" ON "AppUpdateChunk"("version", "idx")');

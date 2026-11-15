@@ -65,6 +65,7 @@ import { registerEquipmentViewRoutes } from './server/routes/equipmentViews.js';
 import { registerImportJobRoutes } from './server/routes/importJobs.js';
 import { startImportJobs } from './server/importJobs.js';
 import { registerEquipmentEditRoutes } from './server/routes/equipmentEdit.js';
+import { registerOpenRecordRoutes } from './server/routes/openRecords.js';
 import { registerVdrRoutes } from './server/routes/vdr.js';
 import { registerDocflowRoutes } from './server/routes/docflow.js';
 import { registerEquipmentClassRoutes } from './server/routes/equipmentClasses.js';
@@ -1120,6 +1121,8 @@ registerImportJobRoutes(app);
 // Фоновый ввоз расчётов: очередь живёт в базе и переживает закрытое окно
 startImportJobs();
 registerEquipmentEditRoutes(app);
+// Отметки «эти записи у меня открыты» — защита открытой записи от удаления (server/openRecords.ts)
+registerOpenRecordRoutes(app);
 registerVdrRoutes(app, { chunkBytes: limits.chunkBytes });
 registerDocflowRoutes(app);
 registerEquipmentClassRoutes(app);

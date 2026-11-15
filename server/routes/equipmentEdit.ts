@@ -6,8 +6,9 @@ import { isClassId } from '../../equipment/classes.js';
 import { autoFixTag, validateTag } from '../../equipment/tagPolicy.js';
 import { importPolicyOfProject } from './tagPolicy.js';
 import { keepVersion } from '../versionBump.js';
-import { VersionConflict, expectedVersionOf, assertExpectedVersion, guardedWrite, guardedDelete, sendVersionConflict } from '../versionGuard.js';
-import { staleElement, staleMonoblock, badVersion } from '../equipmentStale.js';
+import { expectedVersionOf, assertExpectedVersion, guardedWrite, guardedDelete, sendRecordGone } from '../versionGuard.js';
+import { staleElement, staleElementDelete, staleElementInside, staleMonoblock, badVersion } from '../equipmentStale.js';
+import { replyEquipmentError } from '../equipmentRefusal.js';
 import { planTagParents, parentSetByHand, type TaggedPosition } from '../equipmentHierarchy.js';
 import { TAG_SOURCE, recordTagCreated, recordChangeSets, updateSet, inTagTransaction, type TagChangeSet } from '../tagHistory.js';
 import { withCodeKey, findTagByCode, isCodeKeyViolation } from '../tagCodeKey.js';
@@ -35,11 +36,8 @@ import { nextProjectEntityId } from '../entityIds.js';
 
 const authUserOf = (req: Request) => (req as any).authUser || null;
 
-/** Отказ по версии — 409 с кодом и текущей записью, остальное — как у всех маршрутов. */
-const replyError = (res: Response, err: any): void => {
-  if (err instanceof VersionConflict) { sendVersionConflict(res, err); return; }
-  sendError(res, err);
-};
+/** Отказы защиты записи (версия, открытая запись, запись удалена) — своими ответами, остальное — как у всех маршрутов. */
+const replyError = (res: Response, err: any): Promise<void> => replyEquipmentError(res, err);
 
 export function registerEquipmentEditRoutes(app: Express): void {
   /**
@@ -65,7 +63,10 @@ export function registerEquipmentEditRoutes(app: Express): void {
       let found: any = null;
       let children: Array<{ id: string; name: string }> = [];
       const gone = await guardedDelete(prisma, {
-        model: 'componentElement', id: req.params.id, expectedVersion, staleMessage: staleElement,
+        model: 'componentElement', id: req.params.id, expectedVersion, staleMessage: staleElementDelete,
+        // Сама позиция не должна быть открыта у коллеги. Вложенные не смотрим: они не удаляются, а
+        // поднимаются на уровень выше (их версия растёт, коллега при сохранении получит отказ по версии)
+        openCheck: { userId: String(me?.id || '') },
         // Всё, что идёт вместе с удалением, — в той же транзакции и по тому, что
         // прочитано в ней: не записалось оно, не удалилась и позиция
         before: async (db: any, current: any) => {
@@ -194,10 +195,10 @@ export function registerEquipmentEditRoutes(app: Express): void {
       const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
       if (expectedVersion === null) return badVersion(res);
       const done = await guardedWrite(getPrisma(), {
-        model: 'componentElement', id: req.params.id, expectedVersion, staleMessage: staleElement,
+        model: 'componentElement', id: req.params.id, expectedVersion, staleMessage: staleElement, goneNoun: 'position',
         build: () => ({ data: { equipClass: equipClass || null, equipKind: equipKind || null } }),
       });
-      if (!done) return res.status(404).json({ error: 'Позиция не найдена' });
+      if (!done) return sendRecordGone(res, 'position');
       emitEntitiesChanged('element', [done.after.id], req);
       res.json({ ok: true, equipClass: done.after.equipClass || '', equipKind: done.after.equipKind || '', version: done.after.version });
     } catch (err: any) { replyError(res, err); }
@@ -220,8 +221,8 @@ export function registerEquipmentEditRoutes(app: Express): void {
         where: { id: req.params.id },
         include: { monoblock: { select: { id: true, name: true, systemId: true, system: { select: { projectId: true } } } } },
       });
-      if (!parent) return res.status(404).json({ error: 'Позиция, внутрь которой добавляют, не найдена' });
-      await createPosition(req, res, { monoblockId: parent.monoblockId, parent, owner: { row: parent, stale: staleElement }, projectId: parent.monoblock?.system?.projectId || '' });
+      if (!parent) return sendRecordGone(res, 'position', { inside: true });
+      await createPosition(req, res, { monoblockId: parent.monoblockId, parent, owner: { row: parent, stale: staleElementInside }, projectId: parent.monoblock?.system?.projectId || '' });
     } catch (err: any) { replyError(res, err); }
   });
 
@@ -236,7 +237,7 @@ export function registerEquipmentEditRoutes(app: Express): void {
       const mono = await getPrisma().monoblock.findUnique({
         where: { id: req.params.id }, include: { system: { select: { projectId: true } } },
       });
-      if (!mono) return res.status(404).json({ error: 'Моноблок не найден' });
+      if (!mono) return sendRecordGone(res, 'block', { inside: true });
       await createPosition(req, res, { monoblockId: mono.id, parent: null, owner: { row: mono, stale: staleMonoblock }, projectId: mono.system?.projectId || '', base: mono.name });
     } catch (err: any) { replyError(res, err); }
   });
@@ -269,7 +270,7 @@ export function registerEquipmentEditRoutes(app: Express): void {
       const comp = await prisma.componentElement.findUnique({
         where: { id: req.params.id }, include: { monoblock: { select: { system: { select: { projectId: true } } } } },
       });
-      if (!comp) return res.status(404).json({ error: 'Позиция не найдена' });
+      if (!comp) return sendRecordGone(res, 'position');
       // До заведения тега: отказ по устаревшей карточке не должен оставить новый тег в реестре
       assertExpectedVersion(comp, expectedVersion, staleElement);
       const projectId = comp.monoblock?.system?.projectId || '';
@@ -279,13 +280,13 @@ export function registerEquipmentEditRoutes(app: Express): void {
       // Версию растит запись под сверкой; связь тега `updateMany` не умеет и ставится следом
       // в той же транзакции, уже без второго роста версии
       const done = await guardedWrite(prisma, {
-        model: 'componentElement', id: comp.id, expectedVersion, staleMessage: staleElement,
+        model: 'componentElement', id: comp.id, expectedVersion, staleMessage: staleElement, goneNoun: 'position',
         build: () => ({ data: {} }),
         after: async (db: any) => {
           await db.componentElement.update({ where: { id: comp.id }, data: keepVersion({ tags: { connect: { id: tag.tagId } } }) });
         },
       });
-      if (!done) return res.status(404).json({ error: 'Позиция не найдена' });
+      if (!done) return sendRecordGone(res, 'position');
       const parentLink = await linkParentTag(prisma, projectId, comp.id, tag.tagId!, actor);
       // Реестр тегов и другие открытые окна перечитывают запись сразу; событие
       // для позиции обновляет занятость тега и карточку оборудования.

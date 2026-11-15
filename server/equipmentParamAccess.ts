@@ -1,6 +1,6 @@
 import { bindingKey, sourceInfo } from './equipmentCatalog.js';
 import { getPrisma } from './context.js';
-import { VersionConflict, assertExpectedVersion } from './versionGuard.js';
+import { VersionConflict, RecordGone, assertExpectedVersion } from './versionGuard.js';
 import { staleElement } from './equipmentStale.js';
 
 type CatalogState = { id: string; value: string } | null;
@@ -50,7 +50,9 @@ export async function writeEditableEquipmentParam(prisma: any, element: any, exp
     // Позицию успели изменить (или убрать) между чтением маршрута и записью: версия в условии не нашла строку
     if (error?.code === 'P2025') {
       const fresh = await prisma.componentElement.findUnique({ where: { id: element.id } }).catch(() => null);
-      throw new VersionConflict(staleElement(fresh || element), fresh);
+      // Удалили, пока правили: это «записи уже нет», а не конфликт без текущей записи
+      if (!fresh) throw new RecordGone('position');
+      throw new VersionConflict(staleElement(fresh), fresh);
     }
     throw error;
   }

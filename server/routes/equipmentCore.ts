@@ -8,7 +8,8 @@ import { cleanChoices } from '../equipmentResolve.js';
 import { withBump } from '../equipmentVersion.js';
 import { cleanTagLinks } from './equipmentDraft.js';
 import { assertEquipmentParamEditable, writeEditableEquipmentParam } from '../equipmentParamAccess.js';
-import { VersionConflict, expectedVersionOf, sendVersionConflict } from '../versionGuard.js';
+import { expectedVersionOf, sendRecordGone } from '../versionGuard.js';
+import { sendEquipmentRefusal } from '../equipmentRefusal.js';
 import { badVersion } from '../equipmentStale.js';
 
 // Оборудование, ядро: план и запись импорта расчёта в категорию, категории,
@@ -52,10 +53,13 @@ const DEFAULT_CATEGORIES = [
 
 /**
  * Ответ на сбой ручной правки параметра. Версия, которую видел клиент, — 409 с кодом и
- * текущей записью; прочее, как раньше, по статусу ошибки (карточку источника, права каталога).
+ * текущей записью (у позиции — с тегами); позиции уже нет — 404 с кодом; прочее, как
+ * раньше, по статусу ошибки (карточку источника, права каталога).
  */
-function paramEditFailure(res: Response, err: any): void {
-  if (err instanceof VersionConflict) { sendVersionConflict(res, err); return; }
+async function paramEditFailure(res: Response, err: any): Promise<void> {
+  try {
+    if (await sendEquipmentRefusal(res, err)) return;
+  } catch (_) { /* ответ об отказе не вышел — ниже обычный */ }
   res.status(err.status || 500).json({ error: err.message });
 }
 
@@ -157,7 +161,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
       const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
       if (expectedVersion === null) return badVersion(res);
       const comp = await prisma.componentElement.findUnique({ where: { id } });
-      if (!comp) return res.status(404).json({ error: 'Элемент не найден' });
+      if (!comp) return sendRecordGone(res, 'position');
       const catalogState = await assertEquipmentParamEditable(comp, String(key || ''), String(group || ''));
 
       const conflicts = comp.paramConflicts ? JSON.parse(comp.paramConflicts) : [];
@@ -200,7 +204,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
       const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
       if (expectedVersion === null) return badVersion(res);
       const comp = await prisma.componentElement.findUnique({ where: { id } });
-      if (!comp) return res.status(404).json({ error: 'Элемент не найден' });
+      if (!comp) return sendRecordGone(res, 'position');
       const catalogState = await assertEquipmentParamEditable(comp, String(key || ''), String(group || ''));
       const specsObj = comp.specs ? JSON.parse(comp.specs) : { groups: [] };
       const overrides = comp.overrides ? JSON.parse(comp.overrides) : {};
@@ -234,7 +238,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
         where: { id }
       });
       if (!component) {
-        return res.status(404).json({ error: 'Элемент не найден' });
+        return sendRecordGone(res, 'position');
       }
 
       const catalogState = await assertEquipmentParamEditable(component, String(fieldName));
@@ -284,7 +288,7 @@ export function registerEquipmentCoreRoutes(app: Express): void {
         where: { id }
       });
       if (!component) {
-        return res.status(404).json({ error: 'Элемент не найден' });
+        return sendRecordGone(res, 'position');
       }
 
       const catalogState = await assertEquipmentParamEditable(component, String(fieldName));

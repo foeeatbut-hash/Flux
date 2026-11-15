@@ -15,8 +15,9 @@ import { canReadFile } from '../fileAccess.js';
 import { canSeeProject, hiddenProjectsOf } from './members.js';
 import { bumpElementsOfTags } from '../equipmentVersion.js';
 import { keepVersion } from '../versionBump.js';
-import { VersionConflict, expectedVersionOf, guardedWrite, guardedDelete, sendVersionConflict } from '../versionGuard.js';
-import { staleElement, staleSystem, badVersion } from '../equipmentStale.js';
+import { expectedVersionOf, guardedWrite, guardedDelete, sendRecordGone } from '../versionGuard.js';
+import { staleElement, staleSystemDelete, badVersion } from '../equipmentStale.js';
+import { sendEquipmentRefusal, systemCascade } from '../equipmentRefusal.js';
 import { writeTag, writeTags, metadataPatchOf, tagWriteFailure, tagFailure, assertFreeTagCode } from '../tagWrite.js';
 import { tagCodeKey, withCodeKey, isCodeKeyViolation } from '../tagCodeKey.js';
 import {
@@ -650,7 +651,9 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       const freedTags = new Map<string, string>();
       let detached: DetachedSource[] = [];
       const gone = await guardedDelete(prisma, {
-        model: 'equipmentSystem', id, expectedVersion, staleMessage: staleSystem,
+        model: 'equipmentSystem', id, expectedVersion, staleMessage: staleSystemDelete,
+        // Установка, её блоки и позиции не должны быть открыты у коллеги
+        openCheck: { userId: String((req as any).authUser?.id || ''), cascade: systemCascade },
         // Всё внутри установки снимается в той же транзакции, что и она сама, и по
         // прочитанному в ней: опоздавший с устаревшей версией не снесёт то, что успели поправить
         before: async (db: any) => {
@@ -701,7 +704,8 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       } catch (_) { /* журнал не обязан существовать, удаление уже состоялось */ }
       res.json({ success: true, freedTags: [...freedTags.values()], detachedSources: detached });
     } catch (error: any) {
-      if (error instanceof VersionConflict) return sendVersionConflict(res, error);
+      // Отказы защиты записи — своими ответами; прочее — 500, как было у этого маршрута
+      if (await sendEquipmentRefusal(res, error)) return;
       res.status(500).json({ error: error.message });
     }
   });
@@ -729,19 +733,19 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       // Версию растит запись под сверкой; связь `updateMany` не умеет и ставится следом
       // в той же транзакции, уже без второго роста версии
       const done = await guardedWrite(prisma, {
-        model: 'componentElement', id: componentId, expectedVersion, staleMessage: staleElement,
+        model: 'componentElement', id: componentId, expectedVersion, staleMessage: staleElement, goneNoun: 'position',
         build: () => ({ data: {} }),
         after: async (db: any) => {
           await db.componentElement.update({ where: { id: componentId }, data: keepVersion({ tags: { connect: { id: tagId } } }) });
         },
       });
-      if (!done) return res.status(404).json({ error: 'Компонент не найден' });
+      if (!done) return sendRecordGone(res, 'position');
       const component = await prisma.componentElement.findUnique({ where: { id: componentId }, include: { tags: true } });
       emitEntityChanged('element', componentId, req);
       emitEntityChanged('tag', tagId, req);
       res.json({ component });
     } catch (error: any) {
-      if (error instanceof VersionConflict) return sendVersionConflict(res, error);
+      if (await sendEquipmentRefusal(res, error)) return;
       res.status(500).json({ error: error.message });
     }
   });
@@ -754,19 +758,19 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       const expectedVersion = expectedVersionOf(req.query.expectedVersion);
       if (expectedVersion === null) return badVersion(res);
       const done = await guardedWrite(prisma, {
-        model: 'componentElement', id: componentId, expectedVersion, staleMessage: staleElement,
+        model: 'componentElement', id: componentId, expectedVersion, staleMessage: staleElement, goneNoun: 'position',
         build: () => ({ data: {} }),
         after: async (db: any) => {
           await db.componentElement.update({ where: { id: componentId }, data: keepVersion({ tags: { disconnect: { id: tagId } } }) });
         },
       });
-      if (!done) return res.status(404).json({ error: 'Компонент не найден' });
+      if (!done) return sendRecordGone(res, 'position');
       const component = await prisma.componentElement.findUnique({ where: { id: componentId }, include: { tags: true } });
       emitEntityChanged('element', componentId, req);
       emitEntityChanged('tag', tagId, req);
       res.json({ component });
     } catch (error: any) {
-      if (error instanceof VersionConflict) return sendVersionConflict(res, error);
+      if (await sendEquipmentRefusal(res, error)) return;
       res.status(500).json({ error: error.message });
     }
   });
@@ -812,14 +816,14 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       if (expectedVersion === null) return badVersion(res);
       // Нет позиции — 404, а не P2025 и 500; рост версии — на записи под сверкой
       const done = await guardedWrite(prisma, {
-        model: 'componentElement', id: componentId, expectedVersion, staleMessage: staleElement,
+        model: 'componentElement', id: componentId, expectedVersion, staleMessage: staleElement, goneNoun: 'position',
         build: () => ({ data: { hasConflict: false, conflictType: null } }),
       });
-      if (!done) return res.status(404).json({ error: 'Компонент не найден' });
+      if (!done) return sendRecordGone(res, 'position');
       const component = await prisma.componentElement.findUnique({ where: { id: componentId }, include: { tags: true } });
       res.json({ component });
     } catch (error: any) {
-      if (error instanceof VersionConflict) return sendVersionConflict(res, error);
+      if (await sendEquipmentRefusal(res, error)) return;
       res.status(500).json({ error: error.message });
     }
   });
