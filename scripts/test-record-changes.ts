@@ -10,7 +10,7 @@
  */
 import assert from 'node:assert/strict';
 import { changesBetween, shownValue, EMPTY_SHOWN } from '../src/lib/recordChanges';
-import { equipmentChanges } from '../src/components/equipment/changeRules';
+import { equipmentChanges, TYPE_AUTO } from '../src/components/equipment/changeRules';
 
 let passed = 0;
 const same = (name: string, actual: unknown, expected: unknown) => { assert.deepEqual(actual, expected, name); passed++; console.log(`  ✓ ${name}`); };
@@ -56,7 +56,7 @@ same('название и обозначение', equipmentChanges('component',
 ]);
 {
   const t = equipmentChanges('component', shownFan, currentFan({ equipClass: 'ФИЛЬТР', equipKind: 'Карманный' }));
-  same('тип: класс и вид одной строкой, было — «—» (определялся сам)', [t.length, t[0]?.label, t[0]?.was, /Карманный/.test(t[0]?.now || '')], [1, 'Тип', EMPTY_SHOWN, true]);
+  same('тип: класс и вид одной строкой, было — «определяется сам» (поправки не было, а не «пусто»)', [t.length, t[0]?.label, t[0]?.was, /Карманный/.test(t[0]?.now || '')], [1, 'Тип', TYPE_AUTO, true]);
 }
 same('состояние', equipmentChanges('component', shownFan, currentFan({ status: 'CONFLICT' })), [{ label: 'Состояние', was: 'OK', now: 'CONFLICT' }]);
 same('число экземпляров', equipmentChanges('component', shownFan, currentFan({ instanceNo: 2, instanceCount: 3 })), [
@@ -72,9 +72,14 @@ same('характеристики: две правки — две строки,
   { label: 'Основные · Расход', was: '1000 м3/ч', now: EMPTY_SHOWN },
   { label: 'Основные · Давление', was: EMPTY_SHOWN, now: '300 Па' },
 ]);
-same('ручное значение: появилось, затем поменялось', equipmentChanges('component', { ...shownFan, overrides: JSON.stringify({ 'Основные||Расход': '2000' }) }, currentFan({ overrides: JSON.stringify({ 'Основные||Расход': '2500', 'Основные||Мощность': '9' }) })), [
-  { label: 'Основные · Расход (вручную)', was: '2000', now: '2500' },
-  { label: 'Основные · Мощность (вручную)', was: EMPTY_SHOWN, now: '9' },
+same('ручное значение — вместе с характеристикой, одной строкой и с пометкой (раздельные строки показали бы правку дважды)', equipmentChanges('component',
+  { ...shownFan, overrides: JSON.stringify({ 'Основные||Расход': '2000' }) },
+  currentFan({ specs: specs('5'), overrides: JSON.stringify({ 'Основные||Расход': '2500', 'Основные||Мощность': '9' }) })), [
+  { label: 'Основные · Мощность', was: '5 кВт', now: '9 кВт (вручную)' },
+  { label: 'Основные · Расход', was: '2000 м3/ч (вручную)', now: '2500 м3/ч (вручную)' },
+]);
+same('ручное значение без характеристики в расчёте — отдельной строкой', equipmentChanges('component', shownFan, currentFan({ overrides: JSON.stringify({ 'Прочее||Заметка': 'да' }) })), [
+  { label: 'Прочее · Заметка', was: EMPTY_SHOWN, now: 'да (вручную)' },
 ]);
 same('теги: привязан и отвязан — по строке на тег (в дереве identifier, в отказе code)', equipmentChanges('component', shownFan, currentFan({ tags: [{ id: 't2', code: 'В2' }] })), [
   { label: 'Тег В1', was: 'привязан', now: EMPTY_SHOWN }, { label: 'Тег В2', was: EMPTY_SHOWN, now: 'привязан' },

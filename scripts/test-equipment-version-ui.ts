@@ -10,6 +10,11 @@
  *   - виден отказ сервера (его текст), данные перечитаны (версия в карточке выросла);
  *   - чужая правка цела в базе, ввод человека — в поле (тип, значение) или назван в сообщении;
  *   - повтор после перечитывания проходит; без чужой правки действие проходит сразу.
+ * Отказ показывает перечень «Поле: было → стало» (решение — .claude/progress/conflict-details.md, разделы 1–2):
+ * тип и значение — в форме, удаление позиции и установки — окном; набранное цело. Второй человек (Иванов)
+ * держит записи открытыми запросами `PUT /api/open-records`: удалить такую запись нельзя, служба называет его
+ * по имени и ничего не удаляет; а у самого экрана в базе есть строка `OpenRecord`, пока позиция выбрана, и нет
+ * её, когда выбор снят или окно закрыто.
  * Снимки отказа в обеих темах — в каталог FLUX_EQUIPMENT_SHOTS (по умолчанию /tmp/flux-equipment-version).
  *
  * Установка не имеет своего маршрута правки, поэтому «коллега» поднимает её версию записью в таблицу
@@ -27,12 +32,19 @@ import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { findChromeOrUndefined } from './chromePath';
+import { classTitle } from '../equipment/classes';
+import { TYPE_AUTO } from '../src/components/equipment/changeRules';
 
 const require = createRequire(import.meta.url);
 const SHOTS = process.env.FLUX_EQUIPMENT_SHOTS || '/tmp/flux-equipment-version';
 let passed = 0;
 const check = (label: string, condition: unknown, detail?: unknown) => {
   assert.ok(condition, `${label}${detail === undefined ? '' : `: ${JSON.stringify(detail)}`}`);
+  passed++; console.log(`✓ ${label}`);
+};
+
+const same = (label: string, actual: unknown, expected: unknown) => {
+  assert.deepEqual(actual, expected, label);
   passed++; console.log(`✓ ${label}`);
 };
 
@@ -44,7 +56,7 @@ async function main() {
 
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-equipment-version-'));
   const allocator = net.createServer();
-  await new Promise<void>((resolve) => allocator.listen(0, '127.0.0.1', resolve));
+  await new Promise<void>((resolve) => allocator.listen(Number(process.env.FLUX_TEST_PORT) || 0, '127.0.0.1', resolve));
   const port = (allocator.address() as net.AddressInfo).port;
   await new Promise<void>((resolve) => allocator.close(() => resolve()));
   const base = `http://127.0.0.1:${port}`;
@@ -75,24 +87,42 @@ async function main() {
     sql.prepare('INSERT INTO "User" (id, symbol, name, password, role, permissions) VALUES (?, ?, ?, ?, ?, ?)').run('eq-admin', 'eq-admin', 'Инженер', hash, 'ADMIN', '{}');
     sql.prepare('INSERT INTO "Project" (id, name) VALUES (?, ?)').run('eq-p', 'Проект оборудования');
     sql.prepare('INSERT INTO "ProjectMember" (id, projectId, userId) VALUES (?, ?, ?)').run('eq-m', 'eq-p', 'eq-admin');
+    // Второй человек: держит записи открытыми, у него своё имя — по нему служба называет, у кого запись открыта
+    sql.prepare('INSERT INTO "User" (id, symbol, name, password, role, permissions) VALUES (?, ?, ?, ?, ?, ?)').run('eq-ivanov', 'eq-ivanov', 'Иванов И. И.', hash, 'ADMIN', '{}');
+    sql.prepare('INSERT INTO "ProjectMember" (id, projectId, userId) VALUES (?, ?, ?)').run('eq-m2', 'eq-p', 'eq-ivanov');
     const system = sql.prepare('INSERT INTO "EquipmentSystem" (id, name, projectId, category) VALUES (?, ?, ?, ?)');
     const mono = sql.prepare('INSERT INTO "Monoblock" (id, name, systemId) VALUES (?, ?, ?)');
     const part = sql.prepare('INSERT INTO "ComponentElement" (id, name, itemCode, monoblockId, specs, equipType) VALUES (?, ?, ?, ?, ?, ?)');
     const specs = JSON.stringify({ groups: [{ title: 'Основные', params: [{ key: 'Мощность', value: '5', unit: 'кВт' }, { key: 'Расход', value: '1000', unit: 'м3/ч' }] }] });
-    system.run('eq-s1', 'УВ-1', 'eq-p', 'AHU'); system.run('eq-s2', 'УВ-2', 'eq-p', 'AHU');
-    mono.run('eq-m1', 'Моноблок-1', 'eq-s1'); mono.run('eq-m2', 'Моноблок-2', 'eq-s2');
+    system.run('eq-s1', 'УВ-1', 'eq-p', 'AHU'); system.run('eq-s2', 'УВ-2', 'eq-p', 'AHU'); system.run('eq-s3', 'УВ-3', 'eq-p', 'AHU');
+    mono.run('eq-m1', 'Моноблок-1', 'eq-s1'); mono.run('eq-m2', 'Моноблок-2', 'eq-s2'); mono.run('eq-m3', 'Моноблок-3', 'eq-s3');
     part.run('eq-fan', 'Вентилятор А', 'FAN-A', 'eq-m1', specs, 'ВЕНТИЛЯТОР');
     part.run('eq-valve', 'Клапан Б', 'VLV-B', 'eq-m1', specs, 'КЛАПАН');
     part.run('eq-filter', 'Фильтр В', 'FLT-C', 'eq-m1', specs, 'ФИЛЬТР');
     part.run('eq-section', 'Секция Д', 'SEC-D', 'eq-m2', specs, 'ПРОЧЕЕ');
+    part.run('eq-actuator', 'Привод Г', 'ACT-G', 'eq-m1', specs, 'ПРИВОД');
+    part.run('eq-gate', 'Заслонка Е', 'GATE-E', 'eq-m3', specs, 'КЛАПАН');
 
     // ── «Коллега»: настоящие запросы в службу ──
-    const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: 'eq-admin', password }) });
-    assert.equal(login.status, 200, 'вход коллеги');
-    const token = ((await login.json()) as any).token as string;
-    const call = async (method: string, url: string, body?: unknown) => {
-      const r = await fetch(`${base}${url}`, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) });
-      return { status: r.status, body: (await r.json().catch(() => ({}))) as any };
+    const loginAs = async (symbol: string) => {
+      const login = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol, password }) });
+      assert.equal(login.status, 200, `вход ${symbol}`);
+      const token = ((await login.json()) as any).token as string;
+      return async (method: string, url: string, body?: unknown) => {
+        const r = await fetch(`${base}${url}`, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) });
+        return { status: r.status, body: (await r.json().catch(() => ({}))) as any };
+      };
+    };
+    // «Коллега» правит те же записи, что и человек за экраном; Иванов — другой человек, он только держит записи открытыми
+    const call = await loginAs('eq-admin');
+    const ivanov = await loginAs('eq-ivanov');
+    const holdOpen = (records: Array<{ model: string; id: string }>) => ivanov('PUT', '/api/open-records', { holderKey: 'ivanov-window-1', records });
+    /** Строки OpenRecord, которые база хранит у человека за экраном */
+    const openRows = (userId = 'eq-admin') => (sql.prepare('SELECT model, recordId FROM "OpenRecord" WHERE userId = ? ORDER BY model, recordId').all(userId) as any[]).map((r) => `${r.model}:${r.recordId}`);
+    const waitRows = async (expected: string[], what: string) => {
+      const until = Date.now() + 12000; let got: string[] = [];
+      while (Date.now() < until) { got = openRows(); if (JSON.stringify(got) === JSON.stringify(expected)) break; await new Promise((r) => setTimeout(r, 200)); }
+      check(what, JSON.stringify(got) === JSON.stringify(expected), { expected, got, replies: openReplies.slice(-3) });
     };
     const tree = async () => (await call('GET', '/api/projects/eq-p/systems?removed=1')).body.systems as any[];
     const parts = async () => Object.fromEntries((await tree()).flatMap((s) => s.monoblocks.flatMap((m: any) => m.components)).map((c: any) => [c.id, c]));
@@ -110,6 +140,9 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     const pageErrors: string[] = [];
     page.on('pageerror', (e: Error) => pageErrors.push(e.message));
+    // Что ответила служба на отметки открытых записей: при сбое видно статус и текст, а не только пустую таблицу
+    const openReplies: string[] = [];
+    page.on('response', async (r: any) => { if (r.url().includes('/api/open-records')) openReplies.push(`${r.request().method()} ${r.status()} ${(await r.text().catch(() => '')).slice(0, 160)}`); });
     // Событие «запись изменили» до экрана не доходит — как при обрыве связи: экран держит старую версию
     await page.addInitScript(() => {
       window.addEventListener('socket:entity:changed', (e) => { if ((window as any).__muteEntityEvents) e.stopImmediatePropagation(); }, true);
@@ -131,19 +164,25 @@ async function main() {
       }
       await page.evaluate(() => document.documentElement.classList.remove('dark'));
     };
+    /** Перечень «Поле: было → стало» внутри блока отказа — как его видит человек */
+    const changesOf = (root: any) => root.locator('[data-conflict-change]').evaluateAll((els: Element[]) => els.map((el) => ({
+      label: el.querySelector('.fx-conflict-field')!.textContent!.replace(/:$/, ''),
+      was: el.querySelector('.fx-conflict-was')!.textContent,
+      now: el.querySelector('.fx-conflict-now')!.textContent,
+    })));
     /** Дождаться, пока экран перечитает дерево после отказа: повтор действия должен идти с новой версией */
     const rereadOf = async (action: () => Promise<void>) => {
       const reread = page.waitForResponse((r: any) => /\/systems\?removed=1/.test(r.url()), { timeout: 15000 });
       await action(); await reread; await page.waitForTimeout(400);
     };
-    const openTree = async () => {
-      await page.getByText('УВ-1', { exact: true }).first().waitFor({ timeout: 30000 });
-      for (const unit of ['УВ-1', 'УВ-2']) {
+    const openTree = async (units = ['УВ-1', 'УВ-2', 'УВ-3'], blocks = ['Моноблок-1', 'Моноблок-2', 'Моноблок-3']) => {
+      await page.getByText(units[0], { exact: true }).first().waitFor({ timeout: 30000 });
+      for (const unit of units) {
         const row = page.locator('div.group', { has: page.locator(`span[title="${unit}"]`) }).first();
         await row.getByRole('button', { name: unit, exact: true }).click();
       }
       // Позиции лежат в свёрнутых блоках дерева
-      for (const block of ['Моноблок-1', 'Моноблок-2']) await page.locator('div.ml-4 div.group > button').filter({ hasText: block }).first().click();
+      for (const block of blocks) await page.locator('div.ml-4 div.group > button').filter({ hasText: block }).first().click();
     };
     const treeRow = (name: string) => page.locator('button').filter({ hasText: new RegExp(`^${name}`) }).first();
     const openBlock = (name: string) => treeRow(name).click();
@@ -155,6 +194,9 @@ async function main() {
     console.log('1. Тип позиции');
     await openBlock('Вентилятор А');
     check('карточка показывает версию 1', (await versionShown('УВ-1')) === 1);
+    // Экран держит выбранную позицию открытой: в общей базе есть его строка
+    await waitRows(['ComponentElement:eq-fan'], 'выбрана позиция — в базе строка OpenRecord этого человека');
+    check('отметку видно по коду службы: она свежая и принадлежит человеку за экраном', (sql.prepare('SELECT COUNT(*) AS n FROM "OpenRecord" WHERE userId = ? AND at >= ?').get('eq-admin', Date.now() - 30000) as any).n === 1);
     const fanSeen = (await parts())['eq-fan'];
     check('служба отдаёт экрану версию позиции', fanSeen.version === 1, fanSeen.version);
     const colleagueClass = await call('PUT', '/api/equipment/component/eq-fan/class', { equipClass: 'ФИЛЬТР', equipKind: 'Карманный', expectedVersion: 1 });
@@ -166,16 +208,20 @@ async function main() {
     await typeDialog.getByRole('button', { name: 'Записать' }).click();
     const refusal = typeDialog.locator('[data-type-refusal]');
     await refusal.waitFor({ timeout: 15000 });
-    const refusalText = (await refusal.textContent())!;
+    const refusalText = (await refusal.locator('[data-conflict-message]').textContent())!;
     check('виден текст отказа сервера', refusalText === await staleText('eq-fan', 1), refusalText);
+    same('виден перечень: тип определялся сам, стал «Фильтр · Карманный»', await changesOf(refusal), [{ label: 'Тип', was: TYPE_AUTO, now: 'Фильтр · Карманный' }]);
+    check('отказ — role="alert"', await refusal.locator('[role=alert]').count() === 1);
     check('окно типа не закрылось, выбор человека остался в полях', await typeDialog.locator('select').inputValue() === 'КЛАПАН' && await typeDialog.locator('input').inputValue() === 'Воздушный');
     await page.getByText('УВ-1 · v2').first().waitFor({ timeout: 15000 });
     check('данные перечитаны: в карточке версия 2', (await versionShown('УВ-1')) === 2);
     const afterType = (await parts())['eq-fan'];
     check('чужая правка цела: тип коллеги в базе, версия 2', afterType.equipClass === 'ФИЛЬТР' && afterType.equipKind === 'Карманный' && afterType.version === 2, afterType);
-    const box = await refusal.evaluate((el: HTMLElement) => { const r = el.getBoundingClientRect(); const c = getComputedStyle(el); const p = el.closest('[role=dialog]')!.getBoundingClientRect(); return { fontSize: c.fontSize, inside: r.left >= p.left && r.right <= p.right && r.bottom <= p.bottom, color: c.color }; });
+    const box = await refusal.locator('.fx-conflict-now').evaluate((el: HTMLElement) => { const r = el.getBoundingClientRect(); const c = getComputedStyle(el); const p = el.closest('[role=dialog]')!.getBoundingClientRect(); return { fontSize: c.fontSize, inside: r.left >= p.left && r.right <= p.right && r.bottom <= p.bottom, color: c.color }; });
     check('отказ читается: кегль не мельче 12 px, помещается в окне', parseFloat(box.fontSize) >= 12 && box.inside, box);
     await shot('type-refusal');
+    // Выбор человека цел и после перечитывания, пока он не нажал «Записать»
+    check('набранное цело и после снимка', await typeDialog.locator('select').inputValue() === 'КЛАПАН' && await typeDialog.locator('input').inputValue() === 'Воздушный');
     await typeDialog.getByRole('button', { name: 'Записать' }).click();
     await page.getByText('Тип позиции поправлен').first().waitFor({ timeout: 15000 });
     const afterRetry = (await parts())['eq-fan'];
@@ -193,7 +239,8 @@ async function main() {
     await field.press('Enter');
     const editError = page.locator('[data-edit-error]');
     await editError.waitFor({ timeout: 15000 });
-    check('виден текст отказа сервера', (await editError.textContent()) === await staleText('eq-fan', 3), await editError.textContent());
+    check('виден текст отказа сервера', (await editError.locator('[data-conflict-message]').textContent()) === await staleText('eq-fan', 3), await editError.textContent());
+    same('виден перечень: чужое ручное значение — одной строкой, с пометкой', await changesOf(editError), [{ label: 'Основные · Расход', was: '1000 м3/ч', now: '2000 м3/ч (вручную)' }]);
     check('значение человека осталось в поле', await page.locator('input:focus').inputValue() === '7');
     await page.getByText('УВ-1 · v4').first().waitFor({ timeout: 15000 });
     check('данные перечитаны: чужое значение уже на экране', await page.getByText('2000', { exact: false }).first().isVisible());
@@ -217,9 +264,15 @@ async function main() {
       await page.getByRole('button', { name: 'Удалить Клапан Б' }).click({ force: true });
       await confirmDelete();
     });
-    const toast = page.getByText(await staleText('eq-valve', valveBefore.version)).first();
-    await toast.waitFor({ timeout: 15000 });
-    check('виден текст отказа сервера', await toast.isVisible());
+    const deleteRefusal = page.locator('[data-refusal-dialog]');
+    await deleteRefusal.waitFor({ timeout: 15000 });
+    // Тот же запрос, что отправил экран: служба отказывает по версии и ничего не удаляет — берём её точный текст
+    const staleDelete = await call('DELETE', `/api/equipment/component/eq-valve?expectedVersion=${valveBefore.version}`);
+    check('виден текст отказа сервера окном, а не всплывающей строкой', staleDelete.status === 409 && (await deleteRefusal.locator('[data-conflict-message]').textContent()) === staleDelete.body.error, staleDelete.body);
+    same('виден перечень: тип стал «Привод»', await changesOf(deleteRefusal), [{ label: 'Тип', was: TYPE_AUTO, now: classTitle('ПРИВОД') }]);
+    await shot('delete-position-refusal');
+    await page.getByRole('button', { name: 'Понятно' }).click();
+    check('окно отказа закрывается кнопкой', await page.locator('[data-refusal-dialog]').count() === 0);
     const valveAfter = (await parts())['eq-valve'];
     check('позиция не удалена, правка коллеги цела', !!valveAfter && valveAfter.equipClass === 'ПРИВОД' && valveAfter.version === valveBefore.version + 1, valveAfter);
     await treeRow('Клапан Б').waitFor({ timeout: 15000 });
@@ -243,15 +296,81 @@ async function main() {
       await confirmDelete();
     };
     await rereadOf(deleteSystem);
-    const unitToast = page.getByText('Не удалось удалить установку: Установку', { exact: false }).first();
-    await unitToast.waitFor({ timeout: 15000 });
+    const unitRefusal = page.locator('[data-refusal-dialog]');
+    await unitRefusal.waitFor({ timeout: 15000 });
     const stale = (await call('DELETE', `/api/systems/eq-s2?expectedVersion=${sysBefore.version}`));
-    check('виден текст отказа сервера', stale.status === 409 && stale.body.code === 'VERSION_CONFLICT' && (await unitToast.textContent())!.includes(stale.body.error), stale.body);
+    check('виден текст отказа сервера', stale.status === 409 && stale.body.code === 'VERSION_CONFLICT' && (await unitRefusal.locator('[data-conflict-message]').textContent()) === stale.body.error, stale.body);
+    same('у установки изменилась только версия — об этом сказано словами, перечня нет', [await changesOf(unitRefusal), (await unitRefusal.locator('[data-conflict-empty]').textContent())], [[], 'Изменения не затронули то, что показано на экране.']);
+    await shot('delete-system-no-visible-change');
+    await page.getByRole('button', { name: 'Понятно' }).click();
     check('установка и её позиции целы', !!(await systems())['eq-s2'] && !!(await parts())['eq-section']);
     await page.waitForFunction(() => document.body.innerText.includes('УВ-2'), null, { timeout: 15000 });
     await deleteSystem();
     await page.getByText('Удалено', { exact: false }).first().waitFor({ timeout: 15000 });
     check('повтор с новой версией удаляет установку', !(await systems())['eq-s2'] && !(await parts())['eq-section']);
+
+    // ── 5. Позиция открыта у коллеги ──
+    console.log('5. Позиция открыта у коллеги');
+    await page.reload(); await mute(true); await openTree(['УВ-1', 'УВ-3'], ['Моноблок-1', 'Моноблок-3']);
+    check('Иванов открыл позицию «Привод Г» (служба приняла отметку)', (await holdOpen([{ model: 'ComponentElement', id: 'eq-actuator' }])).status === 200);
+    const confirmDeleteOf = async (name: string) => { await page.getByRole('button', { name: `Удалить ${name}` }).click({ force: true }); await confirmDelete(); };
+    await confirmDeleteOf('Привод Г');
+    const openDialog = page.locator('[data-refusal-dialog]');
+    await openDialog.waitFor({ timeout: 15000 });
+    const openText = (await openDialog.locator('[data-conflict-message]').textContent())!;
+    check('служба назвала Иванова по имени и позицию по названию', openText.includes('Иванов И. И.') && openText.includes('Привод Г'), openText);
+    check('это текст службы, а не выдумка экрана: те же слова приходят на тот же запрос', openText === (await call('DELETE', '/api/equipment/component/eq-actuator')).body.error);
+    check('перечня изменений нет: запись не менялась', await openDialog.locator('[data-conflict-change]').count() === 0 && await openDialog.locator('[data-conflict-empty]').count() === 0);
+    check('позиция не удалена', !!(await parts())['eq-actuator']);
+    await shot('delete-open-by-colleague');
+    await page.getByRole('button', { name: 'Понятно' }).click();
+    await holdOpen([]);
+    // Своя отметка человеку не мешает: удаляет ту позицию, что сам держит выбранной
+    await openBlock('Привод Г');
+    await waitRows(['ComponentElement:eq-actuator'], 'экран держит «Привод Г» выбранной');
+    await confirmDeleteOf('Привод Г');
+    await page.getByText('Удалено', { exact: false }).first().waitFor({ timeout: 15000 });
+    check('Иванов закрыл запись, свои отметки не мешают: позиция удалена', !(await parts())['eq-actuator']);
+    await waitRows([], 'выбор снят удалением — отметка из базы ушла');
+
+    // ── 6. Установка: изменили, затем занята ──
+    console.log('6. Установка: изменена, затем открыта у коллеги');
+    await page.reload(); await mute(true); await openTree(['УВ-1', 'УВ-3'], ['Моноблок-1', 'Моноблок-3']);
+    sql.prepare('UPDATE "EquipmentSystem" SET name = ?, version = version + 1 WHERE id = ?').run('УВ-3б', 'eq-s3');
+    await holdOpen([{ model: 'ComponentElement', id: 'eq-gate' }]);
+    const deleteSystemNamed = async (name: string) => {
+      await page.locator('div.group', { has: page.locator(`span[title="${name}"]`) }).first().getByTitle('Удалить установку').click({ force: true });
+      await confirmDelete();
+    };
+    await rereadOf(() => deleteSystemNamed('УВ-3'));
+    const renamed = page.locator('[data-refusal-dialog]');
+    await renamed.waitFor({ timeout: 15000 });
+    same('виден перечень: установку переименовали', await changesOf(renamed), [{ label: 'Название', was: 'УВ-3', now: 'УВ-3б' }]);
+    await shot('delete-system-refusal');
+    await page.getByRole('button', { name: 'Понятно' }).click();
+    check('установка цела', !!(await systems())['eq-s3']);
+    await page.getByText('УВ-3б', { exact: true }).first().waitFor({ timeout: 15000 });
+    await deleteSystemNamed('УВ-3б');
+    await renamed.waitFor({ timeout: 15000 });
+    const nested = (await renamed.locator('[data-conflict-message]').textContent())!;
+    check('служба назвала Иванова, установку и позицию внутри неё', nested.includes('Иванов И. И.') && nested.includes('УВ-3б') && nested.includes('Заслонка Е'), nested);
+    check('ничего не удалено: ни установка, ни позиция внутри неё', !!(await systems())['eq-s3'] && !!(await parts())['eq-gate']);
+    await shot('delete-system-open-nested');
+    await page.getByRole('button', { name: 'Понятно' }).click();
+    await holdOpen([]);
+    await deleteSystemNamed('УВ-3б');
+    await page.getByText('Удалено', { exact: false }).first().waitFor({ timeout: 15000 });
+    check('Иванов закрыл запись — установка удаляется', !(await systems())['eq-s3'] && !(await parts())['eq-gate']);
+
+    // ── 7. Окно закрыто — отметок нет ──
+    console.log('7. Выбор и закрытие окна');
+    await page.reload(); await mute(true); await openTree(['УВ-1'], ['Моноблок-1']);
+    await openBlock('Вентилятор А');
+    await waitRows(['ComponentElement:eq-fan'], 'выбрана позиция — отметка есть');
+    await page.locator('div.group', { has: page.locator('span[title="УВ-1"]') }).first().getByRole('button', { name: 'УВ-1', exact: true }).click();
+    await waitRows(['EquipmentSystem:eq-s1'], 'выбрана установка — отметка у неё, у позиции снята');
+    await page.goto('about:blank');
+    await waitRows([], 'окно закрыто — отметок нет (маяк при закрытии)');
 
     check('ошибок страницы нет', pageErrors.length === 0, pageErrors);
     console.log(`Снимки: ${SHOTS}`);
