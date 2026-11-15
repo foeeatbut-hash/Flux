@@ -98,6 +98,9 @@ Dictionary 3/3; DictionaryItem 6/6; TagTemplate 2/2; ConstructorDoc 1/1 (мар�
       database-client, tsc. Мутации — в отчёте исполнителя A; перенос тега по холсту — на keepVersion.
 - [x] Исполнитель B: маршруты оборудования (сервер) + набор. Прошли: test-equipment-version-routes (222 проверки, 14 мутаций убиты + двойной рост версии), version-guard, version-bump, architecture, equipment-xml-routes-sqlite, equipment-param-access, equipment-source-orphan, vdr-concurrency/-permissions/-realtime/-tag-link, op-receipt, tag-code-key, tag-history-tx, tsc.
 - [ ] Исполнитель C: экран «Оборудование» (клиент) + набор интерфейса
+      Шаг 1–3 готовы (wip): `src/components/equipment/versionedWrite.ts` (общее место), экран, TypeChip, BlockCard;
+      `scripts/test-equipment-version-client.ts` (47 проверок, 10 мутаций убиты). Дальше: набор интерфейса
+      `scripts/test-equipment-version-ui.ts` (ждёт маршруты B), регистрация, слова, архитектура.
 - [ ] Документы: offline-work.md, страницы программ, plan.md; удалить файлы хода
 
 

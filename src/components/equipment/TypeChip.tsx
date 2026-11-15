@@ -2,6 +2,7 @@ import React from 'react';
 import { Check, RotateCcw, X } from 'lucide-react';
 import { CLASSES, classById, classLabel, type Classified } from '../../../equipment/classes';
 import { useEscapeClose } from '../../lib/useDismiss';
+import { writeVersioned, failureText } from './versionedWrite';
 
 /**
  * Тип и вид позиции в шапке карточки — с поправкой по нажатию.
@@ -14,40 +15,54 @@ import { useEscapeClose } from '../../lib/useDismiss';
 
 interface Props {
   componentId: string;
+  /** Версия позиции, как её показывает экран: с ней сервер сверяет поправку */
+  version?: number;
   typed: Classified | undefined;
-  /** Поправка записана — карточке пора перечитать данные */
+  /** Поправка записана или отклонена из-за чужой правки — карточке пора перечитать данные */
   onSaved: () => void;
   say: (text: string, kind?: 'success' | 'error' | 'info') => void;
 }
 
-export default function TypeChip({ componentId, typed, onSaved, say }: Props) {
+export default function TypeChip({ componentId, version, typed, onSaved, say }: Props) {
   const [open, setOpen] = React.useState(false);
   const [cls, setCls] = React.useState<string>(typed?.cls || 'ПРОЧЕЕ');
   const [kind, setKind] = React.useState<string>(typed?.kind || '');
   const [busy, setBusy] = React.useState(false);
+  // Отказ по версии: текст сервера под полями; выбранное человеком не затирается перечитанным
+  const [refusal, setRefusal] = React.useState('');
+  const keepChoice = React.useRef(false);
   // Окно типа закрывается и по Esc, а не только крестиком
   useEscapeClose(open, () => setOpen(false));
 
+  // Окно закрыто — пометка «не перезаписывать выбор» и текст отказа больше не нужны
+  React.useEffect(() => { if (!open) { keepChoice.current = false; setRefusal(''); } }, [open]);
+
   React.useEffect(() => {
+    // После отказа по версии перечитанная позиция приходит новым `typed`; выбор человека остаётся в полях
+    if (keepChoice.current) { keepChoice.current = false; return; }
     setCls(typed?.cls || 'ПРОЧЕЕ');
     setKind(typed?.kind || '');
+    setRefusal('');
   }, [componentId, typed?.cls, typed?.kind]);
 
   const manual = !!typed && (typed.cls !== typed.auto.cls || typed.kind !== typed.auto.kind);
 
   const save = async (next: { equipClass: string; equipKind: string }) => {
     setBusy(true);
+    setRefusal('');
     try {
-      const res = await fetch(`/api/equipment/component/${componentId}/class`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) { say(data?.error || 'Не удалось записать тип', 'error'); return; }
+      const r = await writeVersioned(`/api/equipment/component/${componentId}/class`, 'PUT', next, version);
+      if (r.kind === 'conflict') {
+        // Позицию изменили, пока окно было открыто: окно не закрывается, выбор остаётся, данные перечитываются
+        keepChoice.current = true;
+        setRefusal(failureText(r, 'Не удалось записать тип'));
+        onSaved();
+        return;
+      }
+      if (r.kind !== 'ok') { say(failureText(r, 'Не удалось записать тип'), 'error'); return; }
       say(next.equipClass || next.equipKind ? 'Тип позиции поправлен' : 'Тип снова угадывается', 'success');
       setOpen(false);
       onSaved();
-    } catch (_) {
-      say('Сервер не ответил', 'error');
     } finally { setBusy(false); }
   };
 
@@ -89,6 +104,7 @@ export default function TypeChip({ componentId, typed, onSaved, say }: Props) {
             </datalist>
           </label>
           <div className="text-2xs text-slate-400">Угадано: {classLabel(typed.auto)}</div>
+          {refusal && <div role="alert" data-type-refusal className="fx-error">{refusal}</div>}
           <div className="flex items-center gap-1.5 pt-1">
             {manual && (
               <button type="button" disabled={busy} onClick={() => save({ equipClass: '', equipKind: '' })}
