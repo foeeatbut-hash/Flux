@@ -827,6 +827,24 @@
       "timeoutMs": 120000
     },
     {
+      "id": "eng-refusal-texts",
+      "path": "scripts/test-refusal-texts.ts",
+      "layer": "unit",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 120000
+    },
+    {
+      "id": "eng-open-records",
+      "path": "scripts/test-open-records.ts",
+      "layer": "api-db",
+      "platform": "any",
+      "resources": [],
+      "prerequisites": [],
+      "timeoutMs": 900000
+    },
+    {
       "id": "eng-equipment-version-ui",
       "path": "scripts/test-equipment-version-ui.ts",
       "layer": "browser-live",
@@ -4289,6 +4307,20 @@
           "layer": "unit",
           "claims": [
             "Каждое действие экрана над позицией, блоком и установкой отправляет версию записи, которую видел экран; отказ по версии узнаётся по коду, а не по тексту."
+          ]
+        },
+        {
+          "suite": "eng-refusal-texts",
+          "layer": "unit",
+          "claims": [
+            "Каждый случай отказа (изменили, удалили, открыта у сотрудника, уже удалена, массовое действие) даёт точный текст словаря; код отказа в текст не попадает, формы слов верны для любого существительного словаря."
+          ]
+        },
+        {
+          "suite": "eng-open-records",
+          "layer": "api-db",
+          "claims": [
+            "Отметки открытых записей: окно присылает полный список, лишние строки этого окна стираются, свои окна и отметки старше 90 секунд запись не держат, чужой ключ окна ничего не стирает; маршрут принимает только вошедшего, модели из перечня версионных и не больше 50 записей."
           ]
         },
         {

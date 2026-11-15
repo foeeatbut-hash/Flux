@@ -570,6 +570,32 @@ console.log('\n10. Запись в версионные модели не обх
   // 4. Клиент сервера собирается с расширением (проверка роста версии — scripts/test-version-bump.ts)
   ok('server.ts: клиент базы создаётся с расширением роста версии',
     /traceDatabase\(\s*withVersionBump\(\s*buildPrismaClient\(/.test(read('server.ts')));
+
+  // 5. Удаление под защитой открытой записи: всякий вызов guardedDelete несёт openCheck (запись и всё,
+  // что уйдёт вместе с ней, не открыты у коллеги — иначе у него на экране остаётся то, чего уже нет).
+  // Вызов без openCheck — место вне оборудования, ждёт своей очереди (строки 2–4 очерёдности в
+  // docs/plan.md) и вносится в перечень с причиной; сейчас таких нет
+  const callsOf = (src: string): string[] => {
+    const out: string[] = [];
+    for (const m of src.matchAll(/\bguardedDelete\s*\(/g)) {
+      let depth = 1, i = m.index! + m[0].length, quote = '';
+      for (; i < src.length && depth > 0; i++) {
+        const ch = src[i];
+        if (quote) { if (ch === '\\') i++; else if (ch === quote) quote = ''; continue; }
+        if (ch === "'" || ch === '"' || ch === '`') quote = ch;
+        else if (ch === '(') depth++;
+        else if (ch === ')') depth--;
+      }
+      out.push(src.slice(m.index!, i));
+    }
+    return out;
+  };
+  const guarded = tally((_rel, src) => callsOf(src).filter((c) => /\bopenCheck\s*:/.test(c)).length);
+  ok('guardedDelete: защита открытой записи стоит у удаления позиции и установки',
+    guarded['server/routes/equipmentEdit.ts'] === 1 && guarded['server/routes/tags.ts'] === 1, guarded);
+  compare('guardedDelete без openCheck', tally((_rel, src) => callsOf(src).filter((c) => !/\bopenCheck\s*:/.test(c)).length), {
+    // 'server/routes/…': { n: 1, why: 'строки 2–4 очерёдности: … (удаление вне оборудования)' },
+  });
 }
 
 console.log(f === 0 ? '\nВСЕ ТЕСТЫ ПРОЙДЕНЫ' : `\nПРОВАЛОВ: ${f}`);
