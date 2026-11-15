@@ -12,6 +12,19 @@
  *  • нечитаемая версия → 400, в базе ничего не изменилось.
  * Отдельно: проигранная гонка двух клиентов с одной версией; рост версии у детей и тегов при
  * удалении позиции; чтение дерева оборудования отдаёт `version` у установки, моноблока и позиции.
+ *
+ * Отказы с изменениями коллеги и открытая запись (.claude/progress/conflict-details.md):
+ *  • текст отказа — из словаря по случаю (правка, удаление, создание внутри), без кода;
+ *  • отказ по позиции несёт в `current` теги `[{ id, code }]`;
+ *  • записи уже нет — 404 `RECORD_GONE` с текстом словаря и без записи в базу (удаление удалённого — 200);
+ *  • два человека: позиция или установка, открытая (или с открытой вложенной на любой глубине) у
+ *    коллеги, не удаляется — 409 `RECORD_OPEN`, держатели и запись названы, в базе ничего не
+ *    изменилось; свои окна, несвежие отметки (больше 90 с) и чужие записи удалению не мешают;
+ *    таблицы открытых записей нет — удаление идёт.
+ *
+ * Мутации, которыми набор проверен (каждая роняет его): убрать `openCheck` у удаления позиции;
+ * убрать его у удаления установки; не смотреть вложенные (позиции и установки); убрать `tags` из
+ * `current`; вернуть 404 без кода; вернуть прежнюю строку отказа вместо словаря.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -26,6 +39,10 @@ import { ensureCatalog } from '../server/routes/catalog.js';
 import { registerEquipmentEditRoutes } from '../server/routes/equipmentEdit.js';
 import { registerEquipmentCoreRoutes } from '../server/routes/equipmentCore.js';
 import { registerTagRoutes } from '../server/routes/tags.js';
+import { ensureOpenTable } from '../server/openRecords.js';
+import {
+  editChangedText, deleteChangedText, createInsideChangedText, editGoneText, createInsideGoneText, deleteOpenText, deleteOpenNestedText,
+} from '../src/lib/refusalTexts.js';
 
 const require = createRequire(import.meta.url);
 const { PrismaClient } = require('../prisma-clients/client-sqlite');
@@ -60,6 +77,7 @@ async function seed() {
   await raw.equipmentSystem.deleteMany({});
   await raw.tag.deleteMany({});
   await raw.systemChangeLog.deleteMany({}).catch(() => null);
+  await raw.openRecord.deleteMany({});
   await raw.equipmentSystem.create({ data: { id: 'S1', name: 'SYS-1', projectId: 'p1', version: 3 } });
   await raw.monoblock.create({ data: { id: 'M1', name: 'M1', systemId: 'S1', version: 2 } });
   const specs = JSON.stringify({ groups: [{ title: 'Параметры', params: [{ key: 'Давление', value: '1', unit: 'Па' }] }], Расход: '1' });
@@ -213,10 +231,12 @@ async function main() {
     setPrisma(prisma);
     await ensureCatalog(prisma);
     await raw.project.create({ data: { id: 'p1', name: 'P1' } });
+    for (const [id, name] of [['u-petrova', 'Петрова А. А.'], ['u-sidorov', 'Сидоров С. С.']]) await raw.user.create({ data: { id, symbol: `s-${id}`, password: 'x', name } });
 
     const app = express();
     app.use(express.json());
-    app.use((req, _res, next) => { (req as any).authUser = { id: 'fixture-user', name: 'Инженер', role: 'ADMIN', isActive: true }; next(); });
+    // Кто действует — заголовком: в наборе двое людей, а личность маршруты берут только из сессии
+    app.use((req, _res, next) => { (req as any).authUser = { id: req.header('x-test-user') || 'fixture-user', name: 'Инженер', role: 'ADMIN', isActive: true }; next(); });
     registerEquipmentEditRoutes(app);
     registerEquipmentCoreRoutes(app);
     registerTagRoutes(app, { io: {} as any, notifyAll: async () => {} });
@@ -274,6 +294,175 @@ async function main() {
         else check(`${c.name}: ${mode} — версия цели выросла ровно на ${c.growth} (${current} → ${now})`, now === current + c.growth);
         if (c.responseVersion) check(`${c.name}: ${mode} — в ответе новая версия записи`, c.responseVersion(res.body) === now, res.body);
       }
+    }
+
+    // ── Тексты отказов, теги в отказе по позиции, «записи уже нет» ──
+    console.log('\n── отказы: тексты, теги, RECORD_GONE');
+    const byName = (n: string) => cases.find((c) => c.name === n)!;
+    const staleTextOf = (c: Case): string => {
+      if (c.name === 'DELETE /api/equipment/component/:id') return deleteChangedText('position', 'Вентилятор');
+      if (c.name === 'DELETE /api/systems/:id') return deleteChangedText('system', 'SYS-1');
+      if (c.name === 'POST /api/equipment/component/:id/position') return createInsideChangedText('position', 'Вентилятор');
+      if (c.name === 'POST /api/equipment/monoblock/:id/position') return createInsideChangedText('block', 'M1');
+      return editChangedText('position', 'Вентилятор');
+    };
+    const goneTextOf = (c: Case): string => {
+      if (c.name === 'POST /api/equipment/component/:id/position') return createInsideGoneText('position');
+      if (c.name === 'POST /api/equipment/monoblock/:id/position') return createInsideGoneText('block');
+      return editGoneText('position');
+    };
+    const removeTarget = async (t: Target) => {
+      if (t.model === 'componentElement') {
+        await raw.componentElement.update({ where: { id: t.id }, data: { tags: { set: [] } } });
+        await raw.componentElement.delete({ where: { id: t.id } });
+      } else await (raw as any)[t.model].delete({ where: { id: t.id } });
+    };
+    for (const c of cases) {
+      await seed();
+      const v = await versionOf(c.target);
+      const refused = await send(c, v - 1);
+      check(`${c.name}: текст отказа — из словаря по случаю`, refused.status === 409 && refused.body?.error === staleTextOf(c), refused.body?.error);
+      check(`${c.name}: в тексте отказа нет кода`, !/VERSION_CONFLICT|RECORD_/.test(refused.body?.error));
+      if (c.target.model === 'componentElement') {
+        const expectTags = (await raw.componentElement.findUnique({ where: { id: c.target.id }, include: { tags: true } })).tags
+          .map((t: any) => ({ id: t.id, code: t.identifier })).sort((a: any, b: any) => a.id.localeCompare(b.id));
+        const got = [...(refused.body?.current?.tags || [])].sort((a: any, b: any) => a.id.localeCompare(b.id));
+        check(`${c.name}: current отказа несёт теги позиции [{ id, code }]`, expectTags.length > 0 && JSON.stringify(got) === JSON.stringify(expectTags), { got, expectTags });
+      } else {
+        check(`${c.name}: у отказа по ${c.target.model} тегов в current нет`, refused.body?.current && refused.body.current.tags === undefined, refused.body?.current);
+      }
+
+      // Записи уже нет: 404 с кодом и текстом словаря, ничего не записано; удаление удалённого — 200, как было
+      await seed();
+      await removeTarget(c.target);
+      const before = await world();
+      const gone = await send(c, v);
+      if (c.growth === 'gone') {
+        check(`${c.name}: запись уже удалена — 200 alreadyGone, как и раньше`, gone.status === 200 && (gone.body?.alreadyGone === true), gone);
+      } else {
+        check(`${c.name}: записи нет — 404, RECORD_GONE и текст словаря`, gone.status === 404 && gone.body?.code === 'RECORD_GONE' && gone.body?.error === goneTextOf(c), gone);
+        check(`${c.name}: в тексте «записи нет» нет кода`, !/RECORD_GONE|VERSION_CONFLICT/.test(gone.body?.error));
+        check(`${c.name}: записи нет — в базе не изменилось ничего`, same(before, await world()));
+      }
+    }
+    void byName;
+
+    // ── Открытая запись не удаляется: два человека, настоящие маршруты ──
+    console.log('\n── открытые записи: два человека');
+    const ME = 'fixture-user';
+    const holds = (userId: string, model: string, recordId: string, at: Date = new Date()) =>
+      raw.openRecord.create({ data: { model, recordId, userId, holderKey: `window-${userId}`, at } });
+    const delPosition = byName('DELETE /api/equipment/component/:id');
+    const delSystem = byName('DELETE /api/systems/:id');
+    const ago = (ms: number) => new Date(Date.now() - ms);
+    const open409 = (r: { status: number; body: any }) => r.status === 409 && r.body?.code === 'RECORD_OPEN';
+    const petrova = [{ userId: 'u-petrova', name: 'Петрова А. А.' }];
+
+    {
+      await seed();
+      await holds('u-petrova', 'ComponentElement', 'C1');
+      const before = await world();
+      const r = await send(delPosition, await versionOf(delPosition.target));
+      check('позиция открыта у коллеги: 409 RECORD_OPEN', open409(r), r);
+      check('позиция открыта у коллеги: держатель и запись названы',
+        JSON.stringify(r.body?.holders) === JSON.stringify(petrova) && JSON.stringify(r.body?.record) === JSON.stringify({ model: 'ComponentElement', id: 'C1', name: 'Вентилятор' }), r.body);
+      check('позиция открыта у коллеги: текст словаря, без кода', r.body?.error === deleteOpenText('position', 'Вентилятор', petrova) && !/RECORD_OPEN/.test(r.body?.error), r.body?.error);
+      check('позиция открыта у коллеги: в базе не изменилось ничего (ни позиция, ни дети, ни теги)', same(before, await world()));
+      const withoutVersion = await send(delPosition, undefined);
+      check('клиент без версии (старая сборка) открытую позицию тоже не удалит', open409(withoutVersion) && same(before, await world()), withoutVersion);
+    }
+    {
+      await seed();
+      await holds('u-petrova', 'ComponentElement', 'C2');
+      const before = await world();
+      const r = await send(delPosition, await versionOf(delPosition.target));
+      check('открыта вложенная позиция: удаление владельца отказано, названа вложенная',
+        open409(r) && r.body?.record?.id === 'C2' && r.body.record.name === 'Двигатель'
+        && r.body?.error === deleteOpenNestedText({ noun: 'position', name: 'Вентилятор' }, { noun: 'position', name: 'Двигатель' }, petrova), r.body);
+      check('открыта вложенная позиция: в базе не изменилось ничего', same(before, await world()));
+    }
+    {
+      await seed();
+      await raw.componentElement.create({ data: { id: 'C4', name: 'Датчик ПТС', itemCode: 'FAN-1/м/д', monoblockId: 'M1', role: 'ДАТЧИК', parentElementId: 'C2' } });
+      await holds('u-petrova', 'ComponentElement', 'C4');
+      const before = await world();
+      const r = await send(delPosition, await versionOf(delPosition.target));
+      check('открыта позиция на два уровня глубже: удаление отказано', open409(r) && r.body?.record?.id === 'C4', r);
+      check('открыта позиция на два уровня глубже: в базе не изменилось ничего', same(before, await world()));
+    }
+    {
+      await seed();
+      await holds('u-petrova', 'ComponentElement', 'C3');
+      const r = await send(delPosition, await versionOf(delPosition.target));
+      check('открыта чужая, не вложенная позиция: удаление проходит', r.status === 200 && !comp(await world(), 'C1'), r);
+    }
+    {
+      await seed();
+      await holds(ME, 'ComponentElement', 'C1');
+      const r = await send(delPosition, await versionOf(delPosition.target));
+      check('своё окно удалению не мешает', r.status === 200 && !comp(await world(), 'C1'), r);
+    }
+    {
+      await seed();
+      await holds('u-petrova', 'ComponentElement', 'C1', ago(100_000));
+      const r = await send(delPosition, await versionOf(delPosition.target));
+      check('несвежая отметка (100 с) запись не держит: удаление проходит', r.status === 200 && !comp(await world(), 'C1'), r);
+    }
+    {
+      await seed();
+      await holds('u-petrova', 'ComponentElement', 'C1');
+      const r = await send(delPosition, (await versionOf(delPosition.target)) - 1);
+      check('и изменена, и открыта: отказ по версии идёт первым', r.status === 409 && r.body?.code === 'VERSION_CONFLICT', r);
+    }
+
+    {
+      await seed();
+      await holds('u-petrova', 'EquipmentSystem', 'S1');
+      const before = await world();
+      const r = await send(delSystem, await versionOf(delSystem.target));
+      check('установка открыта у коллеги: 409 RECORD_OPEN, текст словаря',
+        open409(r) && r.body?.error === deleteOpenText('system', 'SYS-1', petrova) && r.body?.record?.model === 'EquipmentSystem' && JSON.stringify(r.body?.holders) === JSON.stringify(petrova), r.body);
+      check('установка открыта у коллеги: в базе не изменилось ничего', same(before, await world()));
+    }
+    for (const id of ['C1', 'C2', 'C3']) {
+      await seed();
+      await holds('u-petrova', 'ComponentElement', id);
+      const before = await world();
+      const r = await send(delSystem, await versionOf(delSystem.target));
+      const inner = comp(before, id);
+      check(`открыта позиция ${id} внутри установки: удаление установки отказано, названа позиция`,
+        open409(r) && r.body?.record?.id === id && r.body?.error === deleteOpenNestedText({ noun: 'system', name: 'SYS-1' }, { noun: 'position', name: inner.name }, petrova), r.body);
+      check(`открыта позиция ${id} внутри установки: ни установка, ни блоки, ни позиции, ни теги не тронуты`, same(before, await world()));
+    }
+    {
+      await seed();
+      await holds('u-petrova', 'ComponentElement', 'C1');
+      await holds('u-sidorov', 'ComponentElement', 'C3');
+      const r = await send(delSystem, await versionOf(delSystem.target));
+      check('открыто двумя людьми разных позиций: отказ, назван первый найденный держатель', open409(r) && ['C1', 'C3'].includes(r.body?.record?.id), r.body);
+    }
+    {
+      await seed();
+      await holds('u-petrova', 'ComponentElement', 'OTHER');
+      await holds('u-petrova', 'EquipmentSystem', 'S2');
+      const r = await send(delSystem, await versionOf(delSystem.target));
+      check('открыто чужое, не из этой установки: удаление проходит', r.status === 200 && (await world()).systems.length === 0, r);
+    }
+    {
+      await seed();
+      await holds(ME, 'EquipmentSystem', 'S1');
+      await holds(ME, 'ComponentElement', 'C2');
+      const r = await send(delSystem, await versionOf(delSystem.target));
+      check('свои окна установке не мешают', r.status === 200 && (await world()).systems.length === 0, r);
+    }
+
+    // Таблицы открытых записей нет (общая база старой версии): удаление идёт без этой защиты, а не встаёт
+    {
+      await seed();
+      await raw.$executeRawUnsafe('DROP TABLE "OpenRecord"');
+      const r = await send(delPosition, await versionOf(delPosition.target));
+      check('таблицы открытых записей нет: удаление позиции проходит', r.status === 200 && !comp(await world(), 'C1'), r);
+      await ensureOpenTable(raw);
     }
 
     // ── Гонка двух клиентов с одной версией: проходит один, второй получает отказ

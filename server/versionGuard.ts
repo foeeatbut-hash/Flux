@@ -44,6 +44,18 @@ export class VersionConflict extends Error {
 /** Внутренний сигнал «проиграл гонку, можно перечитать и повторить». */
 class RaceLost extends Error {}
 
+/**
+ * Записи, которую правят или внутрь которой добавляют, уже нет (404 `RECORD_GONE`).
+ * Маршрут отвечает так на «не нашли»; guardedWrite — на проигранную гонку, когда
+ * победитель запись удалил (если маршрут назвал существительное).
+ */
+export class RecordGone extends Error {
+  constructor(public noun: RefusalNoun, public inside = false, public recordName?: unknown) {
+    super(inside ? createInsideGoneText(noun) : editGoneText(noun, recordName));
+    this.name = 'RecordGone';
+  }
+}
+
 /** Удаление отклонено: запись (или то, что уйдёт вместе с ней) открыта у другого сотрудника. */
 export class RecordOpen extends Error {
   constructor(message: string, public holders: OpenHolder[], public record: { model: string; id: string; name: string }) {
@@ -122,6 +134,8 @@ export interface GuardedWriteOptions<R> {
   staleMessage: (current: any) => string;
   /** Что сделать в той же транзакции после записи (например, привести связи к записанному). */
   after?: (db: any, before: any, after: any) => Promise<void>;
+  /** Как называется запись в словаре отказов: проигранная гонка с удалением отвечает «записи уже нет», а не пустым конфликтом. */
+  goneNoun?: RefusalNoun;
 }
 
 /**
@@ -154,6 +168,7 @@ export async function guardedWrite<R = undefined>(prisma: any, opts: GuardedWrit
       if (!(e instanceof RaceLost)) throw e;
       if (n < attempts) continue;
       const fresh = await prisma[opts.model].findUnique({ where: { id: opts.id } }).catch(() => null);
+      if (!fresh && opts.goneNoun) throw new RecordGone(opts.goneNoun);
       throw new VersionConflict(expecting ? RACE_WITH_EXPECTATION : RACE_WITHOUT_EXPECTATION, fresh);
     }
   }
@@ -300,11 +315,12 @@ export function sendOpenCheckUnavailable(res: Res, e: OpenCheckUnavailable): unk
 
 /**
  * Один ответ на все отказы защиты записи: версия, открытая запись, сбой чтения
- * открытых. Возвращает `true`, если ответ дан; иначе ошибка не наша.
+ * открытых, запись удалена. Возвращает `true`, если ответ дан; иначе ошибка не наша.
  */
 export function sendGuardRefusal(res: Res, e: unknown, present?: (record: any) => unknown): boolean {
   if (e instanceof VersionConflict) { sendVersionConflict(res, e, present); return true; }
   if (e instanceof RecordOpen) { sendRecordOpen(res, e); return true; }
   if (e instanceof OpenCheckUnavailable) { sendOpenCheckUnavailable(res, e); return true; }
+  if (e instanceof RecordGone) { sendRecordGone(res, e.noun, { inside: e.inside, name: e.recordName }); return true; }
   return false;
 }
