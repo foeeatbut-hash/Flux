@@ -11,6 +11,8 @@
  *      нетронутые поля обновились до записи Иванова, список перечитан; повтор уходит с новой версией и проходит.
  *   2. Проект уже удалили: правка не записана, окно с текстом службы.
  *   3. Удаление проекта, который успели изменить: окно с перечнем, проект цел; повтор проходит.
+ *   0. Карточка проекта, заведённого Ивановым: «Создал: Иванов И. И., дата» (автор из журнала изменений службы);
+ *      у проекта без записи в журнале автора нет — строка без имени.
  *   4. Удаление проекта, открытого во втором окне: служба называет Иванова по имени, ничего не удалено;
  *      пока карточка открыта, в базе есть строка OpenRecord, когда окно закрыто или выбор снят — нет её.
  * Снимки отказов в обеих темах — в каталог FLUX_PROJECT_SHOTS (по умолчанию /tmp/b1-shots).
@@ -105,6 +107,12 @@ async function main() {
     };
     const projectRow = (id: string) => sql.prepare('SELECT * FROM "Project" WHERE id = ?').get(id) as any;
 
+    // Проект, заведённый через службу от имени Иванова: журнал изменений запомнил автора
+    const made = await ivanov('POST', '/api/projects', { name: 'Новый корпус', code: 'NEW-1' });
+    assert.equal(made.status, 200, 'Иванов завёл проект');
+    const newId = String(made.body.project.id);
+    const dmy = (v: unknown) => { const d = new Date(v as any); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()}`; };
+
     // ── Браузер: окно Инженера ──
     browser = await chromium.launch({ executablePath: chrome, args: ['--no-sandbox'] });
     const signIn = async (symbol: string) => {
@@ -163,6 +171,23 @@ async function main() {
       await confirmDelete();
     };
 
+    // ── 0. Строка «Создал» в карточке проекта ──
+    console.log('0. Карточка: кто создал и когда');
+    await openProject(page, newId, 'Новый корпус');
+    const origin = page.locator('[data-record-origin]');
+    await origin.waitFor({ timeout: 15000 });
+    const createRow = sql.prepare('SELECT userName, at FROM "ChangeFeed" WHERE model = ? AND recordId = ? AND kind = ?').get('Project', newId, 'create') as any;
+    check('в журнале службы есть строка создания проекта Ивановым', createRow?.userName === 'Иванов И. И.', createRow);
+    check('в карточке: «Создал: автор, дата» — из журнала службы', (await origin.textContent()) === `Создал: Иванов И. И., ${dmy(createRow.at)}`, await origin.textContent());
+    check('строка стоит в карточке выбранного проекта, одна', await origin.count() === 1 && await origin.evaluate((el: Element) => !!el.closest('h2') === false && !!el.closest('.max-w-3xl')));
+    const originBox = await origin.evaluate((el: HTMLElement) => { const c = getComputedStyle(el); const r = el.getBoundingClientRect(); return { fontSize: c.fontSize, color: c.color, width: r.width }; });
+    check('строка читается: кегль 12 px, цвет не чёрный по умолчанию', parseFloat(originBox.fontSize) === 12 && originBox.width > 100, originBox);
+    await shot('record-origin');
+    await openProject(page, 'pr-depot', 'Депо');
+    await page.waitForTimeout(600);
+    const seededText = (await origin.count()) ? await origin.textContent() : '';
+    check('у проекта без строки в журнале автора нет: «Создал» не выдумывается', !/^Создал:/.test(seededText || ''), seededText);
+
     // ── 1. Правка проекта, который изменил Иванов ──
     console.log('1. Правка: проект изменили, пока карточка была открыта');
     await openProject(page, 'pr-school', 'Школа №5');
@@ -173,6 +198,8 @@ async function main() {
     check('Иванов изменил название, заказчика и состояние того же проекта', colleague.status === 200 && colleague.body.project.version === 2, colleague);
     const staleText = (await admin('PUT', '/api/projects/pr-school', { name: 'пробный', expectedVersion: 1 })).body.error as string;
     check('для сверки: служба отказывает по версии и называет проект', typeof staleText === 'string' && staleText.length > 10, staleText);
+    const staleBody = (await admin('PUT', '/api/projects/pr-school', { name: 'пробный', expectedVersion: 1 })).body;
+    check('для сверки: служба называет, кто изменил (Иванов)', staleBody.changedBy?.name === 'Иванов И. И.' && !!staleBody.changedBy.at, staleBody.changedBy);
     check('пробная правка ничего не записала', projectRow('pr-school').name === 'Школа №7' && projectRow('pr-school').version === 2);
 
     await field(page, 'Наименование').fill('Школа №5А');
@@ -181,6 +208,9 @@ async function main() {
     const notice = page.locator('[data-conflict-notice]');
     await notice.waitFor({ timeout: 15000 });
     check('в карточке виден текст отказа службы', (await notice.locator('[data-conflict-message]').textContent()) === staleText, await notice.textContent());
+    const byLine = notice.locator('[data-conflict-changed-by]');
+    check('под текстом отказа — «Изменил: Иванов И. И., дата время»', (await byLine.count()) === 1 && /^Изменил: Иванов И\. И\., \d{2}\.\d{2}\.\d{4} \d{2}:\d{2}$/.test((await byLine.textContent()) || ''), await byLine.textContent());
+    check('строка «Изменил» стоит между текстом отказа и перечнем', await notice.evaluate((el: Element) => { const k = Array.from(el.children).map((c) => c.getAttribute('data-conflict-message') !== null ? 'm' : c.hasAttribute('data-conflict-changed-by') ? 'b' : c.hasAttribute('data-conflict-changes') ? 'l' : '?').join(''); return k === 'mbl'; }));
     same('виден перечень: название, заказчик и состояние — как они были на экране и как стали',
       await changesOf(notice), [
         { label: 'Наименование', was: 'Школа №5', now: 'Школа №7' },
@@ -239,6 +269,8 @@ async function main() {
     check('текст службы — окном, а не всплывающей строкой', (await deleteDialog.locator('[data-conflict-message]').textContent()) === staleDelete.body.error, await deleteDialog.textContent());
     same('виден перечень: краткое описание', await changesOf(deleteDialog), [{ label: 'Краткое описание', was: 'Склад готовой продукции', now: 'Склад комплектующих' }]);
     check('удаление ушло с версией 1 в строке запроса', deleteUrls.some((u) => u.endsWith('/api/projects/pr-store?expectedVersion=1')), deleteUrls);
+    const deleteBy = deleteDialog.locator('[data-conflict-changed-by]');
+    check('в окне отказа удаления тоже названо, кто изменил', (await deleteBy.textContent()) === `Изменил: ${staleDelete.body.changedBy.name}, ${(() => { const d = new Date(staleDelete.body.changedBy.at); const p = (n: number) => String(n).padStart(2, '0'); return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; })()}`, await deleteBy.textContent());
     await shot('delete-conflict');
     await page.getByRole('button', { name: 'Понятно' }).click();
     check('проект цел, правка Иванова цела', !!projectRow('pr-store') && projectRow('pr-store').description === 'Склад комплектующих');
@@ -261,6 +293,7 @@ async function main() {
     const openText = (await openDialog.locator('[data-conflict-message]').textContent())!;
     check('служба назвала Иванова по имени и проект по названию', openText.includes('Иванов И. И.') && openText.includes('Мост'), openText);
     check('это текст службы: те же слова приходят на тот же запрос', openText === (await admin('DELETE', '/api/projects/pr-bridge')).body.error);
+    check('у отказа «открыт у коллеги» строки «Изменил» нет', await openDialog.locator('[data-conflict-changed-by]').count() === 0);
     check('перечня изменений нет: запись не менялась', await openDialog.locator('[data-conflict-change]').count() === 0 && await openDialog.locator('[data-conflict-empty]').count() === 0);
     check('проект не удалён', !!projectRow('pr-bridge'));
     await shot('delete-open-by-colleague');

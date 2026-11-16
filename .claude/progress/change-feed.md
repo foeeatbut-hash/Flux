@@ -65,6 +65,6 @@
 Особенности: PrismaPromise ленив — `await` внутри ALS-контекста обязателен (runWithActor и обёртка $transaction дожидаются сами);
 пакетные $transaction([...]) в chat.ts/builder.ts не трогают версионные модели — не переводил, хук бросит ошибку при появлении версионной записи.
 prisma-clients: в рабочей копии настоящие копии (не симлинки), package.json не коммитить.
-- [ ] H (шаги 1–2 из 4 готовы: «Изменил» в отказе; RecordOrigin в карточках проекта, тега, позиции, ВДР, пункта справочника; дальше наборы, мутации, снимки)
+- [x] H: клиент (ConflictNotice «Изменил», RecordOrigin в карточках проекта, тега, позиции, строки ВДР, пункта справочника) + наборы test-record-origin-client (44) и test-project-version-ui (55)
 
 G завершён (сервер). Для храповика test-architecture п.10: regexp server.ts теперь `withChangeFeed(buildPrismaClient(...), (c) => traceDatabase(withVersionBump(c)))`.
