@@ -61,7 +61,7 @@ import { useQuickCreate } from '../components/registry/useQuickCreate';
 import { useTagExtractor } from '../components/registry/useTagExtractor';
 import { useRegistryTags } from '../components/registry/useRegistryTags';
 import { useTagTreeOps } from '../components/registry/useTagTreeOps';
-import { saveTagMetadataPatch, rememberVersions } from '../components/registry/tagWrite';
+import { saveTagMetadataPatch, rememberVersions, deleteTagRequest, bulkMetadataRequest, lastWriteKeptInput } from '../components/registry/tagWrite';
 import { splitSegments } from '../lib/tagExtract';
 import { belongsToProject } from '../lib/coalescedRefresh';
 import TagSearchPanel from '../components/registry/TagSearchPanel';
@@ -767,7 +767,7 @@ export default function Registry() {
     setIsLoading(true);
     try {
       for (const t of tags) {
-        await fetch(`/api/tags/${t.id}`, { method: 'DELETE' });
+        await deleteTagRequest(t);
       }
 
       // 1. Ventilation master
@@ -1625,13 +1625,10 @@ export default function Registry() {
       ? { ...t, metadata: byId.get(t.id), parsedMetadata: undefined }
       : t)));
     for (let i = 0; i < updates.length; i += 500) {
-      const res = await fetch('/api/tags/bulk-metadata', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates: updates.slice(i, i + 500) }),
-      });
-      if (!res.ok) throw new Error('bulk-metadata');
-      rememberVersions((await res.json().catch(() => null))?.versions, setTags);
+      // Раскладка — только x и y: версию тега она не сверяет и не двигает (пустая карта показанных тегов)
+      const res = await bulkMetadataRequest(updates.slice(i, i + 500), new Map());
+      if (res.kind !== 'ok') throw new Error('bulk-metadata');
+      rememberVersions(res.data?.versions, setTags);
     }
   };
 
@@ -1767,7 +1764,7 @@ export default function Registry() {
     if (!tag || !code || code === tag.identifier) return;
     if (/[а-яё]/i.test(code)) { addToast('Код тега только на латинице', 'error'); setModalCode(tag.identifier); return; }
     try {
-      if (!await saveTagFields(tag, { identifier: code })) { setModalCode(tag.identifier); return; }
+      if (!await saveTagFields(tag, { identifier: code })) { if (!lastWriteKeptInput()) setModalCode(tag.identifier); return; }
       setTags(prev => prev.map(t => t.id === tagId ? { ...t, identifier: code } : t));
       if (editingTag && editingTag.id === tagId) setEditingTag((prev: any) => prev ? { ...prev, identifier: code } : null);
       flashSaved();

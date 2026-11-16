@@ -16,6 +16,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { dataService } from '../../services/dataService';
 import { useToastStore } from '../../store/toastStore';
 import { repairTagTree } from '../../lib/tagTree';
+import { putTagLinks } from './tagWrite';
 import { parseTagMetadata } from './tagMeta';
 import { belongsToProject, createCoalescedRefresh } from '../../lib/coalescedRefresh';
 
@@ -92,11 +93,9 @@ export function useRegistryTags({
         if (!t) return;
         t.parsedMetadata = { ...t.parsedMetadata, connections: patch.connections, parentId: patch.parentId };
         t.metadata = JSON.stringify(t.parsedMetadata);
-        await fetch(`/api/tags/${patch.id}`, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          // Только связи: сервер сливает ключи, и снимок остального чужих правок не затрёт; null снимает родителя
-          body: JSON.stringify({ metadata: { connections: patch.connections, parentId: patch.parentId ?? null } }),
-        }).catch(() => { /* не записалось — выправим на следующей загрузке */ });
+        // Только связи: сервер сливает ключи, и снимок остального чужих правок не затрёт; null снимает родителя.
+        // Не записалось (тег успели изменить) — выправим на следующей загрузке
+        await putTagLinks(t, { connections: patch.connections, parentId: patch.parentId ?? null });
       }));
       if (!mountedRef.current || activeProjectIdRef.current !== requestedProjectId) return;
       if (patches.length) {
