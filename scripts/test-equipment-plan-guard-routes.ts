@@ -76,8 +76,8 @@ const PROJECT = 'P1';
 const draftBlock = (name: string, value: string, equipType = 'ПРОЧЕЕ') => ({
   name, title: name, equipType, groups: [{ title: 'Параметры', params: [{ key: 'Расход', value, unit: 'м³/ч' }] }],
 });
-const draftUnits = (fan: string, vlv?: string) => [{
-  name: 'AHU-1', title: 'AHU-1', groups: [],
+const draftUnits = (fan: string, vlv?: string, unit = 'AHU-1') => [{
+  name: unit, title: unit, groups: [],
   monoblocks: [{ name: 'M1', title: '', blocks: [draftBlock('FAN-1', fan, 'ВЕНТИЛЯТОР'), ...(vlv === undefined ? [] : [draftBlock('VLV-1', vlv, 'КЛАПАН')])] }],
 }];
 const xmlOf = (fan: string, vlv?: string) => `<project><system name="SYS-1"><monoblock name="M1"><block name="FAN-1"><group title="Параметры"><param name="Давление" unit="Па">${fan}</param></group></block>${vlv === undefined ? '' : `<block name="VLV-1"><group title="Параметры"><param name="Давление" unit="Па">${vlv}</param></group></block>`}</monoblock></system></project>`;
@@ -421,6 +421,26 @@ async function main() {
   check('XML: подтверждение «изменений нет» по свежим версиям проходит, версия позиции не меняется', confirmOk.status === 200
     && (await raw.componentElement.findUnique({ where: { id: 'ex' } })).version === exBeforeC6.version, confirmOk.body);
   await watchVersions('XML подтверждение без изменений');
+
+  // ── 13. Отмена — всё или ничего: сбой на второй позиции не оставляет возврата первой ──
+  await raw.appSetting.create({ data: { key: 'equip_conflict_mode', userId: null, value: 'immediate' } });
+  await call('POST', '/api/equipment/import-draft', draftBody({ units: draftUnits('1', '1', 'AHU-2') }));
+  const aFan = await elementByCode('FAN-1', 'AHU-2');
+  const aVlv = await elementByCode('VLV-1', 'AHU-2');
+  const second = await call('POST', '/api/equipment/import-draft', draftBody({ units: draftUnits('2', '2', 'AHU-2') }));
+  check('режим «сразу»: второй ввоз записал значения обеим позициям', second.status === 200
+    && JSON.parse((await elementByCode('VLV-1', 'AHU-2')).specs).groups[0].params[0].value === '2', second.body);
+  const batchPlan = await call('GET', '/api/equipment/import-undo/:batchId', {}, { batchId: second.body.batchId });
+  check('план отмены: вернуть две позиции, обе в `seen`', batchPlan.body.restore.length === 2 && batchPlan.body.seen[aFan.id] !== undefined && batchPlan.body.seen[aVlv.id] !== undefined, batchPlan.body);
+  await raw.$executeRawUnsafe(`CREATE TRIGGER fail_second_undo BEFORE INSERT ON EquipmentHistory WHEN NEW.changeType = 'UPDATE' AND NEW.batchId LIKE 'undo-%' AND NEW.elementId = '${aVlv.id}' BEGIN SELECT RAISE(ABORT, 'сбой на второй позиции'); END`);
+  const beforeFail = await world();
+  const failed = await call('POST', '/api/equipment/import-undo', { batchId: second.body.batchId, seen: batchPlan.body.seen });
+  await raw.$executeRawUnsafe('DROP TRIGGER fail_second_undo');
+  check('сбой на второй позиции: отмена не удалась', failed.status >= 500, failed.body);
+  check('«всё или ничего»: первая позиция тоже не возвращена, истории возврата нет', sameWorld(beforeFail, await world()));
+  const retried = await call('POST', '/api/equipment/import-undo', { batchId: second.body.batchId, seen: batchPlan.body.seen });
+  check('без сбоя та же отмена проходит', retried.status === 200 && retried.body.restored === 2, retried.body);
+  await watchVersions('отмена, всё или ничего');
 
   console.log(`\nВСЕ ТЕСТЫ ПРОЙДЕНЫ (${checks})`);
 }
