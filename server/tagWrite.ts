@@ -12,9 +12,10 @@
  *     иначе удалить ключ (снять родителя) стало бы нечем: пропущенный ключ теперь
  *     означает «не трогать», а не «стереть»;
  *  2. если клиент прислал версию (updatedAt тега, как он её читал) и тег с тех пор
- *     менялся, запись не проходит: ответ — конфликт с текущим тегом, экран
- *     перечитывает и говорит человеку. Клиенты без версии продолжают работать,
- *     их защищает слияние;
+ *     менялся, запись не проходит: ответ — 409 общего вида (`code`, `current` —
+ *     голая запись тега), экран сравнивает её с показанным и говорит человеку,
+ *     что изменил коллега. Тега уже нет — 404 `RECORD_GONE`. Клиенты без версии
+ *     продолжают работать, их защищает слияние;
  *  3. чтение и запись — одна транзакция, а запись условна по updatedAt: два
  *     запроса, пришедшие одновременно, не затрут друг друга (PostgreSQL по
  *     умолчанию читает «как было» и без этого терял бы ключи одного из них).
@@ -29,6 +30,8 @@ import { keepVersion } from './versionBump.js';
 import { renameTagInVdr } from './vdrTags.js';
 import { parseMetadata, inTagTransaction } from './tagHistory.js';
 import { TagDuplicate, tagCodeKey, withCodeKey, duplicateOf, isCodeKeyViolation } from './tagCodeKey.js';
+import { VersionConflict, RecordGone } from './versionGuard.js';
+import { VERSION_CONFLICT, editChangedText, bulkChangedText } from '../src/lib/refusalTexts.js';
 
 export type MetadataPatch = Record<string, unknown>;
 
@@ -52,11 +55,18 @@ export interface TagWriteInput {
   version?: string | null;
 }
 
-export class TagNotFound extends Error { constructor() { super('Тег не найден'); } }
-export class TagConflict extends Error {
-  constructor(public readonly tag: any) { super('Тег изменился с тех пор, как вы его читали'); }
-}
 export class TagBadRequest extends Error {}
+/**
+ * Массовая запись по устаревшим данным: хоть одну запись изменили или удалили —
+ * не записано ничего. Перечень по записям нужен экрану, чтобы показать, что
+ * изменилось, и дать человеку подтвердить заново.
+ */
+export class TagBulkConflict extends Error {
+  constructor(public readonly changed: Array<{ id: string; current: any }>, public readonly gone: string[]) {
+    super(bulkChangedText());
+    this.name = 'TagBulkConflict';
+  }
+}
 /** Ключ кода и отказ «код занят» живут в tagCodeKey.ts; здесь — прежний адрес для остальных модулей. */
 export { TagDuplicate, tagCodeKey };
 
@@ -142,7 +152,7 @@ export interface TagWriteResult {
 /** Одна попытка записи внутри уже открытой транзакции; 'retry' — тег успели изменить между чтением и записью. */
 async function attemptWrite(tx: any, id: string, input: TagWriteInput): Promise<TagWriteResult | 'retry'> {
   const cur = await tx.tag.findUnique({ where: { id } });
-  if (!cur) throw new TagNotFound();
+  if (!cur) throw new RecordGone('tag');
 
   const data: Record<string, unknown> = {};
   let fieldsChanged = false;
@@ -172,7 +182,7 @@ async function attemptWrite(tx: any, id: string, input: TagWriteInput): Promise<
   // Сверка версии: тег менялся с тех пор, как клиент его прочитал, и эта
   // правка касается не только положения карточки
   const stale = input.version !== undefined && !sameVersion(input.version, cur.updatedAt);
-  if (stale && (fieldsChanged || changedKeys.some((k) => !LAYOUT_KEYS.has(k)))) throw new TagConflict(cur);
+  if (stale && (fieldsChanged || changedKeys.some((k) => !LAYOUT_KEYS.has(k)))) throw new VersionConflict(editChangedText('tag', cur.identifier), cur);
 
   // Перенос карточки — не правка данных тега: версия при нём не меняется.
   // Иначе каждое перетаскивание отбирало бы версию у всех, кто держит тег открытым,
@@ -209,12 +219,14 @@ async function writeInTx(tx: any, id: string, input: TagWriteInput): Promise<Tag
     if (outcome !== 'retry') return outcome;
   }
   // Тег меняют так часто, что записать не удалось: честный конфликт лучше тихой потери
-  throw new TagConflict(await tx.tag.findUnique({ where: { id } }));
+  const fresh = await tx.tag.findUnique({ where: { id } });
+  if (!fresh) throw new RecordGone('tag');
+  throw new VersionConflict(editChangedText('tag', fresh.identifier), fresh);
 }
 
 /**
  * Записать правку в одном теге: слияние, сверка версии, условное обновление.
- * Бросает TagNotFound, TagConflict, TagBadRequest.
+ * Бросает RecordGone (тега нет), VersionConflict (его изменили), TagBadRequest.
  */
 export async function writeTag(
   prisma: any, id: string, input: TagWriteInput,
@@ -250,7 +262,7 @@ export async function writeTags(
     const missing: string[] = [];
     for (const { id, input } of items) {
       try { results.push(await writeInTx(tx, id, input)); } catch (e) {
-        if (e instanceof TagNotFound) missing.push(id); else throw e;
+        if (e instanceof RecordGone) missing.push(id); else throw e;
       }
     }
     if (hooks.record) await hooks.record(tx, results);
@@ -266,14 +278,17 @@ export async function tagFailure(prisma: any, err: unknown, projectId: string, i
   return tagWriteFailure(await duplicateOf(prisma, err, projectId, identifier));
 }
 
-/** Ошибка записи → ответ HTTP; null — это не наша ошибка. */
+/**
+ * Ошибка записи → ответ HTTP; null — это не наша ошибка. Отказы по версии и
+ * «тега нет» (`VersionConflict`, `RecordGone`) отвечает общее место
+ * (`sendGuardRefusal`, server/versionGuard.ts): маршрут зовёт его раньше этой функции.
+ */
 export function tagWriteFailure(err: unknown): { status: number; body: Record<string, unknown> } | null {
-  if (err instanceof TagNotFound) return { status: 404, body: { error: err.message } };
   if (err instanceof TagBadRequest) return { status: 400, body: { error: err.message } };
   // Занятый код — не конфликт версий: экрану нечего перечитывать, человек должен выбрать другой код
   // `code` — как заведён отказанный код, `existing` — тег, который его занял (если удалось прочитать)
   if (err instanceof TagDuplicate) return { status: 409, body: { error: err.message, duplicate: true, code: err.identifier, existing: err.existing ?? null } };
-  // В ответе — текущий тег: экран заменяет им свою копию и просит повторить правку
-  if (err instanceof TagConflict) return { status: 409, body: { error: err.message, conflict: true, tag: err.tag } };
+  // Массовая запись: что изменили и что удалили, пока человек смотрел; записано не было ничего
+  if (err instanceof TagBulkConflict) return { status: 409, body: { error: err.message, code: VERSION_CONFLICT, changed: err.changed, gone: err.gone } };
   return null;
 }

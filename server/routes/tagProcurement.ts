@@ -2,6 +2,7 @@ import type { Express, Request, Response } from 'express';
 import { getPrisma } from '../context.js';
 import { emitEntityChanged } from '../entityChanged.js';
 import { writeTag, tagWriteFailure, TagBadRequest } from '../tagWrite.js';
+import { sendGuardRefusal } from '../versionGuard.js';
 import { TAG_SOURCE, tagChangeContext, recordTagUpdate } from '../tagHistory.js';
 
 /**
@@ -21,7 +22,8 @@ import { TAG_SOURCE, tagChangeContext, recordTagUpdate } from '../tagHistory.js'
  * бы молча отнять запись у тех, кто пишет сегодня.
  *
  * Версия (`version` — updatedAt, как его прочитал экран) сверяется: тег
- * изменился — 409 и текущий тег, экран перечитывает и говорит человеку.
+ * изменился — 409 `VERSION_CONFLICT` и текущий тег в `current`, тега нет — 404
+ * `RECORD_GONE`; экран показывает, что изменили, и перечитывает.
  */
 
 /** Закупка — объект с этапами, поставщиком, количеством; массив или строка — ошибка экрана. */
@@ -46,6 +48,7 @@ export function registerTagProcurementRoutes(app: Express): void {
       if (!unchanged) emitEntityChanged('tag', tag.id, req);
       res.json({ tag });
     } catch (err: any) {
+      if (sendGuardRefusal(res, err)) return;
       const known = tagWriteFailure(err);
       if (known) return res.status(known.status).json(known.body);
       res.status(500).json({ error: err?.message || 'Не удалось сохранить закупку' });

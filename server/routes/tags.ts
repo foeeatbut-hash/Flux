@@ -15,7 +15,7 @@ import { canReadFile } from '../fileAccess.js';
 import { canSeeProject, hiddenProjectsOf } from './members.js';
 import { bumpElementsOfTags } from '../equipmentVersion.js';
 import { keepVersion } from '../versionBump.js';
-import { expectedVersionOf, guardedWrite, guardedDelete, sendRecordGone } from '../versionGuard.js';
+import { expectedVersionOf, guardedWrite, guardedDelete, sendRecordGone, sendGuardRefusal } from '../versionGuard.js';
 import { staleElement, staleSystemDelete, badVersion } from '../equipmentStale.js';
 import { sendEquipmentRefusal, systemCascade } from '../equipmentRefusal.js';
 import { writeTag, writeTags, metadataPatchOf, tagWriteFailure, tagFailure, assertFreeTagCode } from '../tagWrite.js';
@@ -486,7 +486,8 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
 
   // Правка тега. metadata СЛИВАЕТСЯ с текущей по верхним ключам (null удаляет ключ),
   // а `version` (updatedAt, как его прочитал экран) защищает от затирания чужой правки:
-  // тег изменился — ответ 409 с текущим тегом. Подробности — server/tagWrite.ts.
+  // тег изменился — 409 `VERSION_CONFLICT` с текущим тегом в `current`, тега нет — 404
+  // `RECORD_GONE`. Подробности — server/tagWrite.ts.
   app.put('/api/tags/:id', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     const { identifier, department, wbs, fluid, metadata, equipmentId, brand, version } = req.body;
@@ -502,6 +503,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       if (!unchanged) emitEntityChanged('tag', tag.id, req);
       res.json({ tag });
     } catch (err: any) {
+      if (sendGuardRefusal(res, err)) return;
       const known = tagWriteFailure(err);
       if (known) return res.status(known.status).json(known.body);
       res.status(500).json({ error: err.message });
