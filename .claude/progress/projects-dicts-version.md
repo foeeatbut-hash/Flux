@@ -78,7 +78,18 @@
 ## Ход
 - [x] Решение, слова словаря, правка `test-version-guard` (модель без слова — `constructorDoc`)
 - [x] A: сервер (проекты, справочники, шаблон, право на закупки) + набор маршрутов `test-project-dict-version-routes` (147 проверок), мутации пойманы (15 из 15)
-- [ ] C: «компания» + набор слов
+- [x] C: «компания» + набор слов
 - [ ] B1: клиент «Проекты» + набор интерфейса
 - [ ] B2: клиент справочников + набор интерфейса
 - [ ] Руководитель: CI, test-architecture, документы, plan.md
+
+## Договор сервера для клиента (A принято)
+Общее: 409 `{error, code:'VERSION_CONFLICT', current}` (current — запись с `version`);
+409 `{error, code:'RECORD_OPEN', holders:[{userId,name}], record:{model,id,name}}`;
+404 `{error, code:'RECORD_GONE'}`; 400 — нечитаемая версия; 503 — сбой чтения открытых записей.
+- PUT /api/projects/:id — тело: name, code, customer, contractor, description, info, status, expectedVersion → `{project}`.
+- DELETE /api/projects/:id?expectedVersion=N → `{success, removed}`; уже нет — `{success, alreadyGone:true}`; служебный — 400.
+- PUT /api/dictionaries/items/:itemId — тело: code, nameRu, parentId, expectedVersion → `{item}`.
+- DELETE /api/dictionaries/items/:itemId?expectedVersion=N → `{success}`; уже нет — `alreadyGone`.
+- POST …/dictionaries/:d/items → `{item}`; справочника нет — 404 RECORD_GONE.
+- PUT …/tag-template — `{schemaJson, expectedVersion?}` → `{template}`; версии нет и шаблона нет — создание; версия есть, шаблона нет — 404.
