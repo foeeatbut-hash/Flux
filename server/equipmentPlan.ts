@@ -7,6 +7,7 @@ import type { SystemRow } from './equipmentSystemMatch.js';
 import { planTagLinks, type TagLink, type ExistingTag } from './equipmentTags.js';
 import { importPolicyOfProject } from './routes/tagPolicy.js';
 import { parseRuNumber } from './normalize.js';
+import { SeenCollector, type ShownRow } from './equipmentPlanSeen.js';
 
 // ── Dry-run план импорта (Фаза 2 «Импорт бланков 2.0») ──
 // Считает, ЧТО изменится в проекте, НЕ трогая БД: инженер видит дерево
@@ -109,6 +110,13 @@ export interface ImportPlan {
    */
   inScheme?: { count: number; bySystem: Record<string, number> };
   totals: { removed: number; restored: number; systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew: number; tagsLinked: number; tagsInvalid: number; tagsTaken?: number };
+  /**
+   * Версии позиций, которые план читал и собирается менять, заменять или снимать
+   * (`seen`), и их показанные поля (`seenRows`). Запись присылает `seen` обратно:
+   * изменили хоть одну — сервер ничего не пишет (server/planGuard.ts).
+   */
+  seen: Record<string, number>;
+  seenRows: Record<string, ShownRow>;
 }
 
 // ── Валидация значений по типу оборудования (§5.5) ──
@@ -216,7 +224,10 @@ export async function planEquipmentImport(
     systemRows: [],
     ...(result.unknownKinds?.length ? { unknownKinds: result.unknownKinds } : {}),
     totals: { removed: 0, restored: 0, systems: 0, newBlocks: 0, updatedBlocks: 0, unchangedBlocks: 0, conflicts: 0, warnings: 0, overrides: 0, tagsNew: 0, tagsLinked: 0, tagsInvalid: 0 },
+    seen: {},
+    seenRows: {},
   };
+  const seenOfPlan = new SeenCollector();
 
   // Существующие системы этого проекта+категории — для сопоставления по коду
   const existingSystems = await prisma.equipmentSystem.findMany({ where: { projectId, category } });
@@ -242,6 +253,11 @@ export async function planEquipmentImport(
     });
     if (resolved.system.row) plan.systemRows.push(resolved.system.row);
     plan.missing.push(...resolved.missing);
+    // «Будет снято»: версии тех позиций, что уйдут (решение «оставить» клиент отсеивает сам)
+    if (system && resolved.missing.length) {
+      const loaded = ctx.items.get(system.id) || [];
+      for (const m of resolved.missing) seenOfPlan.add(loaded.find(e => e.id === m.id)?.row);
+    }
     plan.totals.removed += resolved.missing.filter(m => m.remove).length;
 
     for (const blk of resolved.blocks) {
@@ -249,6 +265,9 @@ export async function planEquipmentImport(
       const found = resolved.byKey.get(key);
       const component: any = found?.element?.row || null;
       if (found?.row) plan.matches.push(found.row);
+      // Запись, в которую лягут данные, и прежняя, которую «Переподобрано» снимет
+      seenOfPlan.add(component);
+      seenOfPlan.add((found?.replaces as any)?.row);
 
       const oldParsed = component?.specs ? safeParse(component.specs) : { groups: [] };
       const oldMap = flattenGroups(oldParsed.groups || []);
@@ -357,6 +376,8 @@ export async function planEquipmentImport(
   const inScheme = await inSchemeOf(prisma, projectId, touched);
   if (inScheme.count > 0) plan.inScheme = inScheme;
 
+  plan.seen = seenOfPlan.seen;
+  plan.seenRows = seenOfPlan.seenRows;
   return plan;
 }
 

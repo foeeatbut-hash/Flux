@@ -1,5 +1,6 @@
 import { getPrisma } from './context.js';
 import { withBump } from './equipmentVersion.js';
+import { keepVersion } from './versionBump.js';
 import { equipmentSourceSpecsEqual } from './equipmentSourceReview.js';
 import { inferEquipmentSourceFilenameRule, matchesEquipmentSourceFilename } from '../equipment/sourceXml.js';
 
@@ -216,7 +217,7 @@ export async function applyXmlRevisionUndo(batchId: string, plan: XmlUndoPlan): 
         const restoreOverrides = created ? (element.overrides ?? null) : (target.oldOverrides ?? null);
         const data = changed
           ? withBump({ ...(created ? { status: 'REMOVED' } : { ...restoreMetadata, specs: restoreSpecs, overrides: restoreOverrides }) })
-          : { version: target.newVersion, specs: element.specs ?? null, overrides: element.overrides ?? null, ...expectedMetadata };
+          : keepVersion({ specs: element.specs ?? null, overrides: element.overrides ?? null, ...expectedMetadata });
         const update = await tx.componentElement.updateMany({
           where: { id: element.id, version: target.newVersion, specs: element.specs ?? null, overrides: element.overrides ?? null, ...expectedMetadata }, data,
         });

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { bootstrapLocalDatabase } from '../server/databaseBootstrap.js';
 import { setPrisma } from '../server/context.js';
+import { withVersionBump } from '../server/versionBump.js';
 import { applyXmlRevisionUndo, planXmlRevisionUndo } from '../server/equipmentXmlUndo.js';
 
 const require = createRequire(import.meta.url);
@@ -115,7 +116,8 @@ async function main() {
   try {
     const schema = fs.readFileSync(path.join(process.cwd(), 'prisma/schema.prisma'), 'utf8');
     await bootstrapLocalDatabase(dbPath, prisma, schema, () => {});
-    setPrisma(prisma);
+    // Клиент с ростом версии — как на сервере (server.ts): «хватка» строки опирается на метку keepVersion
+    setPrisma(withVersionBump(prisma));
 
     const metaBatch = await seedBatch('metadata', [{ id: 'metadata-element', existed: true,
       old: { name: 'Before', itemCode: 'FAN-1', monoblockId: 'metadata-mono', parentElementId: null, status: 'OK', sourceOrder: 1, equipType: 'ВЕНТИЛЯТОР', role: 'ВЕНТИЛЯТОР', sourceKind: 'cadFan', instanceNo: 1, instanceCount: 2, manual: false, version: 1 },
