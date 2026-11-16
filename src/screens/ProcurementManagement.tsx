@@ -18,7 +18,12 @@ import { countOf } from '../lib/plural';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { SectionHead, Toolbar, Input, Seg, Btn, IconBtn, FilterSeg, Badge, Status, type Tone } from '../components/ui';
 import NoProject from '../components/NoProject';
-import { saveProcurement, rememberVersions } from '../components/registry/tagWrite';
+import { saveProcurement } from '../components/registry/tagWrite';
+import { runBulkWrite } from '../components/registry/bulkWrite';
+import { useTagRefusalDialog } from '../components/registry/TagRefusalView';
+import { TAG_MODEL } from '../components/registry/useRegistryOpenRecords';
+import { useOpenRecords } from '../components/useOpenRecords';
+import type { TagNames } from '../components/registry/changeRules';
 
 import { useShallow } from 'zustand/react/shallow';
 // ── Раздел «Менеджмент» ────────────────────────────────────────────────────────
@@ -349,6 +354,16 @@ function ProcurementTab() {
       .map(r => ({ id: r.id, childrenMap, visible }));
   }, [viewMode, tags, rowsById, rowMatchesFilters]);
 
+  // Отказ записи — перечень «было → стало» окном; примечание, которое правят, держит тег открытым у этого окна
+  const refusalDialog = useTagRefusalDialog((text, kind) => addToast(text, kind));
+  const refusalNames: TagNames = {
+    tag: (id) => tags.find((t) => t.id === id)?.identifier,
+    stage: (id) => [...stages, ...templates.flatMap((t) => t.stages)].find((x) => x.id === id)?.label,
+    template: (id) => (id === DEFAULT_TEMPLATE_ID ? 'Стандартный' : templates.find((t) => t.id === id)?.name),
+  };
+  const bulkDeps = { setTags, addToast, showRefusal: refusalDialog.show, names: refusalNames, reload: loadAll };
+  useOpenRecords('procurement', editingNoteId ? [{ model: TAG_MODEL, id: editingNoteId }] : []);
+
   // ── Сохранение и смена этапов ───────────────────────────────────────────────
   // Пишется только ключ procurement, отдельным запросом: копия тега у экрана
   // устаревает, и целиком она стирала бы комментарии, добавленные в «Тегах».
@@ -357,7 +372,7 @@ function ProcurementTab() {
   const saveProc = async (tag: any, meta: any, proc: ProcurementInfo): Promise<boolean> => {
     const newMeta = { ...meta, procurement: proc };
     setTags(prev => prev.map(t => t.id === tag.id ? { ...t, metadata: JSON.stringify(newMeta), parsedMetadata: undefined, __procMeta: undefined } : t));
-    return saveProcurement(tag, proc, { setTags, addToast });
+    return saveProcurement(tag, proc, { setTags, addToast, onRefusal: (r) => refusalDialog.show('Правка не записана', r), names: () => refusalNames, reload: loadAll });
   };
 
   // Установка этапа одной позиции (с датами промежуточных этапов).
@@ -413,23 +428,14 @@ function ProcurementTab() {
       updates.push({ id, metadata: { procurement: proc } });
       metaById.set(id, JSON.stringify({ ...row.meta, procurement: proc }));
     }
+    // Что видел экран до локального обновления: с ним сравнивается отказ
+    const shown = new Map(updates.map((u) => [u.id, rowsById[u.id].tag]));
     // Мгновенное локальное обновление
     setTags(prev => prev.map(t => metaById.has(t.id)
       ? { ...t, metadata: metaById.get(t.id), parsedMetadata: undefined, __procMeta: undefined }
       : t));
-    try {
-      const res = await fetch('/api/tags/bulk-metadata', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates, source: 'Закупки' }),
-      });
-      if (!res.ok) throw new Error('bulk update failed');
-      rememberVersions((await res.json().catch(() => null))?.versions, setTags);
+    if (await runBulkWrite(updates, shown, { source: 'Закупки' }, bulkDeps, 'Не удалось сохранить массовое изменение — обновите страницу')) {
       addToast(`Этап установлен для позиций: ${updates.length}`, 'success');
-    } catch (err) {
-      console.error('Bulk stage update failed:', err);
-      addToast('Не удалось сохранить массовое изменение — обновите страницу', 'error');
-      loadAll();
     }
   };
 
@@ -448,25 +454,15 @@ function ProcurementTab() {
       updates.push({ id, metadata: { procurement: proc } });
       metaById.set(id, JSON.stringify({ ...row.meta, procurement: proc }));
     }
+    const shown = new Map(updates.map((u) => [u.id, rowsById[u.id].tag]));
     setTags(prev => prev.map(t => metaById.has(t.id)
       ? { ...t, metadata: metaById.get(t.id), parsedMetadata: undefined, __procMeta: undefined }
       : t));
-    try {
-      const res = await fetch('/api/tags/bulk-metadata', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates, source: 'Закупки' }),
-      });
-      if (!res.ok) throw new Error('bulk template failed');
-      rememberVersions((await res.json().catch(() => null))?.versions, setTags);
+    if (await runBulkWrite(updates, shown, { source: 'Закупки' }, bulkDeps, 'Не удалось назначить шаблон — обновите страницу')) {
       const name = templateId === DEFAULT_TEMPLATE_ID ? 'Стандартный'
         : templateId === '' ? 'Автоматически (по правилам)'
         : (templates.find(t => t.id === templateId)?.name || templateId);
       addToast(`Шаблон этапов «${name}» назначен позициям: ${updates.length}`, 'success');
-    } catch (err) {
-      console.error('Bulk template update failed:', err);
-      addToast('Не удалось назначить шаблон — обновите страницу', 'error');
-      loadAll();
     }
   };
 
@@ -947,6 +943,7 @@ function ProcurementTab() {
           </tbody>
         </table>
       </div>
+      {refusalDialog.element}
     </div>
   );
 }
