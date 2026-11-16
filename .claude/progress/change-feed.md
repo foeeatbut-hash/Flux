@@ -61,8 +61,10 @@
 - [x] G3: changedBy в VersionConflict/sendVersionConflict (дополняют guardedWrite/guardedDelete), GET /api/record-origin
 - [x] G4: scripts/test-change-feed.ts (SQLite + временный PG): 277 проверок; мутации M1 (updateMany), M2 (вне транзакции), M3 (автор) — набор падает
 - [x] G5: scripts/test-change-feed-routes.ts (отказ с changedBy, record-origin, каскад пункта справочника)
-- [ ] G6: поправить test-version-bump (regexp server.ts) и прогнать наборы из задания, tsc; отчёт
+- [x] G6: поправить test-version-bump (regexp server.ts) и прогнать наборы из задания, tsc; отчёт
 Особенности: PrismaPromise ленив — `await` внутри ALS-контекста обязателен (runWithActor и обёртка $transaction дожидаются сами);
 пакетные $transaction([...]) в chat.ts/builder.ts не трогают версионные модели — не переводил, хук бросит ошибку при появлении версионной записи.
 prisma-clients: в рабочей копии настоящие копии (не симлинки), package.json не коммитить.
-- [ ] H: клиент (ConflictNotice «Изменил», RecordOrigin в карточках) + набор
+- [ ] H (шаг 1 из 3 готов: ConflictNotice «Изменил» через conflictOf во всех путях; дальше RecordOrigin, наборы, снимки)
+
+G завершён (сервер). Для храповика test-architecture п.10: regexp server.ts теперь `withChangeFeed(buildPrismaClient(...), (c) => traceDatabase(withVersionBump(c)))`.

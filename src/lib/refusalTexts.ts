@@ -100,6 +100,16 @@ export function bulkChangedText(): string {
   return 'Пока вы смотрели предпросмотр, часть записей изменили. Ничего не записано. Ниже — что изменилось; проверьте и подтвердите заново.';
 }
 
+/** Кто и когда изменил запись последним — строка под текстом отказа; автора нет (система, запись старше журнала) — строки нет */
+export function changedByText(name: unknown, at: unknown): string {
+  const who = typeof name === 'string' ? name.trim() : '';
+  if (!who) return '';
+  const d = typeof at === 'string' || at instanceof Date ? new Date(at) : null;
+  if (!d || Number.isNaN(d.getTime())) return `Изменил: ${who}`;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `Изменил: ${who}, ${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 /** Правка удалённой записи (404) */
 export function editGoneText(noun: RefusalNoun, name?: unknown): string {
   const n = NOUNS[noun];

@@ -225,7 +225,9 @@ const bodyOf = (c: { init?: RequestInit }) => JSON.parse(String(c.init?.body ?? 
           const url = node.arguments[0]?.getText(source) || '';
           const method = (node.arguments[1]?.getText(source) || '').replace(/['"]/g, '');
           const version = node.arguments[3];
-          if (!version || /^(undefined|null)$/.test(version.getText(source))) noVersion.push(`${rel}:${line} ${method} ${url.slice(0, 60)}`);
+          // Создание записи сверять не с чем: версии у несуществующей записи нет (пункт справочника).
+          const creates = method === 'POST' && rel.endsWith('src/components/dictionary/dictWrite.ts');
+          if (!creates && (!version || /^(undefined|null)$/.test(version.getText(source)))) noVersion.push(`${rel}:${line} ${method} ${url.slice(0, 60)}`);
           for (const route of ROUTES) if (route.method === method && route.url.test(url)) seen.set(route.name, (seen.get(route.name) || 0) + 1);
         }
       }

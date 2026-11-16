@@ -92,6 +92,11 @@ async function main() {
     registerProjectRoutes(app, { enforce: async () => true, notifyAll: async () => {} });
     registerDictionaryRoutes(app);
     registerRecordOriginRoutes(app);
+    // Тело, прочитанное потоком (express.raw — так сохраняются файлы Office): автор не должен теряться на чтении тела
+    app.put('/api/test-raw/:id', express.raw({ type: () => true, limit: '5mb' }), async (req, res) => {
+      await db.tag.update({ where: { id: req.params.id }, data: { brand: `raw-${(req.body as Buffer).length}` } });
+      res.json({ ok: true });
+    });
     server = await new Promise<any>((resolve) => { const l = app.listen(0, '127.0.0.1', () => resolve(l)); });
     const origin = `http://127.0.0.1:${server.address().port}`;
     const send = async (method: string, url: string, body?: unknown, as?: string) => {
@@ -169,6 +174,16 @@ async function main() {
       check('журнал: удаление проекта, тега, установки, моноблока, позиции и справочника — от Иванова',
         del2.length === 6 && del2.every((r: any) => r.userId === 'u-ivanov' && r.projectId === 'P1'), del2.map((r: any) => `${r.model}:${r.recordId}`));
       check('чужой проект P2 журналом удаления не затронут', (await raw.changeFeed.count({ where: { projectId: 'P2', kind: 'delete' } })) === 0 && !!p2);
+    }
+
+    // ── автор при чтении тела потоком ──
+    console.log('\n── тело запроса потоком');
+    {
+      await raw.tag.create({ data: { id: 'T-raw', identifier: 'RAW-1', projectId: 'P2', codeKey: 'RAW-1' } });
+      const big = Buffer.alloc(300_000, 7);
+      const r = await fetch(`${origin}/api/test-raw/T-raw`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream', 'x-test-user': 'u-ivanov' }, body: big });
+      const row = await raw.changeFeed.findFirst({ where: { model: 'Tag', recordId: 'T-raw' }, orderBy: { seq: 'desc' } });
+      check('автор не теряется, когда тело читает express.raw (запись из обработчика после потока)', r.status === 200 && row?.userId === 'u-ivanov', row);
     }
 
     // ── record-origin ──
