@@ -3,6 +3,8 @@ import { AlertTriangle, Check, ChevronDown, FolderOpen, Link2, RefreshCw, Unlink
 import { windowsFilesRequest } from '../../lib/windowsFiles';
 import ImportFileChooser, { type ImportFileChooserHandle } from '../ImportFileChooser';
 import type { EquipmentXmlTargetIdentity } from '../../../equipment/sourceXml';
+import ConflictNotice from '../ui/ConflictNotice';
+import { planConflictOf, xmlPlanRefusalOf, type PlanRefusal } from './planRefusal';
 import { loadEquipmentDocumentBindings, resolveEquipmentSourceBinding } from '../../lib/equipmentDocumentBindings';
 import {
   captureEquipmentSourceBindings, getEquipmentSourceBinding, pickEquipmentSource, pickEquipmentSourceFolder, planEquipmentSourceFolderRebind, rebindEquipmentSourceFolders, restoreEquipmentSourceBindings, removeEquipmentSourceBinding,
@@ -11,10 +13,10 @@ import {
 } from '../../lib/equipmentSourcesLocal';
 
 type SourceDto = { sourceId: string; projectId: string; tagId?: string; elementId: string; targetType: 'system' | 'component'; systemId?: string; tagIdentifier?: string; boundIdentifier?: string; xmlTargetIdentity?: EquipmentXmlTargetIdentity | null; revisionOrder: string[]; selectedRule: EquipmentSourceFilenameRule; lastImportedRevision: string | null; lastImportedSha256: string | null; lastImportedAt?: string | null; lastReviewedRevision?: string | null; lastReviewedSha256?: string | null; lastReviewedAt?: string | null; updatedAt: string; latestCandidate?: { id: string; revision: string; updatedAt: string; status: string } | null };
-type ChangeDto = { id: string; group: string; key: string; targetLabel?: string; kind: 'added' | 'changed' | 'missing'; current?: { value: unknown; unit?: string }; proposed?: { value: unknown; unit?: string }; catalogCurrent?: { value: unknown; unit?: string; source: 'catalog' }; manual: boolean };
+type ChangeDto = { id: string; targetId?: string; group: string; key: string; targetLabel?: string; kind: 'added' | 'changed' | 'missing'; current?: { value: unknown; unit?: string }; proposed?: { value: unknown; unit?: string }; catalogCurrent?: { value: unknown; unit?: string; source: 'catalog' }; manual: boolean };
 type XmlTargetChoice = { identity: EquipmentXmlTargetIdentity; label: string };
 type StructuralAction = { id: string; kind: 'added' | 'removed' | 'ambiguous' | 'moved' | 'restored' | 'metadata-changed'; label: string; reason: string; parsedKey?: string; elementIds: string[]; field?: string; before?: unknown; after?: unknown; proposed?: { code?: string; title?: string; equipType?: string; groups?: Array<{ title: string; params: Array<{ key: string; value: string; unit?: string }> }>; monoblockName?: string; parentName?: string; sourceOrder?: number; tags?: string[]; role?: string; instanceNo?: number; instanceCount?: number } };
-type CandidateDto = { id: string; revision: string; fileName: string; sha256: string; status: string; changes: ChangeDto[]; structuralActions?: StructuralAction[]; decisions: Record<string, any>; expectedVersion: number; createdAt: string; undoBatchId?: string | null; revisionWarning?: string | null };
+type CandidateDto = { id: string; revision: string; fileName: string; sha256: string; status: string; changes: ChangeDto[]; structuralActions?: StructuralAction[]; decisions: Record<string, any>; expectedVersion: number; expectedVersions?: Record<string, number>; createdAt: string; undoBatchId?: string | null; revisionWarning?: string | null };
 type ScanChoice = EquipmentSourceCandidate;
 
 const api = (path: string) => `/api${path}`;
@@ -47,6 +49,8 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  // Позиции изменили после сравнения: перечень «было → стало» по позициям; решение не записано
+  const [refusal, setRefusal] = useState<PlanRefusal | null>(null);
   const [lastCheck, setLastCheck] = useState<{ at: string; result: string } | null>(null);
   const [sourceUnavailable, setSourceUnavailable] = useState(false);
   const [sourceRootName, setSourceRootName] = useState('');
@@ -338,17 +342,30 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
     } finally { setBusy(false); busyRef.current = false; }
   }, [projectId, load, canManage]);
 
+  /**
+   * Позиции кандидата изменили после сравнения (409 `VERSION_CONFLICT`): решение не записано. Показываем,
+   * что изменилось, перечитываем список (кандидат устарел) и ждём нового решения человека.
+   */
+  const staleRefusal = async (status: number, payload: any): Promise<boolean> => {
+    if (!planConflictOf(status, payload) || !activeCandidate) return false;
+    setRefusal(xmlPlanRefusalOf(payload, activeCandidate.changes));
+    setMessage('');
+    await load(); onChanged?.();
+    return true;
+  };
+
   const decide = async (items: Array<{ id: string; action: 'accept' | 'keep' | 'accept_missing'; overrideManual?: boolean }>) => {
     if (!canManage) return;
     const current = latestRef.current.source;
     if (!current || !activeCandidate) return;
-    setBusy(true);
+    setBusy(true); setRefusal(null);
     try {
       const response = await fetch(api(`/equipment/projects/${encodeURIComponent(projectId)}/sources/${encodeURIComponent(current.sourceId)}/candidates/${encodeURIComponent(activeCandidate.id)}/decisions`), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expectedVersion: activeCandidate.expectedVersion, decisions: items }),
+        body: JSON.stringify({ expectedVersion: activeCandidate.expectedVersion, seen: activeCandidate.expectedVersions, decisions: items }),
       });
       const payload = await response.json().catch(() => ({}));
+      if (await staleRefusal(response.status, payload)) return;
       if (!response.ok) throw new Error(payload.error || 'Не удалось сохранить решения');
       setMessage(statusText[payload.status] || 'Решение сохранено');
       if (payload.batchId) setCandidates(rows => rows.map(item => item.id === activeCandidate.id ? { ...item, undoBatchId: payload.batchId } : item));
@@ -361,13 +378,14 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
     if (!canManage || !items.length) return;
     const current = latestRef.current.source;
     if (!current || !activeCandidate) return;
-    setBusy(true);
+    setBusy(true); setRefusal(null);
     try {
       const response = await fetch(api(`/equipment/projects/${encodeURIComponent(projectId)}/sources/${encodeURIComponent(current.sourceId)}/candidates/${encodeURIComponent(activeCandidate.id)}/decisions`), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expectedVersion: activeCandidate.expectedVersion, structuralDecisions: items }),
+        body: JSON.stringify({ expectedVersion: activeCandidate.expectedVersion, seen: activeCandidate.expectedVersions, structuralDecisions: items }),
       });
       const payload = await response.json().catch(() => ({}));
+      if (await staleRefusal(response.status, payload)) return;
       if (!response.ok) throw new Error(payload.error || 'Не удалось сохранить решение по составу');
       setMessage(statusText[payload.status] || 'Решение по составу сохранено');
       if (payload.batchId) setCandidates(rows => rows.map(item => item.id === activeCandidate.id ? { ...item, undoBatchId: payload.batchId } : item));
@@ -379,13 +397,14 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
   const confirmNoChanges = async () => {
     if (!canManage) return;
     if (!source || !activeCandidate) return;
-    setBusy(true);
+    setBusy(true); setRefusal(null);
     try {
       const response = await fetch(api(`/equipment/projects/${encodeURIComponent(projectId)}/sources/${encodeURIComponent(source.sourceId)}/candidates/${encodeURIComponent(activeCandidate.id)}/decisions`), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expectedVersion: activeCandidate.expectedVersion, confirmNoChanges: true }),
+        body: JSON.stringify({ expectedVersion: activeCandidate.expectedVersion, seen: activeCandidate.expectedVersions, confirmNoChanges: true }),
       });
       const payload = await response.json().catch(() => ({}));
+      if (await staleRefusal(response.status, payload)) return;
       if (!response.ok) throw new Error(payload.error || 'Не удалось завершить проверку');
       setMessage('Проверка завершена · изменений нет'); await load();
     } catch (error: any) { setMessage(error?.message || 'Не удалось завершить проверку'); }
@@ -465,6 +484,7 @@ export default function EquipmentXmlSourcePanel(props: { projectId: string; tag?
         <button type="button" onClick={() => setExpanded(value => !value)} className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800" aria-expanded={expanded}>{source ? 'Подробнее' : 'Связать'} <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? 'rotate-180' : ''}`} /></button>
         {source && canManage && <button type="button" onClick={() => void check(true)} disabled={busy} className="inline-flex items-center gap-1 rounded px-2 py-1 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50 dark:text-emerald-300 dark:hover:bg-emerald-950/50"><RefreshCw className="h-3 w-3" />Проверить</button>}
         {message && <span className="min-w-0 basis-full text-slate-500 dark:text-slate-400" role="status">{message}</span>}
+        {refusal && <div data-plan-refusal className="min-w-0 basis-full max-h-56 overflow-auto"><ConflictNotice message={refusal.message} groups={refusal.groups} /></div>}
       </div>
       {expanded && <div className="mt-2 space-y-2">
         {folderPreview?.contextKey === panelContextKey && canManage && <div className="rounded border border-amber-300 bg-amber-50 p-2 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100" role="group" aria-label="Подтверждение перепривязки папки"><div className="font-medium">Проверьте новую папку источника</div><p className="mt-1 break-all">{[sourceRootName, folderPreview.folder.relativePath].filter(Boolean).join(' · ') || 'Выбранная папка'}</p><p className="mt-1">Прежнее сравнение станет устаревшим. Текущие значения оборудования не изменятся.</p><div className="mt-2 flex gap-2"><button type="button" onClick={() => void confirmFolderRebind()} disabled={busy || !source?.updatedAt || folderPreview.sourceId !== source?.sourceId} className="rounded bg-amber-700 px-2 py-1 text-white disabled:opacity-50">Подтвердить перепривязку</button><button type="button" onClick={() => setFolderPreview(null)} disabled={busy} className="rounded border border-amber-500 px-2 py-1">Отмена</button></div></div>}
