@@ -7,6 +7,11 @@ import { can } from '../lib/permissions';
 import ProjectFields, { draftOf, emptyProject, trimmed, type ProjectDraft } from '../components/ProjectFields';
 import ProjectFormModal from '../components/ProjectFormModal';
 import ProjectMembers from '../components/ProjectMembers';
+import RefusalView from '../components/equipment/RefusalView';
+import { useRefusalDialog } from '../components/equipment/useRefusalDialog';
+import type { Refusal } from '../components/equipment/conflictView';
+import { runWrite, projectRefusalOf, needsReread } from '../components/projects/projectWrite';
+import { useProjectOpenRecords } from '../components/projects/useProjectOpenRecords';
 import { Plus, Search, Trash2, Users } from 'lucide-react';
 import { SectionHead, Btn, IconBtn, Input, Status, Empty, SectionTitle } from '../components/ui';
 import { useNavigate } from 'react-router-dom';
@@ -29,11 +34,16 @@ export default function ProjectsManagement() {
   const [draft, setDraft] = useState<ProjectDraft>(() => emptyProject());
   const [isSaving, setIsSaving] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  /** Отказ записи на месте строки ошибки формы: что изменил коллега, набранное при этом остаётся */
+  const [refusal, setRefusal] = useState<Refusal | null>(null);
+  /** Отказ удаления и «проект уже удалили» — окном: у этих действий формы нет */
+  const refusals = useRefusalDialog(addToast);
   /** Открытый состав проекта: спрашиваем после создания и по кнопке в карточке */
   const [membersFor, setMembersFor] = useState<{ id: string; name: string } | null>(null);
 
-  // Load all projects
-  const loadProjects = async (selectIdAfterLoad?: string) => {
+  // Load all projects. `keepDraft` — набранное в карточке не трогать: список перечитан
+  // после отказа записи, а человек ещё не решил, что делать со своей правкой
+  const loadProjects = async (selectIdAfterLoad?: string, keepDraft = false) => {
     try {
       setLoading(true);
       const fetched = await dataService.getProjects();
@@ -44,7 +54,7 @@ export default function ProjectsManagement() {
           const matching = fetched.find(p => p.id === selectIdAfterLoad);
           if (matching) {
             setSelectedProject(matching);
-            initForm(matching);
+            if (!keepDraft) initForm(matching);
           }
         } else if (!selectedProject) {
           setSelectedProject(fetched[0]);
@@ -54,7 +64,7 @@ export default function ProjectsManagement() {
           const current = fetched.find(p => p.id === selectedProject.id);
           if (current) {
             setSelectedProject(current);
-            initForm(current);
+            if (!keepDraft) initForm(current);
           } else {
             setSelectedProject(fetched[0]);
             initForm(fetched[0]);
@@ -70,7 +80,7 @@ export default function ProjectsManagement() {
     }
   };
 
-  const initForm = (proj: Project) => setDraft(draftOf(proj as any));
+  const initForm = (proj: Project) => { setDraft(draftOf(proj as any)); setRefusal(null); };
 
   /**
    * Есть ли в карточке несохранённая правка.
@@ -142,9 +152,32 @@ export default function ProjectsManagement() {
       return;
     }
 
+    // Что экран показывал в момент действия: с ним сравнивается запись из отказа,
+    // поэтому берём его до перечитывания списка
+    const shown = selectedProject;
+    setRefusal(null);
+    setIsSaving(true);
+    const result = await runWrite(() => dataService.updateProject(shown.id, next, user?.id, shown.version), 'Ошибка сохранения проекта');
+    if (result.kind !== 'ok') {
+      try {
+        const why = projectRefusalOf(result, shown, 'Ошибка сохранения проекта')!;
+        if (result.kind === 'conflict') {
+          // Карточка остаётся с набранным; версия формы — текущая, чтобы повторное «Сохранить» прошло
+          setRefusal(why);
+          if (result.current?.id === shown.id) {
+            setSelectedProject(result.current as Project);
+            setProjects((list) => list.map((p) => (p.id === shown.id ? (result.current as Project) : p)));
+          }
+        } else if (why.kind === 'plain') addToast(why.message, 'error');
+        else refusals.show('Проект не сохранён', why);
+        // Без id: перечитанный список сверяется с выбранным; удалённого проекта в нём нет — выбирается первый
+        if (needsReread(result)) await loadProjects(undefined, result.kind === 'conflict');
+      } finally { setIsSaving(false); }
+      return;
+    }
+
     try {
-      setIsSaving(true);
-      const updated = await dataService.updateProject(selectedProject.id, next, user?.id);
+      const updated: Project = result.data;
       addToast('Данные проекта успешно сохранены', 'success');
       
       // Log change
@@ -173,8 +206,18 @@ export default function ProjectsManagement() {
       return;
     }
 
+    // Версия и показанная запись — из списка до перечитывания
+    const shown = projects.find((p) => p.id === projId);
+    const result = await runWrite(() => dataService.deleteProject(projId, user?.id, shown?.version), 'Ошибка при удалении проекта');
+    if (result.kind !== 'ok') {
+      const why = projectRefusalOf(result, shown, 'Ошибка при удалении проекта')!;
+      if (why.kind === 'plain') addToast(why.message, 'error');
+      else refusals.show('Проект не удалён', why);
+      if (needsReread(result)) void loadProjects(undefined, true);
+      return;
+    }
+
     try {
-      await dataService.deleteProject(projId, user?.id);
       addToast(`Проект "${projName}" удален.`, 'success');
 
       // Log change
@@ -206,6 +249,8 @@ export default function ProjectsManagement() {
 
   const canCreate = can(user, 'project.manage');
   const canManage = can(user, 'project.manage');
+  // Карточка открыта на правку — проект отмечен открытым, чтобы коллега не удалил его из-под рук
+  useProjectOpenRecords(canManage ? selectedProject?.id : null);
 
   const fmtDate = (d: any) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
   const isWorking = selectedProject && activeProject?.id === selectedProject.id;
@@ -293,6 +338,7 @@ export default function ProjectsManagement() {
                   <div className="@container pt-2">
                     <ProjectFields value={draft} onChange={setDraft} disabled={isSaving} showStatus />
                   </div>
+                  <RefusalView refusal={refusal} className="mt-4" />
                   <div className="flex justify-end gap-2 mt-4">
                     <Btn size="lg" onClick={() => initForm(selectedProject)}>Сбросить</Btn>
                     <Btn size="lg" tone="primary" disabled={isSaving} onClick={handleSaveProject}>{isSaving ? 'Сохранение…' : 'Сохранить'}</Btn>
@@ -312,6 +358,8 @@ export default function ProjectsManagement() {
           )}
         </div>
       </div>
+
+      {refusals.element}
 
       {showCreate && (
         <ProjectFormModal title="Новый проект" onClose={() => setShowCreate(false)} onSave={handleCreateProject} />

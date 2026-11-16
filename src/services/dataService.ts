@@ -84,6 +84,8 @@ export interface Project {
   info?: string;
   status: string;
   createdAt: string;
+  /** Номер версии записи: растёт при каждой правке; по нему сервер замечает, что проект успели изменить */
+  version?: number;
 }
 
 export interface ProjectInput {
@@ -444,6 +446,53 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   }
 }
 
+/**
+ * Отказ сервера на запись с проверкой версии: статус и тело ответа целиком.
+ *
+ * Зачем отдельно от `request`. Тот при любой ошибке отвечает данными из локальной
+ * автономной базы, а потому теряет код отказа (`VERSION_CONFLICT`, `RECORD_GONE`,
+ * `RECORD_OPEN`), текущую запись (`current`) и тех, у кого запись открыта
+ * (`holders`). Экрану это нужно, чтобы показать, что именно изменил коллега.
+ * Разбор по коду — `components/projects/projectWrite.ts`.
+ */
+export class WriteRefusal extends Error {
+  constructor(public status: number, public body: any, message: string) {
+    super(message);
+    this.name = 'WriteRefusal';
+  }
+}
+
+/** Целая версия ≥ 1 — единственное, что уходит как `expectedVersion`; остальное (нет записи, старый ответ без колонки) не отправляется. */
+function versionOnly(version: unknown): number | undefined {
+  const n = typeof version === 'string' && version.trim() !== '' ? Number(version) : version;
+  return typeof n === 'number' && Number.isInteger(n) && n >= 1 ? n : undefined;
+}
+
+/**
+ * Запрос записи, у которого отказ сервера доходит до экрана как `WriteRefusal`.
+ * Нет связи с сервером — как у `request`: автономная база.
+ */
+async function requestWrite<T>(endpoint: string, method: 'PUT' | 'DELETE', payload: Record<string, unknown>): Promise<T> {
+  const url = `${ENV_CONFIG.apiUrl}${endpoint}`;
+  const body = JSON.stringify(payload);
+  useLogStore.getState().addLog('INFO', 'Network Stack', `[${method}] отправка запроса: ${endpoint}`);
+  let response: Response;
+  try {
+    response = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body });
+  } catch (err: any) {
+    useLogStore.getState().addLog('WARN', 'Network Stack', `[${method}] сбой при отправке запроса. Активация локальной автономной БД для ${endpoint}: ${err.message}`);
+    return getFallbackData<T>(endpoint, method, body);
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = data?.message || data?.error || `Http request failed: ${response.status}`;
+    useLogStore.getState().addLog('ERROR', 'Network Stack', `[${method}] запрос ${endpoint} завершился с ошибкой: ${message}`);
+    throw new WriteRefusal(response.status, data, message);
+  }
+  useLogStore.getState().addLog('INFO', 'Network Stack', `[${method}] получен успешный ответ от ${endpoint}`);
+  return data as T;
+}
+
 // --- DATA ACCESS SERVICE (DAO PATTERN) ---
 export const dataService = {
   
@@ -500,11 +549,12 @@ export const dataService = {
     return res.project;
   },
 
-  async updateProject(id: string, data: ProjectInput, actorId?: string): Promise<Project> {
-    const res = await request<{ project: Project }>(`/projects/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ ...data, actorId }),
-    });
+  /**
+   * Правка проекта. `expectedVersion` — версия, которую экран показывал: проект
+   * изменили — отказ `WriteRefusal` (409 `VERSION_CONFLICT` с `current`), удалили — 404 `RECORD_GONE`.
+   */
+  async updateProject(id: string, data: ProjectInput, actorId?: string, expectedVersion?: number): Promise<Project> {
+    const res = await requestWrite<{ project: Project }>(`/projects/${id}`, 'PUT', { ...data, actorId, expectedVersion: versionOnly(expectedVersion) });
     return res.project;
   },
 
@@ -521,11 +571,14 @@ export const dataService = {
     });
   },
 
-  async deleteProject(id: string, actorId?: string): Promise<{ success: boolean }> {
-    return request<{ success: boolean }>(`/projects/${id}`, {
-      method: 'DELETE',
-      body: JSON.stringify({ actorId }),
-    });
+  /**
+   * Удаление проекта. Версия идёт в строке запроса (`?expectedVersion=`): у DELETE тела
+   * для сверки нет. Отказы — `WriteRefusal`: проект изменили, удалили или он (либо его
+   * записи) открыт у коллеги (409 `RECORD_OPEN`). `alreadyGone` — проекта уже не было.
+   */
+  async deleteProject(id: string, actorId?: string, expectedVersion?: number): Promise<{ success: boolean; alreadyGone?: boolean }> {
+    const v = versionOnly(expectedVersion);
+    return requestWrite<{ success: boolean; alreadyGone?: boolean }>(`/projects/${id}${v === undefined ? '' : `?expectedVersion=${v}`}`, 'DELETE', { actorId });
   },
 
   // --- SYSTEMS / EQUIPMENT & CONFLICTS ---

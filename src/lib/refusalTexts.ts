@@ -45,6 +45,7 @@ export const NOUNS = {
   tag: { nom: 'тег', acc: 'тег', prep: 'теге', gender: 'm' },
   register: { nom: 'реестр', acc: 'реестр', prep: 'реестре', gender: 'm' },
   registerItem: { nom: 'строка реестра', acc: 'строку реестра', prep: 'строке реестра', gender: 'f' },
+  file: { nom: 'файл', acc: 'файл', prep: 'файле', gender: 'm' },
   project: { nom: 'проект', acc: 'проект', prep: 'проекте', gender: 'm' },
   dictionary: { nom: 'справочник', acc: 'справочник', prep: 'справочнике', gender: 'm' },
   dictionaryItem: { nom: 'пункт справочника', acc: 'пункт справочника', prep: 'пункте справочника', gender: 'm' },
