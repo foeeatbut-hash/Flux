@@ -38,7 +38,7 @@ import { withVersionBump } from '../server/versionBump.js';
 import { registerTagRoutes } from '../server/routes/tags.js';
 import { registerTagProcurementRoutes } from '../server/routes/tagProcurement.js';
 import { ensureOpenTable } from '../server/openRecords.js';
-import { editChangedText, editGoneText, deleteChangedText, deleteOpenText, bulkChangedText } from '../src/lib/refusalTexts.js';
+import { editChangedText, editGoneText, deleteChangedText, deleteOpenText, bulkSelectionChangedText } from '../src/lib/refusalTexts.js';
 
 const require = createRequire(import.meta.url);
 const { PrismaClient } = require('../prisma-clients/client-sqlite');
@@ -351,7 +351,7 @@ async function main() {
         { id: 'T2', metadata: { mainName: 'Б' }, version: seen.T2 },
         { id: 'T3', metadata: { mainName: 'В' }, version: seen.T3 },
       ]);
-      check('одну запись изменили: 409 VERSION_CONFLICT, текст массового отказа без кода', r.status === 409 && r.body?.code === 'VERSION_CONFLICT' && r.body?.error === bulkChangedText() && isPlainRefusal(r.body), r);
+      check('одну запись изменили: 409 VERSION_CONFLICT, текст массового отказа без кода', r.status === 409 && r.body?.code === 'VERSION_CONFLICT' && r.body?.error === bulkSelectionChangedText() && isPlainRefusal(r.body), r);
       check('в отказе changed: [{ id, current }] с текущей записью и gone: []',
         r.body?.changed?.length === 1 && r.body.changed[0].id === 'T2' && r.body.changed[0].current?.id === 'T2' && r.body.changed[0].current.department === 'ОВ' && same(r.body?.gone, []), r.body);
       check('всё или ничего: свежие записи пачки тоже не записаны, история не тронута', same(before, await world()));

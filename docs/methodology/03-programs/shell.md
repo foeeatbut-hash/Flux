@@ -485,6 +485,18 @@ FileNode, Dictionary, DictionaryItem, TagTemplate) есть целая коло�
   `openCheck` роняет `test-architecture` (перечень исключений с причиной).
   Ответ маршрута на любой отказ защиты — `sendGuardRefusal`.
 
+- **Массовое действие.** По предпросмотру или выбранным записям с общим
+  смыслом (этап закупки) — всё или ничего: сервер отвечает 409 `{ error,
+  code: 'VERSION_CONFLICT', changed: [{ id, current }], gone: [id] }`, экран
+  показывает перечень по записям (`ConflictNotice`, `groups`) и перечитывает
+  данные (образец — `PUT /api/tags/bulk-metadata`,
+  `src/components/registry/bulkWrite.ts`). Независимые строки, каждая своим
+  запросом (ВДР: исполнитель, английские названия), — пишется нетронутое, по
+  остальным показано, что не записано (`src/components/vdr/vdrWrite.ts`).
+- **Переведены:** «Оборудование» (`equipment.md`), теги — «Реестр» и
+  «Закупки» (`registry.md`), ВДР (`docflow.md`); у каждой раздел «Сверка
+  версии при записи».
+
 Проверки: `test-refusal-texts`, `test-record-changes`, `test-conflict-notice`,
 `test-open-records`, `test-open-records-client`, `test-version-guard`.
 

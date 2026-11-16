@@ -31,7 +31,7 @@ import { renameTagInVdr } from './vdrTags.js';
 import { parseMetadata, inTagTransaction } from './tagHistory.js';
 import { TagDuplicate, tagCodeKey, withCodeKey, duplicateOf, isCodeKeyViolation } from './tagCodeKey.js';
 import { VersionConflict, RecordGone } from './versionGuard.js';
-import { VERSION_CONFLICT, editChangedText, bulkChangedText } from '../src/lib/refusalTexts.js';
+import { VERSION_CONFLICT, editChangedText, bulkSelectionChangedText } from '../src/lib/refusalTexts.js';
 
 export type MetadataPatch = Record<string, unknown>;
 
@@ -63,7 +63,7 @@ export class TagBadRequest extends Error {}
  */
 export class TagBulkConflict extends Error {
   constructor(public readonly changed: Array<{ id: string; current: any }>, public readonly gone: string[]) {
-    super(bulkChangedText());
+    super(bulkSelectionChangedText());
     this.name = 'TagBulkConflict';
   }
 }
