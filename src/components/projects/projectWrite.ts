@@ -13,6 +13,7 @@
  */
 import { conflictOf, goneOf, openOf, failureText, type WriteResult } from '../equipment/versionedWrite';
 import { plainRefusal, type Refusal } from '../equipment/conflictView';
+import type { ProjectDraft } from '../ProjectFields';
 import { projectChanges } from './changeRules';
 
 /** Статус и тело отказа → исход записи (тот же вид, что у `writeVersioned`). */
@@ -50,3 +51,19 @@ export function projectRefusalOf(result: WriteResult, shown: unknown, fallback: 
 
 /** Нужно ли после отказа перечитать список: проект изменили или удалили — экран устарел; чужая занятость и сбой его не меняют. */
 export const needsReread = (result: WriteResult): boolean => result.kind === 'conflict' || result.kind === 'gone';
+
+/**
+ * Набранное в карточке после отказа по версии: свои правки остаются, нетронутые поля берутся у коллеги.
+ *
+ * Зачем. Повторное «Сохранить» шлёт карточку целиком. Если оставить в нетронутых полях то, что экран
+ * показывал раньше, повтор молча вернул бы прежние значения поверх правки коллеги, хотя человек её даже
+ * не трогал. Поле, которое человек менял, остаётся как набрано (в перечне над формой видно, что коллега
+ * тоже менял его, — решает человек); остальные обновляются до текущей записи.
+ */
+export function mergeDraft(shown: ProjectDraft, typed: ProjectDraft, current: ProjectDraft): ProjectDraft {
+  const out = { ...typed };
+  for (const key of Object.keys(typed) as Array<keyof ProjectDraft>) {
+    if (typed[key].trim() === shown[key].trim()) out[key] = current[key];
+  }
+  return out;
+}
