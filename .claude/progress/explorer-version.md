@@ -44,7 +44,8 @@
 
 ## Ход
 - [x] D: сервер файлов + набор маршрутов (`scripts/test-file-version-routes.ts`, 89 проверок, 14 мутаций пойманы)
-- [ ] E: клиент рабочего стола + набор интерфейса
+- [x] E1: клиент стола (dataService, desktopStore, Desktop.tsx через useDeskWrite, changeRules/desktopWrite) + test-desktop-version-client (57 проверок)
+- [ ] E2: test-desktop-version-ui (настоящая служба, двое, обе темы, снимки /tmp/e-shots), мутации, test-desktop, test-architecture
 - [ ] F: кнопка «Создать» + проверка
 
 ### Договор для клиента (шаг D)

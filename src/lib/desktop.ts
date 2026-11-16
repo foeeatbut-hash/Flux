@@ -49,6 +49,8 @@ export interface DeskItem {
   size?: number;
   /** Когда изменён — для упорядочивания по дате */
   updatedAt?: string | number | null;
+  /** Версия файла, какой её показал стол: уходит при переименовании, уборе и переносе — сверка с тем, что успел изменить коллега. У папки версии нет */
+  version?: number;
 }
 
 export interface Cell { col: number; row: number }

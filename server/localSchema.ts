@@ -452,6 +452,11 @@ export function ensureSchemaColumns(dbPath: string, logInit: (message: string) =
       db.exec('CREATE TABLE IF NOT EXISTS "OpReceipt" ("id" TEXT PRIMARY KEY NOT NULL, "actorId" TEXT NOT NULL, "opId" TEXT NOT NULL, "requestHash" TEXT NOT NULL, "state" TEXT NOT NULL DEFAULT \'PENDING\', "status" INTEGER NOT NULL DEFAULT 0, "body" TEXT NOT NULL DEFAULT \'\', "createdAt" DATETIME NOT NULL DEFAULT current_timestamp)');
       try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS "OpReceipt_actorId_opId_key" ON "OpReceipt"("actorId", "opId")'); } catch (e) {}
       try { db.exec('CREATE INDEX IF NOT EXISTS "OpReceipt_createdAt_idx" ON "OpReceipt"("createdAt")'); } catch (e) {}
+      // Журнал изменений версионных записей (server/changeFeed.ts); общую базу создаёт schema-sync
+      db.exec('CREATE TABLE IF NOT EXISTS "ChangeFeed" ("seq" INTEGER PRIMARY KEY AUTOINCREMENT, "projectId" TEXT, "model" TEXT NOT NULL, "recordId" TEXT NOT NULL, "version" INTEGER NOT NULL, "kind" TEXT NOT NULL, "userId" TEXT, "userName" TEXT NOT NULL DEFAULT \'\', "at" DATETIME NOT NULL DEFAULT current_timestamp)');
+      try { db.exec('CREATE INDEX IF NOT EXISTS "ChangeFeed_model_recordId_seq_idx" ON "ChangeFeed"("model", "recordId", "seq")'); } catch (e) {}
+      try { db.exec('CREATE INDEX IF NOT EXISTS "ChangeFeed_projectId_seq_idx" ON "ChangeFeed"("projectId", "seq")'); } catch (e) {}
+      try { db.exec('CREATE INDEX IF NOT EXISTS "ChangeFeed_at_idx" ON "ChangeFeed"("at")'); } catch (e) {}
     } finally {
       db.close();
     }
