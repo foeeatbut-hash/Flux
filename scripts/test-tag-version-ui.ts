@@ -181,6 +181,8 @@ async function main() {
     check('отказ — role="alert", в карточке, не в окне поверх', await refusal.getAttribute('role') === 'alert' && await page.locator('[data-refusal-dialog]').count() === 0);
     check('виден текст отказа сервера: тег изменили, правка не записана', /изменили/.test((await refusal.locator('[data-conflict-message]').textContent())!) && /не записана/.test((await refusal.locator('[data-conflict-message]').textContent())!), await refusal.textContent());
     same('виден перечень: марка была Acme, стала Beta', await changesOf(refusal), [{ label: 'Марка', was: 'Acme', now: 'Beta' }]);
+    // Сброс набранного шёл бы уже после показа отказа: даём обработчику дойти до конца
+    await page.waitForTimeout(800);
     check('набранное в поле цело', await nameField.inputValue() === 'Моё новое имя');
     check('чужая правка цела, своя не записана', (await tagNow(made.ahu.id)).brand === 'Beta' && (await metaNow(made.ahu.id)).mainName === 'Имя AHU-1', await metaNow(made.ahu.id));
     const sizes = await box(refusal.locator('.fx-conflict-now'));
