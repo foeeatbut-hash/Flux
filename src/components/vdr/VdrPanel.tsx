@@ -190,7 +190,8 @@ export default function VdrPanel() {
       setRegId(chosen);
       await loadItems(chosen);
       setLoading(false);
-      fetch('/api/users').then(r => r.ok ? r.json() : { users: [] }).then(d => setUsers((d.users || []).filter((u: any) => u.isActive !== false))).catch(() => {});
+      // Служба отдаёт список людей массивом, а не `{ users }`: без этого выбор исполнителя и подписантов был пуст
+      fetch('/api/users').then(r => r.ok ? r.json() : []).then(d => setUsers((Array.isArray(d) ? d : d.users || []).filter((u: any) => u.isActive !== false))).catch(() => {});
       fetch('/api/vdr/standards').then(r => r.ok ? r.json() : { standards: [] }).then(d => setStandards(d.standards || [])).catch(() => {});
       loadProjectSettings();
       void loadProjectTags(projectId);
@@ -349,7 +350,7 @@ export default function VdrPanel() {
     if (report.written.length) addToast(`Исполнитель назначен: ${countOf(report.written.length, 'строка')}`, 'success');
     if (report.refusal) refusalDialog.show('Исполнитель назначен не всем', report.refusal);
     // Выбор остаётся на тех, кому не записано: прочитав перечень, действие повторяют
-    setSelected(new Set(report.refusedIds)); refresh();
+    setSelected(new Set(report.refusedIds.filter(id => !report.goneIds.includes(id)))); refresh();
   };
 
   const codes = useMemo(() => [...new Set(items.map(i => i.vdrCode).filter(Boolean))].sort(), [items]);
@@ -876,8 +877,9 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
   // Реестр, какой его видела форма: с ним сравнивается запись из отказа
   const base = useRef<Register>(register);
   const [refusal, setRefusal] = useState<VdrRefusal | null>(null);
-  const refusalRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (refusal) refusalRef.current?.scrollIntoView({ block: 'nearest' }); }, [refusal]);
+  // Отказ и кнопки внизу длинной формы: после отказа прокручиваем так, чтобы были видны оба
+  const footerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (refusal) footerRef.current?.scrollIntoView({ block: 'end' }); }, [refusal]);
   useVdrRegisterOpen(register.id);
   const names = vdrNames({ users, standards });
   const [newCol, setNewCol] = useState('');
@@ -1025,10 +1027,12 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
           </div>
         </div>
 
-        {refusal && <div ref={refusalRef} data-register-refusal><VdrRefusalView refusal={refusal} /></div>}
+        <div ref={footerRef} className="space-y-3">
+        {refusal && <div data-register-refusal><VdrRefusalView refusal={refusal} /></div>}
         <div className="flex items-center justify-end gap-2 pt-1">
           <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
           <button type="button" onClick={save} disabled={busy} className="fx-btn fx-btn-primary">Сохранить</button>
+        </div>
         </div>
       </WindowDialog>
   );

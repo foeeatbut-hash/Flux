@@ -97,6 +97,8 @@ export interface BulkReport {
   written: string[];
   /** id незаписанных строк (для повтора: выбор остаётся на них) */
   refusedIds: string[];
+  /** Из них — строки, которых уже нет: повторять нечего, из выбора они уходят */
+  goneIds: string[];
   /** Перечень для окна; `null` — всё записано */
   refusal: VdrRefusal | null;
 }
@@ -115,6 +117,7 @@ export async function bulkWriteRows(
 ): Promise<BulkReport> {
   const written: string[] = [];
   const refusedIds: string[] = [];
+  const goneIds: string[] = [];
   const groups: ConflictGroup[] = [];
   const notes: Array<{ title: string; text: string }> = [];
   let offline = false;
@@ -128,6 +131,7 @@ export async function bulkWriteRows(
       const changes = itemChanges(shown, result.current, names);
       if (changes.length) groups.push({ title, changes }); else notes.push({ title, text: nothingChangedText() });
     } else if (result.kind === 'gone') {
+      goneIds.push(shown.id);
       notes.push({ title, text: editGoneText('registerItem', shown?.contractorNo || shown?.titleRu) });
     } else if (result.kind === 'offline') {
       offline = true;
@@ -139,5 +143,5 @@ export async function bulkWriteRows(
   const refusal: VdrRefusal | null = refusedIds.length === 0 ? null : {
     kind: 'conflict', message: bulkPartialText(written.length, rows.length), groups, ...(notes.length ? { notes } : {}),
   };
-  return { total: rows.length, written, refusedIds, refusal };
+  return { total: rows.length, written, refusedIds, goneIds, refusal };
 }
