@@ -8,6 +8,10 @@ import { cleanupEquipmentDocumentBindingLedger } from './equipmentDocumentBindin
 import { cleanupProjectFolderBindingLedger } from './projectFolderBindings.js';
 import { deleteProjectData } from '../projectDelete.js';
 import { ensureSharing, forgetFileShare } from '../fileSharing.js';
+import { expectedVersionOf, guardedWrite, guardedDelete, sendRecordGone, sendGuardRefusal } from '../versionGuard.js';
+import { badVersion } from '../equipmentStale.js';
+import { projectOpenCascade } from '../projectOpenCascade.js';
+import { editChangedText, deleteChangedText } from '../../src/lib/refusalTexts.js';
 
 // Проекты: список с учётом состава, создание, правка и удаление.
 //
@@ -70,12 +74,17 @@ export function registerProjectRoutes(app: Express, deps: ProjectDeps): void {
     res.json({ project });
   });
 
+  // Правка проекта под сверкой версии: `expectedVersion` в теле — целая версия, которую
+  // клиент видел. Проект изменили — 409 `VERSION_CONFLICT` с текущей записью в `current`,
+  // проекта нет — 404 `RECORD_GONE`; без версии запись сверяется с чтением сервера.
   app.put('/api/projects/:id', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     if (!(await enforce(req, res, 'project.manage'))) return;
     try {
       const { id } = req.params;
       const { name, code, customer, contractor, description, info, status } = req.body;
+      const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
       const data: any = {};
       // Переименовать проект в пробелы — то же, что стереть имя: не даём
       if (name !== undefined) data.name = String(name).trim() || 'Без названия';
@@ -85,38 +94,60 @@ export function registerProjectRoutes(app: Express, deps: ProjectDeps): void {
       if (description !== undefined) data.description = description;
       if (info !== undefined) data.info = info;
       if (status !== undefined) data.status = status;
-      const project = await prisma.project.update({ where: { id }, data });
-      res.json({ project });
+      const done = await guardedWrite(prisma, {
+        model: 'project', id, expectedVersion, goneNoun: 'project',
+        staleMessage: (current) => editChangedText('project', current?.name),
+        build: () => ({ data }),
+      });
+      if (!done) return sendRecordGone(res, 'project');
+      res.json({ project: done.after });
     } catch (err: any) {
+      if (sendGuardRefusal(res, err)) return;
       res.status(500).json({ error: err.message });
     }
   });
 
+  // Удаление проекта: версия в строке запроса (`?expectedVersion=`, у DELETE тела нет).
+  // Проект и всё, что уйдёт с ним, не должны быть открыты у коллеги (409 `RECORD_OPEN`);
+  // каскад и сама строка — одна транзакция: либо проект исчез целиком, либо не тронут.
+  // Повторное удаление находит пустоту и отвечает успехом (`alreadyGone`).
   app.delete('/api/projects/:id', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     if (!(await enforce(req, res, 'project.manage'))) return;
     try {
       const { id } = req.params;
+      const expectedVersion = expectedVersionOf(req.query.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
       const doomed = await prisma.project.findUnique({ where: { id } });
       // Общий диск — не проект, а место хранения: его удаление унесло бы файлы всего отдела
       if (doomed?.system) return res.status(400).json({ error: 'Служебный проект удалить нельзя' });
       if (doomed) await ensureSharing(prisma);
-      // Всё одной транзакцией: либо проект исчез целиком, либо не тронут. Повторное
-      // удаление находит пустоту и отвечает успехом — состояние уже то, что просили.
-      const removed = await prisma.$transaction(async (tx: any) => {
-        const counts = await deleteProjectData(tx, id, forgetFileShare);
-        await cleanupEquipmentDocumentBindingLedger(tx, id);
-        await cleanupProjectFolderBindingLedger(tx, id);
-        return counts;
-      }, { timeout: 120_000, maxWait: 30_000 });
+      const userId = String((req as any).authUser?.id || '');
+      let removed: Record<string, number> = {};
+      const gone = await guardedDelete(prisma, {
+        model: 'project', id, expectedVersion,
+        staleMessage: (current) => deleteChangedText('project', current?.name),
+        // Открытое у коллег внутри проекта — в cascade: тегов в проекте могут быть тысячи,
+        // поэтому обход идёт от чужих отметок (server/projectOpenCascade.ts)
+        openCheck: { userId, cascade: (db, current) => projectOpenCascade(db, userId, current.id) },
+        // Каскад и журналы привязок — в той же транзакции, что и строка проекта (её
+        // снимает guardedDelete последней, под версией). Время — как у прежнего удаления
+        before: async (db: any) => {
+          removed = await deleteProjectData(db, id, forgetFileShare, { keepProjectRow: true });
+          await cleanupEquipmentDocumentBindingLedger(db, id);
+          await cleanupProjectFolderBindingLedger(db, id);
+        },
+        transaction: { timeout: 120_000, maxWait: 30_000 },
+      });
       await forgetProjectSelections(id);
-      if (doomed) {
-        await notifyAll('ПРОЕКТЫ', `Проект удалён: ${doomed.name}`,
-          'Все его теги, файлы и документы удалены вместе с ним.', '/projects',
-          String((req as any).authUser?.id || ''));
-      }
+      if (!gone) return res.json({ success: true, alreadyGone: true, removed: {} });
+      removed.project = 1;
+      await notifyAll('ПРОЕКТЫ', `Проект удалён: ${gone.before.name}`,
+        'Все его теги, файлы и документы удалены вместе с ним.', '/projects',
+        userId);
       res.json({ success: true, removed });
     } catch (err: any) {
+      if (sendGuardRefusal(res, err)) return;
       res.status(500).json({ error: err.message });
     }
   });

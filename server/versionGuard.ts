@@ -93,9 +93,16 @@ export function expectedVersionOf(raw: unknown): number | undefined | null {
  * Транзакция, если база их умеет. Заглушки проверок без `$transaction`
  * получают сам клиент: сверка «сравни и поменяй» остаётся в силе.
  */
-export function inTransaction<T>(prisma: any, fn: (db: any) => Promise<T>): Promise<T> {
-  return typeof prisma.$transaction === 'function' ? prisma.$transaction(fn) : fn(prisma);
+export function inTransaction<T>(prisma: any, fn: (db: any) => Promise<T>, options?: TransactionOptions): Promise<T> {
+  return typeof prisma.$transaction === 'function' ? (options ? prisma.$transaction(fn, options) : prisma.$transaction(fn)) : fn(prisma);
 }
+
+/**
+ * Параметры транзакции для маршрутов, чьё тело долгое (удаление проекта со всем
+ * содержимым) или требует уровня изоляции (перенос значений при переименовании
+ * категории справочника). Без них — умолчания клиента базы.
+ */
+export interface TransactionOptions { timeout?: number; maxWait?: number; isolationLevel?: 'Serializable' | 'RepeatableRead' | 'ReadCommitted' }
 
 const sameInstant = (a: any, b: any): boolean => new Date(a).getTime() === new Date(b).getTime();
 
@@ -136,6 +143,8 @@ export interface GuardedWriteOptions<R> {
   after?: (db: any, before: any, after: any) => Promise<void>;
   /** Как называется запись в словаре отказов: проигранная гонка с удалением отвечает «записи уже нет», а не пустым конфликтом. */
   goneNoun?: RefusalNoun;
+  /** Время и уровень изоляции транзакции, если умолчаний мало */
+  transaction?: TransactionOptions;
 }
 
 /**
@@ -163,7 +172,7 @@ export async function guardedWrite<R = undefined>(prisma: any, opts: GuardedWrit
         const after = await db[opts.model].findUnique({ where: { id: current.id } });
         if (opts.after) await opts.after(db, current, after);
         return { before: current, after, extra };
-      });
+      }, opts.transaction);
     } catch (e) {
       if (!(e instanceof RaceLost)) throw e;
       if (n < attempts) continue;
@@ -209,6 +218,8 @@ export interface GuardedDeleteOptions {
    * (scripts/test-architecture.ts) до своей очереди.
    */
   openCheck?: OpenCheckOptions;
+  /** Время и уровень изоляции транзакции, если умолчаний мало (удаление проекта идёт минуты) */
+  transaction?: TransactionOptions;
 }
 
 const defaultName = (row: any): string => String(row?.name || row?.itemCode || '').trim();
@@ -226,15 +237,25 @@ async function assertNotOpen(db: any, opts: GuardedDeleteOptions, current: any):
   const nameOf = check.nameOf || defaultName;
   const self: OpenRef = { model: schemaModelOf(opts.model), id: current.id, name: nameOf(current) };
   const selfNoun = nounOfModel(self.model);
-  const nested = check.cascade ? await check.cascade(db, current) : [];
-  for (const r of nested) nounOfModel(r.model);
-  let hits: Awaited<ReturnType<typeof findOpen>>;
-  try {
-    hits = await findOpen(db, { userId: check.userId, records: [self, ...nested] });
-  } catch (e) {
+  // Чтение вложенного (cascade) и открытых — одно и то же чтение «кто что держит»: нет таблицы
+  // открытых записей — защиты пока нет, иной сбой — удалять вслепую нельзя
+  const unreadable = (e: any): never => {
     // Общая база создана версией без таблицы: защиты пока нет, а удаление не должно из-за этого вставать
     if (isMissingTable(e)) throw new OpenTableMissing();
     throw new OpenCheckUnavailable(e);
+  };
+  let nested: OpenRef[] = [];
+  try {
+    nested = check.cascade ? await check.cascade(db, current) : [];
+  } catch (e) {
+    unreadable(e);
+  }
+  for (const r of nested) nounOfModel(r.model);
+  let hits: Awaited<ReturnType<typeof findOpen>> = [];
+  try {
+    hits = await findOpen(db, { userId: check.userId, records: [self, ...nested] });
+  } catch (e) {
+    unreadable(e);
   }
   const hit = hits[0];
   if (!hit) return;
@@ -262,7 +283,7 @@ export async function guardedDelete(prisma: any, opts: GuardedDeleteOptions): Pr
         const gone = await db[opts.model].deleteMany({ where: { id: current.id, version: current.version } });
         if (gone.count !== 1) throw new RaceLost();
         return { before: current };
-      });
+      }, opts.transaction);
     } catch (e) {
       // Транзакция с отказом чтения откатилась целиком (в PostgreSQL после сбоя запроса она негодна) —
       // повторяем удаление без защиты

@@ -31,6 +31,11 @@ check('/api/filesystem/… не принимается за /api/files', permRul
 check('/api/files и /api/files/x — загрузка файлов', permRuleFor('POST', '/api/files')?.perm === 'files.upload' && permRuleFor('POST', '/api/files/x')?.perm === 'files.upload');
 check('/api/projects/p1/tagsx не принимается за теги проекта', permRuleFor('POST', '/api/projects/p1/tagsx') === null && permRuleFor('POST', '/api/projects/p1/tags/import')?.perm === 'tags.manage');
 check('сброс якоря времени доступен только владельцу', requiresOwner('/api/admin/time-anchor/reset', 'POST'));
+// Закупки пишут под своим правом, а не под правом правки тегов
+check('PATCH закупки тега требует procurement.manage, а не tags.manage', permRuleFor('PATCH', '/api/tags/t1/procurement')?.perm === 'procurement.manage' && permRuleFor('PATCH', '/api/tags/t1/procurement/')?.perm === 'procurement.manage');
+check('массовая запись с источником «Закупки» требует procurement.manage', permRuleFor('PUT', '/api/tags/bulk-metadata', { source: 'Закупки', updates: [] })?.perm === 'procurement.manage');
+check('массовая запись без источника и с другим источником — tags.manage', permRuleFor('PUT', '/api/tags/bulk-metadata', { updates: [] })?.perm === 'tags.manage' && permRuleFor('PUT', '/api/tags/bulk-metadata', { source: 'Теги' })?.perm === 'tags.manage' && permRuleFor('PUT', '/api/tags/bulk-metadata')?.perm === 'tags.manage');
+check('закупочное правило не перехватывает правку самого тега и чужие пути', permRuleFor('PUT', '/api/tags/t1', { source: 'Закупки' })?.perm === 'tags.manage' && permRuleFor('PATCH', '/api/tags/t1')?.perm === 'tags.manage' && permRuleFor('PATCH', '/api/tags/t1/procurement/x')?.perm === 'tags.manage');
 
 // ── 67: второй ответ после начала первого ──
 {

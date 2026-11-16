@@ -827,7 +827,7 @@ app.use(async (req: Request, res: Response, next) => {
 
     // Права по функциям: одна таблица маршрутов на всю программу.
     if (!isPrivilegedUser(user)) {
-      const rule = permRuleFor(req.method, route);
+      const rule = permRuleFor(req.method, route, req.body);
       if (rule) {
         const perms = await effectivePermsOf(user);
         for (const requirement of [rule, ...(rule.also || [])]) {
