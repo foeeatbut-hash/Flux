@@ -650,9 +650,12 @@ export const dataService = {
   async bulkImportTags(
     projectId: string,
     rows: { identifier: string; brand?: string; name?: string; department?: string; fluid?: string; wbs?: string; parent?: string; actuality?: string }[],
-    mode: 'add' | 'update'
+    mode: 'add' | 'update',
+    // Версии тегов, которые видел предпросмотр мастера: сервер сверяет их до первой записи.
+    // Отказ приходит как `WriteRefusal` с перечнем `changed` / `gone` (components/registry/planWrite.ts)
+    seen?: Record<string, number>,
   ): Promise<{ created: number; updated: number; duplicates: string[] }> {
-    return request(`/projects/${projectId}/tags/bulk-import`, { method: 'POST', body: JSON.stringify({ rows, mode }) });
+    return requestWrite(`/projects/${projectId}/tags/bulk-import`, 'POST', { rows, mode, ...(seen ? { seen } : {}) });
   },
 
   // Применение плана захвата с экрана: решение своё у каждой строки
@@ -664,17 +667,18 @@ export const dataService = {
       action: 'create' | 'skip' | 'fill' | 'replace' | 'duplicate' | 'link';
       targetId?: string;
     }[],
+    // Версии существующих тегов, которые план дополняет или заменяет (сверка в транзакции до записи)
+    seen?: Record<string, number>,
   ): Promise<{
     created: { id: string; identifier: string }[];
     filled: { id: string; identifier: string }[];
     duplicated: { id: string; identifier: string }[];
     linked: { id: string; identifier: string }[];
     skipped: string[];
+    /** Версии записанных тегов: по ним отмена узнаёт, менял ли тег кто-то ещё */
+    versions?: Record<string, number>;
   }> {
-    return request(`/projects/${projectId}/tags/capture-apply`, {
-      method: 'POST',
-      body: JSON.stringify({ rows }),
-    });
+    return requestWrite(`/projects/${projectId}/tags/capture-apply`, 'POST', { rows, ...(seen ? { seen } : {}) });
   },
 
   // Отмена захвата: снимок прежних значений даёт клиент — он снял его до применения
@@ -684,12 +688,11 @@ export const dataService = {
       deleteIds: string[];
       restore: { id: string; brand: string | null; department: string | null;
                  fluid: string | null; wbs: string | null; metadata: string | null }[];
+      /** Версии тегов после применения: тег менял кто-то ещё — отмена откажет с перечнем */
+      seen?: Record<string, number>;
     },
   ): Promise<{ deleted: number; restored: number }> {
-    return request(`/projects/${projectId}/tags/capture-undo`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    return requestWrite(`/projects/${projectId}/tags/capture-undo`, 'POST', payload);
   },
 
   async linkTagToComponent(componentId: string, tagId: string): Promise<any> {

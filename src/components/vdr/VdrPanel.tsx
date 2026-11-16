@@ -30,6 +30,7 @@ import type { WindowsFileRef } from '../../lib/windowsFiles';
 // Запись: версия, отказ с перечнем «было → стало», набранное цело, открытая запись (docs/methodology/03-programs/docflow.md)
 import { sendVdr, refusalOf, needsReread, keepTyped, bulkWriteRows, type VdrRefusal } from './vdrWrite';
 import { itemChanges, registerChanges, vdrNames } from './changeRules';
+import { itemPlanRefusal, shownById } from './planRefusal';
 import { VdrRefusalView, useVdrRefusalDialog } from './VdrRefusal';
 import { useVdrItemOpen, useVdrRegisterOpen } from './useVdrOpenRecords';
 
@@ -303,6 +304,8 @@ export default function VdrPanel() {
         body: JSON.stringify({ projectId, content: b64, fileName: file.name, registerId: regId || undefined }),
       });
       const d = await r.json().catch(() => ({}));
+      // Строки реестра изменили во время ввоза: ввоз откачен целиком, окно называет строки и что в них изменилось
+      if (r.status === 409 && d?.code === 'VERSION_CONFLICT') { refusalDialog.show('Файл не загружен', itemPlanRefusal(d, shownById(items), names)); await refresh(); return; }
       if (!r.ok) { addToast(d.error || 'Ошибка импорта', 'error'); return; }
       addToast(`Импорт «${d.sheet}»: +${d.created} новых, ${d.updated} обновлено, колонок: ${d.columns}`, 'success');
       const regs = await loadRegisters();
@@ -555,7 +558,7 @@ export default function VdrPanel() {
           onClose={() => setIssueIds(null)} onDone={() => { void reloadDocs(projectId); setSelected(new Set()); refresh(); }} />
       )}
       {tagPlanOpen && (
-        <TagLinkPlanDialog projectId={projectId} initial={tagPlan} onClose={() => setTagPlanOpen(false)} onChanged={refresh} />
+        <TagLinkPlanDialog projectId={projectId} initial={tagPlan} names={names} onClose={() => setTagPlanOpen(false)} onChanged={refresh} />
       )}
       {regSettingsOpen && register && (
         <RegisterSettings register={register} standards={standards} users={users}

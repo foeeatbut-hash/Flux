@@ -317,6 +317,8 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         });
         // Версии записанного после применения: по ним отмена узнаёт, менял ли тег кто-то ещё
         const versions: Record<string, number> = {};
+        // Теги, какими они стали: отмена показывает по ним «было → стало», не примешивая правку самого захвата
+        const written: Record<string, any> = {};
         // Занятые коды по ключу: второй тег с кодом, уже стоящим в проекте, база не примет
         const takenKeys = new Set<string>(existing.map((t: any) => tagCodeKey(t.identifier)));
         const refused: { identifier: string; reason: string }[] = [];
@@ -374,6 +376,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
             changedTagIds.add(after.id);
             byId.set(target.id, after);
             versions[target.id] = after.version;
+            written[target.id] = after;
             filled.push({ id: target.id, identifier: target.identifier });
             continue;
           }
@@ -407,14 +410,15 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           history.push(createdSet(t));
           changedTagIds.add(t.id);
           versions[t.id] = t.version;
+          written[t.id] = t;
           (action === 'duplicate' ? duplicated : created).push({ id: t.id, identifier: code });
         }
         await recordChangeSets(tx, tagChangeContext(req, pid, TAG_SOURCE.capture), history);
-        return { created, filled, duplicated, linked, skipped, refused, changedTagIds, versions };
+        return { created, filled, duplicated, linked, skipped, refused, changedTagIds, versions, written };
       }, { timeout: 120000, maxWait: 15000 });
-      const { created, filled, duplicated, linked, skipped, refused, changedTagIds, versions } = outcome;
+      const { created, filled, duplicated, linked, skipped, refused, changedTagIds, versions, written } = outcome;
       emitEntitiesChanged('tag', changedTagIds, req);
-      res.json({ created, filled, duplicated, linked, skipped, refused, versions });
+      res.json({ created, filled, duplicated, linked, skipped, refused, versions, written });
     } catch (err: any) {
       if (sendPlanRefusal(res, err)) return;
       const known = await tagFailure(prisma, err, String(projectId), lastCode);
