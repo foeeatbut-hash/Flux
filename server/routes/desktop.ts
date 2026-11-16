@@ -1,8 +1,11 @@
 import type { Express, Request, Response } from 'express';
 import { getPrisma, resolveProjectId, sendError } from '../context.js';
-import { applyScopeRecursive } from './explorer.js';
+import { applyScopeRecursive, withoutContent } from './explorer.js';
 import { ensureDeskFolder, ensureOfficeOnDesk } from '../systemFolders.js';
-import { FILE_NOT_FOUND, FOLDER_NOT_FOUND, canAccessFolder, canWriteFile, getMainAdminId, personalScopeWhere } from '../fileAccess.js';
+import { assertExpectedVersion, expectedVersionOf, guardedWrite, sendRecordGone, sendGuardRefusal } from '../versionGuard.js';
+import { badVersion } from '../equipmentStale.js';
+import { editChangedText } from '../../src/lib/refusalTexts.js';
+import { FOLDER_NOT_FOUND, canAccessFolder, canWriteFile, getMainAdminId, personalScopeWhere } from '../fileAccess.js';
 
 // Рабочий стол.
 //
@@ -98,24 +101,31 @@ export function registerDesktopRoutes(app: Express): void {
   // «Выложить на общий стол» и обратно. Это перенос между двумя папками
   // Проводника — тот же, что перетаскиванием в самом Проводнике, поэтому
   // никакой особой записи здесь нет: меняется папка и раздел.
+  //
+  // Файл переносится под сверкой версии: `expectedVersion` в теле — целая версия, которую
+  // показывал стол. Файл изменили — 409 `VERSION_CONFLICT` с записью (без содержимого) в
+  // `current`; файла нет или он человеку не виден — 404 `RECORD_GONE`. Нечитаемая версия — 400.
+  // Версию присылают только за файл: у папки её нет, и перенос папки сверки не знает.
   app.post('/api/desktop/move', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     try {
+      const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
       const projectId = await resolveProjectId(String(req.body?.projectId || ''));
       const me = deskOwner(req);
       const to = req.body?.to === 'SHARED' ? 'SHARED' : 'PERSONAL';
       if (to === 'PERSONAL' && !me) return res.status(401).json({ error: 'Нужно войти в программу.' });
-      const target = await ensureDeskFolder(projectId, to, me);
       const id = String(req.body?.id || '');
 
-      const file = await prisma.fileNode.findFirst({ where: { id } });
+      const file = await prisma.fileNode.findFirst({ where: { id }, omit: { content: true } });
       // Переносить можно только то, что человеку видно и что он вправе менять.
       // Раньше номер чужого личного файла или папки принимался как есть, и
       // перенос «на свой стол» делал вызывающего его владельцем (ownerId ниже
-      // берётся из сессии) — то есть отнимал файл у хозяина
-      if (file && !(await canWriteFile(prisma, authUserOf(req), file))) {
-        return res.status(404).json({ error: FILE_NOT_FOUND });
-      }
+      // берётся из сессии) — то есть отнимал файл у хозяина. Чужой и исчезнувший
+      // файл отвечают одинаково: иначе ответ подтверждал бы, что такой номер есть
+      if (file && !(await canWriteFile(prisma, authUserOf(req), file))) return sendRecordGone(res, 'file');
+      // Версию присылают только за файл: нет файла, а версия есть — его уже удалили
+      if (!file && expectedVersion !== undefined) return sendRecordGone(res, 'file');
       if (!file && !(await canAccessFolder(prisma, authUserOf(req), id))) {
         return res.status(404).json({ error: FOLDER_NOT_FOUND });
       }
@@ -125,12 +135,19 @@ export function registerDesktopRoutes(app: Express): void {
         if (file.scope === 'SHARED' && to === 'PERSONAL' && file.createdById && file.createdById !== me) {
           return res.status(403).json({ error: 'Этот файл положил на общий стол другой сотрудник — забрать его себе нельзя.' });
         }
-        await prisma.fileNode.update({
-          where: { id }, data: { folderId: target.id, scope: to, ownerId: to === 'PERSONAL' ? me : null },
+        // Папка стола заводится, если её ещё нет, — побочное действие: делаем его только по свежей записи
+        assertExpectedVersion(file, expectedVersion, (current) => editChangedText('file', current?.name));
+        const target = await ensureDeskFolder(projectId, to, me);
+        const done = await guardedWrite(prisma, {
+          model: 'fileNode', id, expectedVersion, goneNoun: 'file',
+          staleMessage: (current) => editChangedText('file', current?.name),
+          build: () => ({ data: { folderId: target.id, scope: to, ownerId: to === 'PERSONAL' ? me : null } }),
         });
-        return res.json({ success: true });
+        if (!done) return sendRecordGone(res, 'file');
+        return res.json({ success: true, version: done.after.version });
       }
 
+      const target = await ensureDeskFolder(projectId, to, me);
       const folder = await prisma.folder.findFirst({ where: { id } });
       if (!folder) return res.status(404).json({ error: 'Не найдено.' });
       if (folder.system) return res.status(403).json({ error: 'Это системная папка — её нельзя перенести.' });
@@ -139,6 +156,9 @@ export function registerDesktopRoutes(app: Express): void {
       // общей папки останется личное — видимое одному владельцу
       await applyScopeRecursive(id, to, to === 'PERSONAL' ? me : null);
       res.json({ success: true });
-    } catch (err: any) { sendError(res, err); }
+    } catch (err: any) {
+      if (sendGuardRefusal(res, err, withoutContent)) return;
+      sendError(res, err);
+    }
   });
 }

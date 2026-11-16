@@ -43,6 +43,13 @@
 - Кнопка: дополнение `scripts/test-windows-explorer-ui.ts` или свой набор; мутация — убрать кнопку.
 
 ## Ход
-- [ ] D: сервер файлов + набор маршрутов
+- [x] D: сервер файлов + набор маршрутов (`scripts/test-file-version-routes.ts`, 89 проверок, 14 мутаций пойманы)
 - [ ] E: клиент рабочего стола + набор интерфейса
 - [ ] F: кнопка «Создать» + проверка
+
+### Договор для клиента (шаг D)
+- PATCH /api/files/:id — `expectedVersion` в теле; 200 `{ file }` (с `version`, без содержимого); 409 `{ error, code: VERSION_CONFLICT, current }` (`current` без `content`); 404 `RECORD_GONE` (нет файла и чужой личный — один ответ); 400 нечитаемая.
+- DELETE /api/files/:id?expectedVersion= — 200 `{ success, trashed, version }`; уже в корзине — 200 `{ success, trashed, alreadyGone }`; 409/404/400 те же.
+- POST /api/files/:id/restore — `expectedVersion` в теле; 200 `{ success, version }`; папка файла из корзины возвращается в той же транзакции.
+- POST /api/desktop/move — для файла `expectedVersion` в теле; 200 `{ success, version }`; номер не найден при пришедшей версии — 404 `RECORD_GONE`; папка версии не знает.
+- POST /api/files/copy (перенос) — версии клиента нет, сверка с чтением сервера.
