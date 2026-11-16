@@ -43,5 +43,5 @@
   предпросмотра импорта; те же мутации + «откат XML ставит версию назад».
 
 ## Ход
-- [ ] T: теги и ВДР — шаг 1: server/planGuard.ts готов (assertSeenVersions, seenOf, sendPlanRefusal)
+- [ ] T: теги и ВДР — шаги 1–2 из 5 готовы: planGuard.ts; сервер (bulk-import, capture-apply/undo, vdr tag-links/undo, vdr import) и набор scripts/test-tag-plan-guard-routes.ts (51). Дальше: мастер импорта, захват, диалог связей ВДР и ввоз ВДР на клиенте, набор интерфейса, мутации, снимки
 - [ ] Q: оборудование и XML
