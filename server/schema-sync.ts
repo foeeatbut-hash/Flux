@@ -24,6 +24,8 @@ interface Column {
   isId: boolean;
   unique: boolean;
   defaultSql: string | null; // готовый фрагмент DEFAULT ... или null
+  /** `@default(autoincrement())`: номер выдаёт база (журнал изменений, ChangeFeed.seq) */
+  autoIncrement?: boolean;
 }
 
 /** Составной уникальный ключ @@unique([a, b]) — имя индекса и его колонки */
@@ -202,6 +204,7 @@ export function parsePrismaSchema(dialect: Dialect, text: string): Model[] {
         isId,
         unique,
         defaultSql: defaultSql(dialect, base, defRaw),
+        autoIncrement: isId && /^autoincrement\s*\(/.test((defRaw || '').trim()),
       });
       // запоминаем базовый тип для fallback-дефолта
       (columns[columns.length - 1] as any)._base = base;
@@ -257,11 +260,17 @@ const TEXTY = /^(tinytext|text|mediumtext|longtext|blob|mediumblob|longblob)$/i;
  * колонки. Сначала пробуем как надо, а на отказ повторяем без умолчания:
  * пустая строка у TEXT и так подставляется движком.
  */
-function columnDdl(dialect: Dialect, c: Column, noTextDefault = false): string {
+export function columnDdl(dialect: Dialect, c: Column, noTextDefault = false): string {
   const base = (c as any)._base as string;
   let def = c.defaultSql;
   if (!c.nullable && !c.isId && def == null) def = fallbackDefault(dialect, base);
   if (noTextDefault && dialect === 'mysql' && TEXTY.test(c.sqlType.replace(/\(.*$/, ''))) def = null;
+  // Номер от базы: у каждого движка своё слово, и без него вставка без номера падала бы на NOT NULL
+  if (c.autoIncrement && c.isId) {
+    if (dialect === 'sqlite') return `${quoteId(dialect, c.name)} INTEGER PRIMARY KEY AUTOINCREMENT`;
+    if (dialect === 'mysql') return `${quoteId(dialect, c.name)} ${c.sqlType} NOT NULL AUTO_INCREMENT`;
+    return `${quoteId(dialect, c.name)} SERIAL NOT NULL`;
+  }
   const parts = [quoteId(dialect, c.name), c.sqlType];
   if (!c.nullable) parts.push('NOT NULL');
   if (def != null) parts.push(`DEFAULT ${def}`);
@@ -456,7 +465,8 @@ async function syncSchema(prisma: any, dialect: Dialect, schemaText: string, log
             return d;
           });
           const idCol = model.columns.find(c => c.isId);
-          if (idCol) defs.push(`PRIMARY KEY (${quoteId(dialect, idCol.name)})`);
+          // У SQLite ключ с автонумерацией объявлен прямо в колонке (columnDdl)
+          if (idCol && !(dialect === 'sqlite' && idCol.autoIncrement)) defs.push(`PRIMARY KEY (${quoteId(dialect, idCol.name)})`);
           for (const fk of model.foreignKeys || []) defs.push(
             `FOREIGN KEY (${quoteId(dialect, fk.column)}) REFERENCES ${quoteId(dialect, fk.table)} (${quoteId(dialect, fk.reference)}) ON DELETE CASCADE ON UPDATE CASCADE`,
           );

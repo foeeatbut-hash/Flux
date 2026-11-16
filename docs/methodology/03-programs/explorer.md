@@ -14,6 +14,17 @@
 - Удалены: `ProjectExplorer`, `ExplorerSidebar`, `ExplorerMenu`, `ExplorerTabs` (старые), `PreviewPane`, `FilePreview`, `FileProperties`, `FileVersionsDialog`, `EquipmentImportDialog`, `VdrAttachDialog`, `lib/explorerTabs.ts`, `lib/explorerSections.ts`, история папок в `store.ts`, строки и плитки в `FileItems.tsx` (остался размер для стола).
 - Проверка: `scripts/test-windows-explorer-ui.ts` (ссылки прежнего архива, `?recycle=1`, нет пункта «Архив Flux»), `scripts/test-file-types.ts`, `scripts/test-explorer-nav-ui.ts`.
 
+## Кнопка «Создать» в панели команд
+
+Первая в панели команд (`CommandBar.tsx`), перед «Вырезать»: значок папки с плюсом,
+подпись «Создать» и стрелка вниз; затем разделитель. Открывает то же меню, что «Создать ▸»
+в меню пустого места: пункты берутся из одного места (`createMenuItem` в `CreatePanel.tsx`,
+набор видов — `CREATE_KINDS` в `createEntry.ts`), разделы «В Windows» и «В Flux», у папки-черновика
+только «В Flux». Недоступна там же, где создание: нет папки, место недоступно, идёт операция.
+Создание правой кнопкой остаётся. Клавиатура: Enter на кнопке открывает меню (Enter на кнопке
+панели не уходит в «открыть выбранное»), Escape закрывает. Проверка: `scripts/test-windows-explorer-ui.ts`
+(кнопка, меню, Enter/Escape, `mkdir` через кнопку, снимки обеих тем).
+
 ## Значки
 
 Все значки Проводника — значки Flux: папка, диск, облако, сеть, этот компьютер

@@ -3,6 +3,7 @@ import { buildDatabaseClient } from './server/databaseClient.js';
 import 'express-async-errors';
 import { ensureUserProfileSchema } from './server/userProfileSchema.js';
 import { withVersionBump } from './server/versionBump.js';
+import { prepareChangeFeed, runWithActor, withChangeFeed } from './server/changeFeed.js';
 import { traceRequest, traceDatabase, traceSockets, recordServerError } from './server/diagnostics.js';
 import express, { Request, Response } from 'express';
 import path from 'path';
@@ -66,6 +67,7 @@ import { registerImportJobRoutes } from './server/routes/importJobs.js';
 import { startImportJobs } from './server/importJobs.js';
 import { registerEquipmentEditRoutes } from './server/routes/equipmentEdit.js';
 import { registerOpenRecordRoutes } from './server/routes/openRecords.js';
+import { registerRecordOriginRoutes } from './server/routes/recordOrigin.js';
 import { registerVdrRoutes } from './server/routes/vdr.js';
 import { registerDocflowRoutes } from './server/routes/docflow.js';
 import { registerEquipmentClassRoutes } from './server/routes/equipmentClasses.js';
@@ -326,10 +328,14 @@ async function syncRemoteSchema(client: any, dbUrl: string, forceDialect?: 'sqli
     const schemaFile = findRemoteSchemaFile(dialect);
     if (!schemaFile) {
       logInit('[Schema Sync] Файл схемы не найден — автомиграция общей базы пропущена.');
+      await prepareChangeFeed(client, logInit);
       return [];
     }
     const schemaText = fs.readFileSync(schemaFile, 'utf-8');
-    return await ensureRemoteSchema(client, dialect, schemaText, logInit);
+    const applied = await ensureRemoteSchema(client, dialect, schemaText, logInit);
+    // Таблица журнала изменений теперь есть (или её нет — тогда журнал выключается с записью в лог)
+    await prepareChangeFeed(client, logInit);
+    return applied;
   } catch (err: any) {
     logInit(`[Schema Sync] Автомиграция общей базы не выполнена: ${err.message}`);
     return [];
@@ -337,13 +343,15 @@ async function syncRemoteSchema(client: any, dbUrl: string, forceDialect?: 'sqli
 }
 
 // Клиент базы отдаётся с ростом версии записей (server/versionBump.ts: один
-// слой на все пути записи, в том числе внутри транзакций) и под наблюдением:
-// операции связываются с запросом, который их вызвал. Наблюдение — снаружи,
-// оно не меняет ни результата, ни ошибки. Все клиенты сервера (запуск и
-// переключение базы) получаются здесь — второго места, где версия не росла
-// бы, нет
+// слой на все пути записи, в том числе внутри транзакций), с журналом изменений
+// (server/changeFeed.ts: строка пишется в той же транзакции, что и запись) и под
+// наблюдением: операции связываются с запросом, который их вызвал. Журнал стоит
+// снаружи всех слоёв — ему нужна метка keepVersion и он один раз направляет
+// одиночную запись в транзакцию; наблюдение не меняет ни результата, ни ошибки.
+// Все клиенты сервера (запуск и переключение базы) получаются здесь — второго
+// места, где версия не росла бы, а журнал не писался, нет
 function createPrismaClient(dbType: string, dbUrl: string) {
-  return traceDatabase(withVersionBump(buildPrismaClient(dbType, dbUrl)));
+  return withChangeFeed(buildPrismaClient(dbType, dbUrl), (inner) => traceDatabase(withVersionBump(inner)));
 }
 
 function buildPrismaClient(dbType: string, dbUrl: string) {
@@ -539,6 +547,7 @@ startupDatabaseReady = (async () => {
       freshLocalDatabasePaths.delete(path.resolve(dbPath));
       const applied = result.applied;
       if (applied.length) logInit(`[Schema Sync] Локальная база дополнена: ${applied.join('; ')}`);
+      await prepareChangeFeed(prisma, logInit);
     }
     // Повторы номеров ревизий Office мешают уникальному ключу: только чтение и строка в журнал
     await reportOfficeRevisionDuplicates(prisma, logInit);
@@ -842,7 +851,8 @@ app.use(async (req: Request, res: Response, next) => {
     }
 
     (req as any).authUser = user;
-    return next();
+    // Автор для журнала изменений: все записи этого запроса (и после await) помечаются им
+    return runWithActor({ userId: user.id ? String(user.id) : null, userName: String(user.name || '') }, next);
   } catch (e: any) {
     return res.status(500).json({ error: 'Не удалось проверить сессию', details: e?.message });
   }
@@ -1123,6 +1133,8 @@ startImportJobs();
 registerEquipmentEditRoutes(app);
 // Отметки «эти записи у меня открыты» — защита открытой записи от удаления (server/openRecords.ts)
 registerOpenRecordRoutes(app);
+// «Кто создал запись и когда» — из журнала изменений (server/changeFeedRead.ts)
+registerRecordOriginRoutes(app);
 registerVdrRoutes(app, { chunkBytes: limits.chunkBytes });
 registerDocflowRoutes(app);
 registerEquipmentClassRoutes(app);

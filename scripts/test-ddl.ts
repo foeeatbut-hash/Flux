@@ -14,7 +14,7 @@ import {
 } from '../server/ddl';
 // Автомиграция общей базы: она создаёт таблицы по схеме Prisma, и именно она
 // однажды пропустила колонку с файлом обновления
-import { parsePrismaSchema, needsWidening, isTextDefaultRefusal } from '../server/schema-sync';
+import { parsePrismaSchema, needsWidening, isTextDefaultRefusal, columnDdl } from '../server/schema-sync';
 import { readFileSync } from 'fs';
 import { TABLES as OFFICE_TABLES } from '../server/officeBus';
 import { TAG_CHANGE_TABLES } from '../server/tagChangeTable';
@@ -241,8 +241,16 @@ model Tag {
   const perms = role?.columns.find((c) => c.name === 'permissions');
   check('и её доступы записываются целиком', perms?.sqlType === 'TEXT', perms?.sqlType);
   // Ключи при этом никуда не делись: без них база откажется строить индекс
-  const withIndex = models.filter((m) => m.columns.some((c) => c.isId && c.sqlType !== 'VARCHAR(191)'));
+  // Исключение одно: числовой ключ с автонумерацией (ChangeFeed.seq — номер журнала изменений)
+  const withIndex = models.filter((m) => m.columns.some((c) => c.isId && !c.autoIncrement && c.sqlType !== 'VARCHAR(191)'));
   check('ни один первичный ключ не стал TEXT', withIndex.length === 0, withIndex.map((m) => m.name));
+  const autos = models.filter((m) => m.columns.some((c) => c.autoIncrement)).map((m) => m.name);
+  check('автонумерация — только у журнала изменений', JSON.stringify(autos) === '["ChangeFeed"]', autos);
+  // Номер выдаёт база: у каждого движка своё слово (без него вставка падала бы на NOT NULL)
+  const seq = (d: 'mysql' | 'postgresql' | 'sqlite') => columnDdl(d, parsePrismaSchema(d, readFileSync(d === 'mysql' ? 'prisma/schema.mariadb.prisma' : d === 'postgresql' ? 'prisma/schema.postgresql.prisma' : 'prisma/schema.prisma', 'utf-8')).find((m) => m.name === 'ChangeFeed')!.columns.find((c) => c.name === 'seq')!);
+  check('MariaDB: seq — AUTO_INCREMENT', seq('mysql') === '`seq` INTEGER NOT NULL AUTO_INCREMENT', seq('mysql'));
+  check('PostgreSQL: seq — SERIAL', seq('postgresql') === '"seq" SERIAL NOT NULL', seq('postgresql'));
+  check('SQLite: seq — INTEGER PRIMARY KEY AUTOINCREMENT', seq('sqlite') === '"seq" INTEGER PRIMARY KEY AUTOINCREMENT', seq('sqlite'));
 }
 
 console.log('Узкую колонку в живой базе расширяют, а не оставляют узкой');

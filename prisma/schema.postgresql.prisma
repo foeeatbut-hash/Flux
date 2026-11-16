@@ -1254,6 +1254,37 @@ model OpenRecord {
   @@index([at])
 }
 
+/// Журнал изменений: что и кто менял в версионных записях (docs/roadmap/offline-work.md, 1).
+///
+/// Строка пишется в той же транзакции, что и сама запись (server/changeFeed.ts):
+/// откатилась запись — нет и строки. `seq` растёт при вставке, а видна строка
+/// после фиксации транзакции, поэтому читатель перечитывает «хвост» с запасом.
+/// Автор и время создания записи берутся из строки `create`: отдельных колонок
+/// автора у записей нет. Строки старше 90 дней стираются при старте сервера,
+/// кроме `create`. Таблицу создаёт и общая база (schema-sync), и локальная SQLite
+/// (server/localSchema.ts).
+model ChangeFeed {
+  seq       Int      @id @default(autoincrement())
+  /// Проект записи; у записей вне проекта (файл без папки проекта) пусто
+  projectId String?
+  /// Имя модели как в схеме и в VERSIONED_MODELS («ComponentElement»)
+  model     String
+  recordId  String
+  /// Версия записи после изменения (у удаления — последняя, что была)
+  version   Int
+  /// create / update / delete
+  kind      String
+  /// Кто: из запроса (server/changeFeed.ts); вне запроса пусто — «система»
+  userId    String?
+  userName  String   @default("")
+  /// Время сервера
+  at        DateTime @default(now())
+
+  @@index([model, recordId, seq])
+  @@index([projectId, seq])
+  @@index([at])
+}
+
 /// Файл обновления — кусками в ОБЩЕЙ БАЗЕ.
 ///
 /// Единственное, что есть у всех сотрудников общего, — эта база. Сервера

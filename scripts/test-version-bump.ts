@@ -189,8 +189,8 @@ async function main() {
     // ── Сервер собирает клиента с расширением ──
     {
       const server = fs.readFileSync(path.join(process.cwd(), 'server.ts'), 'utf8');
-      check('server.ts: клиент создаётся как traceDatabase(withVersionBump(…)) — одно место для запуска и переключения базы',
-        /traceDatabase\(\s*withVersionBump\(\s*buildPrismaClient\(/.test(server));
+      check('server.ts: клиент создаётся как withChangeFeed(…, traceDatabase(withVersionBump(…))) — одно место для запуска и переключения базы',
+        /withChangeFeed\(\s*buildPrismaClient\([^)]*\)\s*,\s*\(\w+\)\s*=>\s*traceDatabase\(\s*withVersionBump\(/.test(server));
     }
 
     console.log(`\nРост версии записи: ${checks} проверок пройдено`);
