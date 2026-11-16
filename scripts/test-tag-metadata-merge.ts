@@ -90,8 +90,8 @@ async function main() {
     console.log('Запись со старой версией получает конфликт');
     const second = { id: 'c-2', text: 'Второй', comment: 'коллега успел раньше', status: 'info', createdBy: 'Теги', createdAt: new Date().toISOString() };
     const conflict = await call('PUT', `/api/tags/${made.id}`, { metadata: { descriptions: [comment, second] }, version: freshVersion });
-    check('«Теги» со старой версией: 409', conflict.status === 409 && conflict.json?.conflict === true, conflict.json);
-    check('в ответе — текущий тег с этапом закупки, который «Теги» не видели', metaOf(conflict.json?.tag).procurement?.stage === 'ordered', metaOf(conflict.json?.tag));
+    check('«Теги» со старой версией: 409', conflict.status === 409 && conflict.json?.code === 'VERSION_CONFLICT' && conflict.json?.conflict === undefined, conflict.json);
+    check('в ответе — текущий тег с этапом закупки, который «Теги» не видели', metaOf(conflict.json?.current).procurement?.stage === 'ordered', metaOf(conflict.json?.current));
     check('конфликтная запись не записана', metaOf(await read(projectId, made.id)).descriptions.length === 1);
     const staleField = await call('PUT', `/api/tags/${made.id}`, { brand: 'Чужая марка', version: freshVersion });
     check('правка поля со старой версией — тоже конфликт', staleField.status === 409 && (await read(projectId, made.id)).brand === 'Старая марка', staleField.status);
@@ -110,9 +110,9 @@ async function main() {
     const addNote = await call('PUT', `/api/tags/${made.id}`, { metadata: { descriptions: [comment, second, note] }, version: procCopy.updatedAt });
     check('«Теги» добавили третий комментарий', addNote.status === 200 && metaOf(addNote.json?.tag).descriptions.length === 3, addNote.json);
     const staleProc = await call('PATCH', `/api/tags/${made.id}/procurement`, { procurement: { stage: 'delivered', supplier: 'ООО Поставщик' }, version: procCopy.updatedAt });
-    check('«Закупки» со старой копией: 409 и текущий тег', staleProc.status === 409 && staleProc.json?.conflict === true && metaOf(staleProc.json?.tag).descriptions.length === 3, staleProc.json);
+    check('«Закупки» со старой копией: 409 и текущий тег', staleProc.status === 409 && staleProc.json?.code === 'VERSION_CONFLICT' && metaOf(staleProc.json?.current).descriptions.length === 3, staleProc.json);
     check('конфликтная закупка не записана', metaOf(await read(projectId, made.id)).procurement?.stage === 'ordered');
-    const freshProc = await call('PATCH', `/api/tags/${made.id}/procurement`, { procurement: { stage: 'delivered', supplier: 'ООО Поставщик' }, version: staleProc.json?.tag?.updatedAt });
+    const freshProc = await call('PATCH', `/api/tags/${made.id}/procurement`, { procurement: { stage: 'delivered', supplier: 'ООО Поставщик' }, version: staleProc.json?.current?.updatedAt });
     now = metaOf(freshProc.json?.tag);
     check('после перечитывания закупка записана', freshProc.status === 200 && now.procurement?.stage === 'delivered', freshProc.json);
     check('все три комментария на месте', now.descriptions?.length === 3 && now.mainName === 'Вентилятор' && now.x === 100, now);
@@ -172,7 +172,14 @@ async function main() {
       { id: second2.id, metadata: JSON.stringify({ procurement: { stage: 'approved' } }) },
       { id: 'нет-такого-тега', metadata: { a: 1 } },
     ] });
-    check('массовая запись прошла, несуществующий тег назван', bulk.status === 200 && bulk.json?.missing?.[0] === 'нет-такого-тега', bulk.json);
+    check('массовая запись с несуществующим тегом — отказ: 409, тег назван в gone, ничего не записано',
+      bulk.status === 409 && bulk.json?.code === 'VERSION_CONFLICT' && bulk.json?.gone?.[0] === 'нет-такого-тега'
+      && metaOf(await read(projectId, made.id)).procurement?.stage !== 'approved', bulk.json);
+    const bulkOk = await call('PUT', '/api/tags/bulk-metadata', { updates: [
+      { id: made.id, metadata: { procurement: { stage: 'approved' } } },
+      { id: second2.id, metadata: JSON.stringify({ procurement: { stage: 'approved' } }) },
+    ] });
+    check('массовая запись без несуществующего тега прошла', bulkOk.status === 200 && bulkOk.json?.updated === 2, bulkOk.json);
     const m1 = metaOf(await read(projectId, made.id));
     const m2 = metaOf(await read(projectId, second2.id));
     check('этап поменялся у обоих', m1.procurement?.stage === 'approved' && m2.procurement?.stage === 'approved');
