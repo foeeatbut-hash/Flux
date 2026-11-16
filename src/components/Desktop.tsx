@@ -106,6 +106,9 @@ function ProjectDesktop() {
   // Запись файла под сверкой версии: отказ коллеги открывается окном с перечнем изменений
   const deskWrite = useDeskWrite(projectId, addToast);
   React.useEffect(() => { load(projectId); }, [projectId, load]);
+  // Поле имени живёт, пока жив значок: файл исчез после перечитывания — поле закрывается, иначе оно
+  // навсегда отключило бы клавиши стола (F2, Delete) ради значка, которого уже нет
+  React.useEffect(() => { if (renaming && !items.some((i) => i.id === renaming.id)) setRenaming(null); }, [items, renaming]);
 
   // Меряем стол сами: сетка считается в точках, а сколько их — знает только DOM
   React.useEffect(() => {
@@ -701,7 +704,6 @@ function ProjectDesktop() {
         );
       })()}
 
-      {deskWrite.element}
       {menu && (
         <ContextMenu
           x={menu.x}
@@ -711,6 +713,8 @@ function ProjectDesktop() {
         />
       )}
     </div>
+    {/* Вне полотна стола: нажатие в окне иначе доходило бы до стола как нажатие по пустому месту (React пускает его через портал) и закрывало поле имени */}
+    {deskWrite.element}
     </>
   );
 }
