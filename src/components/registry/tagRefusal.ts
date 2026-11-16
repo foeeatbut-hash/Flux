@@ -42,6 +42,8 @@ export async function outcomeOf(send: () => Promise<Response>): Promise<TagOutco
   let res: Response;
   try { res = await send(); } catch { return { kind: 'offline', message: 'Сервер не ответил' }; }
   const data = await res.json().catch(() => ({}));
+  // Занятый код: в `code` лежит сам код тега, а не код отказа — проверка раньше разбора по `code`
+  if (data?.duplicate) return { kind: 'refused', status: res.status, message: String(data?.error || ''), data };
   const conflict = conflictOf(res.status, data);
   if (conflict) return { kind: 'conflict', ...conflict, data };
   const gone = goneOf(res.status, data);

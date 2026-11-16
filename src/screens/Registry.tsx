@@ -63,7 +63,8 @@ import { useRegistryTags } from '../components/registry/useRegistryTags';
 import { useTagTreeOps } from '../components/registry/useTagTreeOps';
 import { useTagRefusal } from '../components/registry/useTagRefusal';
 import { useRegistryOpenRecords } from '../components/registry/useRegistryOpenRecords';
-import { saveTagMetadataPatch, rememberVersions, deleteTagRequest, bulkMetadataRequest, lastWriteKeptInput } from '../components/registry/tagWrite';
+import { saveTagMetadataPatch, rememberVersions, deleteTagRequest, lastWriteKeptInput } from '../components/registry/tagWrite';
+import { writeLayoutBatch } from '../components/registry/bulkWrite';
 import { splitSegments } from '../lib/tagExtract';
 import { belongsToProject } from '../lib/coalescedRefresh';
 import TagSearchPanel from '../components/registry/TagSearchPanel';
@@ -1630,10 +1631,10 @@ export default function Registry() {
       ? { ...t, metadata: byId.get(t.id), parsedMetadata: undefined }
       : t)));
     for (let i = 0; i < updates.length; i += 500) {
-      // Раскладка — только x и y: версию тега она не сверяет и не двигает (пустая карта показанных тегов)
-      const res = await bulkMetadataRequest(updates.slice(i, i + 500), new Map());
-      if (res.kind !== 'ok') throw new Error('bulk-metadata');
-      rememberVersions(res.data?.versions, setTags);
+      // Раскладка — только x и y: версию тега она не сверяет; удалённые из пачки убираются (bulkWrite.ts)
+      const res = await writeLayoutBatch(updates.slice(i, i + 500), setTags);
+      if (res.gone) { addToast('Часть тегов уже удалена — список обновлён', 'info'); loadTags(); }
+      if (!res.ok) throw new Error('bulk-metadata');
     }
   };
 

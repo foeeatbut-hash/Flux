@@ -18,6 +18,7 @@ import { Btn, Status, Dialog } from '../ui';
 import { useToastStore } from '../../store/toastStore';
 import TagComments from './TagComments';
 import { TagRefusalView } from './TagRefusalView';
+import { lastWriteSaved } from './tagWrite';
 import type { TagRefusal } from './tagRefusal';
 import TagVdrDocs from './TagVdrDocs';
 import TagCatalogClass from './TagCatalogClass';
@@ -133,7 +134,7 @@ export default function TagCardModal({
                 onBlur={async () => {
                   if (modalMainName !== (parseTagMetadata(tag).mainName || '')) {
                     await onUpdateMainName(tag.id, modalMainName);
-                    flashSaved();
+                    if (lastWriteSaved()) flashSaved();
                   }
                 }}
                 className={cardField}
@@ -173,7 +174,7 @@ export default function TagCardModal({
                   onBlur={async () => {
                     if (editTagBrand !== (tag.brand || '')) {
                       await onUpdateBrand(tag.id, editTagBrand);
-                      flashSaved();
+                      if (lastWriteSaved()) flashSaved();
                     }
                   }}
                   className={cardField}
@@ -257,11 +258,11 @@ export default function TagCardModal({
               formatDate={formatDate}
               onAdd={async (text, comment, status) => {
                 await onAddDescription(tag.id, text, comment, status as any);
-                flashSaved();
+                if (lastWriteSaved()) flashSaved();
               }}
               onUpdate={async (id, patch) => {
                 await onUpdateDescription(tag.id, id, patch as any);
-                flashSaved();
+                if (lastWriteSaved()) flashSaved();
               }}
               onRemove={(id) => onRemoveDescription(tag.id, id)}
             />

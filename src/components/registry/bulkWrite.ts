@@ -43,3 +43,24 @@ export async function runBulkWrite(
   deps.reload();
   return false;
 }
+
+/**
+ * Записать раскладку (только x, y) пачкой. Версию тега раскладка не сверяет, но
+ * удалённый тег режет всю пачку (`gone`): убираем такие из пачки и повторяем, чтобы
+ * остальные места записались; сколько тегов оказалось удалено — в `gone`.
+ */
+export async function writeLayoutBatch(
+  updates: Array<{ id: string; metadata: unknown }>, setTags: Dispatch<SetStateAction<any[]>>,
+): Promise<{ ok: boolean; gone: number }> {
+  let rest = updates;
+  let gone = 0;
+  for (let attempt = 0; attempt < 2 && rest.length; attempt++) {
+    const res = await bulkMetadataRequest(rest, new Map());
+    if (res.kind === 'ok') { rememberVersions(res.data?.versions, setTags); return { ok: true, gone }; }
+    const ids = new Set<string>(res.kind === 'conflict' && Array.isArray(res.data?.gone) ? res.data.gone.map(String) : []);
+    if (!ids.size) return { ok: false, gone };
+    gone += ids.size;
+    rest = rest.filter((u) => !ids.has(u.id));
+  }
+  return { ok: rest.length === 0, gone };
+}

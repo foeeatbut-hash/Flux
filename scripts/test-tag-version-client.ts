@@ -18,7 +18,7 @@ import path from 'node:path';
 import ts from 'typescript';
 import { tagChanges, descriptionRows, metaOf } from '../src/components/registry/changeRules';
 import { outcomeOf, refusalOf, bulkRefusalOf, deleteUrl, needsReread } from '../src/components/registry/tagRefusal';
-import { runBulkWrite } from '../src/components/registry/bulkWrite';
+import { runBulkWrite, writeLayoutBatch } from '../src/components/registry/bulkWrite';
 import { saveTagMetadataPatch, saveProcurement, deleteTagRequest, bulkMetadataRequest, lastWriteKeptInput } from '../src/components/registry/tagWrite';
 import { RECORD_GONE, RECORD_OPEN, VERSION_CONFLICT } from '../src/lib/refusalTexts';
 
@@ -261,6 +261,21 @@ function deps() {
     h.restore();
   }
 
+  {
+    const f = stubFetch(
+      { status: 409, body: { error: 'x', code: VERSION_CONFLICT, changed: [], gone: ['b'] } },
+      { status: 200, body: { versions: [] } });
+    const done = await writeLayoutBatch([{ id: 'a', metadata: { x: 1, y: 2 } }, { id: 'b', metadata: { x: 3, y: 4 } }], () => {});
+    f.restore();
+    same('раскладка: удалённый тег убран из пачки, остальные записаны повтором', [done, bodyOf(f.calls[1]).updates.map((u: any) => u.id), 'version' in bodyOf(f.calls[1]).updates[0]], [{ ok: true, gone: 1 }, ['a'], false]);
+    const g = stubFetch({ status: 500, body: {} });
+    same('раскладка: сбой — не записано, без исключения', await writeLayoutBatch([{ id: 'a', metadata: {} }], () => {}), { ok: false, gone: 0 });
+    g.restore();
+    const h = stubFetch({ status: 409, body: { error: 'Такой код', duplicate: true, code: 'VERSION_CONFLICT' } });
+    ok('занятый код с чужим code: duplicate проверяется раньше code', (await outcomeOf(() => fetch('/x'))).kind === 'refused');
+    h.restore();
+  }
+
   console.log('4. Исходники: запись тега только через общее место');
   const SRC = walk(path.join(root, 'src'));
   const raw: string[] = [];
@@ -292,8 +307,8 @@ function deps() {
   const procurementBulk = bulkCalls.filter((c) => c.file.endsWith('ProcurementManagement.tsx') && c.name === 'runBulkWrite');
   ok('«Закупки»: массовый этап и шаблон идут через runBulkWrite с картой показанных тегов', procurementBulk.length === 2 && procurementBulk.every((c) => c.second === 'shown'));
   ok('runBulkWrite шлёт версии сквозь bulkMetadataRequest', /bulkMetadataRequest\(updates, shown/.test(fs.readFileSync(path.join(root, 'src/components/registry/bulkWrite.ts'), 'utf8')));
-  const registryBulk = bulkCalls.filter((c) => c.file.endsWith('Registry.tsx') && c.name === 'bulkMetadataRequest');
-  ok('«Реестр»: раскладка идёт тем же общим местом, без версий', registryBulk.length === 1 && /new Map\(\)/.test(registryBulk[0].second));
+  const registryBulk = bulkCalls.filter((c) => c.file.endsWith('bulkWrite.ts') && c.name === 'bulkMetadataRequest' && /new Map\(\)/.test(c.second));
+  ok('«Реестр»: раскладка идёт общим местом (writeLayoutBatch), без версий', registryBulk.length === 1 && /writeLayoutBatch\(/.test(fs.readFileSync(path.join(root, 'src/screens/Registry.tsx'), 'utf8')));
   {
     const guard = fs.readFileSync(path.join(root, 'src/components/registry/tagWrite.ts'), 'utf8');
     ok('отказ узнаётся по коду, а не по тексту сервера', !/includes\(['"`]изменил|\.error\s*===|startsWith\(['"`]Тег/.test(guard));

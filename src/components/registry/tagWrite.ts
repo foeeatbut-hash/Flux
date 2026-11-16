@@ -36,6 +36,9 @@ export interface TagWriteDeps {
 /** Отказ показан как «изменили»: набранное человеком экрану сбрасывать нельзя, оно ещё нужно для повтора */
 let lastKept = false;
 export const lastWriteKeptInput = (): boolean => lastKept;
+/** Последняя запись принята: «Сохранено» после отказа было бы неправдой */
+let lastSaved = true;
+export const lastWriteSaved = (): boolean => lastSaved;
 
 /** Служебное окна («_noPos», разобранный кэш) в базу не едет и правкой не считается. */
 const isService = (key: string): boolean => key.startsWith('_') || key === 'parsedMetadata' || key === '__procMeta';
@@ -104,6 +107,7 @@ async function send(tag: any, url: string, method: 'PUT' | 'PATCH', payload: Rec
         body: JSON.stringify({ ...payload, ...(version !== undefined ? { version } : {}) }),
       }));
       lastKept = outcome.kind === 'conflict' || outcome.kind === 'gone';
+      lastSaved = outcome.kind === 'ok';
       if (outcome.kind !== 'ok') {
         const refusal = refusalOf(outcome, tag, deps.names?.() || {}, 'Не удалось сохранить изменения');
         if (outcome.kind === 'conflict' && outcome.current) {
@@ -124,6 +128,7 @@ async function send(tag: any, url: string, method: 'PUT' | 'PATCH', payload: Rec
       if (saved) rememberVersions([{ id, updatedAt: saved.updatedAt ?? null }], deps.setTags);
       return true;
     } catch (err) {
+      lastSaved = false;
       console.error('Не удалось сохранить тег:', err);
       deps.addToast('Не удалось сохранить изменения', 'error');
       return false;
@@ -143,7 +148,7 @@ async function send(tag: any, url: string, method: 'PUT' | 'PATCH', payload: Rec
 export async function saveTagMetadataPatch(tag: any, now: unknown, deps: TagWriteDeps, fields: Record<string, unknown> = {}): Promise<boolean> {
   const id = String(tag?.id || '');
   const patch = metadataPatch(tag?.metadata, now);
-  if (!id || (!Object.keys(patch).length && !Object.keys(fields).length)) return true;
+  if (!id || (!Object.keys(patch).length && !Object.keys(fields).length)) { lastSaved = true; return true; }
   return send(tag, `/api/tags/${id}`, 'PUT', { ...fields, metadata: patch }, deps);
 }
 
