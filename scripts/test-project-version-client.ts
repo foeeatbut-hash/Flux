@@ -19,7 +19,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 import { PROJECT_RULES, projectChanges, statusTitle } from '../src/components/projects/changeRules';
-import { resultOfRefusal, runWrite, projectRefusalOf, needsReread } from '../src/components/projects/projectWrite';
+import { resultOfRefusal, runWrite, projectRefusalOf, needsReread, mergeDraft } from '../src/components/projects/projectWrite';
+import { draftOf } from '../src/components/ProjectFields';
 import { VERSION_CONFLICT, RECORD_GONE, RECORD_OPEN } from '../src/components/equipment/versionedWrite';
 
 const root = path.resolve(__dirname, '..');
@@ -106,6 +107,18 @@ const project = (over: Record<string, unknown> = {}) => ({
     ok('runWrite: принятая запись несёт ответ', done.kind === 'ok' && (done.data as any).id === 'p1');
   }
 
+  console.log('2б. Набранное после отказа по версии');
+  {
+    const shown = draftOf(project());
+    const current = draftOf(project({ customer: 'Мэрия', status: 'ARCHIVED', name: 'Школа №7' }));
+    const typed = { ...shown, name: 'Школа №5А', code: 'SCH-6' };
+    const merged = mergeDraft(shown, typed, current);
+    same('набранное остаётся как набрано (в том числе поле, которое менял и коллега)', [merged.name, merged.code], ['Школа №5А', 'SCH-6']);
+    same('нетронутые поля берутся у коллеги, а не возвращаются прежними', [merged.customer, merged.status], ['Мэрия', 'ARCHIVED']);
+    same('ничего не набрано — карточка равна текущей записи', mergeDraft(shown, shown, current), current);
+    same('пробелы по краям правкой не считаются', mergeDraft(shown, { ...shown, customer: ' Управление образования ' }, current).customer, 'Мэрия');
+  }
+
   console.log('3. Запрос dataService с подставным fetch');
   {
     // Хранилище браузера и окно подставляются до загрузки службы: она читает их при импорте
@@ -170,6 +183,7 @@ const project = (over: Record<string, unknown> = {}) => ({
     ok('удаление идёт с версией показанного проекта третьим аргументом', del.every((c) => c.args.length === 3 && /\.version$/.test(c.args[2])));
     ok('запись идёт через общий разбор отказа (runWrite)', calls.filter((c) => c.callee === 'runWrite').length === 2);
     ok('после отказа по версии список перечитывается, не сбрасывая набранное', calls.some((c) => c.callee === 'loadProjects' && c.args[0] === 'undefined' && /conflict/.test(c.args[1] || '')));
+    ok('набранное сливается с текущей записью (mergeDraft)', calls.some((c) => c.callee === 'mergeDraft'));
     ok('открытая запись: карточка отмечается через useProjectOpenRecords', calls.some((c) => c.callee === 'useProjectOpenRecords'));
     ok('отказ показан на месте ошибки формы (RefusalView)', /<RefusalView\b/.test(text));
     ok('отказ удаления — окном', /refusals\.show\('Проект не удалён'/.test(text));
