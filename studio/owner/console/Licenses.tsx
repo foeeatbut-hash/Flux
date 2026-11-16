@@ -1,5 +1,5 @@
 /**
- * «Лицензии»: выпуск и отзыв лицензий компаниям, выпуск Flux, открытые ключи и резервная копия хранилища. Это бывшее окно лицензий
+ * «Лицензии»: выпуск и отзыв лицензий организациям, выпуск Flux, открытые ключи и резервная копия хранилища. Это бывшее окно лицензий
  * (Flux Owner), теперь раздел окна Studio — Владелец: хранилище и подключение общие, пароль второй раз не спрашивается.
  */
 import React from 'react';
@@ -10,7 +10,7 @@ import LicenseKeys from './LicenseKeys';
 import { useLicenses } from './useLicenses';
 import type { LicenseSection } from './types';
 
-export const LICENSE_SECTIONS: Array<[LicenseSection, string]> = [['licenses', 'Лицензии компаний'], ['publish', 'Выпуск Flux'], ['keys', 'Ключи и резервная копия']];
+export const LICENSE_SECTIONS: Array<[LicenseSection, string]> = [['licenses', 'Лицензии организаций'], ['publish', 'Выпуск Flux'], ['keys', 'Ключи и резервная копия']];
 
 export default function Licenses({ section, onSection }: { section: LicenseSection; onSection: (s: LicenseSection) => void }) {
   const { state, error, reload } = useLicenses();

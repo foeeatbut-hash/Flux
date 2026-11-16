@@ -792,7 +792,7 @@ async function loadUntil(page: Page, count: number) {
         ok(`Без горизонтального переполнения при ${width}px (${dark ? 'тёмная' : 'светлая'} тема)`, size.scroll <= size.client + 2);
       }
     }
-    ok('Нет загрузки файловых байтов или метаданных на сервер компании', await page.evaluate(() => (window as any).__windowsFilesCalls.every((request: any) => !['upload', 'projectWrite'].includes(request.action))));
+    ok('Нет загрузки файловых байтов или метаданных на сервер Flux', await page.evaluate(() => (window as any).__windowsFilesCalls.every((request: any) => !['upload', 'projectWrite'].includes(request.action))));
     ok('Нет ошибок браузера', errors.length === 0);
     if (errors.length) console.error(errors.slice(0, 5));
     }

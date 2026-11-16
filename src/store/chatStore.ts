@@ -2,7 +2,7 @@
 // сообщения и вложения шли по IPC напрямую в БД мимо сервера: события
 // io.emit не рассылались, а вложения писались на диск отправителя и у
 // собеседника не открывались. Теперь путь один — работает и локально,
-// и с сервером компании (адрес подставляет fetch-прокси из config/env).
+// и с сервером Flux (адрес подставляет fetch-прокси из config/env).
 import { create } from 'zustand';
 import { SERVER_BASE_URL } from '../config/env';
 import type { Socket } from 'socket.io-client';

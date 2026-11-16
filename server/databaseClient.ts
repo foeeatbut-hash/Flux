@@ -9,7 +9,7 @@ interface ClientDependencies {
   selectDialect: (dialect: Dialect) => void;
 }
 
-/** Ошибка общей БД не должна создавать независимую локальную базу под видом подключения к компании. */
+/** Ошибка общей БД не должна создавать независимую локальную базу под видом подключения к общей базе. */
 export function buildDatabaseClient(mode: string, url: string, deps: ClientDependencies): any {
   if (mode !== 'LOCAL' && mode !== 'REMOTE') throw new Error('Неизвестный режим базы данных.');
   if (mode === 'REMOTE' && !validateDatabaseUri(url))

@@ -1,5 +1,5 @@
 /**
- * «Лицензии»: выпуск лицензии по коду запроса компании, готовый ключ и реестр выданных с отзывом.
+ * «Лицензии»: выпуск лицензии по коду запроса организации, готовый ключ и реестр выданных с отзывом.
  * Перенесено из прежнего окна лицензий без изменения поведения: подписывает главный процесс, окно только показывает.
  */
 import React, { useMemo, useState } from 'react';
@@ -32,7 +32,7 @@ export default function LicenseIssue({ state, reload }: { state: LicensesState; 
   const read = async () => {
     const done = await action.run(() => call<Parsed>('licenseRequest', { code }));
     if (!done) return;
-    setParsed(done.value); setSelected(new Set(done.value.people.map(p => p.login))); setCompany(done.value.org); setNotice('Запрос прочитан. Проверьте компанию, сотрудников и срок.');
+    setParsed(done.value); setSelected(new Set(done.value.people.map(p => p.login))); setCompany(done.value.org); setNotice('Запрос прочитан. Проверьте организацию, сотрудников и срок.');
   };
   const chooseDuration = (value: string) => { setDuration(value); if (value !== 'custom') setExpiration(expiryAfter(Number(value))); };
   const issue = async () => {
@@ -62,11 +62,11 @@ export default function LicenseIssue({ state, reload }: { state: LicensesState; 
     <div className="cols">
       <section className="sect" aria-labelledby="lic-issue">
         <h3 id="lic-issue">Выпустить лицензию</h3>
-        <Field label="Код запроса компании" id="lic-code"><textarea id="lic-code" rows={4} spellCheck={false} placeholder="FLUXREQ1.…" value={code} onChange={e => setCode(e.target.value)} /></Field>
+        <Field label="Код запроса организации" id="lic-code"><textarea id="lic-code" rows={4} spellCheck={false} placeholder="FLUXREQ1.…" value={code} onChange={e => setCode(e.target.value)} /></Field>
         <Btn disabled={action.busy || !code.trim()} onClick={() => void read()}>Прочитать запрос</Btn>
         {parsed && <div data-testid="license-request">
           <p className="muted mono" style={{ wordBreak: 'break-all' }}>Установка: {parsed.inst}</p>
-          <Field label="Компания" id="lic-company"><input id="lic-company" maxLength={200} value={company} onChange={e => setCompany(e.target.value)} /></Field>
+          <Field label="Организация" id="lic-company"><input id="lic-company" maxLength={200} value={company} onChange={e => setCompany(e.target.value)} /></Field>
           <div className="rows">
             <Field label="Срок" id="lic-duration"><select id="lic-duration" value={duration} onChange={e => chooseDuration(e.target.value)}>
               <option value="1">1 месяц</option><option value="3">3 месяца</option><option value="6">6 месяцев</option><option value="12">12 месяцев</option><option value="custom">Своя дата</option></select></Field>
@@ -85,7 +85,7 @@ export default function LicenseIssue({ state, reload }: { state: LicensesState; 
       </section>
       <section className="sect" aria-labelledby="lic-ready">
         <h3 id="lic-ready">Готовый ключ</h3>
-        <p className="hint">Передайте ключ администратору компании. Его вставляют в Flux → Настройки → Лицензии.</p>
+        <p className="hint">Передайте ключ администратору организации. Его вставляют в Flux → Настройки → Лицензии.</p>
         <textarea rows={7} readOnly spellCheck={false} aria-label="Готовый ключ" placeholder="Здесь появится подписанная лицензия или список отзыва" value={issued} />
         <div className="rows" style={{ marginTop: 8 }}>
           <Btn tone="primary" disabled={!issued || action.busy} onClick={() => void copy(issued, 'Код скопирован.')}>Скопировать</Btn>
@@ -96,13 +96,13 @@ export default function LicenseIssue({ state, reload }: { state: LicensesState; 
     </div>
     <section className="sect" aria-labelledby="lic-registry">
       <div className="rows"><h3 id="lic-registry" className="grow">Реестр выданных лицензий</h3>
-        <input aria-label="Поиск лицензии" placeholder="Компания, установка, сотрудник" value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} />
+        <input aria-label="Поиск лицензии" placeholder="Организация, установка, сотрудник" value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} />
         <Btn disabled={action.busy || backup || !picked.size} onClick={() => void revoke()}>Отозвать выбранные</Btn></div>
       <table className="tbl" data-testid="license-registry">
-        <thead><tr><th>Выбор</th><th>Компания / установка</th><th>Сотрудники</th><th>Окончание</th><th>Ключ</th></tr></thead>
+        <thead><tr><th>Выбор</th><th>Организация / установка</th><th>Сотрудники</th><th>Окончание</th><th>Ключ</th></tr></thead>
         <tbody>{rows.slice(at * PAGE, (at + 1) * PAGE).map(p => <tr key={p.id}>
           <td><input type="checkbox" checked={picked.has(p.id)} aria-label={`Выбрать лицензию ${p.id}`} onChange={() => setPicked(toggle(picked, p.id))} /></td>
-          <td>{p.org || 'Компания'}<div className="muted mono">{p.inst}</div></td><td>{p.logins.join(', ')}</td>
+          <td>{p.org || 'Организация'}<div className="muted mono">{p.inst}</div></td><td>{p.logins.join(', ')}</td>
           <td>{displayDate(p.exp)}<div>{isRevoked(p) ? <Badge tone="bad">Отозвана</Badge> : p.exp <= Date.now() ? <Badge tone="warn">Истекла</Badge> : <span className="muted">{Math.ceil((p.exp - Date.now()) / 86400000)} дн.</span>}</div></td>
           <td><span className="mono">{p.id}</span><div><Btn onClick={() => void copy(p.code, 'Ключ лицензии скопирован.')}>Копировать</Btn></div></td></tr>)}
           {!rows.length && <tr><td colSpan={5}>Выданных лицензий пока нет.</td></tr>}</tbody></table>

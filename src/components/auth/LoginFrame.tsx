@@ -77,7 +77,7 @@ export default function LoginFrame({ theme, onToggleTheme, title, version, error
         </motion.div>
       </div>
 
-      {/* Сотрудники подключаются к API сервера компании без реквизитов БД. */}
+      {/* Сотрудники подключаются к API сервера Flux без реквизитов БД. */}
       {below}
 
       {/* Версия сборки помогает сообщить поддержку, какая программа установлена. */}

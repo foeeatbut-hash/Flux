@@ -3,7 +3,7 @@ import { getPrisma, sendError, notifyUser } from '../context.js';
 import { readableAccount, addActivity } from '../mail/access.js';
 
 /**
- * Общий ящик компании: работа вдесятером над одной перепиской.
+ * Общий рабочий ящик: работа вдесятером над одной перепиской.
  *
  * Обычный почтовый клиент рассчитан на одного человека, и в общем ящике это
  * сразу видно: десять сотрудников открывают одни и те же письма, не зная, что
@@ -114,7 +114,7 @@ export function registerMailSharedRoutes(app: Express): void {
 
       for (const uid of await othersInThread(acc.id, threadKey, me.id)) {
         await notifyUser(uid, 'ПОЧТА', `${me.name || 'Сотрудник'}: ${labelOf(status)}`,
-          'Общая почта компании', '/mail');
+          'Общая рабочая почта', '/mail');
       }
       res.json({ state: next });
     } catch (err) { sendError(res, err); }

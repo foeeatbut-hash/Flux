@@ -98,5 +98,5 @@ export function modeLabel(mode: string | undefined, dialect: string | undefined)
   const m = String(mode || '').toUpperCase();
   const d = String(dialect || '').toLowerCase();
   const engine = d === 'sqlite' ? 'SQLite' : d === 'mysql' ? 'MySQL' : d === 'postgresql' || d === 'postgres' ? 'PostgreSQL' : d || 'база';
-  return m === 'LOCAL' ? `Локальная · ${engine}` : `Общая база компании · ${engine}`;
+  return m === 'LOCAL' ? `Локальная · ${engine}` : `Общая база · ${engine}`;
 }

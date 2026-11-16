@@ -31,7 +31,7 @@ export function registerUpdateCampaignRoutes(app: Express, deps: UpdateCampaignD
   // Цепочка назначений устройства читается от головы назад: голова лежит в своей
   // строке (она меняется в той же транзакции, что и запись команды), а каждая
   // команда называет предыдущую. Раньше каждые десять секунд каждое устройство
-  // читало ВСЕ команды компании, а за пять тысяч команд все получали отказ.
+  // читало ВСЕ команды, а за пять тысяч команд все получали отказ.
   const commandOf = async (db: any, id: string) => valueOf(await db.appSetting.findUnique({ where: { id: rowId(COMMAND, id) } }));
   const deviceChain = async (db: any, scope: string, deviceId: string, userId: string) => {
     const head = await db.appSetting.findUnique({ where: { id: rowId(HEAD, `${deviceId}:${userId}`) } });

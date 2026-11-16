@@ -11,7 +11,7 @@ export function registerPersonLicenseRoutes(app: Express): void {
     const user = (req as any).authUser;
     if (!user) return res.status(401).json({ error: 'Требуется вход.' });
     try { res.json({ ...await licenseForUser(user), canActivate: canActivate(user) }); }
-    catch (_) { res.status(503).json({ error: 'Не удалось проверить лицензию в базе компании.' }); }
+    catch (_) { res.status(503).json({ error: 'Не удалось проверить лицензию в общей базе.' }); }
   });
 
   app.get('/api/license/request', async (req, res) => {
@@ -37,7 +37,7 @@ export function registerPersonLicenseRoutes(app: Express): void {
 
   app.post('/api/license/activate-key', async (req, res) => {
     const user = (req as any).authUser;
-    if (!canActivate(user)) return res.status(403).json({ error: 'Нет права активации лицензии компании.' });
+    if (!canActivate(user)) return res.status(403).json({ error: 'Нет права активации лицензии.' });
     try {
       const payload = await activatePersonKey(typeof req.body?.code === 'string' ? req.body.code : '');
       res.json({ ...await licenseForUser(user), canActivate: true, activated: { id: payload.id, employees: payload.logins.length, expiresAt: payload.exp } });
@@ -46,7 +46,7 @@ export function registerPersonLicenseRoutes(app: Express): void {
 
   app.get('/api/license/overview', async (req, res) => {
     const user = (req as any).authUser;
-    if (!canActivate(user)) return res.status(403).json({ error: 'Нет права просмотра лицензий компании.' });
+    if (!canActivate(user)) return res.status(403).json({ error: 'Нет права просмотра лицензий.' });
     res.setHeader('Cache-Control', 'no-store');
     try {
       const [snapshot, people] = await Promise.all([installedLicenses(), getPrisma().user.findMany({ where: { role: { not: 'OWNER' } }, select: { id: true, symbol: true, name: true, isActive: true }, orderBy: { symbol: 'asc' } })]);
