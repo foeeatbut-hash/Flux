@@ -1,4 +1,4 @@
-/** Личный оригинал остаётся локальным; общая версия и права живут в базе компании. */
+/** Личный оригинал остаётся локальным; общая версия и права живут в общей базе. */
 import { createHash, randomUUID } from 'node:crypto';
 import { ensureTables, getDialect, type TableSpec } from './ddl.js';
 import { oncePerDatabase } from './schemaRuntime.js';

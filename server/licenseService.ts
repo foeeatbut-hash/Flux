@@ -103,7 +103,7 @@ export async function installedLicenses(): Promise<Snapshot> { return snapshot()
 export async function activatePersonKey(code: string): Promise<LicensePayload> {
   const key = verifiedLicense(code);
   if (!key) throw new Error('Подпись ключа неверна. Скопируйте ключ FLUX2 целиком.');
-  if (key.inst !== await licenseInstallationId()) throw new Error('Ключ выдан для другой установки компании.');
+  if (key.inst !== await licenseInstallationId()) throw new Error('Ключ выдан для другой установки.');
   if (key.exp <= trustedNow()) throw new Error('Срок действия этого ключа уже истёк.');
   const s = await snapshot();
   if (s.revoked?.ids.includes(key.id)) throw new Error('Этот ключ отозван владельцем.');
@@ -149,7 +149,7 @@ export function personLicenseMiddleware(options: { allowed: (method: string, pat
       const state = await licenseForUser(user);
       (req as any).personLicense = state;
       if (state.licensed || (state.readOnly && (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || (req.method === 'POST' && options.readOnlyPost?.(req.path))))) return next();
-      return res.status(402).json({ error: state.readOnly ? 'Лицензия истекла. Доступно только чтение. Обратитесь к владельцу Flux для продления.' : 'Для работы нужна лицензия сотрудника. Обратитесь к администратору компании.', code: 'PERSON_LICENSE_REQUIRED', license: state });
-    } catch (_) { return res.status(503).json({ error: 'Не удалось проверить лицензию в базе компании. Повторите после восстановления связи.', code: 'LICENSE_UNAVAILABLE' }); }
+      return res.status(402).json({ error: state.readOnly ? 'Лицензия истекла. Доступно только чтение. Обратитесь к владельцу Flux для продления.' : 'Для работы нужна лицензия сотрудника. Обратитесь к администратору.', code: 'PERSON_LICENSE_REQUIRED', license: state });
+    } catch (_) { return res.status(503).json({ error: 'Не удалось проверить лицензию в общей базе. Повторите после восстановления связи.', code: 'LICENSE_UNAVAILABLE' }); }
   };
 }

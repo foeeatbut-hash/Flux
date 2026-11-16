@@ -216,7 +216,7 @@ export default function Mail() {
             </span>
           ))}
           <span className="mt-auto fx-note px-2">
-            Ящики подключаются в параметрах — там же общая почта компании.
+            Ящики подключаются в параметрах — там же общая рабочая почта.
           </span>
         </aside>
 

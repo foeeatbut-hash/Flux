@@ -18,7 +18,7 @@ import { WindowDialog } from '../ui/WindowDialog';
 interface Props {
   /** Ящик для правки; пусто — подключаем новый */
   account?: MailAccount | null;
-  /** Может ли этот сотрудник заводить общий ящик компании */
+  /** Может ли этот сотрудник заводить общий рабочий ящик */
   mayShared?: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -228,7 +228,7 @@ export default function MailAccountForm({ account, mayShared = false, onClose, o
                 <div className="grid grid-cols-1 @[440px]:grid-cols-2 gap-2">
                   {([
                     { key: 'PERSONAL', title: 'Мой личный', text: 'Виден только вам. Таких можно завести несколько.' },
-                    { key: 'SHARED', title: 'Общая почта компании', text: 'Видна всем сотрудникам. Настраивается один раз.' },
+                    { key: 'SHARED', title: 'Общая рабочая почта', text: 'Видна всем сотрудникам. Настраивается один раз.' },
                   ] as const).map((o) => (
                     <button
                       key={o.key}

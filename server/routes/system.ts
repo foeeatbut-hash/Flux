@@ -53,7 +53,7 @@ export function registerSystemRoutes(app: Express, deps: SystemDeps): void {
 
   // Готовность сервера: порт начинает слушать только после инициализации БД,
   // так что успешный ответ = приложение полностью готово (для стартовой заставки)
-  // Готовность сервера и его версия: сервер компании обновляют отдельно, и
+  // Готовность сервера и его версия: сервер Flux обновляют отдельно, и
   // программа должна сама заметить, что он старее её (см. server/presence.ts)
   app.get('/api/health', async (_req: Request, res: Response) => {
     const databaseMode = loadAppConfig().current_db_type;

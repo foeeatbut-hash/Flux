@@ -36,7 +36,7 @@ async function native(request: object): Promise<any> {
   if ('error' in result) throw new Error(result.error.message);
   return result.data;
 }
-/** Тот же редактор работает с локальным capability; байты не идут на сервер компании. */
+/** Тот же редактор работает с локальным capability; байты не идут на сервер Flux. */
 export default function LocalOfficeEditor({ app, file, fileRef, load, write, copy, saveHandle }: Props) {
   const frame = useRef<HTMLIFrameElement>(null);
   const io = useRef({ load, write, copy }); io.current = { load, write, copy };

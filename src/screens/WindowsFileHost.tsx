@@ -10,7 +10,7 @@ import { useModalStore } from '../store/modalStore';
 import LocalOfficeEditor from '../components/office/LocalOfficeEditor';
 import { createSerializedStateWriter } from '../lib/serializedStateWriter';
 
-/** Личные байты читаются локальным мостом; адрес API компании здесь не используется. */
+/** Личные байты читаются локальным мостом; адрес API Flux здесь не используется. */
 export default function WindowsFileHost() {
   const location = useLocation();
   const initial = useMemo(() => fileRefFromSearch(location.search), [location.search]);

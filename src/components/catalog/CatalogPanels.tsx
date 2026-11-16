@@ -211,7 +211,7 @@ export function ExchangePanel({ canEdit }: { canEdit: boolean }) {
   };
   return (
     <div className="flex flex-col gap-2 max-w-3xl">
-      <div className="text-xs text-slate-500 dark:text-slate-400">Каталог хранится в общей БД компании. Загрузите пакет и проверьте разницу перед сохранением черновиков. Опубликованные данные сотрудников изменятся только после публикации.</div>
+      <div className="text-xs text-slate-500 dark:text-slate-400">Каталог хранится в общей БД. Загрузите пакет и проверьте разницу перед сохранением черновиков. Опубликованные данные сотрудников изменятся только после публикации.</div>
       <div className="flex gap-2 flex-wrap">
         <Btn onClick={exportAll}><Download className="w-3.5 h-3.5" /> Выгрузить каталог</Btn>
         {canEdit && (

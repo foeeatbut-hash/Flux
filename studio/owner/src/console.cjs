@@ -37,11 +37,11 @@ const MAIN_ACTIONS = ['reportDiagnostic', 'exportDiagnostics', 'chooseSetupFolde
  */
 function createConsoleActions(ctx, request = consoleRequest) {
   const api = (method, route, body = null, binary = false) => {
-    if (!ctx.token()) throw new Error('Подключитесь к общей БД компании.');
+    if (!ctx.token()) throw new Error('Подключитесь к общей БД.');
     return request(ctx.origin(), method, route, { body, token: ctx.token(), binary });
   };
   const needVault = () => { const vault = ctx.vault(); if (!vault) throw new Error('Сначала разблокируйте хранилище.'); if (vault.kind !== 'main') throw new Error('Запасной ключ не подписывает выпуски: откройте основное хранилище.'); return vault; };
-  const need = () => { const vault = needVault(); if (!ctx.token()) throw new Error('Подключитесь к общей БД компании.'); return vault; };
+  const need = () => { const vault = needVault(); if (!ctx.token()) throw new Error('Подключитесь к общей БД.'); return vault; };
   const confirm = async (message, detail) => { if (!await ctx.confirm(message, detail)) throw Object.assign(new Error('Подпись отменена.'), { canceled: true }); };
   const loadRequest = async id => {
     const [{ request: row, signature }, diff, bundle] = await Promise.all([
@@ -150,7 +150,7 @@ function createConsoleActions(ctx, request = consoleRequest) {
       if (!pool.length || pool.length !== chosen.size) throw new Error('Устройство или его профиль изменились. Обновите список.');
       if (pool.length > CAMPAIGN_MAX_TARGETS) throw new Error(`За одно назначение — не больше ${CAMPAIGN_MAX_TARGETS} устройств.`);
       const user = ctx.user();
-      if (!user?.id) throw new Error('Подключитесь к общей БД компании.');
+      if (!user?.id) throw new Error('Подключитесь к общей БД.');
       let groups;
       if (action === 'schedule') {
         const release = state.releases.find(r => r.version === text(a.version, 40));

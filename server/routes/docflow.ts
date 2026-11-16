@@ -135,7 +135,7 @@ export function registerDocflowRoutes(app: Express): void {
   });
 
   // Перенос прежних глобальных стандартов в проекты: план → применение → отмена.
-  // План перечисляет все проекты компании, поэтому он — дело администратора
+  // План перечисляет все проекты, поэтому он — дело администратора
   const adminOnly = (req: Request, res: Response) => {
     if (isAdminActor(actorOf(req))) return true;
     res.status(403).json({ error: 'Перенос стандартов в проекты выполняет администратор' });
