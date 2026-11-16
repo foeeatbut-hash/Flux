@@ -61,7 +61,10 @@ import { useQuickCreate } from '../components/registry/useQuickCreate';
 import { useTagExtractor } from '../components/registry/useTagExtractor';
 import { useRegistryTags } from '../components/registry/useRegistryTags';
 import { useTagTreeOps } from '../components/registry/useTagTreeOps';
-import { saveTagMetadataPatch, rememberVersions } from '../components/registry/tagWrite';
+import { useTagRefusal } from '../components/registry/useTagRefusal';
+import { useRegistryOpenRecords } from '../components/registry/useRegistryOpenRecords';
+import { saveTagMetadataPatch, rememberVersions, deleteTagRequest, lastWriteKeptInput } from '../components/registry/tagWrite';
+import { writeLayoutBatch } from '../components/registry/bulkWrite';
 import { splitSegments } from '../lib/tagExtract';
 import { belongsToProject } from '../lib/coalescedRefresh';
 import TagSearchPanel from '../components/registry/TagSearchPanel';
@@ -756,7 +759,10 @@ export default function Registry() {
     return saveTagMetadataPatch(tag, clean, tagWriteDeps);
   };
   // Свежая копия при конфликте попадает и в открытую карточку, а не только в список
-  const tagWriteDeps = { setTags, addToast, onFresh: (t: any) => setEditingTag((prev: any) => (prev && prev.id === t.id ? { ...prev, ...t, parsedMetadata: undefined } : prev)) };
+  // Отказ записи — перечень «было → стало» в карточке или окном; открытое у этого окна — тег карточки и мини-панели
+  const tagRefusal = useTagRefusal({ tags, dictionaries, editingTagId: editingTag?.id ?? null, loadTags });
+  useRegistryOpenRecords({ cardTagId: editingTag?.id, panelTagId: cardPanel?.tagId });
+  const tagWriteDeps = { setTags, addToast, ...tagRefusal.writeDeps, onFresh: (t: any) => setEditingTag((prev: any) => (prev && prev.id === t.id ? { ...prev, ...t, parsedMetadata: undefined } : prev)) };
   // Поля тега (код, марка, WBS) тоже идут с версией и забирают новую себе: иначе
   // следующая правка комментария ушла бы со старой версией и получила конфликт с собой
   const saveTagFields = (tag: any, fields: Record<string, unknown>) => saveTagMetadataPatch(tag, tag?.metadata, tagWriteDeps, fields);
@@ -767,7 +773,7 @@ export default function Registry() {
     setIsLoading(true);
     try {
       for (const t of tags) {
-        await fetch(`/api/tags/${t.id}`, { method: 'DELETE' });
+        await deleteTagRequest(t);
       }
 
       // 1. Ventilation master
@@ -1625,13 +1631,10 @@ export default function Registry() {
       ? { ...t, metadata: byId.get(t.id), parsedMetadata: undefined }
       : t)));
     for (let i = 0; i < updates.length; i += 500) {
-      const res = await fetch('/api/tags/bulk-metadata', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates: updates.slice(i, i + 500) }),
-      });
+      // Раскладка — только x и y: версию тега она не сверяет; удалённые из пачки убираются (bulkWrite.ts)
+      const res = await writeLayoutBatch(updates.slice(i, i + 500), setTags);
+      if (res.gone) { addToast('Часть тегов уже удалена — список обновлён', 'info'); loadTags(); }
       if (!res.ok) throw new Error('bulk-metadata');
-      rememberVersions((await res.json().catch(() => null))?.versions, setTags);
     }
   };
 
@@ -1767,7 +1770,7 @@ export default function Registry() {
     if (!tag || !code || code === tag.identifier) return;
     if (/[а-яё]/i.test(code)) { addToast('Код тега только на латинице', 'error'); setModalCode(tag.identifier); return; }
     try {
-      if (!await saveTagFields(tag, { identifier: code })) { setModalCode(tag.identifier); return; }
+      if (!await saveTagFields(tag, { identifier: code })) { if (!lastWriteKeptInput()) setModalCode(tag.identifier); return; }
       setTags(prev => prev.map(t => t.id === tagId ? { ...t, identifier: code } : t));
       if (editingTag && editingTag.id === tagId) setEditingTag((prev: any) => prev ? { ...prev, identifier: code } : null);
       flashSaved();
@@ -1818,7 +1821,7 @@ export default function Registry() {
       } : t));
 
       // Версия и только изменившиеся ключи — как в saveTagMetadata (tagWrite.ts)
-      if (!await saveTagMetadataPatch(tag, meta, { setTags, addToast }, { department: updatedDepartment, fluid: updatedFluid })) return;
+      if (!await saveTagMetadataPatch(tag, meta, tagWriteDeps, { department: updatedDepartment, fluid: updatedFluid })) return;
 
       if (editingTag && editingTag.id === tagId) {
         setEditingTag({ ...tag, department: updatedDepartment, fluid: updatedFluid, metadata: JSON.stringify(meta), parsedMetadata: meta });
@@ -1917,6 +1920,7 @@ export default function Registry() {
   // раньше сборщика по сегментам: ему нужна getParentTraceLineage
   const { handleDeleteTag, buildTree, getParentTraceLineage } = useTagTreeOps({
     tags, searchQuery, saveTagMetadata, setEditingTag, setSelectedTagIds, loadTags,
+    names: tagRefusal.names, showRefusal: tagRefusal.showRefusal,
   });
 
   // Re-assign logical parenting
@@ -2516,6 +2520,7 @@ export default function Registry() {
           setEditTagBrand={setEditTagBrand}
           onUpdateBrand={handleUpdateBrand}
           onSaveFields={saveTagFields}
+          refusal={tagRefusal.cardRefusal}
           projectBrands={projectBrands}
           setTags={setTags}
           dictionaries={dictionaries}
@@ -2527,6 +2532,8 @@ export default function Registry() {
           projectId={activeProject?.id || 'default'}
         />
       )}
+
+      {tagRefusal.element}
 
       {exchangeOpen && (
         <ExchangeDialog

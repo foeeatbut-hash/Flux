@@ -304,6 +304,23 @@ export async function inTagTransaction<T>(db: any, fn: (tx: any) => Promise<T>, 
 }
 
 /**
+ * Подготовка для транзакции, которую открывает не `inTagTransaction`, а общая защита
+ * записи (`guardedDelete`, server/versionGuard.ts): таблица истории готовится ДО неё
+ * (см. выше), а клиент транзакции помечается внутри — иначе запись истории
+ * глотала бы ошибку, и тег удалялся бы без следа в истории.
+ */
+export async function prepareTagHistory(prisma: any): Promise<void> {
+  if (isTransactionClient(prisma) || typeof prisma?.$transaction !== 'function' || !isDb(prisma)) return;
+  const why = await ensureTagChangeTable();
+  if (why) throw new Error(why);
+}
+
+/** Клиент, который дала транзакция (а не сам клиент базы — заглушки проверок идут без неё). */
+export function markTagTransaction(db: any, prisma: any): void {
+  if (db !== prisma) markTransactionClient(db);
+}
+
+/**
  * Записать наборы изменений одной операции. Возвращает число записанных строк.
  * Строки одной операции получают время с шагом в миллисекунду: порядок внутри
  * неё стабилен, и при чтении «по времени» они не перемешиваются.

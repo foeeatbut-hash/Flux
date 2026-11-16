@@ -17,6 +17,9 @@ import CustomSelect from '../CustomSelect';
 import { Btn, Status, Dialog } from '../ui';
 import { useToastStore } from '../../store/toastStore';
 import TagComments from './TagComments';
+import { TagRefusalView } from './TagRefusalView';
+import { lastWriteSaved } from './tagWrite';
+import type { TagRefusal } from './tagRefusal';
 import TagVdrDocs from './TagVdrDocs';
 import TagCatalogClass from './TagCatalogClass';
 import { useTagNavigationStore } from '../../store/tagNavigationStore';
@@ -48,6 +51,8 @@ export interface TagCardModalProps {
   onUpdateBrand: (tagId: string, value: string) => Promise<void>;
   /** Запись полей тега (WBS) с версией, которую читал экран: при конфликте тег перечитывается */
   onSaveFields: (tag: any, fields: Record<string, unknown>) => Promise<boolean>;
+  /** Отказ записи этого тега: перечень «было → стало» на месте, набранное в полях остаётся для повтора */
+  refusal: TagRefusal | null;
   projectBrands: string[];
   setTags: React.Dispatch<React.SetStateAction<any[]>>;
   /** Справочники проекта: из «__tag_creation_config__» берутся дополнительные поля */
@@ -63,7 +68,7 @@ export interface TagCardModalProps {
 export default function TagCardModal({
   tag, setEditingTag, loadTags, modalCode, setModalCode, onRenameTag, savedFlash, flashSaved,
   onDeleteTag, modalMainName, setModalMainName, onUpdateMainName, editTagBrand, setEditTagBrand,
-  onUpdateBrand, onSaveFields, projectBrands, setTags, dictionaries, onUpdateDynamicFields, onAddDescription,
+  onUpdateBrand, onSaveFields, refusal, projectBrands, setTags, dictionaries, onUpdateDynamicFields, onAddDescription,
   onUpdateDescription, onRemoveDescription, formatDate, projectId,
 }: TagCardModalProps) {
   const { addToast } = useToastStore();
@@ -103,6 +108,7 @@ export default function TagCardModal({
           {/* Плотнее, чем было: карточку открывают ради одной правки, а
               она требовала прокрутки из-за крупных блоков с отступами */}
           <div className="space-y-3 text-left">
+            <TagRefusalView refusal={refusal} />
             <ModuleLaunchActions entry="tag" entityId={tag.id} projectId={projectId} />
 
             {/* Наименование и актуальность — то, ради чего карточку открыли */}
@@ -128,7 +134,7 @@ export default function TagCardModal({
                 onBlur={async () => {
                   if (modalMainName !== (parseTagMetadata(tag).mainName || '')) {
                     await onUpdateMainName(tag.id, modalMainName);
-                    flashSaved();
+                    if (lastWriteSaved()) flashSaved();
                   }
                 }}
                 className={cardField}
@@ -168,7 +174,7 @@ export default function TagCardModal({
                   onBlur={async () => {
                     if (editTagBrand !== (tag.brand || '')) {
                       await onUpdateBrand(tag.id, editTagBrand);
-                      flashSaved();
+                      if (lastWriteSaved()) flashSaved();
                     }
                   }}
                   className={cardField}
@@ -252,11 +258,11 @@ export default function TagCardModal({
               formatDate={formatDate}
               onAdd={async (text, comment, status) => {
                 await onAddDescription(tag.id, text, comment, status as any);
-                flashSaved();
+                if (lastWriteSaved()) flashSaved();
               }}
               onUpdate={async (id, patch) => {
                 await onUpdateDescription(tag.id, id, patch as any);
-                flashSaved();
+                if (lastWriteSaved()) flashSaved();
               }}
               onRemove={(id) => onRemoveDescription(tag.id, id)}
             />

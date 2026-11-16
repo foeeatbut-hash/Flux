@@ -38,6 +38,9 @@ export const NOUN_OF_MODEL: Record<string, RefusalNoun> = {
   ComponentElement: 'position',
   EquipmentSystem: 'system',
   Monoblock: 'block',
+  Tag: 'tag',
+  DocRegister: 'register',
+  DocRegisterItem: 'registerItem',
 };
 
 /** Делегат клиента → имя модели: `componentElement` → `ComponentElement` */

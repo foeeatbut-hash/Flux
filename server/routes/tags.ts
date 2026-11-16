@@ -15,13 +15,15 @@ import { canReadFile } from '../fileAccess.js';
 import { canSeeProject, hiddenProjectsOf } from './members.js';
 import { bumpElementsOfTags } from '../equipmentVersion.js';
 import { keepVersion } from '../versionBump.js';
-import { expectedVersionOf, guardedWrite, guardedDelete, sendRecordGone } from '../versionGuard.js';
+import { expectedVersionOf, guardedWrite, guardedDelete, sendRecordGone, sendGuardRefusal } from '../versionGuard.js';
 import { staleElement, staleSystemDelete, badVersion } from '../equipmentStale.js';
+import { deleteChangedText } from '../../src/lib/refusalTexts.js';
 import { sendEquipmentRefusal, systemCascade } from '../equipmentRefusal.js';
 import { writeTag, writeTags, metadataPatchOf, tagWriteFailure, tagFailure, assertFreeTagCode } from '../tagWrite.js';
 import { tagCodeKey, withCodeKey, isCodeKeyViolation } from '../tagCodeKey.js';
 import {
   TAG_SOURCE, tagChangeContext, recordChangeSets, recordTagCreated, recordTagUpdate, recordTagDeleted, inTagTransaction,
+  prepareTagHistory, markTagTransaction,
   updateSet, createdSet, deletedSet, type TagChangeSet,
 } from '../tagHistory.js';
 
@@ -48,6 +50,9 @@ async function mayUseProject(req: Request, projectId: string): Promise<boolean> 
   return canSeeProject(String(me?.id || ''), projectId, isPrivilegedUser(me));
 }
 const NO_PROJECT = { error: 'Нет доступа к проекту. Попросите добавить вас в состав.' };
+
+/** Сколько тегов разрешено изменить одним массовым запросом */
+const BULK_TAG_LIMIT = 2000;
 
 export function registerTagRoutes(app: Express, deps: TagDeps): void {
   const { io, notifyAll } = deps;
@@ -456,18 +461,34 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
   // (server/tagWrite.ts): раньше экран «Закупки» присылал metadata целиком, и
   // каждая смена этапа у N позиций заодно стирала чужие комментарии.
   // `source: 'Закупки'` сужает запрос до ключа procurement — остальное он не тронет.
+  //
+  // Каждая запись несёт `version` (updatedAt, как её видел экран). Хоть одну запись
+  // изменили или удалили — 409 `VERSION_CONFLICT` с перечнем `changed: [{ id, current }]` и
+  // `gone: [id]`, не записано ничего. Запись без версии не сверяется (слияние её защищает);
+  // перенос карточек (x, y, _noPos) версию не сверяет никогда. Больше 2000 записей — 400:
+  // молчаливый срез терял хвост пачки.
   app.put('/api/tags/bulk-metadata', async (req: Request, res: Response) => {
     const prisma = getPrisma();
-    const { updates, source } = req.body as { updates: { id: string; metadata: unknown }[]; source?: string };
+    const { updates, source } = (req.body || {}) as { updates: { id: string; metadata: unknown; version?: unknown }[]; source?: string };
     if (!Array.isArray(updates) || updates.length === 0) {
       return res.status(400).json({ error: 'updates[] required' });
     }
-    const limited = updates.slice(0, 2000);
+    if (updates.length > BULK_TAG_LIMIT) {
+      return res.status(400).json({ error: `За один раз можно изменить не больше ${BULK_TAG_LIMIT} тегов, прислано ${updates.length}. Ничего не записано — разбейте действие на части.` });
+    }
+    const ids = updates.map((u) => String(u?.id ?? ''));
+    if (ids.some((id) => !id) || new Set(ids).size !== ids.length) {
+      return res.status(400).json({ error: 'Каждый тег должен быть назван один раз. Ничего не записано.' });
+    }
     const procurement = source === TAG_SOURCE.procurement;
     try {
-      const { results, missing } = await writeTags(prisma, limited.map(u => ({
+      const { results } = await writeTags(prisma, updates.map(u => ({
         id: String(u.id),
-        input: { metadata: metadataPatchOf(u.metadata), onlyKeys: procurement ? ['procurement'] : undefined },
+        input: {
+          metadata: metadataPatchOf(u.metadata),
+          onlyKeys: procurement ? ['procurement'] : undefined,
+          version: u.version === undefined ? undefined : (u.version === null ? null : String(u.version)),
+        },
       })), {
         // Раскладка карточек сюда тоже приходит, но координаты правкой не считаются.
         // История — в транзакции записи: не записалась она, не записались и теги
@@ -475,8 +496,9 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           done.filter(r => !r.unchanged).map(r => updateSet(r.before, r.tag))).then(() => undefined),
       });
       emitEntitiesChanged('tag', results.filter(r => !r.unchanged).map(r => r.tag.id), req);
-      // Новые версии — чтобы экран не держал устаревшую после собственной записи
-      res.json({ success: true, updated: results.length, missing, versions: results.map(r => ({ id: r.tag.id, updatedAt: r.tag.updatedAt })) });
+      // Новые версии — чтобы экран не держал устаревшую после собственной записи.
+      // `missing` оставлен пустым для прежних клиентов: удалённый тег теперь отказ, а не пропуск
+      res.json({ success: true, updated: results.length, missing: [], versions: results.map(r => ({ id: r.tag.id, updatedAt: r.tag.updatedAt })) });
     } catch (err: any) {
       const known = tagWriteFailure(err);
       if (known) return res.status(known.status).json(known.body);
@@ -486,7 +508,8 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
 
   // Правка тега. metadata СЛИВАЕТСЯ с текущей по верхним ключам (null удаляет ключ),
   // а `version` (updatedAt, как его прочитал экран) защищает от затирания чужой правки:
-  // тег изменился — ответ 409 с текущим тегом. Подробности — server/tagWrite.ts.
+  // тег изменился — 409 `VERSION_CONFLICT` с текущим тегом в `current`, тега нет — 404
+  // `RECORD_GONE`. Подробности — server/tagWrite.ts.
   app.put('/api/tags/:id', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     const { identifier, department, wbs, fluid, metadata, equipmentId, brand, version } = req.body;
@@ -502,6 +525,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       if (!unchanged) emitEntityChanged('tag', tag.id, req);
       res.json({ tag });
     } catch (err: any) {
+      if (sendGuardRefusal(res, err)) return;
       const known = tagWriteFailure(err);
       if (known) return res.status(known.status).json(known.body);
       res.status(500).json({ error: err.message });
@@ -776,20 +800,41 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
   });
 
   // Delete tag
+  //
+  // Что уходит вместе с тегом. Только сама запись и её связи с позициями и файлами (в
+  // связующих таблицах); версия позиций, державших тег, растёт (`bumpElementsOfTags`).
+  // Дочерние теги и связанные по схеме НЕ удаляются: родитель и связи лежат в их metadata
+  // (`parentId`, `connections`), и экран снимает их отдельными правками до удаления. Строки
+  // ВДР тоже остаются, связь с ними держится за id и помечена копией кода. Поэтому защита
+  // открытой записи смотрит только сам тег, без вложенных.
+  //
+  // Версия — целая `version` записи в `?expectedVersion=` (у DELETE тела нет). Нет записи —
+  // 200 `alreadyGone`: удалить удалённое не ошибка. История — в той же транзакции.
   app.delete('/api/tags/:id', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     try {
-      const gone = await prisma.tag.findUnique({ where: { id: req.params.id } });
-      if (!gone) return res.status(404).json({ error: 'Тег не найден' });
-      await inTagTransaction(prisma, async (tx: any) => {
-        await bumpElementsOfTags(tx, [gone.id]);
-        await tx.tag.delete({ where: { id: req.params.id } });
-        // История удалённого тега остаётся: таблица с тегом не связана; пишется в той же транзакции
-        await recordTagDeleted(tx, tagChangeContext(req, gone.projectId, TAG_SOURCE.tags), gone);
+      const expectedVersion = expectedVersionOf(req.query.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
+      await prepareTagHistory(prisma);
+      const done = await guardedDelete(prisma, {
+        model: 'tag', id: req.params.id, expectedVersion,
+        staleMessage: (current: any) => deleteChangedText('tag', current?.identifier),
+        // Тег, открытый у коллеги в карточке или мини-панели, не удаляется
+        openCheck: { userId: String((req as any).authUser?.id || ''), nameOf: (row: any) => String(row?.identifier || '').trim() },
+        before: async (db: any, current: any) => {
+          markTagTransaction(db, prisma);
+          await bumpElementsOfTags(db, [current.id]);
+          // История удалённого тега остаётся: таблица с тегом не связана; не записалась она — не удалился и тег
+          await recordTagDeleted(db, tagChangeContext(req, current.projectId, TAG_SOURCE.tags), current);
+        },
       });
-      emitEntityChanged('tag', gone.id, req);
+      if (!done) return res.json({ success: true, alreadyGone: true });
+      emitEntityChanged('tag', done.before.id, req);
       res.json({ success: true });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) {
+      if (sendGuardRefusal(res, err)) return;
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // GET component element history logs

@@ -16,12 +16,17 @@ import type { DocflowConfig } from '../shared/docflow/config.js';
 import { readSettings } from './docflowSettings.js';
 import { codesOfItem } from './vdrTags.js';
 import { inTransaction } from './vdrWrite.js';
+import { bumpedData } from './versionBump.js';
+import { racedText } from '../src/lib/refusalTexts.js';
 import { projectBindingsOf } from './routes/projectFolderBindings.js';
 import { validDay, validTimeZone, dayToInstant, instantToDay, responseDeadline } from '../shared/docflow/revisions.js';
 
 export class LinkError extends Error {
   constructor(message: string, readonly status = 400, readonly extra: Record<string, unknown> = {}) { super(message); this.name = 'LinkError'; }
 }
+
+/** Сколько раз повторить расчёт статуса возврата, если строку тем временем правят */
+const RETURN_ATTEMPTS = 4;
 
 const iso = (d: any) => (d ? new Date(d).toISOString() : null);
 
@@ -189,16 +194,26 @@ export async function createLink(prisma: any, input: CreateLinkInput, actorId: s
 async function applyReturn(db: any, ctx: ItemContext, toLink: any, made: any, input: CreateLinkInput): Promise<ReturnEffect | undefined> {
   const { config } = await readSettings(db, ctx.projectId);
   const rule = statusAfterReview(config, String(input.reviewCode));
-  const item = await db.docRegisterItem.findUnique({ where: { id: ctx.item.id } });
-  if (toLink.revision !== item.revision) return undefined;
-  const newer = await db.docFileLink.findFirst({ where: { itemId: item.id, role: 'remarks', unlinkedAt: null, id: { not: made.id }, receivedAt: { gt: dayToInstant(String(input.receivedAt)) }, reviewCode: { not: '' } } });
-  if (newer) return undefined;
-  const data: any = { reviewCode: String(input.reviewCode) };
-  if (rule.status) data.status = rule.status;
-  if (rule.days > 0) data.dueDate = responseDeadline(String(input.receivedAt), rule.days, String(input.timeZone));
-  else if (rule.accept) data.dueDate = null;
-  const written = await db.docRegisterItem.update({ where: { id: item.id }, data });
-  return { status: written.status, previousStatus: item.status, dueDate: iso(written.dueDate), reviewCode: written.reviewCode, assigneeId: written.assigneeId || null, title: written.contractorNo || written.titleRu || written.titleEn || 'документ' };
+  // «Сравни и поменяй» по собственному чтению: строку правит и коллега, и безусловная запись затёрла бы его
+  // правку статуса, срока или исполнителя. Проигранная гонка — перечитать и посчитать заново (в SQLite
+  // транзакции идут по очереди, в PostgreSQL и MariaDB — читают снимок, и перечитывание видит победителя)
+  for (let attempt = 1; attempt <= RETURN_ATTEMPTS; attempt++) {
+    const item = await db.docRegisterItem.findUnique({ where: { id: ctx.item.id } });
+    if (!item) throw new LinkError('Строка реестра уже удалена. Связь не создана.', 404);
+    if (toLink.revision !== item.revision) return undefined;
+    const newer = await db.docFileLink.findFirst({ where: { itemId: item.id, role: 'remarks', unlinkedAt: null, id: { not: made.id }, receivedAt: { gt: dayToInstant(String(input.receivedAt)) }, reviewCode: { not: '' } } });
+    if (newer) return undefined;
+    const data: any = { reviewCode: String(input.reviewCode) };
+    if (rule.status) data.status = rule.status;
+    if (rule.days > 0) data.dueDate = responseDeadline(String(input.receivedAt), rule.days, String(input.timeZone));
+    else if (rule.accept) data.dueDate = null;
+    const swapped = await db.docRegisterItem.updateMany({ where: { id: item.id, version: item.version }, data: bumpedData(data) });
+    if (swapped.count !== 1) continue;
+    const written = await db.docRegisterItem.findUnique({ where: { id: item.id } });
+    return { status: written.status, previousStatus: item.status, dueDate: iso(written.dueDate), reviewCode: written.reviewCode, assigneeId: written.assigneeId || null, title: written.contractorNo || written.titleRu || written.titleEn || 'документ' };
+  }
+  // Строку меняют без перерыва: связь не создаётся (транзакция откатывается), человек повторяет действие
+  throw new LinkError(racedText(), 409);
 }
 
 /**

@@ -28,8 +28,12 @@
  * присылают уже выпущенные клиенты.
  */
 
-import { VersionConflict, inTransaction, guardedWrite } from './versionGuard.js';
+import { VersionConflict, RecordGone, inTransaction, guardedWrite } from './versionGuard.js';
 import { bumpedData } from './versionBump.js';
+import type { RefusalNoun } from '../src/lib/refusalTexts.js';
+
+/** Как зовётся запись в словаре отказов: проигранная гонка с удалением отвечает «записи уже нет» */
+const NOUN_OF_DELEGATE: Record<'docRegister' | 'docRegisterItem', RefusalNoun> = { docRegister: 'register', docRegisterItem: 'registerItem' };
 
 export { inTransaction };
 
@@ -85,7 +89,7 @@ interface GuardedUpdate<R> {
  * здесь ВДР добавляет сверку по `updatedAt`, которую шлёт клиент.
  */
 export async function guardedUpdate<R = undefined>(prisma: any, opts: GuardedUpdate<R>): Promise<{ before: any; after: any; extra?: R } | null> {
-  return guardedWrite<R>(prisma, { ...opts, matchUpdatedAt: true });
+  return guardedWrite<R>(prisma, { ...opts, matchUpdatedAt: true, goneNoun: NOUN_OF_DELEGATE[opts.model] });
 }
 
 /**
@@ -123,6 +127,8 @@ export async function guardedIssue<R>(prisma: any, opts: {
     if (!(e instanceof RaceLost)) throw e;
     // Проигравший гонку: победитель уже записан, его и называем в отказе
     const fresh = await prisma[opts.model].findUnique({ where: { id: opts.id } });
-    throw new VdrConflict(fresh ? await opts.staleMessage(prisma, fresh) : 'Запись уже изменили.', fresh);
+    // Победитель запись удалил: говорим «записи нет», а не «изменили» с пустой записью
+    if (!fresh) throw new RecordGone(NOUN_OF_DELEGATE[opts.model]);
+    throw new VdrConflict(await opts.staleMessage(prisma, fresh), fresh);
   }
 }

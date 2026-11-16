@@ -26,17 +26,11 @@ import { useProjectDocs } from '../docflow/useProjectDocs';
 import { useBindingLedger } from '../explorer/useProjectFolderBindings';
 import type { PickRow } from '../docflow/RowPicker';
 import type { WindowsFileRef } from '../../lib/windowsFiles';
-
-/**
- * Ответ сервера «запись уже изменили» (409): показать его текст и отдать
- * текущую запись, чтобы экран перечитал её, а не затёр чужую правку своей.
- * Любой другой ответ — `null`, его разбирает вызывающий.
- */
-async function conflictOf(r: Response): Promise<{ message: string; current: any } | null> {
-  if (r.status !== 409) return null;
-  const d = await r.json().catch(() => ({}));
-  return { message: d.error || 'Запись уже изменили. Данные обновлены.', current: d.current || null };
-}
+// Запись: версия, отказ с перечнем «было → стало», набранное цело, открытая запись (docs/methodology/03-programs/docflow.md)
+import { sendVdr, refusalOf, needsReread, keepTyped, bulkWriteRows, type VdrRefusal } from './vdrWrite';
+import { itemChanges, registerChanges, vdrNames } from './changeRules';
+import { VdrRefusalView, useVdrRefusalDialog } from './VdrRefusal';
+import { useVdrItemOpen, useVdrRegisterOpen } from './useVdrOpenRecords';
 
 // Диалоги программы вместо системных окон Windows
 const { openPrompt } = useModalStore.getState();
@@ -148,6 +142,8 @@ export default function VdrPanel() {
   const register = registers.find(r => r.id === regId) || null;
   const standard = projectStandard || standards.find(s => s.id === register?.standardId) || standards[0] || null;
   const STATUS_META = statusMetaOf(standard);
+  const refusalDialog = useVdrRefusalDialog((text, kind) => addToast(text, kind));
+  const names = vdrNames({ users, statusMeta: STATUS_META, columns: register?.columnsConfig, standards });
 
   const loadRegisters = async (): Promise<Register[]> => {
     try {
@@ -194,7 +190,8 @@ export default function VdrPanel() {
       setRegId(chosen);
       await loadItems(chosen);
       setLoading(false);
-      fetch('/api/users').then(r => r.ok ? r.json() : { users: [] }).then(d => setUsers((d.users || []).filter((u: any) => u.isActive !== false))).catch(() => {});
+      // Служба отдаёт список людей массивом, а не `{ users }`: без этого выбор исполнителя и подписантов был пуст
+      fetch('/api/users').then(r => r.ok ? r.json() : []).then(d => setUsers((Array.isArray(d) ? d : d.users || []).filter((u: any) => u.isActive !== false))).catch(() => {});
       fetch('/api/vdr/standards').then(r => r.ok ? r.json() : { standards: [] }).then(d => setStandards(d.standards || [])).catch(() => {});
       loadProjectSettings();
       void loadProjectTags(projectId);
@@ -255,14 +252,13 @@ export default function VdrPanel() {
   };
 
   const patchItem = async (id: string, body: any, okMsg?: string) => {
-    // Версия — та, что строка показана на экране: чужая правка между ними даст 409
-    const expectedUpdatedAt = items.find(x => x.id === id)?.updatedAt;
-    const r = await fetch(`/api/vdr/items/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, expectedUpdatedAt }) });
-    if (r.ok) { if (okMsg) addToast(okMsg, 'success'); await refresh(); return; }
-    const conflict = await conflictOf(r);
-    if (conflict) { addToast(conflict.message, 'error'); await refresh(); return; }
-    const d = await r.json().catch(() => ({}));
-    addToast(d.error || 'Ошибка', 'error');
+    // Версия — та, что строка показана на экране: чужая правка между ними даст отказ с перечнем
+    const shown = items.find(x => x.id === id);
+    const result = await sendVdr(`/api/vdr/items/${id}`, 'PUT', { ...body, expectedUpdatedAt: shown?.updatedAt });
+    if (result.kind === 'ok') { if (okMsg) addToast(okMsg, 'success'); await refresh(); return; }
+    const refusal = refusalOf(result, (cur) => itemChanges(shown, cur, names), 'Ошибка');
+    if (refusal) refusalDialog.show('Правка не записана', refusal);
+    if (needsReread(result)) await refresh();
   };
 
   /**
@@ -287,16 +283,13 @@ export default function VdrPanel() {
       addToast('Ни одного названия не удалось перевести — пополните словарь в Переводчике', 'error');
       return;
     }
-    for (const d of done) {
-      await fetch(`/api/vdr/items/${d.id}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ titleEn: d.en }),
-      });
-    }
-    await useTranslateStore.getState().remember(
-      done.map((d) => ({ src: d.ru, dst: d.en, from: 'ru' as const, to: 'en' as const })),
-    );
-    addToast(`Заполнено английских названий: ${done.length} из ${empty.length}. Прочитайте их перед выпуском`, 'success');
+    // Каждая строка — с версией, которую экран показывал; записано ровно то, что приняли
+    const report = await bulkWriteRows(done.map((d) => ({ shown: items.find((i) => i.id === d.id)!, body: { titleEn: d.en } })), names);
+    const accepted = new Set(report.written);
+    const taught = done.filter((d) => accepted.has(d.id));
+    if (taught.length) await useTranslateStore.getState().remember(taught.map((d) => ({ src: d.ru, dst: d.en, from: 'ru' as const, to: 'en' as const })));
+    if (taught.length) addToast(`Заполнено английских названий: ${taught.length} из ${empty.length}. Прочитайте их перед выпуском`, 'success');
+    if (report.refusal) refusalDialog.show('Названия записаны не все', report.refusal);
     await refresh();
   };
 
@@ -332,15 +325,12 @@ export default function VdrPanel() {
     if (!register) return;
     const description = await openPrompt('Новая ревизия ВДР', `Текущая ревизия — ${register.revision}. Опишите, что изменилось.`, 'Например: уточнены сроки поставки');
     if (description === null) return;
-    const r = await fetch(`/api/vdr/registers/${register.id}/revision-up`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ description, expectedRevision: register.revision }),
-    });
-    if (r.ok) { const d = await r.json(); addToast(`ВДР → ревизия ${d.register.revision}`, 'success'); refresh(); return; }
+    const result = await sendVdr(`/api/vdr/registers/${register.id}/revision-up`, 'POST', { description, expectedRevision: register.revision });
+    if (result.kind === 'ok') { addToast(`ВДР → ревизия ${result.data.register.revision}`, 'success'); refresh(); return; }
     // Ревизию уже выпустили: назвать кто, перечитать реестр и не выпускать вторую
-    const conflict = await conflictOf(r);
-    if (conflict) { addToast(conflict.message, 'error'); refresh(); return; }
-    const d = await r.json().catch(() => ({}));
-    addToast(d.error || 'Не удалось выпустить ревизию ВДР', 'error');
+    const refusal = refusalOf(result, (cur) => registerChanges(register, cur, names), 'Не удалось выпустить ревизию ВДР');
+    if (refusal) refusalDialog.show('Ревизия ВДР не выпущена', refusal);
+    if (needsReread(result)) refresh();
   };
 
   const createRegister = async () => {
@@ -354,9 +344,13 @@ export default function VdrPanel() {
   };
 
   const bulkAssign = async (userId: string) => {
-    for (const id of selected) await fetch(`/api/vdr/items/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assigneeId: userId || null }) });
-    addToast(`Исполнитель назначен: ${countOf(selected.size, 'строка')}`, 'success');
-    setSelected(new Set()); refresh();
+    // Каждая строка — с версией, которую экран показывал; что записано и что нет — перечнем по строкам
+    const rows = [...selected].map(id => items.find(x => x.id === id)).filter((x): x is Item => !!x).map(shown => ({ shown, body: { assigneeId: userId || null } }));
+    const report = await bulkWriteRows(rows, names);
+    if (report.written.length) addToast(`Исполнитель назначен: ${countOf(report.written.length, 'строка')}`, 'success');
+    if (report.refusal) refusalDialog.show('Исполнитель назначен не всем', report.refusal);
+    // Выбор остаётся на тех, кому не записано: прочитав перечень, действие повторяют
+    setSelected(new Set(report.refusedIds.filter(id => !report.goneIds.includes(id)))); refresh();
   };
 
   const codes = useMemo(() => [...new Set(items.map(i => i.vdrCode).filter(Boolean))].sort(), [items]);
@@ -566,6 +560,7 @@ export default function VdrPanel() {
         <RegisterSettings register={register} standards={standards} users={users}
           onClose={() => setRegSettingsOpen(false)} onChanged={refresh} />
       )}
+      {refusalDialog.element}
     </div>
   );
 }
@@ -596,13 +591,24 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
   // (правка — по updatedAt, выпуск — по ревизии); не поле формы, чтобы ручная
   // правка ревизии не подменяла «что я видел»
   const seen = useRef({ revision: item.revision, updatedAt: item.updatedAt });
-  const remember = (it: Item) => { seen.current = { revision: it.revision, updatedAt: it.updatedAt }; };
-  // Чужая правка опередила нас: показать причину и взять строку с сервера
-  const takeConflict = (c: { message: string; current: any }) => {
-    addToast(c.message, 'error');
-    if (c.current?.item) { setF(c.current.item); remember(c.current.item); }
-    if (item.id) fetch(`/api/vdr/items/${item.id}/revisions`).then(x => x.ok ? x.json() : { revisions: [] }).then(x => setRevisions(x.revisions || [])).catch(() => {});
-    onChanged();
+  // Строка, какой её видела карточка: с ней сравнивается запись из отказа, по ней видно, что человек набрал сам
+  const base = useRef<Item>(item);
+  const remember = (it: Item) => { seen.current = { revision: it.revision, updatedAt: it.updatedAt }; base.current = it; };
+  const [refusal, setRefusal] = useState<VdrRefusal | null>(null);
+  const names = vdrNames({ users, statusMeta: STATUS_META, columns: register.columnsConfig });
+  useVdrItemOpen(item.id);
+  // Запись не принята: причина и перечень «было → стало» на месте, набранное цело. Запись для
+  // сравнения берётся ДО перечитывания; нетронутые поля берут текущие значения (иначе повторное
+  // «Сохранить» вернуло бы чужую правку к старому), версия для повтора — из текущей записи
+  const refuseWrite = (result: import('../equipment/versionedWrite').WriteResult, fallback: string) => {
+    const was = base.current;
+    setRefusal(refusalOf(result, (cur) => itemChanges(was, cur, names), fallback));
+    if (result.kind === 'conflict' && result.current?.id) {
+      const cur = result.current as Item;
+      setF(s => keepTyped(was, s, cur)); remember(cur);
+      if (item.id) fetch(`/api/vdr/items/${item.id}/revisions`).then(x => x.ok ? x.json() : { revisions: [] }).then(x => setRevisions(x.revisions || [])).catch(() => {});
+    }
+    if (needsReread(result)) onChanged();
   };
 
   useEffect(() => {
@@ -627,44 +633,39 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
         extra: f.extra,
         ...(isNew ? {} : { expectedUpdatedAt: seen.current.updatedAt }),
       };
-      const r = await fetch(isNew ? '/api/vdr/items' : `/api/vdr/items/${item.id}`, {
-        method: isNew ? 'POST' : 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      });
-      if (!r.ok) {
-        const conflict = await conflictOf(r);
-        if (conflict) { takeConflict(conflict); return; }
-        const d = await r.json().catch(() => ({})); addToast(d.error || 'Ошибка', 'error'); return;
-      }
+      setRefusal(null);
+      const result = await sendVdr(isNew ? '/api/vdr/items' : `/api/vdr/items/${item.id}`, isNew ? 'POST' : 'PUT', body);
+      if (result.kind !== 'ok') { refuseWrite(result, 'Ошибка'); return; }
       addToast('Сохранено', 'success');
       // Следующее сохранение этой же карточки ждёт уже новую версию, а не свою прошлую запись
-      if (!isNew) { const d = await r.json().catch(() => ({})); if (d.item) remember(d.item); }
+      if (!isNew && result.data.item) remember(result.data.item);
       onChanged(); if (isNew) onClose();
     } finally { setBusy(false); }
   };
 
   const setReviewCode = async (code: string) => {
     if (isNew) { setF(s => ({ ...s, reviewCode: code })); return; }
-    const r = await fetch(`/api/vdr/items/${item.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewCode: code, expectedUpdatedAt: seen.current.updatedAt }) });
-    if (r.ok) { const d = await r.json(); setF(d.item); remember(d.item); onChanged(); addToast(`Код ${code}: статус и срок обновлены`, 'success'); return; }
-    const conflict = await conflictOf(r);
-    if (conflict) takeConflict(conflict);
+    setRefusal(null);
+    const result = await sendVdr(`/api/vdr/items/${item.id}`, 'PUT', { reviewCode: code, expectedUpdatedAt: seen.current.updatedAt });
+    if (result.kind === 'ok') {
+      // Статус и срок по коду пришли с сервера, а то, что человек уже набрал в карточке, остаётся
+      const was = base.current;
+      setF(s => keepTyped(was, s, result.data.item)); remember(result.data.item); onChanged(); addToast(`Код ${code}: статус и срок обновлены`, 'success'); return;
+    }
+    refuseWrite(result, 'Ошибка');
   };
 
   const issueRevision = async () => {
     if (!revDialog || isNew) return;
     setBusy(true);
     try {
-      const r = await fetch(`/api/vdr/items/${item.id}/issue-revision`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: revDialog, place: revPlace, description: revDesc, expectedRevision: seen.current.revision }),
-      });
-      if (!r.ok) {
-        const conflict = await conflictOf(r);
-        if (conflict) { setRevDialog(null); takeConflict(conflict); return; }
-        addToast('Не удалось выпустить ревизию', 'error'); return;
-      }
-      const d = await r.json();
-      setF(d.item); remember(d.item);
+      setRefusal(null);
+      const result = await sendVdr(`/api/vdr/items/${item.id}/issue-revision`, 'POST',
+        { kind: revDialog, place: revPlace, description: revDesc, expectedRevision: seen.current.revision });
+      if (result.kind !== 'ok') { setRevDialog(null); refuseWrite(result, 'Не удалось выпустить ревизию'); return; }
+      const d = result.data;
+      const was = base.current;
+      setF(s => keepTyped(was, s, d.item)); remember(d.item);
       setRevDialog(null); setRevPlace(''); setRevDesc('');
       addToast(`Ревизия ${d.item.revision}`, 'success');
       fetch(`/api/vdr/items/${item.id}/revisions`).then(x => x.json()).then(x => setRevisions(x.revisions || []));
@@ -831,6 +832,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
           )}
         </div>
 
+        {refusal && <div data-card-refusal className="px-4 pt-2 shrink-0 max-h-48 overflow-y-auto"><VdrRefusalView refusal={refusal} /></div>}
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
           <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Закрыть</button>
           <button type="button" onClick={save} disabled={busy || !canEdit} className="fx-btn fx-btn-primary">
@@ -872,6 +874,14 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
   const [cols, setCols] = useState<ColumnDef[]>(register.columnsConfig || []);
   // Версия реестра на момент открытия формы: форма показывает именно её, даже если реестр на экране обновился
   const openedAt = useRef(register.updatedAt);
+  // Реестр, какой его видела форма: с ним сравнивается запись из отказа
+  const base = useRef<Register>(register);
+  const [refusal, setRefusal] = useState<VdrRefusal | null>(null);
+  // Отказ и кнопки внизу длинной формы: после отказа прокручиваем так, чтобы были видны оба
+  const footerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (refusal) footerRef.current?.scrollIntoView({ block: 'end' }); }, [refusal]);
+  useVdrRegisterOpen(register.id);
+  const names = vdrNames({ users, standards });
   const [newCol, setNewCol] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -887,13 +897,22 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
       for (const k of ['preparedById', 'checkedById', 'approvedById']) body[k] = String(f[k] ?? '');
       body.standardId = f.standardId || null;
       body.managerId = f.managerId || null;
-      const r = await fetch(`/api/vdr/registers/${register.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (!r.ok) {
-        // Реквизиты уже поправил коллега: форма закрывается, экран перечитывает
-        // реестр, и человек правит поверх его версии, а не затирает её
-        const conflict = await conflictOf(r);
-        if (conflict) { addToast(conflict.message, 'error'); onChanged(); onClose(); return; }
-        addToast('Ошибка сохранения', 'error'); return;
+      setRefusal(null);
+      const result = await sendVdr(`/api/vdr/registers/${register.id}`, 'PUT', body);
+      if (result.kind !== 'ok') {
+        // Реквизиты уже поправил коллега: форма остаётся открытой с тем, что набрано, под ней — что
+        // изменилось. Нетронутые поля берут текущие значения, версия для повтора — из текущей записи
+        const was = base.current;
+        setRefusal(refusalOf(result, (cur) => registerChanges(was, cur, names), 'Ошибка сохранения'));
+        if (result.kind === 'conflict' && result.current?.id) {
+          const cur = result.current as Register;
+          const typedCols = JSON.stringify(cols) !== JSON.stringify(was.columnsConfig || []);
+          setF((s: any) => keepTyped(was as any, s, cur as any));
+          if (!typedCols) setCols(cur.columnsConfig || []);
+          openedAt.current = cur.updatedAt; base.current = { ...was, ...cur };
+        }
+        if (needsReread(result)) onChanged();
+        return;
       }
       addToast('Реквизиты сохранены', 'success');
       onChanged(); onClose();
@@ -1008,9 +1027,12 @@ function RegisterSettings({ register, standards, users, onClose, onChanged }: {
           </div>
         </div>
 
+        <div ref={footerRef} className="space-y-3">
+        {refusal && <div data-register-refusal><VdrRefusalView refusal={refusal} /></div>}
         <div className="flex items-center justify-end gap-2 pt-1">
           <button type="button" onClick={onClose} className="px-3.5 py-2 rounded-lg text-xs font-semibold text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer">Отмена</button>
           <button type="button" onClick={save} disabled={busy} className="fx-btn fx-btn-primary">Сохранить</button>
+        </div>
         </div>
       </WindowDialog>
   );

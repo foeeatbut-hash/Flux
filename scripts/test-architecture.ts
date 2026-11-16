@@ -591,8 +591,9 @@ console.log('\n10. Запись в версионные модели не обх
     return out;
   };
   const guarded = tally((_rel, src) => callsOf(src).filter((c) => /\bopenCheck\s*:/.test(c)).length);
-  ok('guardedDelete: защита открытой записи стоит у удаления позиции и установки',
-    guarded['server/routes/equipmentEdit.ts'] === 1 && guarded['server/routes/tags.ts'] === 1, guarded);
+  // Позиция; установка и тег; реестр ВДР и его строка. Убрали защиту у одного из них — число упадёт
+  ok('guardedDelete: защита открытой записи стоит у удаления позиции, установки, тега, реестра и строки ВДР',
+    guarded['server/routes/equipmentEdit.ts'] === 1 && guarded['server/routes/tags.ts'] === 2 && guarded['server/routes/vdr.ts'] === 2, guarded);
   compare('guardedDelete без openCheck', tally((_rel, src) => callsOf(src).filter((c) => !/\bopenCheck\s*:/.test(c)).length), {
     // 'server/routes/…': { n: 1, why: 'строки 2–4 очерёдности: … (удаление вне оборудования)' },
   });

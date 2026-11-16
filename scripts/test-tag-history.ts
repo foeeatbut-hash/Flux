@@ -198,8 +198,10 @@ async function main() {
     check('и первой в ленте — запись об удалении: кто, источник, код', h[0]?.kind === 'удалён' && h[0].before === code('A') && h[0].source === 'Теги' && h[0].userId === me, h[0]);
     check('самая старая запись — создание', h[h.length - 1]?.kind === 'создан', h[h.length - 1]);
     check('порядок — новое сверху', h.every((r, i) => i === 0 || h[i - 1].at >= r.at), h.map((r) => r.at));
-    check('повторное удаление несуществующего тега — 404, а не зависший запрос', (await call('DELETE', `/api/tags/${a.id}`)).status === 404);
-    check('PUT несуществующего тега — 404', (await call('PUT', `/api/tags/${a.id}`, { brand: 'x' })).status === 404);
+    const again = await call('DELETE', `/api/tags/${a.id}`);
+    check('повторное удаление несуществующего тега — 200 alreadyGone, а не зависший запрос', again.status === 200 && again.json?.alreadyGone === true, again.json);
+    const putGone = await call('PUT', `/api/tags/${a.id}`, { brand: 'x' });
+    check('PUT несуществующего тега — 404 RECORD_GONE', putGone.status === 404 && putGone.json?.code === 'RECORD_GONE', putGone.json);
   } finally {
     for (const id of mine) if (id) await call('DELETE', `/api/tags/${id}`);
     await call('DELETE', `/api/projects/${projectId}`);
