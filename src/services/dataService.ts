@@ -472,7 +472,7 @@ function versionOnly(version: unknown): number | undefined {
  * Запрос записи, у которого отказ сервера доходит до экрана как `WriteRefusal`.
  * Нет связи с сервером — как у `request`: автономная база.
  */
-async function requestWrite<T>(endpoint: string, method: 'PUT' | 'DELETE', payload: Record<string, unknown>): Promise<T> {
+async function requestWrite<T>(endpoint: string, method: 'PUT' | 'DELETE' | 'PATCH' | 'POST', payload: Record<string, unknown>): Promise<T> {
   const url = `${ENV_CONFIG.apiUrl}${endpoint}`;
   const body = JSON.stringify(payload);
   useLogStore.getState().addLog('INFO', 'Network Stack', `[${method}] отправка запроса: ${endpoint}`);
@@ -859,13 +859,25 @@ export const dataService = {
     return request('/desktop/doc', { method: 'POST', body: JSON.stringify({ projectId, kind, name, scope }) });
   },
 
-  async moveDesktopItem(projectId: string, id: string, to: 'SHARED' | 'PERSONAL'): Promise<{ success: boolean }> {
-    return request('/desktop/move', { method: 'POST', body: JSON.stringify({ projectId, id, to }) });
+  /**
+   * Файл с общего стола на личный и обратно. `expectedVersion` — версия файла, которую показывал стол:
+   * файл изменили — `WriteRefusal` (409 `VERSION_CONFLICT` с `current`), нет — 404 `RECORD_GONE`.
+   * У папки версии нет — запрос прежний.
+   */
+  async moveDesktopItem(projectId: string, id: string, to: 'SHARED' | 'PERSONAL', expectedVersion?: number): Promise<{ success: boolean; version?: number }> {
+    const v = versionOnly(expectedVersion);
+    if (v === undefined) return request('/desktop/move', { method: 'POST', body: JSON.stringify({ projectId, id, to }) });
+    return requestWrite('/desktop/move', 'POST', { projectId, id, to, expectedVersion: v });
   },
 
-  /** Переименование файла или папки — то же, что в Проводнике */
-  async renameNode(id: string, isFile: boolean, name: string): Promise<any> {
-    return request(isFile ? `/files/${id}` : `/folders/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+  /**
+   * Переименование файла или папки — то же, что в Проводнике. Файл идёт под сверкой версии
+   * (`expectedVersion` в теле, отказ — `WriteRefusal`), папка — как была: версии у неё нет.
+   */
+  async renameNode(id: string, isFile: boolean, name: string, expectedVersion?: number): Promise<any> {
+    const v = isFile ? versionOnly(expectedVersion) : undefined;
+    if (v === undefined) return request(isFile ? `/files/${id}` : `/folders/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+    return requestWrite(`/files/${id}`, 'PATCH', { name, expectedVersion: v });
   },
 
   /**
@@ -881,9 +893,14 @@ export const dataService = {
   },
 
 
-  /** Удаление мягкое: содержимое уходит в корзину Проводника и восстановимо */
-  async trashNode(id: string, isFile: boolean): Promise<{ success: boolean; trashed?: boolean }> {
-    return request(isFile ? `/files/${id}` : `/folders/${id}`, { method: 'DELETE' });
+  /**
+   * Удаление мягкое: содержимое уходит в корзину Проводника и восстановимо. Файл — под сверкой версии
+   * (в строке запроса: у DELETE тела для сверки нет), отказ — `WriteRefusal`; папка — как была.
+   */
+  async trashNode(id: string, isFile: boolean, expectedVersion?: number): Promise<{ success: boolean; trashed?: boolean; alreadyGone?: boolean }> {
+    const v = isFile ? versionOnly(expectedVersion) : undefined;
+    if (v === undefined) return request(isFile ? `/files/${id}` : `/folders/${id}`, { method: 'DELETE' });
+    return requestWrite(`/files/${id}?expectedVersion=${v}`, 'DELETE', {});
   },
 
   // --- USER NOTES & LOGS ---

@@ -48,6 +48,8 @@ import DeskIcon, { titleOf } from './desktop/DeskIcon';
 import DeskList from './desktop/DeskList';
 import DeskProperties from './desktop/DeskProperties';
 import DeskFolder from './desktop/DeskFolder';
+import { useDeskWrite } from './desktop/useDeskWrite';
+import { keepsTypedName } from './desktop/desktopWrite';
 import WindowsDesktop from './desktop/WindowsDesktop';
 
 /** Корзина — это Корзина Windows в Проводнике; корзины архива Flux больше нет */
@@ -62,7 +64,7 @@ function ProjectDesktop() {
   const navigate = useNavigate();
   const {
     items, cells, sortBy, scale, selected, error, personalFolderId, groups,
-    load, select, setCell, arrangeBy, setScale, createFolder, rename, remove, share,
+    load, select, setCell, arrangeBy, setScale, createFolder,
     acceptDrop, foldIcons, unfoldIcon, renameGroup,
   } = useDesktopStore();
   // Клетка и значок — одного размера у всех, кто их рисует: сетка, значок и
@@ -101,6 +103,8 @@ function ProjectDesktop() {
   };
 
   const projectId = activeProject?.id || '';
+  // Запись файла под сверкой версии: отказ коллеги открывается окном с перечнем изменений
+  const deskWrite = useDeskWrite(projectId, addToast);
   React.useEffect(() => { load(projectId); }, [projectId, load]);
 
   // Меряем стол сами: сетка считается в точках, а сколько их — знает только DOM
@@ -269,14 +273,12 @@ function ProjectDesktop() {
       { confirmLabel: 'Убрать', tone: 'danger' },
     );
     if (!ok) return;
-    try { await remove(item.id, projectId); } catch (e: any) { addToast(e?.message || 'Не удалось убрать', 'error'); }
+    await deskWrite.trash(item);
   };
 
   const doShare = async (item: DeskItem) => {
-    try {
-      await share(item.id, item.shared ? 'PERSONAL' : 'SHARED', projectId);
-      addToast(item.shared ? 'Вернулось на ваш стол' : 'Теперь лежит на общем столе — видят все', 'success');
-    } catch (e: any) { addToast(e?.message || 'Не удалось перенести', 'error'); }
+    const result = await deskWrite.share(item, item.shared ? 'PERSONAL' : 'SHARED');
+    if (result.kind === 'ok') addToast(item.shared ? 'Вернулось на ваш стол' : 'Теперь лежит на общем столе — видят все', 'success');
   };
 
   const create = async (what: 'folder' | BlankKind | 'NOTE', scope: 'SHARED' | 'PERSONAL') => {
@@ -620,7 +622,13 @@ function ProjectDesktop() {
             dragged={isDragged}
             renaming={renaming?.id === item.id ? renaming.value : null}
             onRenameChange={(v) => setRenaming({ id: item.id, value: v })}
-            onRenameCommit={() => { if (renaming) rename(item.id, renaming.value, projectId); setRenaming(null); }}
+            // Поле закрывается, только когда запись принята или файла уже нет: после отказа
+            // набранное имя остаётся на месте, иначе пришлось бы набирать его заново
+            onRenameCommit={async () => {
+              if (!renaming) return;
+              const result = await deskWrite.rename(item.id, renaming.value);
+              if (!keepsTypedName(result)) setRenaming(null);
+            }}
             onRenameCancel={() => setRenaming(null)}
             draggable={!isSystemKind(item.kind)}
             onDragStart={(e) => onIconDragStart(e, item)}
@@ -693,6 +701,7 @@ function ProjectDesktop() {
         );
       })()}
 
+      {deskWrite.element}
       {menu && (
         <ContextMenu
           x={menu.x}

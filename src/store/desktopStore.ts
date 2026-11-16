@@ -22,6 +22,7 @@ import { dataService } from '../services/dataService';
 import { arrange, layout, place, withApps, type Cell, type DeskItem, type DeskKind, type SortBy } from '../lib/desktop';
 import { deskMetric, DESK_DEFAULT, type DeskScale } from '../lib/metrics';
 import { moveInList } from '../lib/startMenu';
+import { VERSION_CONFLICT, RECORD_GONE } from '../lib/refusalTexts';
 import { resolveSectionPath } from '../lib/sectionAliases';
 import { isFileToolPath } from '../lib/fileToolSections';
 import {
@@ -110,6 +111,13 @@ interface DesktopState {
   trashCount: number;
 }
 
+/**
+ * Отказ сервера, после которого стол устарел: файл изменили (409) или он исчез (404).
+ * Узнаём по коду, а не по тексту. Чужая занятость и сбой связи стол не меняют.
+ */
+const staleRefusal = (err: any): boolean =>
+  err?.name === 'WriteRefusal' && (err.body?.code === VERSION_CONFLICT || err.body?.code === RECORD_GONE);
+
 /** Имя нового документа: дата, а не «Документ 1» — по ней его потом и ищут */
 const newName = (kind: string): string => {
   const d = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
@@ -150,6 +158,7 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
         updatedBy: f.updatedBy?.name || f.createdBy?.name || '',
         size: Number(f.size) || 0,
         updatedAt: f.updatedAt || f.createdAt || null,
+        version: Number.isInteger(f.version) && f.version >= 1 ? f.version : undefined,
       }));
       const folders: DeskItem[] = (r.folders || []).map((f: any) => ({
         id: f.id, kind: 'folder' as const, name: f.name,
@@ -294,14 +303,25 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
   rename: async (id, name, projectId) => {
     const item = get().items.find((i) => i.id === id);
     if (!item || !name.trim()) return;
-    await dataService.renameNode(id, item.kind !== 'folder', name.trim());
+    try {
+      await dataService.renameNode(id, item.kind !== 'folder', name.trim(), item.version);
+    } catch (err) {
+      // Стол устарел — перечитываем, а отказ отдаём экрану: показанный им файл он взял до этого
+      if (staleRefusal(err)) await get().load(projectId);
+      throw err;
+    }
     await get().load(projectId);
   },
 
   remove: async (id, projectId) => {
     const item = get().items.find((i) => i.id === id);
     if (!item) return;
-    await dataService.trashNode(id, item.kind !== 'folder');
+    try {
+      await dataService.trashNode(id, item.kind !== 'folder', item.version);
+    } catch (err) {
+      if (staleRefusal(err)) await get().load(projectId);
+      throw err;
+    }
     // Место освободилось — забываем его, иначе клетка останется занятой
     const cells = { ...get().cells };
     delete cells[id];
@@ -316,7 +336,13 @@ export const useDesktopStore = create<DesktopState>((set, get) => ({
   },
 
   share: async (id, to, projectId) => {
-    await dataService.moveDesktopItem(projectId, id, to);
+    const item = get().items.find((i) => i.id === id);
+    try {
+      await dataService.moveDesktopItem(projectId, id, to, item?.version);
+    } catch (err) {
+      if (staleRefusal(err)) await get().load(projectId);
+      throw err;
+    }
     await get().load(projectId);
   },
 
