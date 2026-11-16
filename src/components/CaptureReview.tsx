@@ -15,6 +15,10 @@ import { FIELDS, FieldKey } from '../capture/fields';
 import {
   buildPlan, summarize, PlanRow, Action, ACTION_LABEL, CLASS_LABEL, CLASS_TONE, ExistingTag,
 } from '../capture/plan';
+import { replan } from '../capture/replan';
+import { runPlan, seenOfTags, byIdOf, namesOf, reseen } from './registry/planWrite';
+import { TagRefusalView } from './registry/TagRefusalView';
+import type { TagRefusal } from './registry/tagRefusal';
 
 /**
  * Окно разбора захвата: слева исходник, справа то, во что программа его
@@ -70,6 +74,8 @@ interface UndoSnapshot {
   deleteIds: string[];
   restore: { id: string; brand: string | null; department: string | null;
              fluid: string | null; wbs: string | null; metadata: string | null }[];
+  /** Версии тегов, какими их оставило применение: отмена откажет, если тег с тех пор менял кто-то ещё */
+  seen?: Record<string, number>;
 }
 
 export default function CaptureReview() {
@@ -95,6 +101,11 @@ export default function CaptureReview() {
   const [junkOpen, setJunkOpen] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const existingRef = useRef<ExistingTag[]>([]);
+  // Отказ записи по устаревшему плану (применение) и по устаревшему снимку (отмена): перечень «было → стало»
+  const [applyRefusal, setApplyRefusal] = useState<TagRefusal | null>(null);
+  const [undoRefusal, setUndoRefusal] = useState<TagRefusal | null>(null);
+  // Теги, какими их оставило применение: от них считается перечень, если отмену откажут
+  const appliedRef = useRef<Map<string, any>>(new Map());
 
   // Захват забираем сами: главный процесс кладёт его в ожидание и только
   // подсказывает. Проверяем и при появлении окна — иначе захват, сделанный
@@ -109,7 +120,7 @@ export default function CaptureReview() {
         if (!alive || !data?.items?.length) return;
         setItems(data.items);
         setStep('parse');
-        setPlan([]); setLit(null); setResult(null); setUndoSnap(null);
+        setPlan([]); setLit(null); setResult(null); setUndoSnap(null); setApplyRefusal(null); setUndoRefusal(null);
         setDropped([]); setQuery(''); setJunkOpen(false); setExpanded(new Set());
       } catch {}
     };
@@ -146,7 +157,7 @@ export default function CaptureReview() {
 
   const close = () => {
     setItems(null); setRec(null); setRows([]); setPlan([]); setStep('parse');
-    setResult(null); setUndoSnap(null);
+    setResult(null); setUndoSnap(null); setApplyRefusal(null); setUndoRefusal(null);
   };
 
   // ── Правки разбора ──────────────────────────────────────────────────────
@@ -198,6 +209,7 @@ export default function CaptureReview() {
   const goPlan = () => {
     if (!rec) return;
     const clean = rows.filter((r) => r.identifier.trim());
+    setApplyRefusal(null);
     const built = buildPlan(clean, existingRef.current, rec.shape);
     // Решения, принятые в этом проекте раньше, применяются сразу:
     // второй похожий захват проходит без вопросов
@@ -230,6 +242,7 @@ export default function CaptureReview() {
   const apply = async () => {
     if (!activeProject?.id) { addToast('Сначала выберите проект', 'error'); return; }
     setBusy(true);
+    setApplyRefusal(null);
     try {
       const chosen = plan.filter((r) => r.on);
       // Снимок прежних значений — до записи. После неё их уже не восстановить
@@ -247,14 +260,29 @@ export default function CaptureReview() {
           })),
       };
 
-      const res = await dataService.applyCapturedTags(activeProject.id, chosen.map((r) => ({
+      // Версии тегов, которые дополнит или заменит план, — те, что видел предпросмотр: сервер сверит
+      // их до первой записи и при расхождении не запишет ничего
+      const seen = seenOfTags(existingRef.current, snap.restore.map((r) => r.id));
+      const out = await runPlan(() => dataService.applyCapturedTags(activeProject.id, chosen.map((r) => ({
         identifier: r.identifier,
         brand: r.row.brand, name: r.row.name, department: r.row.department,
         fluid: r.row.fluid, wbs: r.row.wbs, actuality: r.row.actuality,
         action: r.action, targetId: r.existing?.id,
-      })));
+      })), seen), byIdOf(existingRef.current), namesOf(existingRef.current), 'ошибка сервера');
+      if (out.kind !== 'ok') {
+        if (out.kind === 'changed') await rebuildPlan(new Set([...out.changed.map((c) => c.id), ...out.gone]));
+        if (out.refusal.kind === 'plain') addToast(`Не удалось применить: ${out.refusal.message}`, 'error');
+        else setApplyRefusal(out.refusal);
+        return;
+      }
+      const res = out.data;
 
       snap.deleteIds = [...res.created.map((t) => t.id), ...res.duplicated.map((t) => t.id)];
+      // Отмена сверит версии записанного: тег, который кто-то ещё изменил, она не тронет
+      const touched = new Set([...snap.deleteIds, ...snap.restore.map((r) => r.id)]);
+      if (res.versions) snap.seen = Object.fromEntries(Object.entries(res.versions).filter(([id]) => touched.has(id)));
+      appliedRef.current = new Map(Object.entries((res as any).written || {}));
+      setUndoRefusal(null);
       setUndoSnap(snap);
       setResult(res);
       if (remember) saveDecisions(activeProject.id, plan);
@@ -275,14 +303,37 @@ export default function CaptureReview() {
     }
   };
 
+  /** План заново по свежим тегам проекта: отказ «изменили, пока вы смотрели» не записал ничего, человек подтверждает снова */
+  const rebuildPlan = async (changedIds: ReadonlySet<string>) => {
+    if (!rec || !activeProject?.id) return;
+    try {
+      const res: any = await dataService.getTags(activeProject.id);
+      const fresh: ExistingTag[] = Array.isArray(res) ? res : (res?.tags || []);
+      existingRef.current = fresh;
+      const clean = rows.filter((r) => r.identifier.trim());
+      setPlan((prev) => replan(prev, clean, fresh, rec.shape, changedIds));
+    } catch { /* перечитать не удалось: план остаётся прежним, следующая запись снова будет сверена и откажет */ }
+  };
+
   const undo = async () => {
     if (!undoSnap || !activeProject?.id) return;
     setBusy(true);
+    setUndoRefusal(null);
     try {
-      const r = await dataService.undoCapturedTags(activeProject.id, undoSnap);
-      addToast(`Захват отменён: удалено ${r.deleted}, возвращено ${r.restored}`, 'success');
-      window.dispatchEvent(new CustomEvent('flux:tags-changed'));
-      close();
+      const out = await runPlan(() => dataService.undoCapturedTags(activeProject.id, undoSnap), appliedRef.current, namesOf(existingRef.current), 'ошибка сервера');
+      if (out.kind === 'ok') {
+        addToast(`Захват отменён: удалено ${out.data.deleted}, возвращено ${out.data.restored}`, 'success');
+        window.dispatchEvent(new CustomEvent('flux:tags-changed'));
+        close();
+        return;
+      }
+      if (out.kind === 'changed') {
+        // Человек прочёл перечень; следующее нажатие подтверждает отмену по тем версиям, что есть сейчас
+        for (const c of out.changed) appliedRef.current.set(c.id, c.current);
+        setUndoSnap({ ...undoSnap, seen: reseen(undoSnap.seen || {}, out.changed, out.gone) });
+      }
+      if (out.refusal.kind === 'plain') addToast(`Не удалось отменить: ${out.refusal.message}`, 'error');
+      else setUndoRefusal(out.refusal);
     } catch (e: any) {
       addToast(`Не удалось отменить: ${e?.message || 'ошибка сервера'}`, 'error');
     } finally { setBusy(false); }
@@ -624,6 +675,8 @@ export default function CaptureReview() {
                 )}
               </div>
 
+              {applyRefusal && <TagRefusalView refusal={applyRefusal} className="m-3 shrink-0 max-h-60 overflow-auto" />}
+
               <div className="flex-1 min-h-0 overflow-auto">
                 <table className="w-full border-collapse">
                   <thead className="sticky top-0 z-10">
@@ -765,6 +818,7 @@ export default function CaptureReview() {
                     </div>
                   </div>
                 )}
+                {undoRefusal && <TagRefusalView refusal={undoRefusal} className="mt-3" />}
                 <div className="mt-4 text-2xs text-slate-400">
                   Отмена доступна, пока открыт этот отчёт: она удалит созданное и вернёт
                   дополненным прежние значения.

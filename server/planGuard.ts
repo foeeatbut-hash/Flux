@@ -39,8 +39,9 @@ const CHUNK = 500;
  * `current` — какой запись стала сейчас (целая строка базы, как у `VersionConflict`).
  */
 export class PlanChanged extends Error {
-  constructor(public readonly changed: Array<{ id: string; current: any }>, public readonly gone: string[]) {
-    super(bulkChangedText());
+  /** `message` — свой текст отказа для действия без предпросмотра (ввоз ВДР); по умолчанию — словарь отказов. */
+  constructor(public readonly changed: Array<{ id: string; current: any }>, public readonly gone: string[], message?: string) {
+    super(message ?? bulkChangedText());
     this.name = 'PlanChanged';
   }
 }
@@ -79,6 +80,12 @@ export interface SeenScope {
   where?: Record<string, unknown>;
   /** Поле версии в модели; по умолчанию `version`. */
   field?: string;
+  /**
+   * Записи, которые запись собирается менять. Те из них, что плану не показывали
+   * (нет в `seen`: появились после предпросмотра), — тоже отказ `changed`: молча
+   * применять к тому, чего человек не видел, нельзя.
+   */
+  touched?: Iterable<string>;
 }
 
 /**
@@ -90,7 +97,9 @@ export interface SeenScope {
  */
 export async function assertSeenVersions(db: any, model: string, seen: SeenVersions | undefined, scope: SeenScope = {}): Promise<void> {
   if (!seen) return;
-  const ids = Object.keys(seen);
+  const asked = Object.keys(seen);
+  const touched = [...new Set(scope.touched ?? [])].filter((id) => !(id in seen));
+  const ids = [...asked, ...touched];
   if (!ids.length) return;
   const field = scope.field ?? 'version';
   const rows = new Map<string, any>();
@@ -103,8 +112,8 @@ export async function assertSeenVersions(db: any, model: string, seen: SeenVersi
   const gone: string[] = [];
   for (const id of ids) {
     const cur = rows.get(id);
-    if (!cur) gone.push(id);
-    else if (Number(cur[field]) !== seen[id]) changed.push({ id, current: cur });
+    if (!cur) { if (id in seen) gone.push(id); }
+    else if (!(id in seen) || Number(cur[field]) !== seen[id]) changed.push({ id, current: cur });
   }
   if (changed.length || gone.length) throw new PlanChanged(changed, gone);
 }

@@ -17,11 +17,11 @@ import { emitProjectDataChanged } from '../entityChanged.js';
 import { upsertEquipmentDocumentBindingInTransaction, validateEquipmentDocumentBindingTargets } from './equipmentDocumentBindings.js';
 import { draftDocumentBindingTargets, importWithBestEffortBinding, type EquipmentDocumentBindingInput } from '../../equipment/documentBindings.js';
 import { notifyExporters } from '../e3Impact.js';
+import { importDraftTransactionOptions, importEquipmentGuarded, assertEquipmentSeen } from '../equipmentGuardedImport.js';
+import { seenOf, sendPlanRefusal } from '../planGuard.js';
 
-export function importDraftTransactionOptions(prisma: any): { timeout: number; isolationLevel?: 'Serializable' } {
-  const provider = prisma?._engineConfig?.activeProvider || prisma?._activeProvider;
-  return { timeout: 30_000, ...(provider === 'sqlite' ? {} : { isolationLevel: 'Serializable' as const }) };
-}
+// Параметры транзакции ввоза живут рядом со сверкой версий (server/equipmentGuardedImport.ts)
+export { importDraftTransactionOptions };
 
 // ── Ввоз распознанного документа (PDF / Word / скан / буфер) ────────────────
 // Мастер распознавания присылает уже разобранный документ, а не файл. Раньше
@@ -321,6 +321,8 @@ export function registerEquipmentDraftRoutes(app: Express): void {
     if (!category) return res.status(400).json({ error: 'Не указана категория оборудования' });
     try {
       const prisma = getPrisma();
+      // Версии позиций, которые видел предпросмотр; нечитаемые — 400 до любой работы
+      const seen = seenOf(req.body?.seen);
       const projectId = await resolveProject(reqProjectId);
       // Правки предпросмотра и выбор области — до записи, как у ввоза файла
       const edited = applyEdits(sanitizeDraftUnits(units), edits as EditMap | undefined);
@@ -358,12 +360,16 @@ export function registerEquipmentDraftRoutes(app: Express): void {
         // Сначала атомарно фиксируем весь импорт. Ошибка привязки не отменяет
         // созданное оборудование.
         const bindingAttempt = await importWithBestEffortBinding(
-          () => prisma.$transaction(async (tx: any) => importEquipmentToDB(
-            tx, projectId, category,
-            clean(fileName, 200) || 'Распознанный документ',
-            result, conflictMode, cleanTagLinks(tagLinks), { userId: String(actor.id) },
-            { choices: cleanChoices(choices), full: edited, inTransaction: true, deferEntityChanged: true, deferNotifications: true },
-          ), importDraftTransactionOptions(prisma)),
+          () => prisma.$transaction(async (tx: any) => {
+            // Сверка версий — первой в транзакции: по устаревшему предпросмотру не пишется ничего
+            await assertEquipmentSeen(tx, projectId, seen);
+            return importEquipmentToDB(
+              tx, projectId, category,
+              clean(fileName, 200) || 'Распознанный документ',
+              result, conflictMode, cleanTagLinks(tagLinks), { userId: String(actor.id) },
+              { choices: cleanChoices(choices), full: edited, inTransaction: true, deferEntityChanged: true, deferNotifications: true },
+            );
+          }, importDraftTransactionOptions(prisma)),
           (imported: any) => {
             Object.assign(bindingInput, draftDocumentBindingTargets(imported.associations, sourceBinding.systemId));
             return prisma.$transaction(async (tx: any) => {
@@ -383,8 +389,8 @@ export function registerEquipmentDraftRoutes(app: Express): void {
         if (summary.newBlocks || summary.updatedBlocks || summary.movedBlocks || summary.supersededBlocks || summary.removedBlocks || summary.restoredBlocks) emitProjectDataChanged('element', projectId, { userId: String(actor.id) });
         if (summary.tagsLinked || summary.tagsCreated || summary.tagParents) emitProjectDataChanged('tag', projectId, { userId: String(actor.id) });
       } else {
-        summary = await importEquipmentToDB(
-          prisma, projectId, category,
+        summary = await importEquipmentGuarded(
+          prisma, seen, projectId, category,
           clean(fileName, 200) || 'Распознанный документ',
           result, conflictMode, cleanTagLinks(tagLinks), { userId: (req as any).authUser?.id },
           { choices: cleanChoices(choices), full: edited },
@@ -392,6 +398,8 @@ export function registerEquipmentDraftRoutes(app: Express): void {
       }
       res.json({ success: true, ...summary, conflictMode, bindingWarning });
     } catch (error: any) {
+      // Позиции изменили, пока человек смотрел предпросмотр: 409 с перечнем, в базе ничего нового
+      if (sendPlanRefusal(res, error)) return;
       const known = draftFailure(error);
       if (known) return res.status(400).json(known);
       if (!error?.status || error.status >= 500) console.error('Error in import-draft:', error);

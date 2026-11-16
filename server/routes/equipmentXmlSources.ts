@@ -6,6 +6,9 @@ import { parseOptionsFor } from '../equipmentFile.js';
 import { parseEquipmentXML } from '../equipmentParser.js';
 import { unitBlocksOf } from '../equipmentResolve.js';
 import { withBump } from '../equipmentVersion.js';
+import { keepVersion } from '../versionBump.js';
+import { seenOf, sendPlanRefusal } from '../planGuard.js';
+import { assertEquipmentSeen } from '../equipmentGuardedImport.js';
 import { emitEntityChanged } from '../entityChanged.js';
 import { actorMay } from '../projectAccess.js';
 import { canSeeProject, roleGrantsOf } from './members.js';
@@ -520,6 +523,10 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
         ? parsed.targets : [{ elementId: root.id, label: root.name, groups: parseEquipmentSourceGroups(candidate.parsedSpecs) }];
       const expectedVersions = storedObject(candidate.expectedVersions, { [root.id]: Number(candidate.expectedVersion) }, 'Версии сравнения XML') as Record<string, number>;
       const liveById = new Map(currentTargets.map((target: any) => [String(target.id), target]));
+      // Версии позиций, которые видел экран (`expectedVersions` кандидата в его списке). Нечитаемые — 400 до любой работы;
+      // расхождение — отказ с перечнем «было → стало» по записям, а не общее «обновите список»
+      const seen = seenOf(req.body?.seen);
+      await assertEquipmentSeen(prisma, projectId, seen);
       for (const target of targetSpecs) {
         const live = liveById.get(target.elementId) as any;
         if (!live || Number(live.version || 1) !== Number(expectedVersions[target.elementId])) return res.status(409).json({ error: 'Одна из позиций изменилась после сравнения. Обновите список XML-кандидатов.' });
@@ -543,8 +550,12 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
         });
         if (snapshots.length) snapshots[0].sourceBindingAfter = { projectId: source.projectId, tagId: source.tagId, targetType: source.targetType, systemId: source.systemId ?? null, elementId: source.elementId, tagIdentifier: source.tagIdentifier, xmlTargetIdentity: source.xmlTargetIdentity ?? null, selectedRule: source.selectedRule, deletedAt: source.deletedAt ?? null };
         await prisma.$transaction(async (tx: any) => {
+          // Сверка версий — первой в транзакции, до первой записи
+          await assertEquipmentSeen(tx, projectId, seen);
           for (const snapshot of snapshots) {
-            const claim = await tx.componentElement.updateMany({ where: { id: snapshot.elementId, version: snapshot.oldVersion, specs: snapshot.oldSpecs, overrides: snapshot.oldOverrides }, data: { version: snapshot.oldVersion, specs: snapshot.oldSpecs, overrides: snapshot.oldOverrides } });
+            // «Хватка» строки: совпало — запись осталась той, что видел человек. Версию она не трогает вовсе
+            // (`keepVersion`), а не ставит прочитанную обратно: версия только растёт
+            const claim = await tx.componentElement.updateMany({ where: { id: snapshot.elementId, version: snapshot.oldVersion, specs: snapshot.oldSpecs, overrides: snapshot.oldOverrides }, data: keepVersion({ specs: snapshot.oldSpecs, overrides: snapshot.oldOverrides }) });
             if (claim.count !== 1) throw Object.assign(new Error('Позицию изменили параллельно с проверкой. Обновите сравнение XML.'), { status: 409 });
           }
           const claimed = await tx.equipmentXmlCandidate.updateMany({ where: { id: candidate.id, updatedAt: candidate.updatedAt, expectedVersion }, data: { status: 'complete' } });
@@ -686,6 +697,8 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       await prisma.$transaction(async (tx: any) => {
         // История тегов, заведённых ниже, пишется в этой же транзакции и её сбой откатывает ввоз
         markTransactionClient(tx);
+        // Сверка версий — первой в транзакции, до первой записи
+        await assertEquipmentSeen(tx, projectId, seen);
         const sourceClaim = await tx.equipmentXmlSource.updateMany({ where: { id: source.id, projectId, deletedAt: null, tagId: source.tagId, tagIdentifier: source.tagIdentifier, xmlTargetIdentity: source.xmlTargetIdentity ?? null, selectedRule: source.selectedRule }, data: { updatedAt: source.updatedAt } });
         if (sourceClaim.count !== 1) throw Object.assign(new Error('Источник перепривязали во время сравнения. Проверьте XML заново.'), { status: 409 });
         if (tag) {
@@ -693,7 +706,7 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
           if (tagClaim.count !== 1) throw Object.assign(new Error('Тег источника переименовали во время сравнения. Проверьте XML заново.'), { status: 409 });
         }
         for (const update of updates) {
-          const claim = await tx.componentElement.updateMany({ where: { id: update.element.id, version: update.oldVersion, specs: update.oldSpecs, overrides: update.oldOverrides, ...update.oldMetadata }, data: update.changed ? withBump({ specs: update.newSpecs, overrides: update.newOverrides, ...update.newMetadata }) : { version: update.oldVersion, specs: update.oldSpecs, overrides: update.oldOverrides } });
+          const claim = await tx.componentElement.updateMany({ where: { id: update.element.id, version: update.oldVersion, specs: update.oldSpecs, overrides: update.oldOverrides, ...update.oldMetadata }, data: update.changed ? withBump({ specs: update.newSpecs, overrides: update.newOverrides, ...update.newMetadata }) : keepVersion({ specs: update.oldSpecs, overrides: update.oldOverrides }) });
           if (claim.count !== 1) throw Object.assign(new Error(`Позицию «${update.element.itemCode}» изменили параллельно. Обновите сравнение.`), { status: 409 });
         }
         for (const action of acceptedAdded) {
@@ -798,6 +811,8 @@ export function registerEquipmentXmlSourceRoutes(app: Express): void {
       emitSourceChanged(projectId, source.id);
       res.json({ ok: true, status, expectedVersion: finalVersion, expectedVersions: finalExpectedVersions, batchId, changed: updates.some(update => update.changed) || createdSnapshots.length > 0 });
     } catch (err: any) {
+      // Позиции изменили после сравнения: 409 с перечнем по записям, в базе ничего нового
+      if (sendPlanRefusal(res, err)) return;
       if (err.code === 'P2002') return res.status(409).json({ error: 'Этот кандидат уже сохранён.' });
       sendError(res, err, err.status || 500);
     }

@@ -12,6 +12,7 @@ import { normalizeRevisionRules, expectedRevision, kindOfRevision } from '../../
 import { VdrConflict, expectedStamp, expectedRevisionOf, guardedUpdate, guardedIssue, whenText, inTransaction } from '../vdrWrite.js';
 import { RecordGone, expectedVersionOf, guardedDelete, sendGuardRefusal, sendRecordGone } from '../versionGuard.js';
 import { editChangedText, deleteChangedText } from '../../src/lib/refusalTexts.js';
+import { PlanChanged, assertSeenVersions, seenOf, sendPlanRefusal } from '../planGuard.js';
 
 // ── ВДР (Vendor Document Register) — реестр документации поставщика ──
 // Дизайн: docs/vdr-docflow-design.md + разбор реальных файлов проекта ДГП-2
@@ -371,6 +372,8 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
 
   const registerOut = (r: any) => ({ ...r, columnsConfig: parseJson(r.columnsConfig, []), revisions: parseJson(r.revisions, []) });
   const itemOut = (i: any) => ({ ...i, extra: parseJson(i.extra, {}) });
+  /** Ввоз файла: предпросмотра нет, строку изменили прямо во время ввоза */
+  const importChangedText = (): string => 'Пока шёл ввоз, часть строк реестра изменили. Ничего не записано. Ниже — что изменилось; проверьте и повторите ввоз.';
 
   // Отказ записи — общего вида (server/versionGuard.ts): 409 с текстом для человека, кодом отдельным
   // полем и голой текущей записью в `current` (такой, какой её отдаёт чтение), чтобы экран показал,
@@ -787,11 +790,18 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       const result = await inTransaction(getPrisma(), async (db) => {
         const plan = await planTagLinks(db, projectId);
         if (plan.digest !== digest) return { stale: plan };
-        return { created: await applyTagLinks(db, plan), plan };
+        const created = await applyTagLinks(db, plan);
+        // Строки со связями — какими они стали: по их версиям отмена узнаёт, менял ли строку кто-то ещё
+        const touched = await db.docRegisterItem.findMany({ where: { projectId, id: { in: [...new Set(created.map(c => c.itemId))] } } });
+        return { created, plan, touched };
       });
       if ('stale' in result) return res.status(409).json({ error: 'Данные изменились с тех пор, как вы смотрели план. Показан новый план — проверьте его.', conflict: true, plan: result.stale });
       announceVdrChange(projectId);
-      res.json({ created: result.created, plan: await planTagLinks(getPrisma(), projectId) });
+      res.json({
+        created: result.created, plan: await planTagLinks(getPrisma(), projectId),
+        versions: Object.fromEntries(result.touched.map((i: any) => [i.id, i.version])),
+        items: result.touched.map(itemOut),
+      });
     } catch (err: any) { sendError(res, err); }
   });
 
@@ -799,15 +809,26 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
     try {
       const projectId = await resolveProjectId(String(req.body?.projectId || ''));
       const asked: any[] = Array.isArray(req.body?.created) ? req.body.created.slice(0, 20000) : [];
+      // `seen` — версии строк, какими их оставило применение (`versions` из его ответа): строку с тех пор
+      // изменили или удалили — отмена не пишет, а отвечает 409 с перечнем (server/planGuard.ts).
+      // Без `seen` (прежний клиент) отмена сверяется только с чтением сервера
+      const seen = seenOf(req.body?.seen);
       const prisma = getPrisma();
-      // Только связи строк этого проекта: чужой проект отмена не трогает
-      const mine = new Set((await prisma.docRegisterItem.findMany({
-        where: { projectId, id: { in: [...new Set(asked.map(c => String(c?.itemId || '')))] } }, select: { id: true },
-      })).map((r: any) => r.id));
-      const removed = await inTransaction(prisma, (db) => undoTagLinks(db, asked.filter(c => mine.has(String(c?.itemId)))));
+      // Чтение строк, сверка и снятие связей — одна транзакция: сверка и запись видят одно и то же
+      const removed = await inTransaction(prisma, async (db) => {
+        // Только связи строк этого проекта: чужой проект отмена не трогает
+        const mine = new Set((await db.docRegisterItem.findMany({
+          where: { projectId, id: { in: [...new Set(asked.map(c => String(c?.itemId || '')))] } }, select: { id: true },
+        })).map((r: any) => r.id));
+        await assertSeenVersions(db, 'docRegisterItem', seen, { where: { projectId } });
+        return undoTagLinks(db, asked.filter(c => mine.has(String(c?.itemId))));
+      });
       announceVdrChange(projectId);
       res.json({ removed, plan: await planTagLinks(prisma, projectId) });
-    } catch (err: any) { sendError(res, err); }
+    } catch (err: any) {
+      if (sendPlanRefusal(res, err, itemOut)) return;
+      sendError(res, err);
+    }
   });
 
   // ── История ревизий строки (лист «Учёт ревизий» документа) ──
@@ -936,135 +957,155 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
       }
       if (!best) return res.status(400).json({ error: 'Не нашёл лист реестра (нет колонок номера/названия/ревизии)' });
 
-      // Реестр: существующий или новый
-      let register: any = null;
-      if (req.body?.registerId) register = await prisma.docRegister.findUnique({ where: { id: String(req.body.registerId) } });
-      if (!register) {
-        register = await prisma.docRegister.create({
-          data: {
-            projectId,
-            name: String(req.body?.name || req.body?.fileName || 'ВДР (импорт)').replace(/\.[^.]+$/, ''),
-            createdById: me?.id || null,
-          },
-        });
-      }
+      // Всё, что пишет ввоз (реестр, строки, связи с тегами, титул), — одна транзакция: сбой посреди файла
+      // не оставляет половины строк. Предпросмотра у ввоза нет, поэтому сверка идёт с чтением в этой же
+      // транзакции: строка реестра, которую коллега изменил между чтением и записью, не затирается молча,
+      // а ввоз целиком отвечает 409 с перечнем (server/planGuard.ts)
+      const outcome = await inTransaction(prisma, async (db) => {
+        // Реестр: существующий или новый
+        let register: any = null;
+        if (req.body?.registerId) register = await db.docRegister.findUnique({ where: { id: String(req.body.registerId) } });
+        if (!register) {
+          register = await db.docRegister.create({
+            data: {
+              projectId,
+              name: String(req.body?.name || req.body?.fileName || 'ВДР (импорт)').replace(/\.[^.]+$/, ''),
+              createdById: me?.id || null,
+            },
+          });
+        }
 
-      // Структура колонок: импортированные колонки (с исходным порядком) +
-      // уже существующие свои — не теряем при переимпорте
-      const coreByIdx = best.det.map;
-      const columnsConfig = best.det.columns.map(c => ({
-        key: c.key, title: c.title, titleRu: c.titleRu,
-        field: coreByIdx[c.idx] || undefined,   // ядро
-        source: 'import',
-      }));
-      const prevCols = parseJson(register.columnsConfig, []);
-      const customCols = prevCols.filter((c: any) => c.source === 'custom');
-      const mergedCols = [...columnsConfig, ...customCols.filter((c: any) => !columnsConfig.find(x => x.key === c.key))];
+        // Структура колонок: импортированные колонки (с исходным порядком) +
+        // уже существующие свои — не теряем при переимпорте
+        const coreByIdx = best.det.map;
+        const columnsConfig = best.det.columns.map(c => ({
+          key: c.key, title: c.title, titleRu: c.titleRu,
+          field: coreByIdx[c.idx] || undefined,   // ядро
+          source: 'import',
+        }));
+        const prevCols = parseJson(register.columnsConfig, []);
+        const customCols = prevCols.filter((c: any) => c.source === 'custom');
+        const mergedCols = [...columnsConfig, ...customCols.filter((c: any) => !columnsConfig.find(x => x.key === c.key))];
 
-      const existing = await prisma.docRegisterItem.findMany({ where: { registerId: register.id } });
-      const byNo = new Map<string, any>(existing.filter((x: any) => x.contractorNo).map((x: any) => [String(x.contractorNo), x] as [string, any]));
+        const existing = await db.docRegisterItem.findMany({ where: { registerId: register.id } });
+        const byNo = new Map<string, any>(existing.filter((x: any) => x.contractorNo).map((x: any) => [String(x.contractorNo), x] as [string, any]));
 
-      let created = 0, updated = 0, skipped = 0;
-      const regHeader: any = {};
-      for (const row of best.rows) {
-        if (!isDataRow(row, coreByIdx)) { skipped++; continue; }
-        const core: any = {};
-        const extra: any = {};
-        for (const col of best.det.columns) {
-          const v = row[col.idx];
-          const field = coreByIdx[col.idx];
-          if (field === 'issueDate') core.issueDate = parseDateCell(v);
-          else if (field === 'equipmentTags') {
-            const s = cellStr(v);
-            core.equipmentTags = JSON.stringify(/all\s*items|все\s*позиции/i.test(s) ? ['All items'] : s.split(/[;,]/).map(x => x.trim()).filter(Boolean));
+        let created = 0, updated = 0, skipped = 0;
+        const regHeader: any = {};
+        for (const row of best.rows) {
+          if (!isDataRow(row, coreByIdx)) { skipped++; continue; }
+          const core: any = {};
+          const extra: any = {};
+          for (const col of best.det.columns) {
+            const v = row[col.idx];
+            const field = coreByIdx[col.idx];
+            if (field === 'issueDate') core.issueDate = parseDateCell(v);
+            else if (field === 'equipmentTags') {
+              const s = cellStr(v);
+              core.equipmentTags = JSON.stringify(/all\s*items|все\s*позиции/i.test(s) ? ['All items'] : s.split(/[;,]/).map(x => x.trim()).filter(Boolean));
+            }
+            else if (field) core[field] = cellStr(v);
+            else { const s = cellStr(v); if (s) extra[col.key] = s; }
           }
-          else if (field) core[field] = cellStr(v);
-          else { const s = cellStr(v); if (s) extra[col.key] = s; }
-        }
-        if (core.vendor && !regHeader.vendor) regHeader.vendor = core.vendor;
-        if (core.poNumber && !regHeader.poNumber) regHeader.poNumber = core.poNumber;
-        delete core.vendor; delete core.poNumber; // реквизиты реестра, не строки
+          if (core.vendor && !regHeader.vendor) regHeader.vendor = core.vendor;
+          if (core.poNumber && !regHeader.poNumber) regHeader.poNumber = core.poNumber;
+          delete core.vendor; delete core.poNumber; // реквизиты реестра, не строки
 
-        const itemData = {
-          contractorNo: core.contractorNo || '', ownerNo: core.ownerNo || '', vendorNo: core.vendorNo || '',
-          titleEn: core.titleEn || '', titleRu: core.titleRu || '', vdrCode: core.vdrCode || '',
-          revision: core.revision || 'A', issueDate: core.issueDate || null,
-          reasonForIssue: core.reasonForIssue || '', language: core.language || '',
-          ...(core.equipmentTags ? { equipmentTags: core.equipmentTags } : {}),
-          extra: JSON.stringify(extra),
-        };
-        const prev = itemData.contractorNo ? byNo.get(itemData.contractorNo) : null;
-        if (prev) {
-          const saved = await prisma.docRegisterItem.update({ where: { id: prev.id }, data: itemData });
-          if (itemData.equipmentTags) await syncItemTags(prisma, saved, saved.equipmentTags);
-          updated++;
-        } else {
-          const saved = await prisma.docRegisterItem.create({ data: { ...itemData, registerId: register.id, projectId } });
-          if (itemData.equipmentTags) await syncItemTags(prisma, saved, saved.equipmentTags);
-          created++;
+          const itemData = {
+            contractorNo: core.contractorNo || '', ownerNo: core.ownerNo || '', vendorNo: core.vendorNo || '',
+            titleEn: core.titleEn || '', titleRu: core.titleRu || '', vdrCode: core.vdrCode || '',
+            revision: core.revision || 'A', issueDate: core.issueDate || null,
+            reasonForIssue: core.reasonForIssue || '', language: core.language || '',
+            ...(core.equipmentTags ? { equipmentTags: core.equipmentTags } : {}),
+            extra: JSON.stringify(extra),
+          };
+          const prev = itemData.contractorNo ? byNo.get(itemData.contractorNo) : null;
+          if (prev) {
+            // «Сравни и поменяй»: запись идёт, только если строка такая, какой ввоз её прочитал.
+            // Иначе её успели изменить (или удалить) — отказ всем ввозом, а не молчаливое затирание
+            const swapped = await db.docRegisterItem.updateMany({ where: { id: prev.id, version: prev.version }, data: itemData });
+            if (swapped.count !== 1) {
+              const fresh = await db.docRegisterItem.findUnique({ where: { id: prev.id } });
+              throw new PlanChanged(fresh ? [{ id: prev.id, current: fresh }] : [], fresh ? [] : [prev.id], importChangedText());
+            }
+            const saved = await db.docRegisterItem.findUnique({ where: { id: prev.id } });
+            // Повтор того же номера дальше по файлу сверяется уже с записанным, а не с прочитанным
+            byNo.set(itemData.contractorNo, saved);
+            if (itemData.equipmentTags) await syncItemTags(db, saved, saved.equipmentTags);
+            updated++;
+          } else {
+            const saved = await db.docRegisterItem.create({ data: { ...itemData, registerId: register.id, projectId } });
+            if (itemData.equipmentTags) await syncItemTags(db, saved, saved.equipmentTags);
+            created++;
+          }
         }
-      }
 
-      // Титульник → реквизиты; Accounting → история ревизий ВДР (если находим)
-      const regData: any = { columnsConfig: JSON.stringify(mergedCols) };
-      if (!register.vendor && regHeader.vendor) regData.vendor = regHeader.vendor;
-      if (!register.poNumber && regHeader.poNumber) regData.poNumber = regHeader.poNumber;
-      const titSheet = wb.SheetNames.find(sn => /titular|титул/i.test(sn));
-      if (titSheet) {
-        const aoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[titSheet], { header: 1, blankrows: false, defval: '' }) as any[][];
-        // Ярлык в строке → первое непустое значение правее (значения не похожи на ярлыки)
-        const TIT_FIELDS: { field: string; match: RegExp }[] = [
-          { field: 'contractor', match: /^contractor\s*\/|^contractor\s*:|подрядчик:/i },
-          { field: 'owner', match: /^owner\s*\/|^owner\s*:|заказчик:/i },
-          { field: 'contractorProjectNo', match: /contractor\s*project\s*no/i },
-          { field: 'ownerProjectNo', match: /owner\s*project\s*no/i },
-          { field: 'vendor', match: /^vendor\s*\/|^vendor\s*:|поставщик:/i },
-          { field: 'poNumber', match: /purchase\s*order/i },
-          { field: 'materialRequisition', match: /material\s*requisition/i },
-          { field: 'equipmentTitle', match: /equipment\s*title/i },
-          { field: 'contractorDocNo', match: /contractor\s*document\s*no/i },
-          { field: 'ownerDocNo', match: /owner\s*document\s*n/i },
-          { field: 'vendorDocNo', match: /vendor\s*document\s*no/i },
-        ];
-        const found: any = {};
-        for (const row of aoa.slice(0, 30)) {
-          for (let c = 0; c < row.length; c++) {
-            const label = String(row[c] ?? '').replace(/\s+/g, ' ').trim();
-            if (!label) continue;
-            for (const { field, match } of TIT_FIELDS) {
-              if (found[field] || !match.test(label)) continue;
-              for (let v = c + 1; v < row.length; v++) {
-                const val = cellStr(row[v]);
-                // значение — не следующий ярлык (у ярлыков есть « / » или двоеточие в конце)
-                if (val && !TIT_FIELDS.some(t => t.match.test(val))) { found[field] = val.slice(0, 200); break; }
+        // Титульник → реквизиты; Accounting → история ревизий ВДР (если находим)
+        const regData: any = { columnsConfig: JSON.stringify(mergedCols) };
+        if (!register.vendor && regHeader.vendor) regData.vendor = regHeader.vendor;
+        if (!register.poNumber && regHeader.poNumber) regData.poNumber = regHeader.poNumber;
+        const titSheet = wb.SheetNames.find(sn => /titular|титул/i.test(sn));
+        if (titSheet) {
+          const aoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[titSheet], { header: 1, blankrows: false, defval: '' }) as any[][];
+          // Ярлык в строке → первое непустое значение правее (значения не похожи на ярлыки)
+          const TIT_FIELDS: { field: string; match: RegExp }[] = [
+            { field: 'contractor', match: /^contractor\s*\/|^contractor\s*:|подрядчик:/i },
+            { field: 'owner', match: /^owner\s*\/|^owner\s*:|заказчик:/i },
+            { field: 'contractorProjectNo', match: /contractor\s*project\s*no/i },
+            { field: 'ownerProjectNo', match: /owner\s*project\s*no/i },
+            { field: 'vendor', match: /^vendor\s*\/|^vendor\s*:|поставщик:/i },
+            { field: 'poNumber', match: /purchase\s*order/i },
+            { field: 'materialRequisition', match: /material\s*requisition/i },
+            { field: 'equipmentTitle', match: /equipment\s*title/i },
+            { field: 'contractorDocNo', match: /contractor\s*document\s*no/i },
+            { field: 'ownerDocNo', match: /owner\s*document\s*n/i },
+            { field: 'vendorDocNo', match: /vendor\s*document\s*no/i },
+          ];
+          const found: any = {};
+          for (const row of aoa.slice(0, 30)) {
+            for (let c = 0; c < row.length; c++) {
+              const label = String(row[c] ?? '').replace(/\s+/g, ' ').trim();
+              if (!label) continue;
+              for (const { field, match } of TIT_FIELDS) {
+                if (found[field] || !match.test(label)) continue;
+                for (let v = c + 1; v < row.length; v++) {
+                  const val = cellStr(row[v]);
+                  // значение — не следующий ярлык (у ярлыков есть « / » или двоеточие в конце)
+                  if (val && !TIT_FIELDS.some(t => t.match.test(val))) { found[field] = val.slice(0, 200); break; }
+                }
               }
             }
           }
+          for (const [k, v] of Object.entries(found)) {
+            if (!(register as any)[k]) regData[k] = v;
+          }
         }
-        for (const [k, v] of Object.entries(found)) {
-          if (!(register as any)[k]) regData[k] = v;
+        const accSheet = wb.SheetNames.find(sn => /accounting|учет|учёт/i.test(sn));
+        if (accSheet) {
+          const aoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[accSheet], { header: 1, blankrows: false, defval: '' }) as any[][];
+          const hist: any[] = [];
+          for (const r of aoa) {
+            const rev = String(r[0] ?? '').trim();
+            if (!/^[A-Z]$|^\d{1,2}$/.test(rev)) continue;
+            const d = parseDateCell(r[1]);
+            hist.push({ rev, date: d ? d.toISOString() : '', description: cellStr(r[2]) });
+          }
+          if (hist.length) {
+            regData.revisions = JSON.stringify(hist);
+            regData.revision = hist[hist.length - 1].rev;
+          }
         }
-      }
-      const accSheet = wb.SheetNames.find(sn => /accounting|учет|учёт/i.test(sn));
-      if (accSheet) {
-        const aoa = XLSX.utils.sheet_to_json<any[]>(wb.Sheets[accSheet], { header: 1, blankrows: false, defval: '' }) as any[][];
-        const hist: any[] = [];
-        for (const r of aoa) {
-          const rev = String(r[0] ?? '').trim();
-          if (!/^[A-Z]$|^\d{1,2}$/.test(rev)) continue;
-          const d = parseDateCell(r[1]);
-          hist.push({ rev, date: d ? d.toISOString() : '', description: cellStr(r[2]) });
-        }
-        if (hist.length) {
-          regData.revisions = JSON.stringify(hist);
-          regData.revision = hist[hist.length - 1].rev;
-        }
-      }
-      await prisma.docRegister.update({ where: { id: register.id }, data: regData });
+        await db.docRegister.update({ where: { id: register.id }, data: regData });
+      return { register, created, updated, skipped, mergedCols };
+      }, { timeout: 120000, maxWait: 15000 });
+      const { register, created, updated, skipped, mergedCols } = outcome;
 
       announceVdrChange(projectId, register.id);
       res.json({ register: { id: register.id, name: register.name }, created, updated, skipped, sheet: best.sheet, columns: mergedCols.length });
-    } catch (err: any) { sendError(res, err); }
+    } catch (err: any) {
+      if (sendPlanRefusal(res, err, itemOut)) return;
+      sendError(res, err);
+    }
   });
 
   // ── Экспорт ВДР в Excel (формат заказчика: Titular + Accounting + Register) ──

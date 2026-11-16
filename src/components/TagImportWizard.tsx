@@ -13,6 +13,9 @@ import { reportSaveError, saveBlob } from '../lib/saveToWindows';
 import { FIELDS, FIELD_LABEL, detectField, FieldKey as SharedFieldKey } from '../capture/fields';
 import FileBadge from './ui/FileBadge';
 import { ICON_SIZE } from '../lib/metrics';
+import { importTouchedKeys, tagIdsOfKeys } from '../../shared/tagImportPlan';
+import { runPlan, seenOfTags, byIdOf, namesOf } from './registry/planWrite';
+import { useTagRefusalDialog } from './registry/TagRefusalView';
 
 // Поля и угадывание колонок — общий модуль: тем же словарём разбирает
 // таблицу захват с экрана (src/capture)
@@ -21,12 +24,11 @@ type FieldKey = SharedFieldKey;
 interface Sheet { name: string; rows: string[][]; totalRows: number; }
 interface Props {
   projectId: string;
-  existingCodes: Set<string>;
   onClose: () => void;
   onImported: () => void;
 }
 
-export default function TagImportWizard({ projectId, existingCodes, onClose, onImported }: Props) {
+export default function TagImportWizard({ projectId, onClose, onImported }: Props) {
 
   const { addToast } = useToastStore();
   const [step, setStep] = useState<'source' | 'map'>('source');
@@ -41,7 +43,10 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [importing, setImporting] = useState(false);
-  const [dupDialog, setDupDialog] = useState<{ codes: string[] } | null>(null);
+  // Предпросмотр совпадений: коды и теги проекта, какими они были прочитаны в момент нажатия — по ним
+  // собираются версии для сверки (`seen`), а при отказе строится перечень «было → стало»
+  const [dupDialog, setDupDialog] = useState<{ codes: string[]; tags: any[] } | null>(null);
+  const refusal = useTagRefusalDialog((text, kind) => addToast(text, kind));
   const [result, setResult] = useState<{ created: number; updated: number; duplicates: string[] } | null>(null);
 
   // Список Excel-файлов из Проводника
@@ -152,28 +157,49 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
   const hasIdentifier = Object.values(map).includes('identifier');
   const previewRows = buildRows();
 
-  const runImport = async (mode: 'add' | 'update') => {
+  // Теги проекта читаются заново в момент нажатия: предпросмотр совпадений строится по свежему списку,
+  // а не по тому, что экран «Реестр» загрузил когда-то раньше. Не прочитались — импорт не начинается
+  const readProjectTags = async (): Promise<any[] | null> => {
+    try {
+      const res: any = await dataService.getTags(projectId);
+      const list = Array.isArray(res) ? res : res?.tags;
+      return Array.isArray(list) ? list : null;
+    } catch { return null; }
+  };
+
+  const runImport = async (mode: 'add' | 'update', tags: any[]) => {
     const rows = buildRows();
     if (!rows.length) { addToast('Нет строк для импорта (укажите колонку «Код тега»)', 'error'); return; }
     setImporting(true);
     setDupDialog(null);
     try {
-      const res = await dataService.bulkImportTags(projectId, rows, mode);
-      setResult(res);
+      // Версии тегов, которые ввоз тронет, — те, что видел предпросмотр: сервер сверит их до первой записи
+      const seen = seenOfTags(tags, tagIdsOfKeys(tags, importTouchedKeys(rows, mode)));
+      const out = await runPlan(() => dataService.bulkImportTags(projectId, rows, mode, seen), byIdOf(tags), namesOf(tags), 'Ошибка импорта');
+      if (out.kind !== 'ok') {
+        // Ничего не записано. Окно с перечнем закрывает человек; следующее нажатие «Импортировать» строит предпросмотр заново
+        refusal.show('Импорт не записан', out.refusal);
+        if (out.kind === 'changed') onImported();
+        return;
+      }
+      setResult(out.data);
       onImported();
-      addToast(`Импортировано: создано ${res.created}, обновлено ${res.updated}`, 'success');
-    } catch (e: any) {
-      addToast(e?.message || 'Ошибка импорта', 'error');
+      addToast(`Импортировано: создано ${out.data.created}, обновлено ${out.data.updated}`, 'success');
     } finally { setImporting(false); }
   };
 
-  const handleImportClick = () => {
+  const handleImportClick = async () => {
     const rows = buildRows();
     if (!rows.length) { addToast('Нет строк для импорта (укажите колонку «Код тега»)', 'error'); return; }
+    setImporting(true);
+    const tags = await readProjectTags();
+    setImporting(false);
+    if (!tags) { addToast('Не удалось прочитать теги проекта: импорт не начат', 'error'); return; }
+    const existingCodes = new Set(tags.map(t => (t.identifier || '').trim()).filter(Boolean));
     const codes = rows.map(r => (r.identifier || '').trim());
     const collisions = [...new Set(codes.filter(c => existingCodes.has(c)))];
-    if (collisions.length) { setDupDialog({ codes: collisions }); return; }
-    runImport('add');
+    if (collisions.length) { setDupDialog({ codes: collisions, tags }); return; }
+    await runImport('add', tags);
   };
 
   return (
@@ -368,6 +394,8 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
         )}
       </AnimatePresence>
 
+      {refusal.element}
+
       {/* DUPLICATE DIALOG */}
       <AnimatePresence>
         {dupDialog && (
@@ -381,11 +409,11 @@ export default function TagImportWizard({ projectId, existingCodes, onClose, onI
                 {dupDialog.codes.slice(0, 30).join(', ')}{dupDialog.codes.length > 30 ? ' …' : ''}
               </div>
               <div className="space-y-2">
-                <button type="button" onClick={() => runImport('update')} className="w-full flex items-center gap-2.5 px-4 py-3 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 text-left cursor-pointer">
+                <button type="button" onClick={() => runImport('update', dupDialog.tags)} className="w-full flex items-center gap-2.5 px-4 py-3 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950/30 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 text-left cursor-pointer">
                   <GitMerge className="w-5 h-5 text-emerald-600 shrink-0" />
                   <div><div className="text-sm font-semibold text-slate-800 dark:text-white">Объединить</div><div className="text-xs text-slate-500">Обновить данные существующих тегов</div></div>
                 </button>
-                <button type="button" onClick={() => runImport('add')} className="w-full flex items-center gap-2.5 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-800 text-left cursor-pointer">
+                <button type="button" onClick={() => runImport('add', dupDialog.tags)} className="w-full flex items-center gap-2.5 px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 hover:bg-slate-100 dark:hover:bg-slate-800 text-left cursor-pointer">
                   <Copy className="w-5 h-5 text-slate-500 shrink-0" />
                   <div><div className="text-sm font-semibold text-slate-800 dark:text-white">Задублировать</div><div className="text-xs text-slate-500">Добавить копии (будут выделены как дубли)</div></div>
                 </button>
