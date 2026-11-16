@@ -14,6 +14,7 @@ import {
 } from '../server/routes/equipmentDocumentBindings.js';
 import { registerEquipmentDraftRoutes } from '../server/routes/equipmentDraft.js';
 import { setPrisma } from '../server/context.js';
+import { withVersionBump } from '../server/versionBump.js';
 
 const require = createRequire(import.meta.url);
 const { PrismaClient } = require('../prisma-clients/client-sqlite');
@@ -62,7 +63,9 @@ async function call(method: string, path: string, params: Record<string, string>
 async function main() {
 try {
   for (const sql of ddl) await prisma.$executeRawUnsafe(sql);
-  setPrisma(prisma);
+  // Клиент с ростом версии — как на сервере (server.ts): «хватка» строки опирается на метку keepVersion
+  const served = withVersionBump(prisma);
+  setPrisma(served);
   await prisma.$executeRawUnsafe(`INSERT INTO Project(id,name) VALUES ('project-a','Project A'),('project-b','Project B'),('large-project','Large Project'),('crowded-project','Crowded Project')`);
   await prisma.$executeRawUnsafe(`INSERT INTO ProjectMember(id,projectId,userId) VALUES ('member-a','project-a','fixture-admin')`);
   await prisma.$executeRawUnsafe(`INSERT INTO ProjectMember(id,projectId,userId) VALUES ('member-reader','project-a','reader')`);
@@ -260,11 +263,11 @@ try {
   const stableSystemXml = `<project><system name="SYS-1"><group title="Установка"><param name="Расход" unit="м³/с">1</param></group><monoblock name="M1"><block name="FAN-1"><group title="Параметры"><param name="Давление" unit="Па">1</param></group></block></monoblock></system></project>`;
   const stableCandidate = await call('POST', checkPath, { projectId: 'project-a', sourceId: systemSourceId }, rawSource(stableSystemXml, 'F', 'SYS-1.xml'));
   const childVersionBeforeRacedConfirm = (await prisma.componentElement.findUnique({ where: { id: 'element-a' } })).version;
-  const originalTransaction = prisma.$transaction.bind(prisma);
-  (prisma as any).$transaction = async (...args: any[]) => {
+  const originalTransaction = served.$transaction.bind(served);
+  (served as any).$transaction = async (...args: any[]) => {
     const child = await prisma.componentElement.findUnique({ where: { id: 'element-a' } });
     await prisma.componentElement.update({ where: { id: 'element-a' }, data: { version: child.version + 1 } });
-    (prisma as any).$transaction = originalTransaction;
+    (served as any).$transaction = originalTransaction;
     return originalTransaction(...args);
   };
   const racedConfirm = await call('POST', '/api/equipment/projects/:projectId/sources/:sourceId/candidates/:candidateId/decisions', { projectId: 'project-a', sourceId: systemSourceId, candidateId: stableCandidate.body.candidate.id }, { expectedVersion: stableCandidate.body.candidate.expectedVersion, confirmNoChanges: true });

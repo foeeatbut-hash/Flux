@@ -44,4 +44,4 @@
 
 ## Ход
 - [ ] T (в работе): теги и ВДР — шаг 1: server/planGuard.ts готов (assertSeenVersions, seenOf, sendPlanRefusal)
-- [ ] Q: оборудование и XML
+- [ ] Q (в работе): оборудование и XML — шаг 1 из 5 готов: сервер (план несёт seen/seenRows; import-to-category, import-draft, import-undo сверяют в транзакции; XML decisions сверяет seen, «хватка» через keepVersion — версия назад не ставится). Дальше: наборы сервера, клиент (предпросмотр, отмена, XML), снимки, пуш.
