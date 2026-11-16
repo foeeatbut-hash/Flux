@@ -5,4 +5,4 @@
 
 - [x] Шаг 1: dataService (версия, WriteRefusal), `src/components/projects/*`, экран
 - [x] Шаг 2: `scripts/test-project-version-client.ts` + мутации
-- [ ] Шаг 3: `scripts/test-project-version-ui.ts` + мутации + снимки `/tmp/b1-shots/`
+- [x] Шаг 3 (набор написан, мутации — следующим коммитом): `scripts/test-project-version-ui.ts` + мутации + снимки `/tmp/b1-shots/`
