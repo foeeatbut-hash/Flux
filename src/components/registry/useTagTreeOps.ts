@@ -10,6 +10,11 @@
 import React from 'react';
 import { useModalStore } from '../../store/modalStore';
 import { parseTagMetadata, type ParsedMetadata } from './tagMeta';
+import { useToastStore } from '../../store/toastStore';
+import { deleteGoneText } from '../../lib/refusalTexts';
+import { deleteTagRequest } from './tagWrite';
+import { refusalOf, needsReread, type TagRefusal } from './tagRefusal';
+import type { TagNames } from './changeRules';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -23,6 +28,9 @@ export interface TagTreeOpsDeps {
   setEditingTag: SetState<any | null>;
   setSelectedTagIds: SetState<Set<string>>;
   loadTags: () => Promise<void>;
+  /** Имена для перечня «было → стало» и окно отказа (useTagRefusal) */
+  names: () => TagNames;
+  showRefusal: (title: string, refusal: TagRefusal) => void;
 }
 
 export interface TagTreeOps {
@@ -33,12 +41,23 @@ export interface TagTreeOps {
 }
 
 export function useTagTreeOps({
-  tags, searchQuery, saveTagMetadata, setEditingTag, setSelectedTagIds, loadTags,
+  tags, searchQuery, saveTagMetadata, setEditingTag, setSelectedTagIds, loadTags, names, showRefusal,
 }: TagTreeOpsDeps): TagTreeOps {
   // Delete Node tag completely
   const handleDeleteTag = async (tagId: string) => {
     if (!await openConfirm('Удалить тег?', 'Тег и все его связи с другим оборудованием будут удалены. Действие необратимо.', { confirmLabel: 'Удалить тег', tone: 'danger' })) return;
     try {
+      // Сначала удаление: связи соседей чистятся только у удалённого тега, иначе отказ оставил бы тег без связей
+      const tag = tags.find((t) => t.id === tagId) || { id: tagId };
+      const outcome = await deleteTagRequest(tag);
+      if (outcome.kind !== 'ok') {
+        // Изменили / открыт у коллеги / уже удалён / сбой: человек видит причину, ничего не удалено
+        showRefusal('Тег не удалён', refusalOf(outcome, tag, names(), 'Не удалось удалить тег') as TagRefusal);
+        if (needsReread(outcome)) loadTags();
+        return;
+      }
+      // Повторное удаление сервер принимает (200): говорим словами словаря, а не молчим
+      if (outcome.data?.alreadyGone) useToastStore.getState().addToast(deleteGoneText('tag'), 'info');
       for (const otherTag of tags) {
         if (otherTag.id === tagId) continue;
         const otherMeta = parseTagMetadata(otherTag);
@@ -56,7 +75,6 @@ export function useTagTreeOps({
         }
       }
 
-      await fetch(`/api/tags/${tagId}`, { method: 'DELETE' });
       setEditingTag(null);
       // Убираем удалённый тег из выделения сразу, не дожидаясь перезагрузки
       setSelectedTagIds(prev => {
@@ -68,6 +86,7 @@ export function useTagTreeOps({
       loadTags();
     } catch (err) {
       console.error('Failed to delete tag:', err);
+      useToastStore.getState().addToast('Не удалось удалить тег', 'error');
     }
   };
 

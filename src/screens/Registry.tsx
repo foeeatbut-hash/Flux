@@ -61,6 +61,8 @@ import { useQuickCreate } from '../components/registry/useQuickCreate';
 import { useTagExtractor } from '../components/registry/useTagExtractor';
 import { useRegistryTags } from '../components/registry/useRegistryTags';
 import { useTagTreeOps } from '../components/registry/useTagTreeOps';
+import { useTagRefusal } from '../components/registry/useTagRefusal';
+import { useRegistryOpenRecords } from '../components/registry/useRegistryOpenRecords';
 import { saveTagMetadataPatch, rememberVersions, deleteTagRequest, bulkMetadataRequest, lastWriteKeptInput } from '../components/registry/tagWrite';
 import { splitSegments } from '../lib/tagExtract';
 import { belongsToProject } from '../lib/coalescedRefresh';
@@ -756,7 +758,10 @@ export default function Registry() {
     return saveTagMetadataPatch(tag, clean, tagWriteDeps);
   };
   // Свежая копия при конфликте попадает и в открытую карточку, а не только в список
-  const tagWriteDeps = { setTags, addToast, onFresh: (t: any) => setEditingTag((prev: any) => (prev && prev.id === t.id ? { ...prev, ...t, parsedMetadata: undefined } : prev)) };
+  // Отказ записи — перечень «было → стало» в карточке или окном; открытое у этого окна — тег карточки и мини-панели
+  const tagRefusal = useTagRefusal({ tags, dictionaries, editingTagId: editingTag?.id ?? null, loadTags });
+  useRegistryOpenRecords({ cardTagId: editingTag?.id, panelTagId: cardPanel?.tagId });
+  const tagWriteDeps = { setTags, addToast, ...tagRefusal.writeDeps, onFresh: (t: any) => setEditingTag((prev: any) => (prev && prev.id === t.id ? { ...prev, ...t, parsedMetadata: undefined } : prev)) };
   // Поля тега (код, марка, WBS) тоже идут с версией и забирают новую себе: иначе
   // следующая правка комментария ушла бы со старой версией и получила конфликт с собой
   const saveTagFields = (tag: any, fields: Record<string, unknown>) => saveTagMetadataPatch(tag, tag?.metadata, tagWriteDeps, fields);
@@ -1815,7 +1820,7 @@ export default function Registry() {
       } : t));
 
       // Версия и только изменившиеся ключи — как в saveTagMetadata (tagWrite.ts)
-      if (!await saveTagMetadataPatch(tag, meta, { setTags, addToast }, { department: updatedDepartment, fluid: updatedFluid })) return;
+      if (!await saveTagMetadataPatch(tag, meta, tagWriteDeps, { department: updatedDepartment, fluid: updatedFluid })) return;
 
       if (editingTag && editingTag.id === tagId) {
         setEditingTag({ ...tag, department: updatedDepartment, fluid: updatedFluid, metadata: JSON.stringify(meta), parsedMetadata: meta });
@@ -1914,6 +1919,7 @@ export default function Registry() {
   // раньше сборщика по сегментам: ему нужна getParentTraceLineage
   const { handleDeleteTag, buildTree, getParentTraceLineage } = useTagTreeOps({
     tags, searchQuery, saveTagMetadata, setEditingTag, setSelectedTagIds, loadTags,
+    names: tagRefusal.names, showRefusal: tagRefusal.showRefusal,
   });
 
   // Re-assign logical parenting
@@ -2513,6 +2519,7 @@ export default function Registry() {
           setEditTagBrand={setEditTagBrand}
           onUpdateBrand={handleUpdateBrand}
           onSaveFields={saveTagFields}
+          refusal={tagRefusal.cardRefusal}
           projectBrands={projectBrands}
           setTags={setTags}
           dictionaries={dictionaries}
@@ -2524,6 +2531,8 @@ export default function Registry() {
           projectId={activeProject?.id || 'default'}
         />
       )}
+
+      {tagRefusal.element}
 
       {exchangeOpen && (
         <ExchangeDialog
