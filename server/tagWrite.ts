@@ -250,23 +250,34 @@ export async function writeTag(
 }
 
 /**
- * Массовая запись: все теги одной транзакцией, как и было, — либо всё, либо
- * ничего. Несуществующие теги пропускаются и возвращаются списком `missing`.
+ * Массовая запись: все теги одной транзакцией — либо всё, либо ничего.
+ *
+ * Каждая запись сверяется со своей версией (`input.version`, как у поштучной
+ * правки; перенос карточек версию не сверяет). Хоть одну запись изменили или
+ * удалили, пока человек смотрел, — откатывается вся транзакция, и отказ
+ * (`TagBulkConflict`) называет ВСЕ такие записи, а не первую: экран показывает
+ * перечень и просит подтвердить заново. Прежнее «несуществующие пропускаются»
+ * молча теряло правку, поэтому удалённый тег теперь — отказ.
  */
 export async function writeTags(
   prisma: any, items: Array<{ id: string; input: TagWriteInput }>,
   hooks: { record?: (tx: any, results: TagWriteResult[]) => Promise<void> } = {},
-): Promise<{ results: TagWriteResult[]; missing: string[] }> {
+): Promise<{ results: TagWriteResult[] }> {
   return inTagTransaction(prisma, async (tx: any) => {
     const results: TagWriteResult[] = [];
-    const missing: string[] = [];
+    const changed: Array<{ id: string; current: any }> = [];
+    const gone: string[] = [];
     for (const { id, input } of items) {
       try { results.push(await writeInTx(tx, id, input)); } catch (e) {
-        if (e instanceof RecordGone) missing.push(id); else throw e;
+        if (e instanceof RecordGone) gone.push(id);
+        else if (e instanceof VersionConflict) changed.push({ id, current: e.current });
+        else throw e;
       }
     }
+    // Бросок внутри транзакции откатывает и уже записанные теги пачки
+    if (changed.length || gone.length) throw new TagBulkConflict(changed, gone);
     if (hooks.record) await hooks.record(tx, results);
-    return { results, missing };
+    return { results };
   }, { timeout: 120000, maxWait: 15000 });
 }
 

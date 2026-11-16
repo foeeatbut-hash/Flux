@@ -51,6 +51,9 @@ async function mayUseProject(req: Request, projectId: string): Promise<boolean> 
 }
 const NO_PROJECT = { error: 'Нет доступа к проекту. Попросите добавить вас в состав.' };
 
+/** Сколько тегов разрешено изменить одним массовым запросом */
+const BULK_TAG_LIMIT = 2000;
+
 export function registerTagRoutes(app: Express, deps: TagDeps): void {
   const { io, notifyAll } = deps;
   app.get('/api/projects/:projectId/tags', async (req: Request, res: Response) => {
@@ -458,18 +461,34 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
   // (server/tagWrite.ts): раньше экран «Закупки» присылал metadata целиком, и
   // каждая смена этапа у N позиций заодно стирала чужие комментарии.
   // `source: 'Закупки'` сужает запрос до ключа procurement — остальное он не тронет.
+  //
+  // Каждая запись несёт `version` (updatedAt, как её видел экран). Хоть одну запись
+  // изменили или удалили — 409 `VERSION_CONFLICT` с перечнем `changed: [{ id, current }]` и
+  // `gone: [id]`, не записано ничего. Запись без версии не сверяется (слияние её защищает);
+  // перенос карточек (x, y, _noPos) версию не сверяет никогда. Больше 2000 записей — 400:
+  // молчаливый срез терял хвост пачки.
   app.put('/api/tags/bulk-metadata', async (req: Request, res: Response) => {
     const prisma = getPrisma();
-    const { updates, source } = req.body as { updates: { id: string; metadata: unknown }[]; source?: string };
+    const { updates, source } = (req.body || {}) as { updates: { id: string; metadata: unknown; version?: unknown }[]; source?: string };
     if (!Array.isArray(updates) || updates.length === 0) {
       return res.status(400).json({ error: 'updates[] required' });
     }
-    const limited = updates.slice(0, 2000);
+    if (updates.length > BULK_TAG_LIMIT) {
+      return res.status(400).json({ error: `За один раз можно изменить не больше ${BULK_TAG_LIMIT} тегов, прислано ${updates.length}. Ничего не записано — разбейте действие на части.` });
+    }
+    const ids = updates.map((u) => String(u?.id ?? ''));
+    if (ids.some((id) => !id) || new Set(ids).size !== ids.length) {
+      return res.status(400).json({ error: 'Каждый тег должен быть назван один раз. Ничего не записано.' });
+    }
     const procurement = source === TAG_SOURCE.procurement;
     try {
-      const { results, missing } = await writeTags(prisma, limited.map(u => ({
+      const { results } = await writeTags(prisma, updates.map(u => ({
         id: String(u.id),
-        input: { metadata: metadataPatchOf(u.metadata), onlyKeys: procurement ? ['procurement'] : undefined },
+        input: {
+          metadata: metadataPatchOf(u.metadata),
+          onlyKeys: procurement ? ['procurement'] : undefined,
+          version: u.version === undefined ? undefined : (u.version === null ? null : String(u.version)),
+        },
       })), {
         // Раскладка карточек сюда тоже приходит, но координаты правкой не считаются.
         // История — в транзакции записи: не записалась она, не записались и теги
@@ -477,8 +496,9 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           done.filter(r => !r.unchanged).map(r => updateSet(r.before, r.tag))).then(() => undefined),
       });
       emitEntitiesChanged('tag', results.filter(r => !r.unchanged).map(r => r.tag.id), req);
-      // Новые версии — чтобы экран не держал устаревшую после собственной записи
-      res.json({ success: true, updated: results.length, missing, versions: results.map(r => ({ id: r.tag.id, updatedAt: r.tag.updatedAt })) });
+      // Новые версии — чтобы экран не держал устаревшую после собственной записи.
+      // `missing` оставлен пустым для прежних клиентов: удалённый тег теперь отказ, а не пропуск
+      res.json({ success: true, updated: results.length, missing: [], versions: results.map(r => ({ id: r.tag.id, updatedAt: r.tag.updatedAt })) });
     } catch (err: any) {
       const known = tagWriteFailure(err);
       if (known) return res.status(known.status).json(known.body);
