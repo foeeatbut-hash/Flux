@@ -1,5 +1,6 @@
 import { Toolbar, Btn, IconBtn, FilterSeg, Status, type Tone } from '../ui';
 import { WindowDialog } from '../ui/WindowDialog';
+import RecordOrigin from '../ui/RecordOrigin';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../../store/store';
@@ -694,6 +695,7 @@ function ItemCard({ item, register, standard, users, projectTags, onClose, onCha
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2.5">
+          {!isNew && <RecordOrigin model="DocRegisterItem" id={item.id} />}
           {/* Ревизия */}
           {!isNew && (
             <div className="flex items-center gap-2">
