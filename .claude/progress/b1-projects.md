@@ -4,5 +4,5 @@
 Ветка: `claude/youthful-ride-rwzb0t` (пуш `HEAD:claude/youthful-ride-rwzb0t`). Старт: fe9e22f.
 
 - [x] Шаг 1: dataService (версия, WriteRefusal), `src/components/projects/*`, экран
-- [ ] Шаг 2: `scripts/test-project-version-client.ts` + мутации
+- [x] Шаг 2: `scripts/test-project-version-client.ts` + мутации
 - [ ] Шаг 3: `scripts/test-project-version-ui.ts` + мутации + снимки `/tmp/b1-shots/`
