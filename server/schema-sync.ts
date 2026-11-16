@@ -260,7 +260,7 @@ const TEXTY = /^(tinytext|text|mediumtext|longtext|blob|mediumblob|longblob)$/i;
  * колонки. Сначала пробуем как надо, а на отказ повторяем без умолчания:
  * пустая строка у TEXT и так подставляется движком.
  */
-function columnDdl(dialect: Dialect, c: Column, noTextDefault = false): string {
+export function columnDdl(dialect: Dialect, c: Column, noTextDefault = false): string {
   const base = (c as any)._base as string;
   let def = c.defaultSql;
   if (!c.nullable && !c.isId && def == null) def = fallbackDefault(dialect, base);
