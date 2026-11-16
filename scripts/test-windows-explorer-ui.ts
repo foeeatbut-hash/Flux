@@ -269,7 +269,8 @@ async function loadUntil(page: Page, count: number) {
     ok('Deep link свойств загружает родительскую папку и выбирает целевой файл', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'list' && request.ref.relativePath === 'Проекты')) && await page.getByText('Тестовый автор').isVisible());
     await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
 
-    ok('Шапка Проводника без кнопок создания: создание только правой кнопкой', await page.locator('[data-explorer-commands]').getByRole('button', { name: /Создать|Новая папка/ }).count() === 0);
+    const createButton = page.locator('[data-explorer-commands]').getByRole('button', { name: 'Создать', exact: true });
+    ok('Панель команд: кнопка «Создать» видна и доступна', await createButton.isVisible() && await createButton.isEnabled());
     await openCreateMenu(page, 'В Windows');
     ok('«Создать ▸»: раздел «В Windows» с пятью пунктами', JSON.stringify(await page.locator(MENU).last().locator('button').allInnerTexts()) === JSON.stringify(KINDS));
     await page.getByRole('button', { name: 'В Flux', exact: true }).hover();
@@ -278,6 +279,30 @@ async function loadUntil(page: Page, count: number) {
     ok('«Создать ▸»: раздел «В Flux» с теми же пятью пунктами', JSON.stringify(await page.locator(MENU).last().locator('button').allInnerTexts()) === JSON.stringify(KINDS));
     ok('Старые пункты «Создать в Flux» и «Создать папку в Windows» из меню пустого места убраны', await page.locator(MENU).first().getByRole('button', { name: /Создать в Flux|Создать папку в Windows/ }).count() === 0);
     await page.keyboard.press('Escape');
+    // Кнопка «Создать»: те же разделы и пункты, что в меню пустого места; клавиатура: Enter открывает, Escape закрывает
+    await createButton.focus();
+    await page.keyboard.press('Enter');
+    await page.locator(MENU).first().waitFor();
+    ok('Кнопка «Создать»: меню открывается с Enter и содержит оба раздела', await page.locator(MENU).first().getByRole('button', { name: 'В Windows', exact: true }).count() === 1 && await page.locator(MENU).first().getByRole('button', { name: 'В Flux', exact: true }).count() === 1);
+    await page.keyboard.press('Escape');
+    await page.locator(MENU).first().waitFor({ state: 'detached' });
+    ok('Кнопка «Создать»: Escape закрывает меню', await page.locator(MENU).count() === 0);
+    await createButton.click();
+    await page.locator(MENU).first().getByRole('button', { name: 'В Windows', exact: true }).hover();
+    await page.locator(MENU).last().getByRole('button', { name: 'Папку', exact: true }).waitFor();
+    ok('Кнопка «Создать»: раздел «В Windows» с теми же пятью пунктами', JSON.stringify(await page.locator(MENU).last().locator('button').allInnerTexts()) === JSON.stringify(KINDS));
+    for (const dark of [false, true]) {
+      await page.evaluate((enabled) => document.documentElement.classList.toggle('dark', enabled), dark);
+      await page.screenshot({ path: `${SHOTS}/create-button-${dark ? 'dark' : 'light'}.png`, clip: { x: 0, y: 0, width: 1000, height: 500 } });
+    }
+    await page.evaluate(() => document.documentElement.classList.remove('dark'));
+    await page.locator(MENU).last().getByRole('button', { name: 'Папку', exact: true }).click();
+    const buttonInput = page.getByRole('textbox', { name: 'Имя' });
+    await buttonInput.waitFor();
+    await buttonInput.fill('ЧерезКнопку');
+    await buttonInput.press('Enter');
+    await buttonInput.waitFor({ state: 'detached' });
+    ok('Кнопка «Создать» → «Папку»: тот же mkdir, что из контекстного меню', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'mkdir' && request.name === 'ЧерезКнопку' && request.parent.relativePath === 'Проекты')));
     await createVia(page, 'В Windows', 'Папку', 'Чертежи');
     ok('Папка Windows: mkdir с родителем «Проекты» и введённым именем', await page.evaluate(() => (window as any).__windowsFilesCalls.some((request: any) => request.action === 'mkdir' && request.name === 'Чертежи' && request.parent.relativePath === 'Проекты')));
     await page.getByRole('row', { name: /Чертежи/ }).waitFor();
