@@ -16,7 +16,7 @@
  *
  * Модуль без React и браузера: наборы гоняют его с подставным `fetch`.
  */
-import { writeVersioned, versionToSend, type WriteResult, type OpenHolder, type OpenRecordInfo } from '../equipment/versionedWrite';
+import { writeVersioned, versionToSend, type ChangedBy, type WriteResult, type OpenHolder, type OpenRecordInfo } from '../equipment/versionedWrite';
 import type { FieldChange } from '../../lib/recordChanges';
 import { deleteGoneText } from '../../lib/refusalTexts';
 import { dictChanges, type DictNames } from './changeRules';
@@ -29,6 +29,8 @@ export interface DictRefusal {
   message: string;
   /** Перечень «было → стало» (может быть пустым: показанное не затронуто) */
   changes?: FieldChange[];
+  /** Кто изменил пункт последним — строка «Изменил: …» под текстом */
+  changedBy?: ChangedBy | null;
   holders?: OpenHolder[];
   record?: OpenRecordInfo | null;
 }
@@ -100,7 +102,7 @@ export function refusalOf(outcome: WriteResult, shown: unknown, names: DictNames
     case 'ok':
       // Повторное удаление сервер принимает (200), а человеку надо сказать, что делать было нечего
       return outcome.data?.alreadyGone ? { kind: 'gone', message: deleteGoneText('dictionaryItem') } : null;
-    case 'conflict': return { kind: 'conflict', message: outcome.message, changes: dictChanges(shown, outcome.current, names) };
+    case 'conflict': return { kind: 'conflict', message: outcome.message, changes: dictChanges(shown, outcome.current, names), changedBy: outcome.changedBy };
     case 'gone': return { kind: 'gone', message: outcome.message };
     case 'open': return { kind: 'open', message: outcome.message, holders: outcome.holders, record: outcome.record };
     case 'offline': return { kind: 'plain', message: outcome.message };

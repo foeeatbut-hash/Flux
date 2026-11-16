@@ -13,7 +13,7 @@
  */
 import type { ConflictGroup } from '../ui/ConflictNotice';
 import type { FieldChange } from '../../lib/recordChanges';
-import { conflictOf, goneOf, openOf, type OpenHolder, type OpenRecordInfo } from '../equipment/versionedWrite';
+import { conflictOf, goneOf, openOf, type ChangedBy, type OpenHolder, type OpenRecordInfo } from '../equipment/versionedWrite';
 import { tagChanges, type TagNames } from './changeRules';
 
 export type TagRefusalKind = 'conflict' | 'gone' | 'open' | 'plain';
@@ -23,6 +23,8 @@ export interface TagRefusal {
   message: string;
   /** Перечень по одной записи (может быть пустым: показанное не затронуто) */
   changes?: FieldChange[];
+  /** Кто изменил тег последним — строка «Изменил: …» под текстом */
+  changedBy?: ChangedBy | null;
   /** Перечень по записям — для массовых действий */
   groups?: ConflictGroup[];
   holders?: OpenHolder[];
@@ -31,7 +33,7 @@ export interface TagRefusal {
 
 export type TagOutcome =
   | { kind: 'ok'; data: any }
-  | { kind: 'conflict'; message: string; current: any; data: any }
+  | { kind: 'conflict'; message: string; current: any; changedBy: ChangedBy | null; data: any }
   | { kind: 'gone'; message: string; data: any }
   | { kind: 'open'; message: string; holders: OpenHolder[]; record: OpenRecordInfo | null; data: any }
   | { kind: 'refused'; status: number; message: string; data: any }
@@ -65,7 +67,7 @@ export function deleteUrl(id: string, version: unknown): string {
 export function refusalOf(outcome: TagOutcome, shown: unknown, names: TagNames, fallback: string): TagRefusal | null {
   switch (outcome.kind) {
     case 'ok': return null;
-    case 'conflict': return { kind: 'conflict', message: outcome.message, changes: tagChanges(shown, outcome.current, names) };
+    case 'conflict': return { kind: 'conflict', message: outcome.message, changes: tagChanges(shown, outcome.current, names), changedBy: outcome.changedBy };
     case 'gone': return { kind: 'gone', message: outcome.message };
     case 'open': return { kind: 'open', message: outcome.message, holders: outcome.holders, record: outcome.record };
     case 'offline': return { kind: 'plain', message: outcome.message };

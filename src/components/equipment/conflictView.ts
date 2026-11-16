@@ -11,7 +11,7 @@
  */
 import type { FieldChange } from '../../lib/recordChanges';
 import { equipmentChanges, type EquipmentRecordKind } from './changeRules';
-import { failureText, type WriteResult } from './versionedWrite';
+import { failureText, type ChangedBy, type WriteResult } from './versionedWrite';
 
 /**
  * - `conflict` — запись изменили; есть перечень (он может быть пустым: показанное не затронуто);
@@ -24,6 +24,8 @@ export interface Refusal {
   kind: RefusalKind;
   message: string;
   changes?: FieldChange[];
+  /** Кто изменил запись последним — строка «Изменил: …» под текстом; нет — строки нет */
+  changedBy?: ChangedBy | null;
 }
 
 /** Обычная строка отказа без перечня: проверка формы, отказ сервера по иной причине. */
@@ -33,7 +35,7 @@ export const plainRefusal = (message: string): Refusal => ({ kind: 'plain', mess
 export function refusalOf(result: WriteResult, recordKind: EquipmentRecordKind, shown: unknown, fallback: string): Refusal | null {
   switch (result.kind) {
     case 'ok': return null;
-    case 'conflict': return { kind: 'conflict', message: result.message, changes: equipmentChanges(recordKind, shown, result.current) };
+    case 'conflict': return { kind: 'conflict', message: result.message, changes: equipmentChanges(recordKind, shown, result.current), changedBy: result.changedBy };
     case 'gone': return { kind: 'gone', message: result.message };
     case 'open': return { kind: 'open', message: result.message };
     default: return plainRefusal(failureText(result, fallback));

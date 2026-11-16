@@ -10,7 +10,7 @@
  * отказ читают с экранного диктора сразу, как только он появился.
  */
 import type { FieldChange } from '../../lib/recordChanges';
-import { nothingChangedText } from '../../lib/refusalTexts';
+import { changedByText, nothingChangedText } from '../../lib/refusalTexts';
 
 export interface ConflictGroup {
   /** Название записи: «Вентилятор А» */
@@ -36,9 +36,11 @@ function ChangeList({ changes }: { changes: FieldChange[] }) {
   );
 }
 
-export default function ConflictNotice({ message, changes, groups, emptyText = NO_SHOWN_CHANGES, className = '' }: {
+export default function ConflictNotice({ message, changedBy, changes, groups, emptyText = NO_SHOWN_CHANGES, className = '' }: {
   /** Текст отказа */
   message: string;
+  /** Кто изменил запись последним (ответ сервера); нет автора — строки нет */
+  changedBy?: { name: string; at?: string } | null;
   /** Перечень по одной записи; `undefined` — перечня нет вовсе (запись удалена, открыта у коллеги), `[]` — различий в показанном нет */
   changes?: FieldChange[];
   /** Перечень по записям — для массовых действий; записи без различий пропускаются */
@@ -46,10 +48,12 @@ export default function ConflictNotice({ message, changes, groups, emptyText = N
   emptyText?: string;
   className?: string;
 }) {
+  const byText = changedBy ? changedByText(changedBy.name, changedBy.at) : '';
   const shownGroups = (groups || []).filter((g) => g.changes.length > 0);
   return (
     <div role="alert" data-conflict-notice className={`fx-conflict ${className}`.trim()}>
       <p className="fx-conflict-message" data-conflict-message>{message}</p>
+      {byText && <p className="fx-hint m-0" data-conflict-changed-by>{byText}</p>}
       {changes && changes.length > 0 && <ChangeList changes={changes} />}
       {changes && changes.length === 0 && <p className="fx-hint m-0" data-conflict-empty>{emptyText}</p>}
       {groups && shownGroups.length === 0 && <p className="fx-hint m-0" data-conflict-empty>{emptyText}</p>}

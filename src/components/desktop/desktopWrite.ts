@@ -20,7 +20,7 @@ export { runWrite };
 export function fileRefusalOf(result: WriteResult, shown: unknown, desk: DeskFolders, fallback: string): Refusal | null {
   switch (result.kind) {
     case 'ok': return null;
-    case 'conflict': return { kind: 'conflict', message: result.message, changes: fileChanges(shown, result.current, desk) };
+    case 'conflict': return { kind: 'conflict', message: result.message, changes: fileChanges(shown, result.current, desk), changedBy: result.changedBy };
     case 'gone': return { kind: 'gone', message: result.message };
     case 'open': return { kind: 'open', message: result.message };
     default: return plainRefusal(failureText(result, fallback));

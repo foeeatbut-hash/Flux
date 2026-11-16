@@ -14,7 +14,7 @@ import ConflictNotice from '../ui/ConflictNotice';
 import type { DictRefusal } from './dictWrite';
 
 function DictRefusalView({ refusal, className = '' }: { refusal: DictRefusal; className?: string }) {
-  return <ConflictNotice message={refusal.message} className={className} changes={refusal.kind === 'conflict' ? refusal.changes : undefined} />;
+  return <ConflictNotice message={refusal.message} className={className} changes={refusal.kind === 'conflict' ? refusal.changes : undefined} changedBy={refusal.kind === 'conflict' ? refusal.changedBy : undefined} />;
 }
 
 export interface DictRefusalState {

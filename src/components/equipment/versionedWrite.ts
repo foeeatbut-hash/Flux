@@ -32,7 +32,7 @@ export type WriteResult =
   /** Запись принята; `data` — разобранный ответ (пустой объект, если тела нет) */
   | { kind: 'ok'; data: any }
   /** Запись изменили раньше: `message` — текст сервера, `current` — запись, какой она стала, `data` — тело отказа целиком */
-  | { kind: 'conflict'; message: string; current: any; data: any }
+  | { kind: 'conflict'; message: string; current: any; changedBy: ChangedBy | null; data: any }
   /** Запись уже удалили (404 с кодом): правка не записана, перечитывать есть что — запись из дерева исчезнет */
   | { kind: 'gone'; message: string; data: any }
   /** Удалить нельзя: запись открыта у коллеги. `holders` — у кого, `record` — какая запись держит (может быть вложенной) */
@@ -63,10 +63,20 @@ export function withVersionQuery(url: string, version: unknown): string {
   return `${url}${url.includes('?') ? '&' : '?'}expectedVersion=${v}`;
 }
 
+/** Кто изменил запись последним — как его присылает сервер вместе с отказом по версии; нет автора (система, запись старше журнала) — `null` */
+export interface ChangedBy { userId?: string; name: string; at?: string }
+
+/** `changedBy` из тела отказа: без имени строка «Изменил» не нужна, поэтому такой автор — `null`. */
+export function changedByOf(body: any): ChangedBy | null {
+  const c = body && typeof body === 'object' ? body.changedBy : null;
+  if (!c || typeof c !== 'object' || typeof c.name !== 'string' || !c.name.trim()) return null;
+  return { ...(typeof c.userId === 'string' ? { userId: c.userId } : {}), name: c.name, ...(typeof c.at === 'string' ? { at: c.at } : {}) };
+}
+
 /** Отказ по версии в ответе сервера: ровно по полю `code`. */
-export function conflictOf(status: number, body: any): { message: string; current: any } | null {
+export function conflictOf(status: number, body: any): { message: string; current: any; changedBy: ChangedBy | null } | null {
   if (status !== 409 || !body || typeof body !== 'object' || body.code !== VERSION_CONFLICT) return null;
-  return { message: String(body.error || 'Запись изменили, пока вы её правили'), current: body.current ?? null };
+  return { message: String(body.error || 'Запись изменили, пока вы её правили'), current: body.current ?? null, changedBy: changedByOf(body) };
 }
 
 /** Запись удалена в ответе сервера: 404 и ровно код `RECORD_GONE`. */
