@@ -41,6 +41,7 @@ export const NOUN_OF_MODEL: Record<string, RefusalNoun> = {
   Tag: 'tag',
   DocRegister: 'register',
   DocRegisterItem: 'registerItem',
+  FileNode: 'file',
   Project: 'project',
   Dictionary: 'dictionary',
   DictionaryItem: 'dictionaryItem',
