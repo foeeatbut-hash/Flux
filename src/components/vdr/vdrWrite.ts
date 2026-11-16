@@ -16,7 +16,7 @@
  *
  * Модуль без React: наборы гоняют его на голых объектах и подставном `fetch`.
  */
-import { conflictOf, goneOf, openOf, type WriteResult } from '../equipment/versionedWrite';
+import { conflictOf, goneOf, openOf, type ChangedBy, type WriteResult } from '../equipment/versionedWrite';
 import type { FieldChange } from '../../lib/recordChanges';
 import type { ConflictGroup } from '../ui/ConflictNotice';
 import { editGoneText, nothingChangedText, bulkPartialText } from '../../lib/refusalTexts';
@@ -51,6 +51,8 @@ export interface VdrRefusal {
   kind: 'conflict' | 'gone' | 'open' | 'plain';
   message: string;
   changes?: FieldChange[];
+  /** Кто изменил запись последним (у массового действия не показывается: записей несколько) */
+  changedBy?: ChangedBy | null;
   groups?: ConflictGroup[];
   /** Строки, которые не записаны не из-за чужой правки (удалены, сбой): название и причина — под перечнем */
   notes?: Array<{ title: string; text: string }>;
@@ -60,7 +62,7 @@ export interface VdrRefusal {
 export function refusalOf(result: WriteResult, changesOf: (current: any) => FieldChange[], fallback: string): VdrRefusal | null {
   switch (result.kind) {
     case 'ok': return null;
-    case 'conflict': return { kind: 'conflict', message: result.message, changes: changesOf(result.current) };
+    case 'conflict': return { kind: 'conflict', message: result.message, changes: changesOf(result.current), changedBy: result.changedBy };
     case 'gone': return { kind: 'gone', message: result.message };
     case 'open': return { kind: 'open', message: result.message };
     case 'offline': return { kind: 'plain', message: result.message };

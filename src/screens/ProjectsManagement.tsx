@@ -14,6 +14,7 @@ import { runWrite, projectRefusalOf, needsReread, mergeDraft } from '../componen
 import { useProjectOpenRecords } from '../components/projects/useProjectOpenRecords';
 import { Plus, Search, Trash2, Users } from 'lucide-react';
 import { SectionHead, Btn, IconBtn, Input, Status, Empty, SectionTitle } from '../components/ui';
+import RecordOrigin from '../components/ui/RecordOrigin';
 import { useNavigate } from 'react-router-dom';
 
 import { useShallow } from 'zustand/react/shallow';
@@ -321,6 +322,7 @@ export default function ProjectsManagement() {
                     {(selectedProject as any).code && <span>код {(selectedProject as any).code}</span>}
                     <span>заведён {fmtDate(selectedProject.createdAt)}</span>
                   </div>
+                  <RecordOrigin model="Project" id={selectedProject.id} className="mt-0.5" />
                 </div>
                 <Btn onClick={() => handleToggleActiveProject(selectedProject)} title={isWorking ? 'Снять активный статус' : 'Выбрать как активный проект'}>
                   {isWorking ? 'Снять с работы' : 'Взять в работу'}

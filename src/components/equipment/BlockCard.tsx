@@ -8,6 +8,7 @@ import { useStore } from '../../store/store';
 import { useEntityChanged } from '../../lib/entityWatch';
 import { normalizeSpecs, type ParamConflict } from '../../lib/specs';
 import TypeChip from './TypeChip';
+import RecordOrigin from '../ui/RecordOrigin';
 import CatalogSourcePanel from './CatalogSourcePanel';
 import E3SchemeLine from './E3SchemeLine';
 import RefusalView from './RefusalView';
@@ -139,6 +140,7 @@ export default function BlockCard(props: any) {
               <button type="button" onClick={props.onAddInside} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border border-dashed border-slate-300 dark:border-slate-600 text-2xs text-slate-500 hover:border-emerald-400 hover:text-emerald-600 cursor-pointer" title="Завести позицию внутрь этой — со своим тегом"><Plus className="w-2.5 h-2.5" />позиция внутрь</button>
             )}
           </div>
+          <RecordOrigin model="ComponentElement" id={comp.id} className="mt-1" />
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button type="button" onClick={() => setShowAllParams(!showAllParams)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer" title={showAllParams ? 'Показывать по профилю' : 'Показать все параметры'}>

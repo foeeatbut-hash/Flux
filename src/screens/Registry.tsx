@@ -2554,7 +2554,6 @@ export default function Registry() {
       {showImportWizard && activeProject && (
         <TagImportWizard
           projectId={activeProject.id}
-          existingCodes={new Set(tags.map(t => (t.identifier || '').trim()).filter(Boolean))}
           onClose={() => setShowImportWizard(false)}
           onImported={() => { loadTags(); }}
         />

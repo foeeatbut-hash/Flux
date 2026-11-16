@@ -42,7 +42,7 @@ export async function runWrite(write: () => Promise<any>, fallback: string): Pro
 export function projectRefusalOf(result: WriteResult, shown: unknown, fallback: string): Refusal | null {
   switch (result.kind) {
     case 'ok': return null;
-    case 'conflict': return { kind: 'conflict', message: result.message, changes: projectChanges(shown, result.current) };
+    case 'conflict': return { kind: 'conflict', message: result.message, changes: projectChanges(shown, result.current), changedBy: result.changedBy };
     case 'gone': return { kind: 'gone', message: result.message };
     case 'open': return { kind: 'open', message: result.message };
     default: return plainRefusal(failureText(result, fallback));

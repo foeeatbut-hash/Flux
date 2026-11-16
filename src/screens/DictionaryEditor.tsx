@@ -1,4 +1,5 @@
 import { SectionHead, Btn } from '../components/ui';
+import RecordOrigin from '../components/ui/RecordOrigin';
 import React, { useState, useEffect } from "react";
 import SymbolsEditor from '../components/SymbolsEditor';
 import { useStore } from "../store/store";
@@ -568,6 +569,7 @@ export default function DictionaryEditor() {
                                 }
                                 className="w-full px-2 py-1 text-sm border border-emerald-300 dark:border-emerald-800 rounded focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white dark:bg-slate-950 text-slate-900 dark:text-white"
                               />
+                              <RecordOrigin model="DictionaryItem" id={item.id} className="mt-1" />
                             </td>
                             <td className="flux-cell">
                               <CustomSelect
