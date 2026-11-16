@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store/store';
 import { useToastStore } from '../store/toastStore';
 import { useModalStore } from '../store/modalStore';
@@ -10,7 +10,7 @@ import ProjectMembers from '../components/ProjectMembers';
 import RefusalView from '../components/equipment/RefusalView';
 import { useRefusalDialog } from '../components/equipment/useRefusalDialog';
 import type { Refusal } from '../components/equipment/conflictView';
-import { runWrite, projectRefusalOf, needsReread } from '../components/projects/projectWrite';
+import { runWrite, projectRefusalOf, needsReread, mergeDraft } from '../components/projects/projectWrite';
 import { useProjectOpenRecords } from '../components/projects/useProjectOpenRecords';
 import { Plus, Search, Trash2, Users } from 'lucide-react';
 import { SectionHead, Btn, IconBtn, Input, Status, Empty, SectionTitle } from '../components/ui';
@@ -38,6 +38,9 @@ export default function ProjectsManagement() {
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   /** Отказ удаления и «проект уже удалили» — окном: у этих действий формы нет */
   const refusals = useRefusalDialog(addToast);
+  const refusalRef = useRef<HTMLDivElement>(null);
+  // Отказ стоит под полями, а «Сохранить» нажимают внизу прокручиваемой карточки: показываем его, а не оставляем за краем
+  useEffect(() => { if (refusal) refusalRef.current?.scrollIntoView({ block: 'nearest' }); }, [refusal]);
   /** Открытый состав проекта: спрашиваем после создания и по кнопке в карточке */
   const [membersFor, setMembersFor] = useState<{ id: string; name: string } | null>(null);
 
@@ -165,6 +168,7 @@ export default function ProjectsManagement() {
           // Карточка остаётся с набранным; версия формы — текущая, чтобы повторное «Сохранить» прошло
           setRefusal(why);
           if (result.current?.id === shown.id) {
+            setDraft((typed) => mergeDraft(draftOf(shown as any), typed, draftOf(result.current)));
             setSelectedProject(result.current as Project);
             setProjects((list) => list.map((p) => (p.id === shown.id ? (result.current as Project) : p)));
           }
@@ -208,12 +212,14 @@ export default function ProjectsManagement() {
 
     // Версия и показанная запись — из списка до перечитывания
     const shown = projects.find((p) => p.id === projId);
+    // Нетронутая карточка после отказа обновляется записью коллеги; с набранным — остаётся как есть
+    const typed = isDirty();
     const result = await runWrite(() => dataService.deleteProject(projId, user?.id, shown?.version), 'Ошибка при удалении проекта');
     if (result.kind !== 'ok') {
       const why = projectRefusalOf(result, shown, 'Ошибка при удалении проекта')!;
       if (why.kind === 'plain') addToast(why.message, 'error');
       else refusals.show('Проект не удалён', why);
-      if (needsReread(result)) void loadProjects(undefined, true);
+      if (needsReread(result)) void loadProjects(undefined, typed);
       return;
     }
 
@@ -338,7 +344,7 @@ export default function ProjectsManagement() {
                   <div className="@container pt-2">
                     <ProjectFields value={draft} onChange={setDraft} disabled={isSaving} showStatus />
                   </div>
-                  <RefusalView refusal={refusal} className="mt-4" />
+                  <div ref={refusalRef}><RefusalView refusal={refusal} className="mt-4" /></div>
                   <div className="flex justify-end gap-2 mt-4">
                     <Btn size="lg" onClick={() => initForm(selectedProject)}>Сбросить</Btn>
                     <Btn size="lg" tone="primary" disabled={isSaving} onClick={handleSaveProject}>{isSaving ? 'Сохранение…' : 'Сохранить'}</Btn>

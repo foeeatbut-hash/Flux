@@ -3,6 +3,9 @@ import { useStore } from "../../store/store";
 import { useToastStore } from "../../store/toastStore";
 import { useModalStore } from '../../store/modalStore';
 import { getOrderNumber } from '../../lib/dictOrder';
+import { useOpenRecords } from '../useOpenRecords';
+import { putItem, deleteItem, createItem, settleWrite, type SettleOptions } from './dictWrite';
+import { dictNamesOf } from './changeRules';
 import type { DictCtx } from './types';
 
 // Диалоги программы вместо системных окон Windows
@@ -14,9 +17,12 @@ export interface TagDictCtx extends DictCtx {
   setActiveCategoryTab: (id: string | null) => void;
 }
 
-export function useTagDict({ dictionaries, setDictionaries, fetchDictionaries, activeCategoryTab, setActiveCategoryTab }: TagDictCtx) {
+export function useTagDict(ctx: TagDictCtx) {
+  const { dictionaries, setDictionaries, fetchDictionaries, clearRefusal, activeCategoryTab, setActiveCategoryTab } = ctx;
   const activeProject = useStore((s) => s.activeProject);
   const { addToast } = useToastStore();
+  // Код категории здесь служебный («001_ab12»), человек видит название и место в списке
+  const how = (o: Pick<SettleOptions, 'mode' | 'title' | 'fallback'>): SettleOptions => ({ ...o, names: dictNamesOf(dictionaries, true) });
 
   // Tag creation dynamic config states
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -26,6 +32,9 @@ export function useTagDict({ dictionaries, setDictionaries, fetchDictionaries, a
   const [newOptionName, setNewOptionName] = useState("");
   const [editingOptionId, setEditingOptionId] = useState<string | null>(null);
   const [editingOptionName, setEditingOptionName] = useState("");
+
+  // Категория или вариант, который правят в строке, у коллег показан как открытый: удалить его нельзя
+  useOpenRecords('dict-tag', [editingCategoryId, editingOptionId].filter(Boolean).map((id) => ({ model: 'DictionaryItem', id: id as string })));
 
   // Moving category (Up or Down)
   const handleMoveCategory = async (index: number, direction: 'up' | 'down') => {
@@ -41,34 +50,26 @@ export function useTagDict({ dictionaries, setDictionaries, fetchDictionaries, a
 
     const catA = categoriesList[index];
     const catB = categoriesList[otherIndex];
+    // Версии и перечень берутся у пунктов, какими их видел экран, — до того как коды сменятся на месте
+    const shownA = { ...catA };
+    const shownB = { ...catB };
 
     const codeA = `${getOrderNumber(otherIndex)}_${catA.id}`;
     const codeB = `${getOrderNumber(index)}_${catB.id}`;
 
-    try {
-      // Optimistically update local state to avoid flickers
-      catA.code = codeA;
-      catB.code = codeB;
-      setDictionaries([...dictionaries]);
+    clearRefusal();
+    // Optimistically update local state to avoid flickers
+    catA.code = codeA;
+    catB.code = codeB;
+    setDictionaries([...dictionaries]);
 
-      await fetch(`/api/dictionaries/items/${catA.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: codeA, nameRu: catA.nameRu, parentId: null })
-      });
+    // Два запроса: отказ любого показываем и перечитываем справочник — порядок не «всё или ничего»
+    const how2 = { ...how({ mode: 'edit', title: 'Порядок не изменён', fallback: 'Ошибка при изменении порядка' }), rereadAlways: true };
+    if (!settleWrite(await putItem(catA.id, shownA, { code: codeA, nameRu: catA.nameRu, parentId: null }), shownA, ctx, how2)) return;
+    if (!settleWrite(await putItem(catB.id, shownB, { code: codeB, nameRu: catB.nameRu, parentId: null }), shownB, ctx, how2)) return;
 
-      await fetch(`/api/dictionaries/items/${catB.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: codeB, nameRu: catB.nameRu, parentId: null })
-      });
-
-      addToast("Порядок категорий изменен", "success");
-      fetchDictionaries();
-    } catch (err) {
-      console.error(err);
-      addToast("Ошибка при изменении порядка", "error");
-    }
+    addToast("Порядок категорий изменен", "success");
+    fetchDictionaries();
   };
 
   // Adding category
@@ -82,27 +83,14 @@ export function useTagDict({ dictionaries, setDictionaries, fetchDictionaries, a
     const categoriesList = items.filter((i: any) => !i.parentId);
     const orderCode = `${getOrderNumber(categoriesList.length)}_${Math.random().toString(36).substr(2, 4)}`;
 
-    try {
-      const res = await fetch(`/api/projects/${activeProject!.id}/dictionaries/${configDict.id}/items`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: orderCode,
-          nameRu: newCategoryName.trim(),
-          parentId: null
-        })
-      });
-      if (!res.ok) throw new Error("Add failed");
-      const data = await res.json();
-      
-      addToast("Категория добавлена", "success");
-      setNewCategoryName("");
-      fetchDictionaries();
-      setActiveCategoryTab(data.item.id);
-    } catch (err) {
-      console.error(err);
-      addToast("Ошибка добавления категории", "error");
-    }
+    clearRefusal();
+    const outcome = await createItem(activeProject!.id, configDict.id, { code: orderCode, nameRu: newCategoryName.trim(), parentId: null });
+    if (!settleWrite(outcome, null, ctx, how({ mode: 'dialog', title: 'Категория не добавлена', fallback: 'Ошибка добавления категории' }))) return;
+
+    addToast("Категория добавлена", "success");
+    setNewCategoryName("");
+    fetchDictionaries();
+    if (outcome.kind === 'ok') setActiveCategoryTab(outcome.data.item.id);
   };
 
   // Renaming category
@@ -113,24 +101,13 @@ export function useTagDict({ dictionaries, setDictionaries, fetchDictionaries, a
     const catItem = configDict.items.find((i: any) => i.id === categoryId);
     if (!catItem) return;
 
-    try {
-      const res = await fetch(`/api/dictionaries/items/${categoryId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: catItem.code,
-          nameRu: editingCategoryName.trim(),
-          parentId: null
-        })
-      });
-      if (!res.ok) throw new Error("Rename failed");
-      addToast("Категория переименована", "success");
-      setEditingCategoryId(null);
-      fetchDictionaries();
-    } catch (err) {
-      console.error(err);
-      addToast("Ошибка переименования категории", "error");
-    }
+    clearRefusal();
+    const outcome = await putItem(categoryId, catItem, { code: catItem.code, nameRu: editingCategoryName.trim(), parentId: null });
+    // Отказ: строка переименования остаётся открытой с набранным названием
+    if (!settleWrite(outcome, catItem, ctx, how({ mode: 'edit', title: 'Правка не записана', fallback: 'Ошибка переименования категории' }))) return;
+    addToast("Категория переименована", "success");
+    setEditingCategoryId(null);
+    fetchDictionaries();
   };
 
   // Deleting category
@@ -139,34 +116,27 @@ export function useTagDict({ dictionaries, setDictionaries, fetchDictionaries, a
     const configDict = dictionaries.find(d => d.name === '__tag_creation_config__');
     if (!configDict) return;
 
-    try {
-      const res = await fetch(`/api/dictionaries/items/${categoryId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Delete failed");
-      
-      // Re-index remaining categories
-      const remaining = (configDict.items || [])
-        .filter((i: any) => !i.parentId && i.id !== categoryId)
-        .sort((a: any, b: any) => a.code.localeCompare(b.code));
+    clearRefusal();
+    const shown = configDict.items.find((i: any) => i.id === categoryId);
+    if (!settleWrite(await deleteItem(categoryId, shown), shown, ctx, how({ mode: 'dialog', title: 'Категория не удалена', fallback: 'Ошибка удаления категории' }))) return;
 
-      for (let i = 0; i < remaining.length; i++) {
-        const c = remaining[i];
-        const newCode = `${getOrderNumber(i)}_${c.id}`;
-        await fetch(`/api/dictionaries/items/${c.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: newCode, nameRu: c.nameRu, parentId: null })
-        });
-      }
+    // Re-index remaining categories (только те, у кого порядок сменился)
+    const remaining = (configDict.items || [])
+      .filter((i: any) => !i.parentId && i.id !== categoryId)
+      .sort((a: any, b: any) => a.code.localeCompare(b.code));
 
-      addToast("Категория удалена", "success");
-      if (activeCategoryTab === categoryId) {
-        setActiveCategoryTab(null);
-      }
-      fetchDictionaries();
-    } catch (err) {
-      console.error(err);
-      addToast("Ошибка удаления категории", "error");
+    for (let i = 0; i < remaining.length; i++) {
+      const c = remaining[i];
+      const newCode = `${getOrderNumber(i)}_${c.id}`;
+      if (c.code === newCode) continue;
+      if (!settleWrite(await putItem(c.id, c, { code: newCode, nameRu: c.nameRu, parentId: null }), c, ctx, { ...how({ mode: 'edit', title: 'Порядок не изменён', fallback: 'Ошибка при изменении порядка' }), rereadAlways: true })) return;
     }
+
+    addToast("Категория удалена", "success");
+    if (activeCategoryTab === categoryId) {
+      setActiveCategoryTab(null);
+    }
+    fetchDictionaries();
   };
 
   // Adding option
@@ -176,61 +146,34 @@ export function useTagDict({ dictionaries, setDictionaries, fetchDictionaries, a
     const configDict = dictionaries.find(d => d.name === '__tag_creation_config__');
     if (!configDict) return;
 
-    try {
-      const res = await fetch(`/api/projects/${activeProject!.id}/dictionaries/${configDict.id}/items`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: newOptionName.trim(),
-          nameRu: newOptionName.trim(),
-          parentId: activeCategoryTab
-        })
-      });
-      if (!res.ok) throw new Error("Add option failed");
-      
-      addToast("Параметр добавлен", "success");
-      setNewOptionName("");
-      fetchDictionaries();
-    } catch (err) {
-      console.error(err);
-      addToast("Ошибка добавления параметра", "error");
-    }
+    clearRefusal();
+    const outcome = await createItem(activeProject!.id, configDict.id, { code: newOptionName.trim(), nameRu: newOptionName.trim(), parentId: activeCategoryTab });
+    if (!settleWrite(outcome, null, ctx, how({ mode: 'dialog', title: 'Параметр не добавлен', fallback: 'Ошибка добавления параметра' }))) return;
+
+    addToast("Параметр добавлен", "success");
+    setNewOptionName("");
+    fetchDictionaries();
   };
 
   // Editing option
   const handleSaveOptionName = async (optionId: string) => {
     if (!editingOptionName.trim() || !activeCategoryTab) return;
-    try {
-      const res = await fetch(`/api/dictionaries/items/${optionId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: editingOptionName.trim(),
-          nameRu: editingOptionName.trim(),
-          parentId: activeCategoryTab
-        })
-      });
-      if (!res.ok) throw new Error("Update option failed");
-      addToast("Параметр изменен", "success");
-      setEditingOptionId(null);
-      fetchDictionaries();
-    } catch (err) {
-      console.error(err);
-      addToast("Ошибка редактирования параметра", "error");
-    }
+    clearRefusal();
+    const shown = (dictionaries.find(d => d.name === '__tag_creation_config__')?.items || []).find((i: any) => i.id === optionId);
+    const outcome = await putItem(optionId, shown, { code: editingOptionName.trim(), nameRu: editingOptionName.trim(), parentId: activeCategoryTab });
+    if (!settleWrite(outcome, shown, ctx, how({ mode: 'edit', title: 'Правка не записана', fallback: 'Ошибка редактирования параметра' }))) return;
+    addToast("Параметр изменен", "success");
+    setEditingOptionId(null);
+    fetchDictionaries();
   };
 
   // Deleting option
   const handleDeleteOption = async (optionId: string) => {
-    try {
-      const res = await fetch(`/api/dictionaries/items/${optionId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error("Delete failed");
-      addToast("Параметр удален", "success");
-      fetchDictionaries();
-    } catch (err) {
-      console.error(err);
-      addToast("Ошибка удаления параметра", "error");
-    }
+    clearRefusal();
+    const shown = (dictionaries.find(d => d.name === '__tag_creation_config__')?.items || []).find((i: any) => i.id === optionId);
+    if (!settleWrite(await deleteItem(optionId, shown), shown, ctx, how({ mode: 'dialog', title: 'Параметр не удалён', fallback: 'Ошибка удаления параметра' }))) return;
+    addToast("Параметр удален", "success");
+    fetchDictionaries();
   };
 
   return {
