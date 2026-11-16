@@ -26,6 +26,10 @@ import { useMarkingDict } from '../components/dictionary/useMarkingDict';
 import MarkingDictPanel from '../components/dictionary/MarkingDictPanel';
 import { usePresets } from '../components/dictionary/usePresets';
 import PresetsPanel from '../components/dictionary/PresetsPanel';
+import { useDictRefusal } from '../components/dictionary/useDictRefusal';
+import { createItem, putItem, deleteItem, settleWrite, findItem } from '../components/dictionary/dictWrite';
+import { dictNamesOf } from '../components/dictionary/changeRules';
+import { useOpenRecords } from '../components/useOpenRecords';
 
 // Диалоги программы вместо системных окон Windows
 const { openConfirm } = useModalStore.getState();
@@ -58,6 +62,13 @@ export default function DictionaryEditor() {
   const [activeMarkingTab, setActiveMarkingTab] = useState<string | null>(null);
 
   const [showTagCreationSidebar, setShowTagCreationSidebar] = useState(true);
+
+  // Отказ записи (изменили, удалили, открыто у коллеги) и пункт, который правят в строке, — «открытая запись»
+  const refusal = useDictRefusal(addToast);
+  const { showRefusal, clearRefusal } = refusal;
+  useOpenRecords('dict-items', editingItemId ? [{ model: 'DictionaryItem', id: editingItemId }] : []);
+  // Отказ относился к разделу, который был открыт: в другом разделе он только путает
+  useEffect(() => { clearRefusal(); }, [activeDictId, clearRefusal]);
 
   // Preset state variables (mapped to Filter Categories & Variants)
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
@@ -95,22 +106,14 @@ export default function DictionaryEditor() {
         const defaultDeps = ["Отдел КИПиА", "Отдел АСУ ТП", "Технологический отдел", "Электротехнический отдел"];
         // Одним заходом, а не по одному: на общей базе по сети каждый
         // такой POST — отдельный круг до сервера.
-        await Promise.all(defaultDeps.map((dep) => fetch(`/api/projects/${activeProject!.id}/dictionaries/${newDict.id}/items`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: dep, nameRu: dep, parentId: depCategory.id })
-        })));
+        await Promise.all(defaultDeps.map((dep) => createItem(activeProject!.id, newDict.id, { code: dep, nameRu: dep, parentId: depCategory.id })));
       }
 
       if (fluidCategory) {
         const defaultFluids = ["Воздух", "Вода", "Пар", "Газ", "Нефть"];
         // Одним заходом, а не по одному: на общей базе по сети каждый
         // такой POST — отдельный круг до сервера.
-        await Promise.all(defaultFluids.map((fluid) => fetch(`/api/projects/${activeProject!.id}/dictionaries/${newDict.id}/items`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code: fluid, nameRu: fluid, parentId: fluidCategory.id })
-        })));
+        await Promise.all(defaultFluids.map((fluid) => createItem(activeProject!.id, newDict.id, { code: fluid, nameRu: fluid, parentId: fluidCategory.id })));
       }
       
       // Update dictionaries from API again
@@ -171,22 +174,14 @@ export default function DictionaryEditor() {
       if (m1Category) {
         const defaultM1 = ["Датчик", "Клапан", "Вентилятор", "Кабель", "Контроллер"];
         for (const m of defaultM1) {
-          await fetch(`/api/projects/${projectId}/dictionaries/${newDict.id}/items`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code: m, nameRu: m, parentId: m1Category.id })
-          });
+          await createItem(projectId, newDict.id, { code: m, nameRu: m, parentId: m1Category.id });
         }
       }
 
       if (m2Category) {
         const defaultM2 = ["К1", "К2", "В1", "В2", "Р1"];
         for (const m of defaultM2) {
-          await fetch(`/api/projects/${projectId}/dictionaries/${newDict.id}/items`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code: m, nameRu: m, parentId: m2Category.id })
-          });
+          await createItem(projectId, newDict.id, { code: m, nameRu: m, parentId: m2Category.id });
         }
       }
 
@@ -315,108 +310,57 @@ export default function DictionaryEditor() {
     }
   };
 
+  // Версию и перечень «было → стало» берём у пункта, каким его видел экран ДО подмены свежим
   const handleSaveItem = async (itemId: string) => {
-    try {
-      const payload = {
-        code: editForm.code,
-        nameRu: editForm.nameRu,
-        parentId: editForm.parentId ? editForm.parentId : null,
-      };
-
-      // Optimistic update
-      const activeDict = dictionaries.find((d) => d.id === activeDictId);
-      if (activeDict) {
-        activeDict.items = activeDict.items.map((i: any) =>
-          i.id === itemId ? { ...i, ...payload } : i,
-        );
-        setDictionaries([...dictionaries]);
-      }
-
-      const res = await fetch(`/api/dictionaries/items/${itemId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) throw new Error("Failed to update");
-      setEditingItemId(null);
-      addToast("Запись обновлена", "success");
-    } catch (e) {
-      console.error(e);
-      addToast("Ошибка сохранения", "error");
-    }
+    clearRefusal();
+    const shown = findItem(dictionaries, itemId);
+    const outcome = await putItem(itemId, shown, {
+      code: editForm.code,
+      nameRu: editForm.nameRu,
+      parentId: editForm.parentId ? editForm.parentId : null,
+    });
+    // Отказ: строка правки остаётся открытой с набранным — человек повторит или поправит
+    if (!settleWrite(outcome, shown, dictCtx, { mode: 'edit', title: 'Правка не записана', fallback: 'Ошибка сохранения', names: dictNamesOf(dictionaries) })) return;
+    setEditingItemId(null);
+    addToast("Запись обновлена", "success");
   };
 
   const handleDeleteItem = async (itemId: string) => {
     if (!await openConfirm('Удалить элемент справочника?', 'Восстановить его будет нельзя.', { confirmLabel: 'Удалить', tone: 'danger' }))
       return;
-    try {
-      // Optimistic
-      const activeDict = dictionaries.find((d) => d.id === activeDictId);
-      if (activeDict) {
-        activeDict.items = activeDict.items.filter((i: any) => i.id !== itemId);
-        setDictionaries([...dictionaries]);
-      }
-
-      const res = await fetch(`/api/dictionaries/items/${itemId}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error("Failed to delete");
-      addToast("Запись удалена", "success");
-    } catch (e) {
-      console.error(e);
-      addToast("Ошибка удаления", "error");
-    }
+    clearRefusal();
+    const shown = findItem(dictionaries, itemId);
+    const outcome = await deleteItem(itemId, shown);
+    if (!settleWrite(outcome, shown, dictCtx, { mode: 'dialog', title: 'Запись не удалена', fallback: 'Ошибка удаления', names: dictNamesOf(dictionaries) })) return;
+    // Потомки удалены вместе с пунктом: перечитываем, а не вычёркиваем по одному
+    await fetchDictionaries();
+    addToast("Запись удалена", "success");
   };
 
   const handleAddItem = async () => {
     if (!activeDictId || !addForm.code) return;
-    try {
-      const tempId = "temp-" + Date.now();
-      const activeDict = dictionaries.find((d) => d.id === activeDictId);
-
-      const payload = {
-        code: addForm.code,
-        nameRu: addForm.nameRu,
-        parentId: addForm.parentId ? addForm.parentId : null,
-      };
-      const newItem = { id: tempId, dictionaryId: activeDictId, ...payload };
-
-      if (activeDict) {
-        activeDict.items.push(newItem);
-        setDictionaries([...dictionaries]);
-      }
-
-      const res = await fetch(
-        `/api/projects/${activeProject!.id}/dictionaries/${activeDictId}/items`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        },
-      );
-      const data = await res.json();
-
-      if (activeDict) {
-        activeDict.items = activeDict.items.map((i: any) =>
-          i.id === tempId ? data.item : i,
-        );
-        setDictionaries([...dictionaries]);
-      }
-
-      setIsAdding(false);
-      setAddForm({ code: "", nameRu: "", parentId: "" });
-      addToast("Запись добавлена", "success");
-    } catch (e) {
-      console.error(e);
-      addToast("Ошибка добавления", "error");
-    }
+    clearRefusal();
+    const outcome = await createItem(activeProject!.id, activeDictId, {
+      code: addForm.code,
+      nameRu: addForm.nameRu,
+      parentId: addForm.parentId ? addForm.parentId : null,
+    });
+    // Справочника уже нет — текст сервера окном, введённое остаётся в строке
+    if (!settleWrite(outcome, null, dictCtx, { mode: 'dialog', title: 'Запись не добавлена', fallback: 'Ошибка добавления', names: {} })) return;
+    const item = outcome.kind === 'ok' ? outcome.data?.item : null;
+    if (item) setDictionaries((prev) => prev.map((d) => (d.id === activeDictId ? { ...d, items: [...d.items, item] } : d)));
+    setIsAdding(false);
+    setAddForm({ code: "", nameRu: "", parentId: "" });
+    addToast("Запись добавлена", "success");
   };
 
-  const tagCtl = useTagDict({ dictionaries, setDictionaries, fetchDictionaries, activeCategoryTab, setActiveCategoryTab });
+  const dictCtx = { dictionaries, setDictionaries, fetchDictionaries, showRefusal, clearRefusal };
 
-  const markingCtl = useMarkingDict({ dictionaries, setDictionaries, fetchDictionaries, activeMarkingTab, setActiveMarkingTab });
+  const tagCtl = useTagDict({ ...dictCtx, activeCategoryTab, setActiveCategoryTab });
 
-  const presetsCtl = usePresets({ dictionaries, setDictionaries, fetchDictionaries, activePresetId, setActivePresetId });
+  const markingCtl = useMarkingDict({ ...dictCtx, activeMarkingTab, setActiveMarkingTab });
+
+  const presetsCtl = usePresets({ ...dictCtx, activePresetId, setActivePresetId });
 
   if (!activeProject)
     return (
@@ -443,6 +387,9 @@ export default function DictionaryEditor() {
         actions={<>
           <ImportFileChooser accept=".xlsx,.xls,.csv" label="Загрузить базу из Excel" className="fx-btn fx-btn-primary" onFiles={handleFileUpload} />
         </>} />
+
+      {refusal.banner}
+      {refusal.dialog}
 
       <div className="flex-1 min-h-0 flex flex-col @[820px]:flex-row text-left w-full">
         {/* Боковой список: три группы по назначению. «Обозначения» стояли в

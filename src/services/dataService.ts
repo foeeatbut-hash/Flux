@@ -662,10 +662,12 @@ export const dataService = {
     return request(`/projects/${projectId}/tag-template`);
   },
 
-  async saveTagTemplate(projectId: string, schemaJson: string): Promise<any> {
+  // Шаблон пишется методом PUT (POST на сервере нет). `expectedVersion` — версия шаблона, которую
+  // видел экран: чужая правка даст 409 с `code`, а не молча затрётся; без неё — создание или запись вслепую.
+  async saveTagTemplate(projectId: string, schemaJson: string, expectedVersion?: number): Promise<any> {
     return request(`/projects/${projectId}/tag-template`, {
-      method: 'POST',
-      body: JSON.stringify({ schemaJson }),
+      method: 'PUT',
+      body: JSON.stringify({ schemaJson, ...(expectedVersion !== undefined ? { expectedVersion } : {}) }),
     });
   },
 
