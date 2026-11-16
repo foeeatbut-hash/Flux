@@ -569,7 +569,7 @@ console.log('\n10. Запись в версионные модели не обх
 
   // 4. Клиент сервера собирается с расширением (проверка роста версии — scripts/test-version-bump.ts)
   ok('server.ts: клиент базы создаётся с расширением роста версии',
-    /traceDatabase\(\s*withVersionBump\(\s*buildPrismaClient\(/.test(read('server.ts')));
+    /withChangeFeed\(\s*buildPrismaClient\([^)]*\)\s*,\s*\(\w+\)\s*=>\s*traceDatabase\(\s*withVersionBump\(/.test(read('server.ts')));
 
   // 5. Удаление под защитой открытой записи: всякий вызов guardedDelete несёт openCheck (запись и всё,
   // что уйдёт вместе с ней, не открыты у коллеги — иначе у него на экране остаётся то, чего уже нет).

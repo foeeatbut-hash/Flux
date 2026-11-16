@@ -43,5 +43,5 @@
   предпросмотра импорта; те же мутации + «откат XML ставит версию назад».
 
 ## Ход
-- [ ] T: теги и ВДР — шаг 1: server/planGuard.ts готов (assertSeenVersions, seenOf, sendPlanRefusal)
+- [ ] T (в работе): теги и ВДР — шаг 1: server/planGuard.ts готов (assertSeenVersions, seenOf, sendPlanRefusal)
 - [ ] Q: оборудование и XML
