@@ -12,6 +12,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import express from 'express';
+import { createLink } from '../server/docflowLinks.js';
 import { registerVdrRoutes } from '../server/routes/vdr.js';
 import { registerDocflowRoutes } from '../server/routes/docflow.js';
 import { registerDocflowLinkRoutes } from '../server/routes/docflowLinks.js';
@@ -164,6 +165,44 @@ async function main() {
     check('замечания к файлу чужой строки — 422', (await send('POST', '/api/docflow/links', remarks({ itemId: 'i2' }))).status === 422);
     const rem = await send('POST', '/api/docflow/links', remarks());
     check('замечания привязаны к файлу ревизии, имя не проверяется по маске', rem.status === 200 && rem.body.link.toLinkId === file.id && rem.body.link.revision === 'B' && rem.body.link.reviewCode === '2' && rem.body.check === null, rem.body);
+    // Возврат правит строку «сравни и поменяй» по собственному чтению: коллега, правивший строку между
+    // чтением и записью, не остаётся затёртым, а выпущенная им новая ревизия не получает код чужой
+    // ревизии. Коллега «вклинивается» через клиент транзакции — после первого чтения строки возвратом.
+    const midWrite = (colleague: (db: any) => Promise<void>) => {
+      let armed = true;
+      const wrapDb = (tx: any) => new Proxy(tx, {
+        get(target, prop) {
+          const value = target[prop];
+          if (prop !== 'docRegisterItem') return value;
+          return new Proxy(value, {
+            get(model, method) {
+              if (method !== 'findUnique') return model[method].bind(model);
+              return async (args: any) => {
+                const read = await model.findUnique(args);
+                if (armed) { armed = false; await colleague(tx); }
+                return read;
+              };
+            },
+          });
+        },
+      });
+      return new Proxy(prisma, { get: (target, prop) => (prop === '$transaction' ? (fn: any) => target.$transaction((tx: any) => fn(wrapDb(tx))) : target[prop]) });
+    };
+    const beforeRace = await prisma.docRegisterItem.findUnique({ where: { id: 'i1' } });
+    const lateReturn = remarks({ relativePath: 'E02/3700-B01-E02-001/B/Замечания-позже.pdf', fileName: 'Замечания-позже.pdf', receivedAt: '2026-11-06' });
+    const bumped = (db: any, data: any) => db.docRegisterItem.update({ where: { id: 'i1' }, data: { ...data, version: { increment: 1 } } });
+    const reassigned = await createLink(midWrite((db) => bumped(db, { assigneeId: 'colleague' })), lateReturn, 'admin');
+    const rowAfterAssign = await prisma.docRegisterItem.findUnique({ where: { id: 'i1' } });
+    check('коллега поменял исполнителя между чтением и записью: возврат применён по свежей строке, исполнитель коллеги цел',
+      !!reassigned.effect && rowAfterAssign.assigneeId === 'colleague' && reassigned.effect.assigneeId === 'colleague' && rowAfterAssign.version === beforeRace.version + 2, { effect: reassigned.effect, assignee: rowAfterAssign.assigneeId, v: [beforeRace.version, rowAfterAssign.version] });
+    const beforeRevised = await prisma.docRegisterItem.findUnique({ where: { id: 'i1' } });
+    const revised = await createLink(midWrite((db) => bumped(db, { revision: 'C', status: 'DRAFT', reviewCode: '' })), remarks({ relativePath: 'E02/3700-B01-E02-001/B/Замечания-ещё.pdf', fileName: 'Замечания-ещё.pdf', receivedAt: '2026-11-07' }), 'admin');
+    const rowAfterRevised = await prisma.docRegisterItem.findUnique({ where: { id: 'i1' } });
+    check('коллега выпустил новую ревизию между чтением и записью: код возврата её не получает',
+      !revised.effect && rowAfterRevised.revision === 'C' && rowAfterRevised.reviewCode === '' && rowAfterRevised.status === 'DRAFT' && rowAfterRevised.version === beforeRevised.version + 1, { effect: revised.effect, rowAfterRevised });
+    // Вернуть строку и связи в состояние до гонки: дальше набор считает связи этой строки
+    await prisma.docRegisterItem.update({ where: { id: 'i1' }, data: { revision: 'B', assigneeId: null } });
+    await prisma.docFileLink.deleteMany({ where: { id: { in: [reassigned.link.id, revised.link.id] } } });
     check('выпущенный файл не отвязывается и не заменяется', (await send('POST', '/api/docflow/links/unlink', { itemId: 'i1', linkId: file.id })).status === 409
       && (await send('POST', '/api/docflow/links', body({ relativePath: 'E02/Copy2/3700-B01-E02-001_B.pdf', replace: true }))).status === 409);
     await prisma.docRegisterItemRevision.update({ where: { issuedKey: 'seed-i1-B' }, data: { issuedKey: null, undoneAt: new Date() } });
