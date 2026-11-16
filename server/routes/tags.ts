@@ -17,11 +17,13 @@ import { bumpElementsOfTags } from '../equipmentVersion.js';
 import { keepVersion } from '../versionBump.js';
 import { expectedVersionOf, guardedWrite, guardedDelete, sendRecordGone, sendGuardRefusal } from '../versionGuard.js';
 import { staleElement, staleSystemDelete, badVersion } from '../equipmentStale.js';
+import { deleteChangedText } from '../../src/lib/refusalTexts.js';
 import { sendEquipmentRefusal, systemCascade } from '../equipmentRefusal.js';
 import { writeTag, writeTags, metadataPatchOf, tagWriteFailure, tagFailure, assertFreeTagCode } from '../tagWrite.js';
 import { tagCodeKey, withCodeKey, isCodeKeyViolation } from '../tagCodeKey.js';
 import {
   TAG_SOURCE, tagChangeContext, recordChangeSets, recordTagCreated, recordTagUpdate, recordTagDeleted, inTagTransaction,
+  prepareTagHistory, markTagTransaction,
   updateSet, createdSet, deletedSet, type TagChangeSet,
 } from '../tagHistory.js';
 
@@ -778,20 +780,41 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
   });
 
   // Delete tag
+  //
+  // Что уходит вместе с тегом. Только сама запись и её связи с позициями и файлами (в
+  // связующих таблицах); версия позиций, державших тег, растёт (`bumpElementsOfTags`).
+  // Дочерние теги и связанные по схеме НЕ удаляются: родитель и связи лежат в их metadata
+  // (`parentId`, `connections`), и экран снимает их отдельными правками до удаления. Строки
+  // ВДР тоже остаются, связь с ними держится за id и помечена копией кода. Поэтому защита
+  // открытой записи смотрит только сам тег, без вложенных.
+  //
+  // Версия — целая `version` записи в `?expectedVersion=` (у DELETE тела нет). Нет записи —
+  // 200 `alreadyGone`: удалить удалённое не ошибка. История — в той же транзакции.
   app.delete('/api/tags/:id', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     try {
-      const gone = await prisma.tag.findUnique({ where: { id: req.params.id } });
-      if (!gone) return res.status(404).json({ error: 'Тег не найден' });
-      await inTagTransaction(prisma, async (tx: any) => {
-        await bumpElementsOfTags(tx, [gone.id]);
-        await tx.tag.delete({ where: { id: req.params.id } });
-        // История удалённого тега остаётся: таблица с тегом не связана; пишется в той же транзакции
-        await recordTagDeleted(tx, tagChangeContext(req, gone.projectId, TAG_SOURCE.tags), gone);
+      const expectedVersion = expectedVersionOf(req.query.expectedVersion);
+      if (expectedVersion === null) return badVersion(res);
+      await prepareTagHistory(prisma);
+      const done = await guardedDelete(prisma, {
+        model: 'tag', id: req.params.id, expectedVersion,
+        staleMessage: (current: any) => deleteChangedText('tag', current?.identifier),
+        // Тег, открытый у коллеги в карточке или мини-панели, не удаляется
+        openCheck: { userId: String((req as any).authUser?.id || ''), nameOf: (row: any) => String(row?.identifier || '').trim() },
+        before: async (db: any, current: any) => {
+          markTagTransaction(db, prisma);
+          await bumpElementsOfTags(db, [current.id]);
+          // История удалённого тега остаётся: таблица с тегом не связана; не записалась она — не удалился и тег
+          await recordTagDeleted(db, tagChangeContext(req, current.projectId, TAG_SOURCE.tags), current);
+        },
       });
-      emitEntityChanged('tag', gone.id, req);
+      if (!done) return res.json({ success: true, alreadyGone: true });
+      emitEntityChanged('tag', done.before.id, req);
       res.json({ success: true });
-    } catch (err: any) { res.status(500).json({ error: err.message }); }
+    } catch (err: any) {
+      if (sendGuardRefusal(res, err)) return;
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // GET component element history logs
