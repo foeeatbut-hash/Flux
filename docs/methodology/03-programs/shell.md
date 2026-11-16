@@ -494,8 +494,8 @@ FileNode, Dictionary, DictionaryItem, TagTemplate) есть целая коло�
   запросом (ВДР: исполнитель, английские названия), — пишется нетронутое, по
   остальным показано, что не записано (`src/components/vdr/vdrWrite.ts`).
 - **Переведены:** «Оборудование» (`equipment.md`), теги — «Реестр» и
-  «Закупки» (`registry.md`), ВДР (`docflow.md`); у каждой раздел «Сверка
-  версии при записи».
+  «Закупки» (`registry.md`), ВДР (`docflow.md`), «Проекты» (`projects.md`),
+  «Справочники» (`directory.md`); у каждой раздел «Сверка версии при записи».
 
 Проверки: `test-refusal-texts`, `test-record-changes`, `test-conflict-notice`,
 `test-open-records`, `test-open-records-client`, `test-version-guard`.
