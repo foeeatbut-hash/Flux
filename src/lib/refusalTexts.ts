@@ -45,6 +45,10 @@ export const NOUNS = {
   tag: { nom: 'тег', acc: 'тег', prep: 'теге', gender: 'm' },
   register: { nom: 'реестр', acc: 'реестр', prep: 'реестре', gender: 'm' },
   registerItem: { nom: 'строка реестра', acc: 'строку реестра', prep: 'строке реестра', gender: 'f' },
+  project: { nom: 'проект', acc: 'проект', prep: 'проекте', gender: 'm' },
+  dictionary: { nom: 'справочник', acc: 'справочник', prep: 'справочнике', gender: 'm' },
+  dictionaryItem: { nom: 'пункт справочника', acc: 'пункт справочника', prep: 'пункте справочника', gender: 'm' },
+  tagTemplate: { nom: 'шаблон тегов', acc: 'шаблон тегов', prep: 'шаблоне тегов', gender: 'm' },
 } as const satisfies Record<string, Noun>;
 
 export type RefusalNoun = keyof typeof NOUNS;

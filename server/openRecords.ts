@@ -41,6 +41,10 @@ export const NOUN_OF_MODEL: Record<string, RefusalNoun> = {
   Tag: 'tag',
   DocRegister: 'register',
   DocRegisterItem: 'registerItem',
+  Project: 'project',
+  Dictionary: 'dictionary',
+  DictionaryItem: 'dictionaryItem',
+  TagTemplate: 'tagTemplate',
 };
 
 /** Делегат клиента → имя модели: `componentElement` → `ComponentElement` */
