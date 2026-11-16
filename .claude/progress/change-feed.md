@@ -54,6 +54,15 @@
 - Интерфейс: дополнение `test-project-version-ui` (строка «Изменил» в отказе,
   «Создал» в карточке), обе темы.
 
-## Ход
-- [ ] G: сервер (таблица, расширение, отказ, record-origin) + наборы
+## Ход (исполнитель G)
+Ветка: claude/youthful-ride-rwzb0t, старт f8d283b.
+- [x] G1: таблица ChangeFeed в трёх схемах + автонумерация в schema-sync + localSchema
+- [x] G2: server/changeFeed.ts (ALS + обёртка $transaction + хук), changeFeedScope/Read, подключение в server.ts
+- [x] G3: changedBy в VersionConflict/sendVersionConflict (дополняют guardedWrite/guardedDelete), GET /api/record-origin
+- [x] G4: scripts/test-change-feed.ts (SQLite + временный PG): 277 проверок; мутации M1 (updateMany), M2 (вне транзакции), M3 (автор) — набор падает
+- [ ] G5: scripts/test-change-feed-routes.ts (отказ с changedBy, record-origin, каскад пункта справочника)
+- [ ] G6: поправить test-version-bump (regexp server.ts) и прогнать наборы из задания, tsc; отчёт
+Особенности: PrismaPromise ленив — `await` внутри ALS-контекста обязателен (runWithActor и обёртка $transaction дожидаются сами);
+пакетные $transaction([...]) в chat.ts/builder.ts не трогают версионные модели — не переводил, хук бросит ошибку при появлении версионной записи.
+prisma-clients: в рабочей копии настоящие копии (не симлинки), package.json не коммитить.
 - [ ] H: клиент (ConflictNotice «Изменил», RecordOrigin в карточках) + набор

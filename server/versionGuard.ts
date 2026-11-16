@@ -27,6 +27,7 @@
  */
 
 import { bumpedData } from './versionBump.js';
+import { lastChange, type ChangedBy } from './changeFeedRead.js';
 import { findOpen, isMissingTable, NOUN_OF_MODEL, schemaModelOf, type OpenHolder, type OpenRef } from './openRecords.js';
 import {
   RECORD_GONE, RECORD_OPEN, VERSION_CONFLICT, createInsideGoneText, deleteOpenNestedText, deleteOpenText,
@@ -35,10 +36,26 @@ import {
 
 /** Запись не применена: запись до этого изменили. `current` — какой она стала (`null`, если уже не прочесть). */
 export class VersionConflict extends Error {
+  /**
+   * Кто изменил запись последним (журнал изменений). `undefined` — не искали:
+   * дополняют guardedWrite/guardedDelete; места, что бросают отказ сами, отдают `null`.
+   */
+  changedBy?: ChangedBy | null;
   constructor(message: string, public current: any = null) {
     super(message);
     this.name = 'VersionConflict';
   }
+}
+
+/**
+ * Дополнить отказ строкой «кто изменил»: последняя строка журнала по записи
+ * (`current.id`). Делается после отката транзакции, обычным клиентом. Не нашли
+ * или журнала нет — `null`: отказ от этого не меняется.
+ */
+async function withChangedBy(prisma: any, delegate: string, e: VersionConflict): Promise<void> {
+  if (e.changedBy !== undefined) return;
+  const id = e.current?.id;
+  e.changedBy = id ? await lastChange(prisma, schemaModelOf(delegate), String(id)) : null;
 }
 
 /** Внутренний сигнал «проиграл гонку, можно перечитать и повторить». */
@@ -174,11 +191,14 @@ export async function guardedWrite<R = undefined>(prisma: any, opts: GuardedWrit
         return { before: current, after, extra };
       }, opts.transaction);
     } catch (e) {
+      if (e instanceof VersionConflict) await withChangedBy(prisma, opts.model, e);
       if (!(e instanceof RaceLost)) throw e;
       if (n < attempts) continue;
       const fresh = await prisma[opts.model].findUnique({ where: { id: opts.id } }).catch(() => null);
       if (!fresh && opts.goneNoun) throw new RecordGone(opts.goneNoun);
-      throw new VersionConflict(expecting ? RACE_WITH_EXPECTATION : RACE_WITHOUT_EXPECTATION, fresh);
+      const lost = new VersionConflict(expecting ? RACE_WITH_EXPECTATION : RACE_WITHOUT_EXPECTATION, fresh);
+      await withChangedBy(prisma, opts.model, lost);
+      throw lost;
     }
   }
 }
@@ -288,10 +308,13 @@ export async function guardedDelete(prisma: any, opts: GuardedDeleteOptions): Pr
       // Транзакция с отказом чтения откатилась целиком (в PostgreSQL после сбоя запроса она негодна) —
       // повторяем удаление без защиты
       if (e instanceof OpenTableMissing && guarded) { guarded = false; continue; }
+      if (e instanceof VersionConflict) await withChangedBy(prisma, opts.model, e);
       if (!(e instanceof RaceLost)) throw e;
       // Проигравший гонку: победитель уже записан, его и показываем в отказе
       const fresh = await prisma[opts.model].findUnique({ where: { id: opts.id } }).catch(() => null);
-      throw new VersionConflict(RACE_WITH_EXPECTATION, fresh);
+      const lost = new VersionConflict(RACE_WITH_EXPECTATION, fresh);
+      await withChangedBy(prisma, opts.model, lost);
+      throw lost;
     }
   }
 }
@@ -301,11 +324,14 @@ type Res = { status: (code: number) => { json: (body: unknown) => unknown } };
 /**
  * Ответ 409: текст для человека (по-русски, без кода) и текущая запись, чтобы
  * экран показал отказ и перечитал её, а не затёр чужое. Код — отдельным полем.
+ * `changedBy: { userId, name, at } | null` — кто изменил запись последним (его
+ * вписывают guardedWrite/guardedDelete; у отказов, что бросают маршруты сами, — `null`).
  * `present` — как маршрут обычно отдаёт эту запись (разбор JSON-полей и т. п.).
  */
 export function sendVersionConflict(res: Res, e: VersionConflict, present?: (record: any) => unknown): unknown {
   const current = e.current && present ? present(e.current) : e.current ?? null;
-  return res.status(409).json({ error: e.message, code: VERSION_CONFLICT, current });
+  // `changedBy` — кто изменил запись последним (журнал изменений); без него экран показывает отказ без подписи
+  return res.status(409).json({ error: e.message, code: VERSION_CONFLICT, current, changedBy: e.changedBy ?? null });
 }
 
 /**
