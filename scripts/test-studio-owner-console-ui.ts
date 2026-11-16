@@ -334,14 +334,14 @@ async function main() {
       await page.screenshot({ path: path.join(shots, `owner-console-${tag}-8b-flux-publish.png`) });
 
       // Лицензии: выпуск, реестр, отзыв
-      await page.getByRole('group', { name: 'Лицензии' }).getByRole('button', { name: 'Лицензии компаний' }).click();
+      await page.getByRole('group', { name: 'Лицензии' }).getByRole('button', { name: 'Лицензии организаций' }).click();
       await page.getByRole('heading', { name: 'Выпустить лицензию' }).waitFor();
       await measure(page, `${tag}/лицензии`);
       await page.screenshot({ path: path.join(shots, `owner-console-${tag}-8-licenses.png`) });
       await page.fill('#lic-code', 'FLUXREQ1.abc');
       await page.getByRole('button', { name: 'Прочитать запрос' }).click();
       await page.getByTestId('license-request').waitFor();
-      ok(`${theme}: запрос прочитан: компания и все сотрудники выбраны`, (await page.inputValue('#lic-company')) === 'ООО «Запад»' && /3 из 3/.test(await page.getByTestId('license-request').innerText()));
+      ok(`${theme}: запрос прочитан: организация и все сотрудники выбраны`, (await page.inputValue('#lic-company')) === 'ООО «Запад»' && /3 из 3/.test(await page.getByTestId('license-request').innerText()));
       await page.getByRole('button', { name: 'Снять выбор' }).click();
       ok(`${theme}: без сотрудников ключ не выпускается`, await page.getByRole('button', { name: 'Выпустить ключ' }).isDisabled());
       await page.getByLabel('Выбрать Иван Иванов').check(); await page.fill('#lic-expiration', '2030-01-31');
@@ -349,7 +349,7 @@ async function main() {
       await page.getByRole('button', { name: 'Выпустить ключ' }).click();
       await page.getByText('Лицензия выпущена и сохранена в зашифрованном реестре.').waitFor();
       const issued = (await calls(page, 'issue'))[0][1];
-      ok(`${theme}: выпуск ушёл с кодом запроса, выбранным сотрудником, компанией и концом дня даты`, issued.code === 'FLUXREQ1.abc' && issued.logins.join() === 'ivanov' && issued.org === 'ООО «Запад»' && new Date(issued.expiresAt).getFullYear() === 2030 && new Date(issued.expiresAt).getHours() === 23);
+      ok(`${theme}: выпуск ушёл с кодом запроса, выбранным сотрудником, организацией и концом дня даты`, issued.code === 'FLUXREQ1.abc' && issued.logins.join() === 'ivanov' && issued.org === 'ООО «Запад»' && new Date(issued.expiresAt).getFullYear() === 2030 && new Date(issued.expiresAt).getHours() === 23);
       ok(`${theme}: готовый ключ показан, в реестре появилась строка`, (await page.getByRole('textbox', { name: 'Готовый ключ' }).inputValue()) === 'FLUX2.ccc' && (await page.getByTestId('license-registry').getByText('ООО «Запад»').count()) === 1);
       await page.getByRole('button', { name: 'Скопировать', exact: true }).click();
       ok(`${theme}: ключ копируется через главный процесс`, (await calls(page, 'copy')).some(c => c[1].text === 'FLUX2.ccc'));

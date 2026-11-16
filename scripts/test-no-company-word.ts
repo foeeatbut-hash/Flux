@@ -15,7 +15,6 @@ const ALLOW: Allow[] = [
   { file: /^shared\/departments\.ts$|^server\/departments(Match)?\.ts$|^src\/components\/users\/(DepartmentDialogs|DepartmentsTab|LegacyWizard|EmployeeImportDialog)\.tsx$/,
     why: 'корень дерева подразделений называется «Компания» — это данные, а не слово программы' },
   { file: /^src\/translate\/dict\//, why: 'словарь перевода: «компания» — переводимый текст чужих документов' },
-  { file: /^studio\/owner\//, why: 'Studio выдаёт лицензии чужим организациям-заказчикам; «компания» здесь — клиент владельца' },
   // Файлы, которые на момент правки были у других исполнителей; снять после их слияния.
   { file: /^(server\/(routes\/(projects|dictionaries|tagProcurement)|projectDelete|openRecords|versionGuard|permRoutes)\.ts|src\/(screens\/(ProjectsManagement|DictionaryEditor)\.tsx|components\/dictionary\/.*|services\/dataService\.ts|lib\/refusalTexts\.ts))$/,
     why: 'файл правит другой исполнитель (строка 3 плана); поле «Компания» проекта — данные' },
