@@ -88,6 +88,7 @@ export default function DeskIcon({
   return (
     <div
       {...rest}
+      data-desk-item={item.id}
       style={{ left: x, top: y, width: metric.w, height: metric.h, zIndex: dragged ? 5 : 1 }}
       title={hintOf(item)}
       className={`absolute flex flex-col items-center gap-1 pt-2 px-1 rounded-lg cursor-default
