@@ -269,6 +269,8 @@ export default function WindowsExplorer() {
   const onKeyDown = (event: React.KeyboardEvent) => {
     // Кнопки портального меню получают Enter сами, без открытия выбранного файла позади.
     if (event.defaultPrevented || properties || share || archive || (event.target as HTMLElement).closest('[data-context-menu]')) return;
+    // Enter на кнопке панели команд — её нажатие, а не «открыть выбранное»: иначе preventDefault гасит клик с клавиатуры
+    if (event.key === 'Enter' && !event.ctrlKey && !event.altKey && (event.target as HTMLElement).closest('[data-explorer-commands] button')) return;
     shellKeys(event); if (event.defaultPrevented || isTypingTarget(event.target)) return;
     const ctrl = event.ctrlKey || event.metaKey;
     // Сочетания используют физическую клавишу и при русской раскладке Windows.
@@ -364,7 +366,7 @@ export default function WindowsExplorer() {
   return <div ref={screen} tabIndex={0} onKeyDown={onKeyDown} data-windows-explorer className={`@container flex h-full min-h-0 min-w-0 flex-col outline-none [color-scheme:light] dark:[color-scheme:dark] ${T.pane} ${T.text}`} style={{ fontFamily: FONT_STACK }}>
     {title}
     <AddressBar place={place} catalog={catalog} canBack={tabs.canBack} canForward={tabs.canForward} recent={tabs.recent} search={search} onBack={back} onForward={forward} onUp={up} onRefresh={refresh} onOpen={go} onJump={tabs.jump} focusAddressToken={addressToken} focusSearchToken={searchToken} />
-    <CommandBar view={view} onView={setView} selected={selection.selected.length} busy={busy} canPaste={!!ops.clip && canWrite} onCut={() => void ops.cut(selection.selected)} onCopy={() => void ops.copy(selection.selected)} onPaste={() => void ops.paste()} onRename={askRename} onDelete={() => void ops.trash(selection.selected)} onShare={single && user?.id && !root?.network ? () => setShare(single) : undefined} onUndo={operations.undoLast} onRedo={operations.redoLast} undo={operations.undo.undo?.label} redo={operations.undo.redo?.label} pane={pane} onPane={setPane} onProperties={() => { if (single) showProperties(single); }} onBindFolder={canManageBindings && ref && root?.available ? () => setBindingDialog(ref) : undefined} />
+    <CommandBar view={view} onView={setView} selected={selection.selected.length} busy={busy} canPaste={!!ops.clip && canWrite} onCut={() => void ops.cut(selection.selected)} onCopy={() => void ops.copy(selection.selected)} onPaste={() => void ops.paste()} onRename={askRename} onDelete={() => void ops.trash(selection.selected)} onShare={single && user?.id && !root?.network ? () => setShare(single) : undefined} onUndo={operations.undoLast} onRedo={operations.redoLast} undo={operations.undo.undo?.label} redo={operations.undo.redo?.label} pane={pane} onPane={setPane} onProperties={() => { if (single) showProperties(single); }} onBindFolder={canManageBindings && ref && root?.available ? () => setBindingDialog(ref) : undefined} createItems={canWrite ? panel.menuItem().items : undefined} />
     {lastBindingUndo && user?.id === lastBindingUndo.actorId && <button type="button" className="mx-3 my-1 self-start text-xs text-sky-700 underline dark:text-sky-300" onClick={() => void undoFolderBinding()}>Отменить последнее изменение привязки папки</button>}
     <div className="flex min-h-0 flex-1">
       <NavPane place={place} onOpen={go} onOpenInNewTab={(next) => tabs.open(next, false)} />
