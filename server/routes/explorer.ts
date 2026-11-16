@@ -7,12 +7,26 @@ import {
   FILE_NOT_FOUND, FOLDER_NOT_FOUND, canAccessFolder, canReadFile, canWriteFile, canManageFile, getMainAdminId,
   hiddenProjectIds, isFileOwnerOrAdmin, patchFileFields, personalScopeWhere,
 } from '../fileAccess.js';
+import { VersionConflict, expectedVersionOf, guardedWrite, sendRecordGone, sendGuardRefusal } from '../versionGuard.js';
+import { keepVersion } from '../versionBump.js';
+import { badVersion } from '../equipmentStale.js';
+import { editChangedText } from '../../src/lib/refusalTexts.js';
 
 // Кто и какой файл видит — server/fileAccess.ts: одно правило и для списка, и
 // для каждого маршрута, что берёт файл по номеру.
 
 /** Безопасные поля сотрудника для подписи «кто изменил»: без хеша пароля */
 const WHO = { select: { id: true, name: true, symbol: true } };
+
+/**
+ * Запись файла в 409 `current`: без содержимого. Сверка читает строку целиком, а
+ * в содержимом лежит сам документ — отдавать его в отказе незачем и дорого.
+ */
+export const withoutContent = (record: any): unknown => {
+  if (!record || typeof record !== 'object') return record;
+  const { content: _content, ...rest } = record;
+  return rest;
+};
 
 // Проводник: папки, файлы и корзина проекта.
 //
@@ -358,24 +372,36 @@ app.get('/api/files/:id', async (req: Request, res: Response) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// Восстановление файла из корзины под сверкой версии: `expectedVersion` в теле — версия, которую
+// показывала корзина. Файл вернул или удалил насовсем коллега — 409 с текущей записью / 404 `RECORD_GONE`.
 app.post('/api/files/:id/restore', async (req: Request, res: Response) => {
   const prisma = getPrisma();
   try {
-    // Восстановить можно только то, что человеку видно; чужое — «не найдено»
-    if (!(await canManageFile(prisma, (req as any).authUser, req.params.id))) {
-      return res.status(404).json({ error: FILE_NOT_FOUND });
-    }
-    const file = await prisma.fileNode.update({ where: { id: req.params.id }, data: { deletedAt: null, deletedById: null } });
-    // Если папка файла тоже в корзине — возвращаем и её, иначе файл
-    // «восстановится» в невидимое место.
-    if (file.folderId) {
-      const folder = await prisma.folder.findUnique({ where: { id: file.folderId } });
-      if (folder && (folder as any).deletedAt) {
-        await prisma.folder.update({ where: { id: folder.id }, data: { deletedAt: null, deletedById: null } });
-      }
-    }
-    res.json({ success: true });
-  } catch (err: any) { res.status(500).json({ error: err.message }); }
+    const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
+    if (expectedVersion === null) return badVersion(res);
+    // Восстановить можно только то, что человеку видно; чужое — как и несуществующее:
+    // отказ другими словами подтвердил бы, что такой номер есть
+    if (!(await canManageFile(prisma, (req as any).authUser, req.params.id))) return sendRecordGone(res, 'file');
+    const done = await guardedWrite(prisma, {
+      model: 'fileNode', id: req.params.id, expectedVersion, goneNoun: 'file',
+      staleMessage: (current) => editChangedText('file', current?.name),
+      build: () => ({ data: { deletedAt: null, deletedById: null } }),
+      // Если папка файла тоже в корзине — возвращаем и её, иначе файл
+      // «восстановится» в невидимое место. В той же транзакции: вернулся файл — вернулась и папка.
+      after: async (db, _before, file) => {
+        if (!file.folderId) return;
+        const folder = await db.folder.findUnique({ where: { id: file.folderId } });
+        if (folder && (folder as any).deletedAt) {
+          await db.folder.update({ where: { id: folder.id }, data: { deletedAt: null, deletedById: null } });
+        }
+      },
+    });
+    if (!done) return sendRecordGone(res, 'file');
+    res.json({ success: true, version: done.after.version });
+  } catch (err: any) {
+    if (sendGuardRefusal(res, err, withoutContent)) return;
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.post('/api/folders/:id/restore', async (req: Request, res: Response) => {
@@ -511,11 +537,15 @@ app.post('/api/files/copy', async (req: Request, res: Response) => {
     for (const id of list) {
       if (isCut) {
         // Just move it
-        const file = await prisma.fileNode.findUnique({ where: { id } });
+        const file = await prisma.fileNode.findUnique({ where: { id }, select: { id: true } });
         if (file) {
-          await prisma.fileNode.update({
-            where: { id },
-            data: { folderId: targetFolderId, ...(scope ? { scope, ownerId } as any : {}) }
+          // Перенос — правка файла: версии клиента здесь нет (пачка идёт по номерам), поэтому запись
+          // сверяется с собственным чтением в транзакции. Файл, который успели удалить насовсем,
+          // пропускается, как и несуществующий номер
+          await guardedWrite(prisma, {
+            model: 'fileNode', id,
+            staleMessage: (current) => editChangedText('file', current?.name),
+            build: () => ({ data: { folderId: targetFolderId, ...(scope ? { scope, ownerId } as any : {}) } }),
           });
         } else {
           // Нельзя вложить папку в саму себя или в свою же подпапку — это создаёт
@@ -550,57 +580,95 @@ app.post('/api/files/copy', async (req: Request, res: Response) => {
   }
 });
 
+// Правка файла (имя, ревизия, статус, теги, раздел) под сверкой версии: `expectedVersion` в теле — целая
+// версия, которую клиент видел. Файл изменили — 409 `VERSION_CONFLICT` с записью (без содержимого) в
+// `current`; файла нет или он человеку не виден — 404 `RECORD_GONE`; без версии запись сверяется с
+// чтением сервера. Нечитаемая версия — 400.
 app.patch('/api/files/:id', async (req: Request, res: Response) => {
   const prisma = getPrisma();
-  const me = (req as any).authUser || null;
-  const current = await prisma.fileNode.findUnique({ where: { id: req.params.id }, select: {
-    id: true, scope: true, ownerId: true, folderId: true, type: true, createdById: true,
-  } });
-  if (!current || !(await canManageFile(prisma, me, current))) return res.status(404).json({ error: FILE_NOT_FOUND });
-  if (await deniedOnDisk(req, res, await projectOfFile(req.params.id))) return;
-  // Только известные поля (server/fileAccess.ts): тело запроса раньше шло в
-  // Prisma целиком, вместе со scope, ownerId и content
-  const patch = patchFileFields(req.body, {
-    actorId: String(me.id), current,
-    ownerOrAdmin: isFileOwnerOrAdmin(me, current),
-    actorIsMainAdmin: me.id === await getMainAdminId(prisma),
-  });
-  if (patch.error) return res.status(patch.error.status).json({ error: patch.error.message });
-  if (await shareOf(prisma, String(current.id)) && ('scope' in req.body || 'ownerId' in req.body)) return res.status(409).json({ error: 'Права опубликованного файла меняются через «Общий доступ»' });
-  if (typeof patch.data.ownerId === 'string' && patch.data.ownerId !== me.id
-    && !(await prisma.user.findUnique({ where: { id: patch.data.ownerId }, select: { id: true } }))) {
-    return res.status(400).json({ error: 'Такого сотрудника нет' });
+  try {
+    const me = (req as any).authUser || null;
+    const expectedVersion = expectedVersionOf(req.body?.expectedVersion);
+    if (expectedVersion === null) return badVersion(res);
+    const current = await prisma.fileNode.findUnique({ where: { id: req.params.id }, select: {
+      id: true, scope: true, ownerId: true, folderId: true, type: true, createdById: true,
+    } });
+    // Чужое и несуществующее отвечают одинаково: иначе ответ подтверждал бы, что такой номер есть
+    if (!current || !(await canManageFile(prisma, me, current))) return sendRecordGone(res, 'file');
+    if (await deniedOnDisk(req, res, await projectOfFile(req.params.id))) return;
+    // Только известные поля (server/fileAccess.ts): тело запроса раньше шло в
+    // Prisma целиком, вместе со scope, ownerId и content
+    const patch = patchFileFields(req.body, {
+      actorId: String(me.id), current,
+      ownerOrAdmin: isFileOwnerOrAdmin(me, current),
+      actorIsMainAdmin: me.id === await getMainAdminId(prisma),
+    });
+    if (patch.error) return res.status(patch.error.status).json({ error: patch.error.message });
+    if (await shareOf(prisma, String(current.id)) && ('scope' in req.body || 'ownerId' in req.body)) return res.status(409).json({ error: 'Права опубликованного файла меняются через «Общий доступ»' });
+    if (typeof patch.data.ownerId === 'string' && patch.data.ownerId !== me.id
+      && !(await prisma.user.findUnique({ where: { id: patch.data.ownerId }, select: { id: true } }))) {
+      return res.status(400).json({ error: 'Такого сотрудника нет' });
+    }
+    const { mainTagIds, additionalTagIds } = patch;
+    const done = await guardedWrite(prisma, {
+      model: 'fileNode', id: req.params.id, expectedVersion, goneNoun: 'file',
+      staleMessage: (found) => editChangedText('file', found?.name),
+      build: () => ({ data: patch.data }),
+      // Связи с тегами `updateMany` не пишет: идут тем же слоем транзакции, версия уже выросла одним шагом
+      after: mainTagIds || additionalTagIds ? async (db, _before, written) => {
+        await db.fileNode.update({
+          where: { id: written.id },
+          data: keepVersion({
+            ...(mainTagIds ? { mainTags: { set: mainTagIds.map((id: string) => ({ id })) } } : {}),
+            ...(additionalTagIds ? { additionalTags: { set: additionalTagIds.map((id: string) => ({ id })) } } : {}),
+          }),
+        });
+      } : undefined,
+    });
+    if (!done) return sendRecordGone(res, 'file');
+    const file = await prisma.fileNode.findUnique({
+      where: { id: req.params.id },
+      omit: { content: true },
+      include: { mainTags: true, additionalTags: true, createdBy: WHO, updatedBy: WHO },
+    });
+    res.json({ file });
+  } catch (err: any) {
+    if (sendGuardRefusal(res, err, withoutContent)) return;
+    res.status(500).json({ error: err.message });
   }
-  const { mainTagIds, additionalTagIds } = patch;
-  const file = await prisma.fileNode.update({
-    where: { id: req.params.id },
-    data: {
-      ...patch.data,
-      ...(mainTagIds ? { mainTags: { set: mainTagIds.map((id: string) => ({ id })) } } : {}),
-      ...(additionalTagIds ? { additionalTags: { set: additionalTagIds.map((id: string) => ({ id })) } } : {})
-    },
-    omit: { content: true },
-    include: { mainTags: true, additionalTags: true, createdBy: WHO, updatedBy: WHO }
-  });
-  res.json({ file });
 });
 
+// Удаление файла в корзину — это правка: версия в строке запроса (`?expectedVersion=`, у DELETE тела
+// нет). Файл изменили — 409 `VERSION_CONFLICT`; файла нет или он не виден — 404 `RECORD_GONE`; он уже в
+// корзине — 200 `alreadyGone`, второй раз ничего не пишется.
 app.delete('/api/files/:id', async (req: Request, res: Response) => {
   const prisma = getPrisma();
-  const target = await prisma.fileNode.findUnique({ where: { id: req.params.id }, select: {
-    id: true, scope: true, ownerId: true, folderId: true, type: true, createdById: true,
-  } });
-  if (!target || !(await canManageFile(prisma, (req as any).authUser, target))) {
-    return res.status(404).json({ error: FILE_NOT_FOUND });
+  try {
+    const expectedVersion = expectedVersionOf(req.query.expectedVersion);
+    if (expectedVersion === null) return badVersion(res);
+    const target = await prisma.fileNode.findUnique({ where: { id: req.params.id }, select: {
+      id: true, scope: true, ownerId: true, folderId: true, type: true, createdById: true, deletedAt: true,
+    } });
+    if (!target || !(await canManageFile(prisma, (req as any).authUser, target))) return sendRecordGone(res, 'file');
+    if (await deniedOnDisk(req, res, await projectOfFolder((target as any)?.folderId))) return;
+    if (target.deletedAt) return res.json({ success: true, trashed: true, alreadyGone: true });
+    // Мягкое удаление: файл уходит в корзину проводника и восстановим.
+    // Безвозвратно чистит только «Очистить корзину».
+    // Кто удалил — из сессии: `actorId` из запроса позволял записать удаление на другого
+    const done = await guardedWrite(prisma, {
+      model: 'fileNode', id: req.params.id, expectedVersion, goneNoun: 'file',
+      staleMessage: (current) => editChangedText('file', current?.name),
+      build: (current) => {
+        // Коллега убрал файл в корзину между чтением и записью: пересылать чужое удаление под своим именем нельзя
+        if (current.deletedAt) throw new VersionConflict(editChangedText('file', current.name), current);
+        return { data: { deletedAt: new Date(), deletedById: (req as any).authUser?.id || null } };
+      },
+    });
+    if (!done) return sendRecordGone(res, 'file');
+    res.json({ success: true, trashed: true, version: done.after.version });
+  } catch (err: any) {
+    if (sendGuardRefusal(res, err, withoutContent)) return;
+    res.status(500).json({ error: err.message });
   }
-  if (await deniedOnDisk(req, res, await projectOfFolder((target as any)?.folderId))) return;
-  // Мягкое удаление: файл уходит в корзину проводника и восстановим.
-  // Безвозвратно чистит только «Очистить корзину».
-  // Кто удалил — из сессии: `actorId` из запроса позволял записать удаление на другого
-  await prisma.fileNode.update({
-    where: { id: req.params.id },
-    data: { deletedAt: new Date(), deletedById: (req as any).authUser?.id || null },
-  });
-  res.json({ success: true, trashed: true });
 });
 }
