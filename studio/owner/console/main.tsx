@@ -79,7 +79,7 @@ function App() {
       {state.connected && <Btn onClick={() => void report(() => call('openFlux'))}>Открыть Flux</Btn>}
       {state.connected && <Btn onClick={() => void report(() => call('disconnect'))}>Отключиться</Btn>}
       <Btn title="Сохранить журналы диагностики. Они не содержат содержимое файлов, пароли или закрытые ключи" aria-label="Сохранить журналы диагностики" onClick={() => void report(() => call('exportDiagnostics'))}>Журналы</Btn>
-      {(state.remember?.passwordUntil || state.remember?.server) ? <Btn title="Стереть сохранённые на этом компьютере пароль хранилища и адрес базы" onClick={() => void report(() => call('forgetRemembered'))}>Забыть сохранённое</Btn> : null}
+      {(state.remember?.keptUntil || state.remember?.server) ? <Btn title="Стереть сохранённые на этом компьютере пароль хранилища и адрес базы" onClick={() => void report(() => call('forgetRemembered'))}>Забыть сохранённое</Btn> : null}
       {!gated && <Btn onClick={() => void call('lock').then(() => reload())}>Запереть хранилище</Btn>}
     </div>
     <div className="tabs" role="tablist" aria-label="Разделы владельца">{TABS.map(([id, label]) =>

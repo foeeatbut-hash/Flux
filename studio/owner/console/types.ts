@@ -26,7 +26,7 @@ export interface Snapshot {
   version: string; unlocked: boolean; vaultExists: boolean; backupSession: boolean; kind: string;
   connected: boolean; display: string; user: { id: string; name: string } | null;
   /** Запомненные адрес базы и пароль (под защитой учётной записи Windows); секретов здесь нет */
-  remember?: { available: boolean; server: string; passwordUntil: number };
+  remember?: { available: boolean; server: string; keptUntil: number };
   /** Идёт вход запомненными данными: экран входа не показывается */
   resuming?: boolean; resumeError?: string;
   /** Хранилище заперто, но сохранённый пароль ещё действует */

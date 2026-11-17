@@ -51,7 +51,7 @@ const devices = [
 const bridge = () => `(() => {
   const data = ${JSON.stringify({ request, other, detail, devices })};
   let state = { version: '9.9.9', unlocked: false, vaultExists: true, backupSession: false, kind: '', connected: false, display: '', user: null,
-    remember: { available: true, server: '', passwordUntil: 0 }, resuming: false, resumeError: '', canResume: false, ...(window.__initial || {}) };
+    remember: { available: true, server: '', keptUntil: 0 }, resuming: false, resumeError: '', canResume: false, ...(window.__initial || {}) };
   let requests = [data.request, data.other], certificates = [{ keyHex: 'ab'.repeat(32), userId: 'developer', name: 'Разработчик', createdAt: new Date().toISOString() }];
   let certRequests = [{ key: 'cd'.repeat(32), userId: 'dev2', name: 'Второй разработчик', at: Date.now() }];
   const now = Date.now();
@@ -68,11 +68,11 @@ const bridge = () => `(() => {
       const ok = value => ({ ok: true, value });
       switch (action) {
         case 'state': return ok(state);
-        case 'unlock': if (args.password !== 'правильный-пароль') return { ok: false, error: 'Неверный пароль хранилища.' }; state = { ...state, unlocked: true, kind: 'main', canResume: false, remember: args.remember === false || !state.remember.available ? state.remember : { ...state.remember, passwordUntil: Date.now() + 86400000 } }; return ok(state);
+        case 'unlock': if (args.password !== 'правильный-пароль') return { ok: false, error: 'Неверный пароль хранилища.' }; state = { ...state, unlocked: true, kind: 'main', canResume: false, remember: args.remember === false || !state.remember.available ? state.remember : { ...state.remember, keptUntil: Date.now() + 86400000 } }; return ok(state);
         case 'connect': state = { ...state, connected: true, display: 'MariaDB / MySQL · db.example:3306/Flux', user: { id: 'owner', name: 'Владелец' }, remember: args.remember === false || !state.remember.available ? state.remember : { ...state.remember, server: 'MariaDB / MySQL · db.example:3306/Flux' } }; return ok(state);
         case 'resume': state = { ...state, unlocked: true, kind: 'main', canResume: false, resuming: false, connected: true, display: 'MariaDB / MySQL · db.example:3306/Flux', user: { id: 'owner', name: 'Владелец' } }; return ok(state);
         case 'connectRemembered': state = { ...state, connected: true, display: 'MariaDB / MySQL · db.example:3306/Flux', user: { id: 'owner', name: 'Владелец' } }; return ok(state);
-        case 'forgetRemembered': state = { ...state, canResume: false, remember: { ...state.remember, server: '', passwordUntil: 0 } }; return ok(state);
+        case 'forgetRemembered': state = { ...state, canResume: false, remember: { ...state.remember, server: '', keptUntil: 0 } }; return ok(state);
         case 'signPackage': return ok({ file: 'C:/пакеты/Flux-' + args.version + '.fluxupdate', version: args.version, size: 91 * 1048576, sha256: '9f'.repeat(32) });
         case 'lock': state = { ...state, unlocked: false, connected: false }; return ok(state);
         case 'requests': return ok({ requests });
@@ -155,7 +155,7 @@ async function rememberedFlow(browser: Awaited<ReturnType<typeof chromium.launch
     await page.goto(url);
     return { page, errors, tag };
   };
-  const remembered = { available: true, server: 'MariaDB / MySQL · db.example:3306/Flux', passwordUntil: Date.now() + 5 * 3600 * 1000 };
+  const remembered = { available: true, server: 'MariaDB / MySQL · db.example:3306/Flux', keptUntil: Date.now() + 5 * 3600 * 1000 };
 
   // Ручной вход: пароль и адрес запоминаются по умолчанию
   {
@@ -179,7 +179,7 @@ async function rememberedFlow(browser: Awaited<ReturnType<typeof chromium.launch
     await page.getByRole('button', { name: 'Забыть сохранённое' }).click();
     await page.getByRole('button', { name: 'Забыть сохранённое' }).waitFor({ state: 'detached' });
     ok(`${theme}: «Забыть сохранённое» стирает запомненное, кнопка исчезает`, (await calls(page, 'forgetRemembered')).length === 1);
-    ok(`${theme}: ошибок страницы нет`, errors.length === 0, errors);
+    ok(`${theme}: ошибок страницы нет`, errors.length === 0);
     await page.close();
   }
   // Человек снял флажок
@@ -200,7 +200,7 @@ async function rememberedFlow(browser: Awaited<ReturnType<typeof chromium.launch
   }
   // Нет защищённого хранилища Windows
   {
-    const { page } = await open({ remember: { available: false, server: '', passwordUntil: 0 } }, 'weak');
+    const { page } = await open({ remember: { available: false, server: '', keptUntil: 0 } }, 'weak');
     await page.getByRole('heading', { name: 'Хранилище владельца' }).waitFor();
     ok(`${theme}: без защиты ОС флажка нет, а причина названа`, (await page.getByRole('checkbox').count()) === 0 && /нет защищённого хранилища Windows/.test(await page.locator('body').innerText()));
     await measure(page, `${theme}/без защиты ОС`);
@@ -215,7 +215,7 @@ async function rememberedFlow(browser: Awaited<ReturnType<typeof chromium.launch
     await page.getByRole('button', { name: 'Открыть сохранённым паролем' }).click();
     await page.getByRole('tab', { name: /Программы на проверку/ }).waitFor();
     ok(`${theme}: вход сохранённым паролем идёт без ввода пароля и сразу с базой`, (await calls(page, 'resume')).length === 1 && (await calls(page, 'unlock')).length === 0 && /db\.example/.test(await page.locator('.top').innerText()));
-    ok(`${theme}: ошибок страницы нет (вход сохранённым паролем)`, errors.length === 0, errors);
+    ok(`${theme}: ошибок страницы нет (вход сохранённым паролем)`, errors.length === 0);
     await page.close();
   }
   // Идёт автоматический вход: экран входа не мигает
@@ -257,7 +257,7 @@ async function rememberedFlow(browser: Awaited<ReturnType<typeof chromium.launch
     ok(`${theme}: пакет подписан по введённой версии, подключения к базе не было`, sign.version === '1.21.0' && (await calls(page, 'connect')).length === 0 && (await calls(page, 'publish')).length === 0);
     ok(`${theme}: рядом объяснено, как передать файл и где его выбрать`, /Caps Lock \+ Shift \+ Ctrl/.test(await page.getByTestId('emergency-package').innerText()));
     await page.screenshot({ path: path.join(shots, `studio-package-${theme}.png`) });
-    ok(`${theme}: ошибок страницы нет (пакет)`, errors.length === 0, errors);
+    ok(`${theme}: ошибок страницы нет (пакет)`, errors.length === 0);
     await page.close();
   }
 }

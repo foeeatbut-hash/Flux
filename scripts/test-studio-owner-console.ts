@@ -100,7 +100,7 @@ async function emergencyAndRemembered(consoleApi: typeof import("../studio/owner
   ok('адрес и пароль записаны', mem.rememberServer(secretUri, 'db.example · Flux') && mem.rememberPassword(secretPassword));
   const onDisk = fs.readFileSync(path.join(rdir, 'remembered.json'), 'utf8');
   ok('на диске нет ни адреса, ни пароля открытым текстом', !onDisk.includes('ОченьСекретный') && !onDisk.includes(secretPassword) && !onDisk.includes(Buffer.from(secretPassword).toString('base64')) && onDisk.includes('db.example · Flux'));
-  ok('окну отдаётся только описание без секретов', !JSON.stringify(mem.info()).includes('Секретный') && mem.info().server === 'db.example · Flux' && mem.info().passwordUntil === t + DAY);
+  ok('окну отдаётся только описание без секретов', !JSON.stringify(mem.info()).includes('Секретный') && mem.info().server === 'db.example · Flux' && mem.info().keptUntil === t + DAY);
   eq('адрес читается', mem.server()?.uri, secretUri);
   t += DAY - 1000;
   eq('пароль действует до конца суток', mem.password(), secretPassword);

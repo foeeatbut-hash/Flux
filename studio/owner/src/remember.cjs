@@ -86,7 +86,7 @@ function createRemember({ dir, storage, now = Date.now, ttl = DAY }) {
     forgetAll() { fs.rmSync(file, { force: true }); },
 
     /** Состояние для окна: без секретов */
-    info() { return { available: usable(), server: api.serverDisplay(), passwordUntil: api.passwordUntil() }; },
+    info() { return { available: usable(), server: api.serverDisplay(), keptUntil: api.passwordUntil() }; },
   };
   return api;
 }
