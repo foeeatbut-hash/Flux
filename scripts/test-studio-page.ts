@@ -126,12 +126,12 @@ async function main() {
   const ATTACH = 'Прикрепляет к проекту таблицу рассчитанных параметров';
   const attachItem = async (files: ProjectFiles) => (await check(files)).items.find(i => i.id === 'page-attach');
   const attachCall = "flux.attach('result.csv', 'a;b', 'text/csv');";
-  ok('вызов с разрешением attach и v3 — проходит, пункт говорит, что Flux пока отвечает UNAVAILABLE', (await check(withNet(attachCall, [{ kind: 'attach', does: ATTACH }]))).ok && /UNAVAILABLE/.test((await attachItem(withNet(attachCall, [{ kind: 'attach', does: ATTACH }])))!.detail));
+  ok('вызов с разрешением attach и v3 — проходит, пункт называет отказы NO_PROJECT и что в Studio файл никуда не ложится', (await check(withNet(attachCall, [{ kind: 'attach', does: ATTACH }]))).ok && /NO_PROJECT/.test((await attachItem(withNet(attachCall, [{ kind: 'attach', does: ATTACH }])))!.detail));
   ok('вызов без разрешения → page-attach (Flux ответит FORBIDDEN)', (await attachItem(withNet(attachCall, null)))?.status === 'fail');
   ok('разрешение объявлено, а flux.attach нет → page-attach (лишнее не просим)', (await attachItem(withNet('', [{ kind: 'attach', does: ATTACH }])))?.status === 'fail');
   ok('ни вызова, ни разрешения — пункта нет', (await attachItem(withNet('', null))) === undefined);
   ok('разрешение attach не считается разрешением сети: net.fetch по адресу всё равно требует internet', (await netItem(withNet(internetCall, [{ kind: 'attach', does: ATTACH }]))).status === 'fail');
-  ok('в типах flux.d.ts есть attach и коды FORBIDDEN / UNAVAILABLE', /attach\(name: string/.test(fluxPageTypes()) && /FORBIDDEN/.test(fluxPageTypes()) && /UNAVAILABLE/.test(fluxPageTypes()));
+  ok('в типах flux.d.ts есть attach с ответом { name, folder } и коды FORBIDDEN / NO_PROJECT', /attach\(name: string/.test(fluxPageTypes()) && /Promise<\{ name: string; folder: string \}>/.test(fluxPageTypes()) && /FORBIDDEN/.test(fluxPageTypes()) && /NO_PROJECT/.test(fluxPageTypes()));
 
   console.log('Обращения к другим программам и методы exports');
   const CALL = 'Берёт у калькулятора курсов пересчёт сумм для отчёта';

@@ -430,7 +430,7 @@ async function main() {
       const audience = pub.getByRole('group', { name: 'Кому предложить версию' });
       const claimOf = () => parseRequestClaim(peekEnvelope('request', String(submitted.at(-1).signature)));
       ok(`${theme}: выбор «В тест» / «Сразу всем»: по умолчанию «В тест»`, (await audience.getByRole('button').allInnerTexts()).join('|') === 'В тест|Сразу всем' && (await audience.getByRole('button', { name: 'В тест' }).getAttribute('aria-pressed')) === 'true');
-      ok(`${theme}: без права «Сразу всем» закрыто, причина названа, подсказка про пробную группу`, await audience.getByRole('button', { name: 'Сразу всем' }).isDisabled() && (await pub.innerText()).includes('нужно право «Просить рабочий канал»') && (await pub.getByTestId('pub-audience-hint').innerText()).includes('только пробная группа владельца'));
+      ok(`${theme}: без права «Сразу всем» закрыто, причина названа, подсказка про пробную группу`, await audience.getByRole('button', { name: 'Сразу всем' }).isDisabled() && (await pub.innerText()).includes('для него нужно отдельное право') && (await pub.getByTestId('pub-audience-hint').innerText()).includes('только пробная группа владельца'));
       await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-5-publish.png`), fullPage: true });
       const sentBefore = submitted.length;
       await pub.getByRole('button', { name: 'Отправить владельцу' }).click();
@@ -442,7 +442,7 @@ async function main() {
       rights.publish = true;
       await page.getByRole('button', { name: 'Опубликовать' }).click();
       await pub.waitFor();
-      ok(`${theme}: с правом «Сразу всем» открыто, предупреждения о праве нет`, await audience.getByRole('button', { name: 'Сразу всем' }).isEnabled() && !(await pub.innerText()).includes('нужно право «Просить рабочий канал»'));
+      ok(`${theme}: с правом «Сразу всем» открыто, предупреждения о праве нет`, await audience.getByRole('button', { name: 'Сразу всем' }).isEnabled() && !(await pub.innerText()).includes('для него нужно отдельное право'));
       await audience.getByRole('button', { name: 'Сразу всем' }).click();
       ok(`${theme}: выбрано «Сразу всем», подсказка сменилась`, (await audience.getByRole('button', { name: 'Сразу всем' }).getAttribute('aria-pressed')) === 'true' && (await pub.getByTestId('pub-audience-hint').innerText()).includes('все, у кого программа установлена'));
       await pub.getByLabel('Что нового').fill('Первая версия');

@@ -128,14 +128,14 @@ ok('разница владельца: новое обращение назва�
 ok('сменили программу — новое и убранное; то же — пусто', diffPermissions(withProgram(callRates) as any, withProgram({ ...callRates, program: 'prices' }) as any).added.permissions?.length === 1 && !diffPermissions(withProgram(callRates) as any, withProgram(callRates) as any).widened);
 ok('Flux старше v3 просит обновиться', unmetRequirements(withProgram(callRates), { fluxVersion: '1.0.0', windows: true }).length === 0);
 
-console.log('Прикрепление результатов к проектам (kind attach): только заявление');
+console.log('Прикрепление результатов к проектам (kind attach): запись файла-результата в папку проекта');
 const ATT = 'Прикрепляет к проекту таблицу рассчитанных параметров оборудования';
 const att = { kind: 'attach', does: ATT };
 const withAttach = (...permissions: any[]) => ({ ...base, id: 'attacher', contractVersion: 3, permissions }) as unknown as ModuleManifest;
 const attLines = permissionLines(withAttach(att));
 ok('строка «Прикрепляет результаты к проектам: …» заметна и идёт после обращения к программе, до «ничего не записывает»', attLines.some(l => l.kind === 'attach' && l.notable && l.text === `Прикрепляет результаты к проектам: ${ATT}`)
   && attLines.findIndex(l => l.kind === 'attach') < attLines.findIndex(l => l.kind === 'write'));
-ok('строка «Ничего не записывает во Flux» остаётся: записи нет', attLines.some(l => l.text === 'Ничего не записывает во Flux'));
+ok('«Ничего не записывает во Flux» с прикреплением было бы неправдой: строка «Записывает во Flux только файлы-результаты» вместо неё', !attLines.some(l => l.text === 'Ничего не записывает во Flux') && attLines.some(l => l.kind === 'write' && l.text.startsWith('Записывает во Flux только файлы-результаты')));
 ok('окно Store показывает ту же строку, что реестр', storeLines(withAttach(att)).some(l => l.kind === 'attach' && l.notable));
 ok('разрешение подтверждает человек', grantItems(withAttach(att)).some(i => i.line.kind === 'attach'));
 ok('отпечаток меняется с разрешением и с его текстом', permissionsDigest(withAttach(att)) !== permissionsDigest(m({ contractVersion: 3 })) && permissionsDigest(withAttach(att)) !== permissionsDigest(withAttach({ ...att, does: 'Прикрепляет к проекту сводку расчёта нагрузок по щиту' })));
