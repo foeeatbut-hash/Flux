@@ -70,7 +70,7 @@ function ModuleHostSession({ current, wasDev, location, project, theme }: {
   if (!manifest) return <div className="fx-empty"><div className="fx-empty-title">Модуль недоступен</div></div>;
   // Первый запуск сборки из разработки: пока человек не согласился с разрешениями, программа не открывается
   if (dev && !dev.accepted) return <DevConsent manifestId={manifest.id} />;
-  if (manifest.contractVersion > CONTRACT_VERSION) return <div className="fx-empty"><div className="fx-empty-title">Обновите Flux для этого модуля</div></div>;
+  if (manifest.contractVersion > CONTRACT_VERSION) return <div className="fx-empty"><div className="fx-empty-title">Обновите программу Flux</div><div className="fx-empty-text">Этой программе нужен более новый формат, чем понимает эта версия Flux.</div></div>;
   const params = new URLSearchParams(location.search);
   const entry = params.get('entry');
   const matchesProject = params.get('projectId') === project?.id;

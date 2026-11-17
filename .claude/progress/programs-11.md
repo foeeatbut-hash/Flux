@@ -11,12 +11,16 @@
 
 ## Шаги
 
-- [ ] 1. attach: сервер (запись FileNode) + мост + Flux (ModuleFrame) + Studio (честная имитация)
+- [x] 1. attach: сервер (`server/routes/moduleAttach.ts`, POST /api/modules/attach) + мост + Flux (ModuleFrame, modulePage.ts) + Studio (имитация в Run.tsx) — наборы scripts/test-module-attach-{bridge,server}.ts, мутации ещё НЕ прогнаны
+- [x] 4. (код и наборы готовы) «Обновите программу»: modules/trust/verify.ts newerThanThisFlux, store/model.ts, ModuleHost.tsx
 - [ ] 2. выбор «в тест / сразу всем» при отправке версии (Studio разработчика) — до сервера и владельца
 - [ ] 3. предел хранилища программы снят
-- [ ] 4. текст «Обновите программу» вместо «манифест не соответствует»
 - [ ] 5. наборы, мутации, снимки обеих тем (/tmp/u11-shots/), документы-заметки для отчёта
 
 ## Ход
 
 - Рабочая копия подготовлена (симлинки node_modules, genoffice, prisma-clients).
+
+- Baseline (до правок): run-checks по словам test-studio-page, test-modules-permissions, test-modules-page, test-modules-contract, test-modules-storage, test-modules-publishing, test-studio-checks — 9 наборов, провалов 0, пропущено 2 (native: нужен xvfb).
+- Шаг 1 и 4: test-module-attach-bridge 44 проверки, test-module-attach-server 33 проверки — зелёные; tsc 0.
+- Осталось: шаг 2 (PublishDialog), шаг 3 (предел), снимки, мутации, UI-набор, прогон области, документы для отчёта.

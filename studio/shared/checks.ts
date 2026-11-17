@@ -93,8 +93,9 @@ function netItem(manifest: ModuleManifest, scripts: string[]): CheckItem {
 }
 
 /**
- * Прикрепление результатов к проектам (`flux.attach`): пока только заложено, Flux отвечает FORBIDDEN без разрешения `attach` в
- * `permissions` и UNAVAILABLE с ним. Вызов без разрешения и лишнее разрешение — проблемы здесь, как у сети; нет ни вызова, ни разрешения — пункта нет.
+ * Прикрепление результатов к проектам (`flux.attach`): Flux отвечает FORBIDDEN без разрешения `attach` в `permissions`, а с ним кладёт файл
+ * в папку открытого проекта (в Studio запись только имитируется). Вызов без разрешения и лишнее разрешение — проблемы здесь, как у сети;
+ * нет ни вызова, ни разрешения — пункта нет.
  */
 function attachItem(manifest: ModuleManifest, scripts: string[]): CheckItem | null {
   const declared = (manifest.permissions || []).some(p => p.kind === 'attach');
@@ -104,7 +105,7 @@ function attachItem(manifest: ModuleManifest, scripts: string[]): CheckItem | nu
   if (calls && !declared) problems.push('flux.attach без разрешения «attach» в permissions manifest.json: Flux ответит FORBIDDEN');
   if (declared && !calls) problems.push('разрешение «attach» объявлено, но flux.attach в коде не вызывается: люди соглашаются на каждое разрешение, не просите лишнего');
   return item('page-attach', 'Страница: прикрепление результатов к проектам', problems.length ? 'fail' : 'ok',
-    problems.join('; ') || `вызовов flux.attach: ${calls}; разрешение объявлено. Прикрепление пока не работает: Flux отвечает UNAVAILABLE («появится позже»), программа обязана это обработать`);
+    problems.join('; ') || `вызовов flux.attach: ${calls}; разрешение объявлено. Программа обязана обработать отказ: NO_PROJECT (проект не открыт), DENIED, LIMIT, FAILED; в Studio файл никуда не ложится, проверка записи — во Flux`);
 }
 
 function readsUsedInCode(source: string): string[] {

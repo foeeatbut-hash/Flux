@@ -20,6 +20,7 @@ import {
 } from './claims';
 import { joinChunks, splitChunks, unpackBundle, bundleText, type BundleFiles } from './bundle';
 import { validManifest } from '../schemas';
+import { KNOWN_PERMISSION_KINDS } from '../permissions/registry';
 import { CONTRACT_VERSION, type ModuleManifest } from '../contract';
 import { effectiveChannel, type PromotionClaim } from './promotion';
 import { compareVersions } from '../../shared/versionCompare';
@@ -79,14 +80,34 @@ export function checkChunks(digest: BundleDigest, chunks: readonly Uint8Array[])
   return '';
 }
 
+/**
+ * Текст для человека, если манифест написан для более нового Flux, чем этот; пусто — не поэтому. Признаки два: договор выше, чем понимает
+ * эта сборка, и вид разрешения, которого в реестре нет (так выглядел `attach` для Flux до него). Повреждённый манифест сюда не попадает:
+ * «Обновите» ему не поможет, а ложный совет хуже честного «не соответствует».
+ */
+export function newerThanThisFlux(manifest: unknown): string {
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return '';
+  const { contractVersion, permissions } = manifest as { contractVersion?: unknown; permissions?: unknown };
+  if (Number.isInteger(contractVersion) && (contractVersion as number) > CONTRACT_VERSION) {
+    return `Обновите программу Flux: этой программе нужен формат v${contractVersion}, а эта версия Flux понимает до v${CONTRACT_VERSION}`;
+  }
+  if (Array.isArray(permissions) && permissions.some(p => p && typeof p === 'object' && typeof (p as { kind?: unknown }).kind === 'string' && !KNOWN_PERMISSION_KINDS.includes((p as { kind: string }).kind))) {
+    return 'Обновите программу Flux: программа просит разрешение, которого эта версия Flux не знает';
+  }
+  return '';
+}
+
 /** Манифест из пакета: тот же модуль и версия, что в подписи, и договор, который эта сборка Flux понимает */
 export function bundleManifest(files: BundleFiles, moduleId: string, version: string): ModuleManifest | string {
   let manifest: unknown;
   try { manifest = JSON.parse(bundleText(files, 'manifest.json') || ''); } catch { return 'В пакете нет корректного manifest.json'; }
+  // Раньше всех остальных проверок: манифест нового договора или с видом разрешения, которого этот Flux не знает, схема отвергает как
+  // «не соответствует формату», хотя поломки нет — нужна более новая программа Flux, и человеку надо сказать именно это
+  const newer = newerThanThisFlux(manifest);
+  if (newer) return newer;
   if (!validManifest(manifest)) return 'manifest.json не соответствует формату программы';
   const m = manifest as unknown as ModuleManifest;
   if (m.id !== moduleId || m.version !== version) return 'manifest.json описывает другой модуль или версию';
-  if (m.contractVersion > CONTRACT_VERSION) return `Модулю нужен договор v${m.contractVersion}: обновите Flux`;
   return m;
 }
 

@@ -67,7 +67,7 @@ export function pageProblem(files: BundleFiles, pages: readonly string[] = []): 
   return '';
 }
 
-export const PAGE_ERROR_CODES = ['DENIED', 'LIMIT', 'FAILED', 'CANCELLED', 'FORBIDDEN', 'UNAVAILABLE'] as const;
+export const PAGE_ERROR_CODES = ['DENIED', 'LIMIT', 'FAILED', 'CANCELLED', 'FORBIDDEN', 'UNAVAILABLE', 'NO_PROJECT'] as const;
 export type PageErrorCode = typeof PAGE_ERROR_CODES[number];
 export const PAGE_ERROR_NOTES: Record<PageErrorCode, string> = {
   DENIED: 'Программа не объявлена как страница, либо действие не разрешено.',
@@ -75,7 +75,8 @@ export const PAGE_ERROR_NOTES: Record<PageErrorCode, string> = {
   FAILED: 'Действие не удалось выполнить.',
   CANCELLED: 'Пользователь отказался.',
   FORBIDDEN: 'В манифесте нет разрешения «attach» (прикреплять результаты к проектам).',
-  UNAVAILABLE: 'Прикрепление результатов к проектам появится позже: запись во Flux пока не поддерживается.',
+  UNAVAILABLE: 'Это окно не умеет прикреплять результаты к проектам.',
+  NO_PROJECT: 'Проект не открыт: результат некуда прикрепить.',
 };
 
 /** Предел окон одной программы и размера сообщения между ними */
