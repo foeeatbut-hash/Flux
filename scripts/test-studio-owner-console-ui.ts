@@ -459,7 +459,7 @@ async function main() {
       await page.getByRole('button', { name: 'Вернуть предыдущую версию всем…' }).click();
       await page.getByRole('dialog', { name: 'Вернуть предыдущую версию всем' }).waitFor();
       const rollbackText = await page.getByRole('dialog').innerText();
-      ok(`${theme}: диалог возврата называет версии, охват и что отложить нельзя`, /до версии 2\.0\.0/.test(rollbackText) && /Вернётся версия 1\.0\.0/.test(rollbackText) && /1 чел\., 1 компьютеров/.test(rollbackText) && /отложить его нельзя/.test(rollbackText) && /Новый выпуск не создаётся/.test(rollbackText));
+      ok(`${theme}: диалог возврата называет версии, охват и что отложить нельзя`, /до версии 2\.0\.0/.test(rollbackText) && /Вернётся версия 1\.0\.0/.test(rollbackText) && /1 чел\., компьютеров: 1/.test(rollbackText) && /отложить его нельзя/.test(rollbackText) && /Новый выпуск не создаётся/.test(rollbackText));
       await measure(page, `${tag}/возврат версии`);
       await page.screenshot({ path: path.join(shots, `owner-console-${tag}-7b-update-rollback.png`) });
       await page.getByRole('dialog').getByRole('button', { name: 'Вернуть версию 1.0.0 всем' }).click();
