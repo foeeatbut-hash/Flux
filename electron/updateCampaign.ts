@@ -57,17 +57,24 @@ export function createUpdateCampaignRuntime(dir: string, version: () => string, 
       return { ...latest.command, remainingMs: Math.max(0, latest.command.deadline - now()) };
     },
     assignment: (inst: string, userId: string) => state.assignments[`${inst}:${userId}`]?.command || null,
+    /** Принятое и подписанное задание на возврат версии: только оно разрешает поставить версию ниже работающей */
+    allowsRollback: (commandId: string, version: string) => Object.values<any>(state.assignments).some(a =>
+      a?.command?.id === commandId && a.command.action === 'schedule' && a.command.rollback === true && a.command.version === version),
   };
 }
 
 let nativeRuntime: ReturnType<typeof createUpdateCampaignRuntime> | null = null;
-export async function assertCampaignRestart(commandId: string, expectedVersion: string, getCommands: (deviceId: string) => Promise<{ inst: string; commands: SignedUpdateCommand[] }>) {
+/** Проверка перед скачиванием версии ниже работающей: окно называет задание, а доверяет главный процесс своему подписанному */
+export function assertRollbackAllowed(commandId: unknown, version: string) {
+  if (typeof commandId !== 'string' || !nativeRuntime?.allowsRollback(commandId, version)) throw new Error('Возврат версии не подтверждён подписанным заданием владельца.');
+}
+export async function assertCampaignRestart(commandId: string, expectedVersion: string, getCommands: (deviceId: string) => Promise<{ inst: string; commands: SignedUpdateCommand[] }>, rollback = false) {
   if (!nativeRuntime) throw new Error('Назначение обновления не проверено.');
   const data = await getCommands(nativeRuntime.identity().deviceId);
-  assertCampaignRestartState(nativeRuntime, commandId, expectedVersion, data);
+  assertCampaignRestartState(nativeRuntime, commandId, expectedVersion, data, undefined, rollback);
 }
 export function assertCampaignRestartState(runtime: ReturnType<typeof createUpdateCampaignRuntime>, commandId: string, expectedVersion: string,
-  data: { inst: string; commands: SignedUpdateCommand[] }, keyHex?: string) {
+  data: { inst: string; commands: SignedUpdateCommand[] }, keyHex?: string, rollback = false) {
   const target = data.commands.flatMap(e => {
     const c = verifyUpdateCommand(e, { inst: data.inst, deviceId: runtime.identity().deviceId, keyHex });
     return c ? c.targets.filter(t => t.deviceId === runtime.identity().deviceId).map(t => ({ userId: t.userId, c })) : [];
@@ -79,6 +86,8 @@ export function assertCampaignRestartState(runtime: ReturnType<typeof createUpda
   runtime.accept(data.inst, target.userId, data.commands);
   const current = runtime.assignment(data.inst, target.userId);
   if (current?.id !== commandId || current.action !== 'schedule' || current.version !== expectedVersion) throw new Error('Назначение отменено или заменено. Перезапуск остановлен.');
+  // Возврат и обычное обновление не подменяют друг друга: что назначено, то и ставится
+  if ((current.rollback === true) !== rollback) throw new Error('Вид назначения не совпал с тем, что скачано. Перезапуск остановлен.');
 }
 
 export function registerUpdateCampaignIpc(deps: {

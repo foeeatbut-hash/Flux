@@ -188,11 +188,22 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       const a = await availability(db, r);
       const active = await db.appUpdate.findUnique({ where: { version } });
       if (!isPublished(active) || active?.generation !== r?.generation) return res.json({ version, ok: false, size: 0, why: 'Выпуск отозван' });
-      // Описание нужно окну назначенного выпуска: он не обязательно «последний», и /latest его не отдаёт
-      res.json({ version, generation: r?.generation || '', ...a, changelog: a.ok ? r?.changelog || '' : '' });
+      res.json({ version, generation: r?.generation || '', ...a });
     } catch (e: any) { res.status(503).json({ error: e?.message || 'База обновлений недоступна' }); }
   });
 
+  // Описание и подпись назначенного выпуска: он не обязательно «последний», и /latest его не отдаёт.
+  // Отдельно от /check: тот читает главный процесс с пределом ответа в 8 КБ, а описание бывает длинным
+  app.get('/api/updates/info/:version', async (req: Request, res: Response) => {
+    const version = validVersion(req.params.version);
+    if (!version) return res.status(400).json({ error: 'Укажите номер версии в виде 0.90.0' });
+    try {
+      const db = deps.getPrisma(), r = await db.appUpdate.findUnique({ where: { version } });
+      const a = r ? await availability(db, r) : { ok: false, size: 0, why: 'Выпуск не найден', signature: '' };
+      if (!r || !a.ok) return res.json({ version, ok: false, why: a.why });
+      res.json({ version, ok: true, changelog: r.changelog || '', fileUrl: `/api/updates/download/${version}`, size: a.size, signature: a.signature });
+    } catch (e: any) { res.status(503).json({ error: e?.message || 'База обновлений недоступна' }); }
+  });
   app.post('/api/updates/upload', requireOwnerMiddleware, express.raw({ type: () => true, limit: '800mb' }), async (req: Request, res: Response) => {
     const version = validVersion(req.query.version), body = req.body;
     if (!version) return res.status(400).json({ error: 'Укажите номер версии в виде 0.90.0' });

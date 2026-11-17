@@ -104,6 +104,8 @@ export interface ApplyPlan {
   waitPid: number;
   signature?: string;
   previousVersion?: string;
+  /** Установка версии ниже прежней по подписанному заданию о возврате */
+  rollback?: boolean;
 }
 
 /**
@@ -111,9 +113,11 @@ export interface ApplyPlan {
  * написание должны совпадать с разбором — а разбор живёт этажом ниже и
  * проверяется тем же скриптом.
  */
-export const applyArgs = (target: string, pid: number, verified?: { signature: string; current: string }): string[] =>
+export const ROLLBACK_FLAG = '--flux-rollback';
+export const applyArgs = (target: string, pid: number, verified?: { signature: string; current: string; rollback?: boolean }): string[] =>
   [APPLY_FLAG, String(target || ''), WAIT_FLAG, String(pid | 0),
-    ...(verified ? ['--flux-update-signature', verified.signature, '--flux-previous-version', verified.current] : [])];
+    ...(verified ? ['--flux-update-signature', verified.signature, '--flux-previous-version', verified.current] : []),
+    ...(verified?.rollback ? [ROLLBACK_FLAG] : [])];
 
 /**
  * Разбор доводов. Пустой ответ значит «это обычный запуск программы».
@@ -134,6 +138,7 @@ export function parseApplyArgs(argv: string[]): ApplyPlan | null {
   const sigAt = list.indexOf('--flux-update-signature'), previousAt = list.indexOf('--flux-previous-version');
   if (sigAt >= 0) plan.signature = list[sigAt + 1] || '';
   if (previousAt >= 0) plan.previousVersion = list[previousAt + 1] || '';
+  if (list.includes(ROLLBACK_FLAG)) plan.rollback = true;
   return plan;
 }
 
