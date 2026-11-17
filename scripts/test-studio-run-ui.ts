@@ -440,6 +440,10 @@ async function main() {
       await page.getByRole('button', { name: 'Запустить' }).first().click();
       await runTab.waitFor();
       await main.locator('#status').filter({ hasText: 'готово' }).waitFor();
+      // «готово» могло остаться от прежнего запуска: его окна закрываются, новое ещё не открыто (на CI ловили 0 окон,
+      // PR 177 и 178). Ждём, пока перезапуск доедет до одного окна; не доедет — проверка ниже упадёт с увиденным числом.
+      for (let i = 0; i < 100 && await page.locator('[data-testid="program-window"]').count() !== 1; i++) await page.waitForTimeout(100);
+      await main.locator('#status').filter({ hasText: 'готово' }).waitFor();
       // Четыре условия порознь: составная проверка дважды падала в тёмной теме на CI (PR 172 и 173),
       // и по журналу было не видно, какое из условий ложно. Значения — в названии проверки.
       const relaunch = {
