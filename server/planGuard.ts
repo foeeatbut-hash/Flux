@@ -80,6 +80,8 @@ export interface SeenScope {
   where?: Record<string, unknown>;
   /** Поле версии в модели; по умолчанию `version`. */
   field?: string;
+  /** Свой текст отказа (отмена действия); по умолчанию — текст предпросмотра. */
+  message?: string;
   /**
    * Записи, которые запись собирается менять. Те из них, что плану не показывали
    * (нет в `seen`: появились после предпросмотра), — тоже отказ `changed`: молча
@@ -115,7 +117,7 @@ export async function assertSeenVersions(db: any, model: string, seen: SeenVersi
     if (!cur) { if (id in seen) gone.push(id); }
     else if (!(id in seen) || Number(cur[field]) !== seen[id]) changed.push({ id, current: cur });
   }
-  if (changed.length || gone.length) throw new PlanChanged(changed, gone);
+  if (changed.length || gone.length) throw new PlanChanged(changed, gone, scope.message);
 }
 
 type Res = { status: (code: number) => { json: (body: unknown) => unknown } };

@@ -110,6 +110,16 @@ export function changedByText(name: unknown, at: unknown): string {
   return `Изменил: ${who}, ${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/** Отмена действия: записи после него успел изменить кто-то ещё */
+export function undoChangedText(): string {
+  return 'После этого действия часть записей изменили. Отмена не выполнена, ничего не записано. Ниже — что изменилось; проверьте и повторите отмену.';
+}
+
+/** Загрузка файла без предпросмотра: строку изменили прямо во время загрузки */
+export function importChangedText(): string {
+  return 'Пока шла загрузка, часть строк реестра изменили. Ничего не записано. Ниже — что изменилось; проверьте и повторите загрузку.';
+}
+
 /** Правка удалённой записи (404) */
 export function editGoneText(noun: RefusalNoun, name?: unknown): string {
   const n = NOUNS[noun];

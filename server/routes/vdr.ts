@@ -11,7 +11,7 @@ import { backfillLegacyIssues } from '../docflowIssue.js';
 import { normalizeRevisionRules, expectedRevision, kindOfRevision } from '../../shared/docflow/revisions.js';
 import { VdrConflict, expectedStamp, expectedRevisionOf, guardedUpdate, guardedIssue, whenText, inTransaction } from '../vdrWrite.js';
 import { RecordGone, expectedVersionOf, guardedDelete, sendGuardRefusal, sendRecordGone } from '../versionGuard.js';
-import { editChangedText, deleteChangedText } from '../../src/lib/refusalTexts.js';
+import { editChangedText, deleteChangedText, undoChangedText, importChangedText } from '../../src/lib/refusalTexts.js';
 import { PlanChanged, assertSeenVersions, seenOf, sendPlanRefusal } from '../planGuard.js';
 
 // ── ВДР (Vendor Document Register) — реестр документации поставщика ──
@@ -372,8 +372,6 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
 
   const registerOut = (r: any) => ({ ...r, columnsConfig: parseJson(r.columnsConfig, []), revisions: parseJson(r.revisions, []) });
   const itemOut = (i: any) => ({ ...i, extra: parseJson(i.extra, {}) });
-  /** Ввоз файла: предпросмотра нет, строку изменили прямо во время ввоза */
-  const importChangedText = (): string => 'Пока шёл ввоз, часть строк реестра изменили. Ничего не записано. Ниже — что изменилось; проверьте и повторите ввоз.';
 
   // Отказ записи — общего вида (server/versionGuard.ts): 409 с текстом для человека, кодом отдельным
   // полем и голой текущей записью в `current` (такой, какой её отдаёт чтение), чтобы экран показал,
@@ -820,7 +818,7 @@ export function registerVdrRoutes(app: Express, deps: { chunkBytes: () => Promis
         const mine = new Set((await db.docRegisterItem.findMany({
           where: { projectId, id: { in: [...new Set(asked.map(c => String(c?.itemId || '')))] } }, select: { id: true },
         })).map((r: any) => r.id));
-        await assertSeenVersions(db, 'docRegisterItem', seen, { where: { projectId } });
+        await assertSeenVersions(db, 'docRegisterItem', seen, { where: { projectId }, message: undoChangedText() });
         return undoTagLinks(db, asked.filter(c => mine.has(String(c?.itemId))));
       });
       announceVdrChange(projectId);

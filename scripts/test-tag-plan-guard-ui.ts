@@ -346,7 +346,7 @@ async function main() {
     const itemNow = (await colleague('GET', `/api/vdr/items?registerId=${REG}`)).body.items.find((i: any) => i.id === I2);
     await page.route('**/api/vdr/import', (route: any) => route.fulfill({
       status: 409, contentType: 'application/json',
-      body: JSON.stringify({ error: 'Пока шёл ввоз, часть строк реестра изменили. Ничего не записано. Ниже — что изменилось; проверьте и повторите ввоз.', code: 'VERSION_CONFLICT', changed: [{ id: I2, current: { ...itemNow, titleRu: 'Схема узла (новая)', version: (itemNow.version || 1) + 1 } }], gone: [] }),
+      body: JSON.stringify({ error: 'Пока шла загрузка, часть строк реестра изменили. Ничего не записано. Ниже — что изменилось; проверьте и повторите загрузку.', code: 'VERSION_CONFLICT', changed: [{ id: I2, current: { ...itemNow, titleRu: 'Схема узла (новая)', version: (itemNow.version || 1) + 1 } }], gone: [] }),
     }));
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['Contractor Document No', 'Russian Title', 'English Title', 'Rev'], ['ДОК-2', 'Схема узла', 'Node', 'A']]), 'Register');

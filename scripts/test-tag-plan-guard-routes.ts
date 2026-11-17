@@ -38,7 +38,7 @@ import { setPrisma, setBroadcaster } from '../server/context.js';
 import { withVersionBump } from '../server/versionBump.js';
 import { registerTagRoutes } from '../server/routes/tags.js';
 import { registerVdrRoutes } from '../server/routes/vdr.js';
-import { bulkChangedText } from '../src/lib/refusalTexts.js';
+import { bulkChangedText, undoChangedText } from '../src/lib/refusalTexts.js';
 
 const require = createRequire(import.meta.url);
 const { PrismaClient } = require('../prisma-clients/client-sqlite');
@@ -110,7 +110,7 @@ async function main() {
     /** «Коллега поправил тег»: версия уходит вперёд */
     const colleagueEdits = (id: string, data: Record<string, unknown> = { department: 'ОВ' }) => base.tag.update({ where: { id }, data });
     const isConflict = (r: { status: number; body: any }) => r.status === 409 && r.body?.code === 'VERSION_CONFLICT'
-      && r.body?.error === bulkChangedText() && Array.isArray(r.body?.changed) && Array.isArray(r.body?.gone);
+      && [bulkChangedText(), undoChangedText()].includes(r.body?.error) && Array.isArray(r.body?.changed) && Array.isArray(r.body?.gone);
     const ids = (list: any[]) => list.map((c) => c.id).sort().join(',');
     const BI = '/api/projects/p1/tags/bulk-import';
     const CA = '/api/projects/p1/tags/capture-apply';
@@ -388,7 +388,7 @@ async function main() {
         && r.body.changed[0].current.titleRu === 'Правка коллеги' && e2.titleRu !== 'Стало 2', r);
       check('ввоз ВДР: отказ — ввоз откачен целиком (первая строка не обновлена, новая не создана)', (await raw.docRegisterItem.findUnique({ where: { id: 'E1' } })).titleRu === 'Было 1'
         && (await raw.docRegisterItem.count({ where: { contractorNo: 'D-3' } })) === 0 && before.registers.length === (await world()).registers.length);
-      check('ввоз ВДР: текст отказа — по-русски, про ввоз, без слова «предпросмотр»', /ввоз/i.test(r.body.error) && !/предпросмотр/i.test(r.body.error), r.body.error);
+      check('ввоз ВДР: текст отказа — по-русски, про загрузку, без слова «предпросмотр»', /загрузк/i.test(r.body.error) && !/предпросмотр/i.test(r.body.error), r.body.error);
     }
     {
       // Строку удалили во время ввоза
