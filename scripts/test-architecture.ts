@@ -563,8 +563,6 @@ console.log('\n10. Запись в версионные модели не обх
   const SET = /[?:,(]\s*\{\s*version\s*:(?!\s*(?:\{\s*increment|true\b|false\b|\d|'desc'|'asc'))|\bdata\s*:\s*\{\s*version\s*:(?!\s*\{\s*increment)/g;
   compare('версия, поставленная руками', tally((_rel, src) => writeCall.test(src)
     ? src.split('\n').filter((l) => { SET.lastIndex = 0; return SET.test(l); }).length : 0), {
-    'server/routes/equipmentXmlSources.ts': { n: 2, why: 'часть 5: «хватка» позиции и откат XML-ревизии ставят прочитанную версию; откат назад нарушает «версия только растёт»' },
-    'server/equipmentXmlUndo.ts': { n: 1, why: 'часть 5: то же для отмены XML-ревизии' },
   });
 
   // 4. Клиент сервера собирается с расширением (проверка роста версии — scripts/test-version-bump.ts)

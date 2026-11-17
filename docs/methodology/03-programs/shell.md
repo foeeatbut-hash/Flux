@@ -493,6 +493,13 @@ FileNode, Dictionary, DictionaryItem, TagTemplate) есть целая коло�
   `src/components/registry/bulkWrite.ts`). Независимые строки, каждая своим
   запросом (ВДР: исполнитель, английские названия), — пишется нетронутое, по
   остальным показано, что не записано (`src/components/vdr/vdrWrite.ts`).
+- **Действие по предпросмотру.** План несёт `seen: { id: версия }`, запись
+  возвращает его серверу, сервер сверяет в транзакции до первой записи
+  (`server/planGuard.ts`: `assertSeenVersions`, `sendPlanRefusal`). Тронутая
+  запись, которой в `seen` нет, — тоже отказ. Экран показывает перечень,
+  строит предпросмотр заново и ждёт нового подтверждения
+  (`registry/planWrite.ts`, `vdr/planRefusal.ts`, `equipment/planRefusal.ts`,
+  `capture/replan.ts`). Отмена действия — текст `undoChangedText`.
 - **Переведены:** «Оборудование» (`equipment.md`), теги — «Реестр» и
   «Закупки» (`registry.md`), ВДР (`docflow.md`), «Проекты» (`projects.md`),
   «Справочники» (`directory.md`); у каждой раздел «Сверка версии при записи».
