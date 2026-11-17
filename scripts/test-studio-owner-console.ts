@@ -79,7 +79,7 @@ async function emergencyAndRemembered(consoleApi: typeof import("../studio/owner
   ok('пакет поверх самого EXE не ложится: имя получает расширение .fluxupdate', (await signPackage({ vault: vaults.main, exe, version: '1.40.0', outFile: exePath })).file === `${exePath}.fluxupdate` && fs.readFileSync(exePath).equals(bytes));
   await rejects('неверная версия не подписывается', signPackage({ vault: vaults.main, exe, version: 'новая', outFile: path.join(dir, 'c.fluxupdate') }), /1\.2\.3/);
   ok('после отказов нет недописанных файлов', fs.readdirSync(dir).filter(n => n.endsWith('.tmp') || n === 'c.fluxupdate' || n === 'b.fluxupdate').length === 0);
-  const forwarded = consoleApi.createConsoleActions({ vault: () => vault, token: () => '', actions: { signPackage: async () => ({ routed: true }) } } as any, async () => { throw new Error('сеть'); });
+  const forwarded = consoleApi.createConsoleActions({ vault: () => vaults.main, token: () => '', actions: { signPackage: async () => ({ routed: true }) } } as any, async () => { throw new Error('сеть'); });
   ok('окно владельца вызывает подпись пакета через главный процесс, подключение к базе не нужно', (await (forwarded as any).signPackage({ version: '1.0.0' })).routed === true);
   ok('действия экстренного пакета и запомненного входа разрешены окну', ['signPackage', 'resume', 'connectRemembered', 'forgetRemembered'].every(a => (consoleApi as any).ALLOWED.includes(a)));
 
@@ -159,7 +159,7 @@ async function emergencyAndRemembered(consoleApi: typeof import("../studio/owner
   ok('автоматический вход зовёт вход без запоминания, а потому срок не продлевает', /unlock:pass=>actions\.unlock\(\{password:pass,remember:false\}\),connect:uri=>actions\.connect\(\{server:uri,remember:false\}\)/.test(mainSource));
   ok('блокировка компьютера стирает пароль и запирает хранилище', /powerMonitor\?\.on\?\.\('lock-screen',\(\)=>\{try\{rememberStore\(\)\.forgetPassword\(\);\}catch\{\}[^\n]*lock\(\)/.test(mainSource));
   ok('кнопка «Запереть» тоже стирает пароль', /lock:async\(\)=>\{rememberStore\(\)\.forgetPassword\(\);await lock\(\);/.test(mainSource));
-  ok('хранилище не запирается посреди операции: запирается, когда она закончится', /lockPending/.test(mainSource) && /finally\{operation=null;signalProgress\(''[^\n]*lockPending/.test(mainSource));
+  ok('хранилище не запирается посреди операции: запирается, когда она закончится', /if\(vault\)\{if\(operation\)lockPending=true;else void lock\(\);\}/.test(mainSource) && /finally\{operation=null;signalProgress\(''[^\n]*lockPending/.test(mainSource));
   ok('пароль запоминается только защитой ОС (safeStorage), открытого текста на диске нет', /storage:safeStorage/.test(mainSource) && /encryptString/.test(fs.readFileSync(path.join(__dirname, '..', 'studio/owner/src/remember.cjs'), 'utf8')));
 }
 

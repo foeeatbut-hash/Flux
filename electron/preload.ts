@@ -213,6 +213,18 @@ contextBridge.exposeInMainWorld('electron', {
   // Портативный ли это файл: от этого зависит, что обещать человеку про
   // подмену программы на месте
   isPortable: () => ipcRenderer.invoke('updater:is-portable'),
+  // Скрытый раздел: экстренная установка из файла .fluxupdate (electron/emergencyIpc.ts). Путь к файлу окно не передаёт:
+  // файл выбирается системным диалогом главного процесса
+  emergencyUpdate: {
+    pick: () => ipcRenderer.invoke('emergency:pick'),
+    install: () => ipcRenderer.invoke('emergency:install'),
+    discard: () => ipcRenderer.invoke('emergency:discard'),
+    onProgress: (callback: (percent: number) => void) => {
+      const subscription = (_event: unknown, percent: number) => callback(percent);
+      ipcRenderer.on('emergency:progress', subscription);
+      return () => { ipcRenderer.removeListener('emergency:progress', subscription); };
+    },
+  },
 
   // Listener registrations
   onUpdaterStatus: (callback: (state: string, data?: any) => void) => {
