@@ -25,6 +25,7 @@ import AutomaticIncidentWatcher from './components/feedback/AutomaticIncidentWat
 import TagNavigationPanel from './components/TagNavigationPanel';
 import { useProblemPanel, openProblemPanel, closeProblemPanel } from './feedback/problemPanel';
 import GuideSpotlight from './components/guide/GuideSpotlight';
+import EmergencyUpdate from './components/EmergencyUpdate';
 import { useGuideStore } from './guide/store';
 import { Bug } from 'lucide-react';
 import { useWindowStore } from './store/windowStore';
@@ -221,6 +222,8 @@ export default function App() {
         <ProblemPanel />
         <GuideSpotlight />
       </SocketProvider>
+      {/* Скрытый раздел экстренной установки (CapsLock + Shift + Ctrl): стоит вне сервера, лицензии и входа, чтобы работать при любой поломке */}
+      <EmergencyUpdate />
     </Router>
   );
 }

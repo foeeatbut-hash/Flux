@@ -28,16 +28,140 @@ import { describeBundle } from '../modules/trust/verify';
 import { hexOf, moduleBundle, newKey, requestEnvelope } from './fixtures/moduleTrust';
 import { DeveloperKeyring } from '../studio/shared/keyring';
 import { studioRequest } from '../studio/shell/api';
+import { extractPackage, PackageRefusal } from '../electron/updatePackage';
 
 const Database = require('better-sqlite3');
 const vaultApi = require('../studio/owner/src/vault.cjs');
 
 let passed = 0;
 const ok = (name: string, value: unknown) => { assert.ok(value, name); passed++; console.log(`  ✓ ${name}`); };
+const eq = (name: string, got: unknown, want: unknown) => { assert.deepEqual(got, want, name); passed++; console.log(`  ✓ ${name}`); };
 const rejects = async (name: string, promise: Promise<unknown>, pattern: RegExp) => {
   await assert.rejects(promise, pattern, name); passed++; console.log(`  ✓ ${name}`);
 };
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-owner-console-'));
+
+/**
+ * Экстренный пакет без сервера и запомненный вход Studio владельца: подпись, запись, срок пароля, защита ОС.
+ * Ключи и хранилище одноразовые; «защита ОС» здесь — подставное хранилище, настоящее есть только в Electron.
+ */
+async function emergencyAndRemembered(consoleApi: typeof import("../studio/owner/src/console.cjs")) {
+  console.log('Пакет экстренного обновления: подпись без сервера');
+  const entry = path.join(dir, 'emergency-entry.cjs');
+  fs.writeFileSync(entry, `module.exports = { ...require(${JSON.stringify(path.join(__dirname, '..', 'studio/owner/src/emergency.cjs'))}), signing: require(${JSON.stringify(path.join(__dirname, '..', 'studio/owner/src/signing.cjs'))}) };`);
+  const bundled = path.join(dir, 'emergency.cjs');
+  await build({ entryPoints: [entry], outfile: bundled, bundle: true, platform: 'node', format: 'cjs', logLevel: 'silent' });
+  const { signPackage, signing } = require(bundled);
+
+  const vaults = vaultApi.generateVaults();
+  const exePath = path.join(dir, 'Flux-1.40.0.exe');
+  const bytes = crypto.randomBytes(5.5 * 1024 * 1024); bytes[0] = 0x4d; bytes[1] = 0x5a;
+  fs.writeFileSync(exePath, bytes);
+  const exe = await signing.inspectExe(exePath);
+
+  // Сетевые вызовы на время подписи запрещены: пакет подписывается без сервера, и это проверено, а не обещано
+  const http = require('node:http'), https = require('node:https'), net = require('node:net');
+  const saved = { hr: http.request, hg: http.get, sr: https.request, sg: https.get, nc: net.connect, fetch: globalThis.fetch };
+  let attempts = 0;
+  const trap = () => { attempts++; throw new Error('Сеть недоступна: подпись пакета не должна ходить на сервер'); };
+  http.request = http.get = https.request = https.get = net.connect = trap; (globalThis as any).fetch = trap;
+  let done: any;
+  try { done = await signPackage({ vault: vaults.main, exe, version: '1.40.0', outFile: path.join(dir, 'Flux-1.40.0') }); }
+  finally { http.request = saved.hr; http.get = saved.hg; https.request = saved.sr; https.get = saved.sg; net.connect = saved.nc; (globalThis as any).fetch = saved.fetch; }
+  ok('пакет подписан и записан без единого обращения к сети', attempts === 0 && fs.existsSync(done.file));
+  ok('расширение .fluxupdate добавлено к имени', done.file.endsWith('.fluxupdate'));
+  const flux = path.join(dir, 'from-package.exe');
+  const info = await extractPackage(done.file, flux, { keyHex: vaults.main.keys.update.publicHex, current: '1.39.0' });
+  ok('Flux (читатель пакета) принимает то, что записала Studio (писатель), и получает те же байты', info.version === '1.40.0' && fs.readFileSync(flux).equals(bytes));
+  await rejects('пакет с ключом другого хранилища Flux не примет', extractPackage(done.file, path.join(dir, 'x.exe'), { keyHex: vaultApi.generateVaults().main.keys.update.publicHex, current: '1.39.0' }), /Подпись пакета не подтверждена/);
+  ok('в пакете нет закрытого ключа обновлений', !fs.readFileSync(done.file).includes(Buffer.from(vaults.main.keys.update.privatePem.split('\n')[1])));
+  await rejects('запасное хранилище пакет не подписывает', signPackage({ vault: vaults.backup, exe, version: '1.40.0', outFile: path.join(dir, 'b.fluxupdate') }), /основного хранилища/);
+  ok('пакет поверх самого EXE не ложится: имя получает расширение .fluxupdate', (await signPackage({ vault: vaults.main, exe, version: '1.40.0', outFile: exePath })).file === `${exePath}.fluxupdate` && fs.readFileSync(exePath).equals(bytes));
+  await rejects('неверная версия не подписывается', signPackage({ vault: vaults.main, exe, version: 'новая', outFile: path.join(dir, 'c.fluxupdate') }), /1\.2\.3/);
+  ok('после отказов нет недописанных файлов', fs.readdirSync(dir).filter(n => n.endsWith('.tmp') || n === 'c.fluxupdate' || n === 'b.fluxupdate').length === 0);
+  const forwarded = consoleApi.createConsoleActions({ vault: () => vaults.main, token: () => '', actions: { signPackage: async () => ({ routed: true }) } } as any, async () => { throw new Error('сеть'); });
+  ok('окно владельца вызывает подпись пакета через главный процесс, подключение к базе не нужно', (await (forwarded as any).signPackage({ version: '1.0.0' })).routed === true);
+  ok('действия экстренного пакета и запомненного входа разрешены окну', ['signPackage', 'resume', 'connectRemembered', 'forgetRemembered'].every(a => (consoleApi as any).ALLOWED.includes(a)));
+
+  console.log('Запомненные адрес и пароль: защита ОС, срок, блокировка');
+  const { createRemember, DAY } = require('../studio/owner/src/remember.cjs');
+  const { resumeSession } = require('../studio/owner/src/resume.cjs');
+  const store = (over: any = {}) => ({
+    isEncryptionAvailable: () => true,
+    encryptString: (t: string) => Buffer.from('OS:' + Buffer.from(t).toString('base64').split('').reverse().join('')),
+    decryptString: (b: Buffer) => { const s = b.toString(); if (!s.startsWith('OS:')) throw new Error('чужая учётная запись'); return Buffer.from(s.slice(3).split('').reverse().join(''), 'base64').toString(); },
+    ...over,
+  });
+  const secretUri = 'mysql://flux:ОченьСекретныйПарольБазы@db.example:3306/Flux', secretPassword = 'пароль-хранилища-12345';
+  let t = 1_700_000_000_000;
+  const rdir = fs.mkdtempSync(path.join(dir, 'remember-'));
+  const mem = createRemember({ dir: rdir, storage: store(), now: () => t });
+  ok('защищённое хранилище доступно', mem.available());
+  ok('адрес и пароль записаны', mem.rememberServer(secretUri, 'db.example · Flux') && mem.rememberPassword(secretPassword));
+  const onDisk = fs.readFileSync(path.join(rdir, 'remembered.json'), 'utf8');
+  ok('на диске нет ни адреса, ни пароля открытым текстом', !onDisk.includes('ОченьСекретный') && !onDisk.includes(secretPassword) && !onDisk.includes(Buffer.from(secretPassword).toString('base64')) && onDisk.includes('db.example · Flux'));
+  ok('окну отдаётся только описание без секретов', !JSON.stringify(mem.info()).includes('Секретный') && mem.info().server === 'db.example · Flux' && mem.info().keptUntil === t + DAY);
+  eq('адрес читается', mem.server()?.uri, secretUri);
+  t += DAY - 1000;
+  eq('пароль действует до конца суток', mem.password(), secretPassword);
+  t += 2000;
+  eq('через сутки пароль не отдаётся', mem.password(), '');
+  ok('и стирается с диска, адрес остаётся', !fs.readFileSync(path.join(rdir, 'remembered.json'), 'utf8').includes('"password"') && mem.server()?.uri === secretUri);
+  mem.rememberPassword(secretPassword);
+  mem.forgetPassword();
+  eq('блокировка компьютера: после забывания пароль не отдаётся', mem.password(), '');
+  mem.rememberPassword(secretPassword); t -= 3 * 60_000;
+  eq('время ушло назад (часы переведены): пароль не отдаётся', mem.password(), '');
+  t += 3 * 60_000; mem.forgetAll();
+  ok('забыть всё: файла нет', !fs.existsSync(path.join(rdir, 'remembered.json')) && mem.server() === null);
+
+  for (const [name, bad] of [['нет защищённого хранилища', store({ isEncryptionAvailable: () => false })], ['Linux basic_text — это не защита', store({ getSelectedStorageBackend: () => 'basic_text' })]] as const) {
+    const d2 = fs.mkdtempSync(path.join(dir, 'remember-none-'));
+    const weak = createRemember({ dir: d2, storage: bad, now: () => t });
+    ok(`${name}: ничего не запоминается, файла нет`, !weak.rememberServer(secretUri, 'x') && !weak.rememberPassword(secretPassword) && !fs.existsSync(path.join(d2, 'remembered.json')) && weak.password() === '' && weak.available() === false);
+  }
+  const other = createRemember({ dir: rdir, storage: store({ decryptString: () => { throw new Error('другая учётная запись'); } }), now: () => t });
+  mem.rememberServer(secretUri, 'db'); mem.rememberPassword(secretPassword);
+  ok('другая учётная запись Windows не расшифрует ни адрес, ни пароль', other.server() === null && other.password() === '');
+  fs.writeFileSync(path.join(rdir, 'remembered.json'), '{оборвано');
+  ok('повреждённый файл — как будто ничего не запомнено', createRemember({ dir: rdir, storage: store(), now: () => t }).password() === '');
+
+  console.log('Вход без вопросов');
+  const fresh = () => createRemember({ dir: fs.mkdtempSync(path.join(dir, 'remember-')), storage: store(), now: () => t });
+  const run = (remember: any, over: any = {}) => {
+    const calls: string[] = []; const state = { unlocked: false, connected: false };
+    const args = { remember, unlocked: () => state.unlocked, connected: () => state.connected,
+      unlock: async (p: string) => { calls.push(`unlock:${p}`); if (over.wrongPassword) throw new Error('Неверный пароль'); state.unlocked = true; },
+      connect: async (u: string) => { calls.push(`connect:${u}`); if (over.dead) throw new Error('база не отвечает'); state.connected = true; } };
+    return { calls, state, result: resumeSession(args) };
+  };
+  { const r = fresh(); r.rememberPassword(secretPassword); r.rememberServer(secretUri, 'db');
+    const x = run(r); const res = await x.result;
+    ok('запомненное открывает хранилище и подключает базу без вопросов', res.unlocked && res.connected && !res.error && x.calls.join('|') === `unlock:${secretPassword}|connect:${secretUri}`);
+    eq('срок пароля автоматическим входом не продлевается', r.passwordUntil(), t + DAY); }
+  { const r = fresh(); const x = run(r); const res = await x.result;
+    ok('ничего не запомнено: не открывается и не подключается, человека спросят', !res.unlocked && x.calls.length === 0); }
+  { const r = fresh(); r.rememberPassword(secretPassword); t += DAY + 1; const x = run(r); const res = await x.result; t -= DAY + 1;
+    ok('пароль старше суток: хранилище не открывается', !res.unlocked && x.calls.length === 0); }
+  { const r = fresh(); r.rememberPassword(secretPassword); r.rememberServer(secretUri, 'db');
+    const x = run(r, { wrongPassword: true }); const res = await x.result;
+    ok('пароль больше не подходит: стирается, база не трогается, понятная причина', !res.unlocked && r.password() === '' && !x.calls.some(c => c.startsWith('connect')) && /не открыл хранилище/.test(res.error)); }
+  { const r = fresh(); r.rememberPassword(secretPassword); r.rememberServer(secretUri, 'db · Flux');
+    const x = run(r, { dead: true }); const res = await x.result;
+    ok('база не отвечает: хранилище открыто, причина названа без пароля базы', res.unlocked && !res.connected && /db · Flux/.test(res.error) && !res.error.includes('Секретный') && r.password() === secretPassword); }
+  { const r = fresh(); r.rememberPassword(secretPassword); r.rememberServer(secretUri, 'db');
+    const calls: string[] = []; const res = await resumeSession({ remember: r, unlocked: () => true, connected: () => true, unlock: async () => { calls.push('u'); }, connect: async () => { calls.push('c'); } });
+    ok('уже открыто и подключено: ничего не повторяется', calls.length === 0 && res.unlocked && res.connected); }
+
+  console.log('Главный процесс Studio владельца: ручной вход запоминает, автоматический срок не продлевает, блокировка стирает');
+  const mainSource = fs.readFileSync(path.join(__dirname, '..', 'studio/owner/src/main.cjs'), 'utf8');
+  ok('ручной вход запоминает пароль и адрес, резервный вход — нет', /unlock:async a=>[^\n]*if\(a\.remember!==false&&!backupSession\)rememberStore\(\)\.rememberPassword\(a\.password\)/.test(mainSource) && /if\(a\.remember!==false\)rememberStore\(\)\.rememberServer\(address,displayServer\(\)\)/.test(mainSource));
+  ok('автоматический вход зовёт вход без запоминания, а потому срок не продлевает', /unlock:pass=>actions\.unlock\(\{password:pass,remember:false\}\),connect:uri=>actions\.connect\(\{server:uri,remember:false\}\)/.test(mainSource));
+  ok('блокировка компьютера стирает пароль и запирает хранилище', /powerMonitor\?\.on\?\.\('lock-screen',\(\)=>\{try\{rememberStore\(\)\.forgetPassword\(\);\}catch\{\}[^\n]*lock\(\)/.test(mainSource));
+  ok('кнопка «Запереть» тоже стирает пароль', /lock:async\(\)=>\{rememberStore\(\)\.forgetPassword\(\);await lock\(\);/.test(mainSource));
+  ok('хранилище не запирается посреди операции: запирается, когда она закончится', /if\(vault\)\{if\(operation\)lockPending=true;else void lock\(\);\}/.test(mainSource) && /finally\{operation=null;signalProgress\(''[^\n]*lockPending/.test(mainSource));
+  ok('пароль запоминается только защитой ОС (safeStorage), открытого текста на диске нет', /storage:safeStorage/.test(mainSource) && /encryptString/.test(fs.readFileSync(path.join(__dirname, '..', 'studio/owner/src/remember.cjs'), 'utf8')));
+}
 
 async function main() {
   const out = path.join(dir, 'electron-stub.cjs');
@@ -325,6 +449,8 @@ async function main() {
   ok('общий запрет сервера: назначение и разрешение — владельцу, а сообщения устройства — всем', requiresOwner('/api/updates/campaigns', 'POST') && requiresOwner('/api/updates/delegation', 'POST')
     && !requiresOwner('/api/updates/devices/heartbeat', 'POST') && !requiresOwner('/api/updates/reminder', 'POST'));
   ok('окно получает только публичное состояние', !JSON.stringify(consoleApi.publicState({ snapshot: () => ({ version: '1', unlocked: true, vaultExists: true, backupSession: false, kind: 'main', licenses: [1], publicKeys: { a: 1 } }), token: () => 't', display: () => 'db', user: () => ({ id: 'u', name: 'n', role: 'OWNER' }) } as any)).match(/licenses|publicKeys|"t"/));
+
+  await emergencyAndRemembered(consoleApi);
 
   server.close();
   console.log(`\n${passed} проверок пройдено, 0 провалено`);

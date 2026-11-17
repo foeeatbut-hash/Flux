@@ -31,6 +31,7 @@ import { TRAY_ICON_PNG } from './trayIcon';
 // Правила скачивания: кому показывать токен, годен ли файл, как назвать отказ
 import { badPackage, downloadError, applyArgs, parseApplyArgs } from './updates';
 import { applyUpdate } from './applyUpdate';
+import { registerEmergencyUpdate } from './emergencyIpc';
 import { cleanStaleUpdateFolders, removeUpdateFolder } from './updateTemp';
 import { registerUpdateCampaignIpc, assertCampaignRestart, assertRollbackAllowed } from './updateCampaign';
 import { saveDatabaseConfig, saveLocalDatabasePathConfig } from './connectionConfig';
@@ -1002,6 +1003,9 @@ app.whenReady().then(async () => {
       return { success: false, error: errorText(err) };
     } finally { updateInProgress = false; }
   });
+
+  // Скрытый раздел экстренной установки из подписанного файла: без сервера и без входа (emergencyIpc.ts)
+  registerEmergencyUpdate({ window: () => mainWindow, approveClose: async () => await nativeAppWindows.approveCloseAll() && await mainClose.approveClose() });
 
   /** Портативная ли сборка: от этого зависит, что обещать человеку */
   ipcMain.handle('updater:is-portable', () => {

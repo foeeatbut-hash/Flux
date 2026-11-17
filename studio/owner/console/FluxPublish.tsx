@@ -32,6 +32,9 @@ export default function FluxPublish({ state, reload }: { state: LicensesState; r
         <Field label="Что изменилось для сотрудников" id="pub-changelog"><textarea id="pub-changelog" rows={6} maxLength={20000} placeholder="Коротко опишите изменения и важные условия обновления" value={changelog} onChange={e => setChangelog(e.target.value)} /></Field>
         <Btn tone="primary" disabled={action.busy || backup || !state.connected || !state.exe} onClick={() => void go(() => call('publish', { version: version.trim(), changelog }), 'Обновление опубликовано через БД.')}>Подписать и опубликовать</Btn>
         <p className="hint">Flux автоматически подписывает EXE перед публикацией. Перед отправкой появится проверка общей БД, версии и файла. Публикация требует подключения к общей базе.</p>
+        <details open data-testid="emergency-package"><summary>Пакет для экстренной установки</summary>
+          <p className="hint">Один файл .fluxupdate: подпись и EXE. Подписывает ваш ключ из хранилища, сервер и общая БД не нужны. Передайте файл сотрудникам любым способом: во Flux он выбирается в скрытом разделе (Caps Lock + Shift + Ctrl вместе). Голый EXE без подписи Flux не примет.</p>
+          <Btn disabled={action.busy || backup || !state.exe} onClick={() => void go(() => call('signPackage', { version: version.trim() }), 'Пакет обновления сохранён. Передайте этот файл сотрудникам.')}>Сохранить пакет .fluxupdate</Btn></details>
         <details><summary>Сохранить подпись без публикации</summary>
           <p className="hint">Используйте этот способ, если выпускаете обновления вне подключённой общей БД.</p>
           <Btn disabled={action.busy || backup || !state.exe} onClick={() => void go(() => call('signUpdate', { version: version.trim() }), 'Подпись сохранена.')}>Сохранить подпись .flux-sig</Btn></details>

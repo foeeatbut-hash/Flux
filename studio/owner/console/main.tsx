@@ -21,22 +21,31 @@ const parseTab = (value: string | null, section?: string | null): { tab: Tab; se
 };
 
 /** Подключение к общей базе: нужно разделам, которые ходят на сервер (программы, обновления) */
-function Connect({ onState }: { onState: (s: Snapshot) => void }) {
+function Connect({ state, onState }: { state: Snapshot; onState: (s: Snapshot) => void }) {
   const [uri, setUri] = useState('');
+  // Адрес запоминается с первого подключения, чтобы не вводить его при каждом запуске
+  const [keep, setKeep] = useState(true);
   const { busy, error, run } = useAction();
   const connect = async (event: React.FormEvent) => {
     event.preventDefault();
-    const done = await run(() => call<Snapshot>('connect', { server: uri }));
+    const done = await run(() => call<Snapshot>('connect', { server: uri, remember: keep }));
     setUri('');
     if (done) onState(done.value);
   };
+  const saved = state.remember?.server || '';
+  const connectSaved = async () => { const done = await run(() => call<Snapshot>('connectRemembered')); if (done) onState(done.value); };
   return <form className="card" onSubmit={connect} aria-labelledby="gate-title">
     <h2 id="gate-title">Подключение к общей базе</h2>
-    <p className="muted">Адрес содержит пароль базы: он нигде не сохраняется и после закрытия программы вводится снова. Рядом с Studio должен лежать тот же выпуск Flux.</p>
+    <p className="muted">Адрес содержит пароль базы. Он запоминается только на этом компьютере и только под защитой учётной записи Windows. Рядом с Studio должен лежать тот же выпуск Flux.</p>
+    {saved && <div className="notice" role="status" data-testid="saved-server">Сохранённый адрес: {saved}
+      <div className="rows" style={{ marginTop: 8 }}><Btn tone="primary" disabled={busy} onClick={() => void connectSaved()}>Подключиться по сохранённому адресу</Btn></div></div>}
     <div className="field"><label htmlFor="uri">Адрес MariaDB / MySQL</label>
       <input id="uri" type="password" autoComplete="off" spellCheck={false} maxLength={4096} placeholder="mysql://USER:PASSWORD@HOST:3306/Flux" value={uri} onChange={e => setUri(e.target.value)} /></div>
-    <ErrorLine text={error} />
-    <div className="rows"><Btn type="submit" tone="primary" disabled={busy || !uri.trim()}>{busy ? 'Подключаемся…' : 'Подключиться'}</Btn>
+    {state.remember?.available
+      ? <label className="check"><input type="checkbox" checked={keep} onChange={e => setKeep(e.target.checked)} />Запомнить адрес на этом компьютере</label>
+      : <p className="hint" role="note">На этом компьютере нет защищённого хранилища Windows, поэтому адрес придётся вводить при каждом запуске.</p>}
+    <ErrorLine text={error || state.resumeError || ''} />
+    <div className="rows"><Btn type="submit" tone={saved ? '' : 'primary'} disabled={busy || !uri.trim()}>{busy ? 'Подключаемся…' : 'Подключиться'}</Btn>
       {busy && <Btn onClick={() => void call('cancel').catch(() => {})}>Отмена</Btn>}</div>
   </form>;
 }
@@ -53,7 +62,7 @@ function App() {
   const reload = useCallback(() => { call<Snapshot>('state').then(setState).catch(() => {}); }, []);
   useEffect(() => {
     reload();
-    const offs = [window.ownerConsole.onLocked(() => { setWizard(''); reload(); }), window.ownerConsole.onDisconnected(reload), window.ownerConsole.onProgress(p => setProgress(p?.phase || '')), window.ownerConsole.onTab(t => { const next = parseTab(t); setTab(next.tab); if (next.section) setSection(next.section); })];
+    const offs = [window.ownerConsole.onLocked(() => { setWizard(''); reload(); }), window.ownerConsole.onDisconnected(reload), window.ownerConsole.onChanged?.(reload) ?? (() => {}), window.ownerConsole.onProgress(p => setProgress(p?.phase || '')), window.ownerConsole.onTab(t => { const next = parseTab(t); setTab(next.tab); if (next.section) setSection(next.section); })];
     return () => offs.forEach(off => off());
   }, [reload]);
   const onRequests = useCallback((n: number) => setCounts(c => ({ ...c, requests: n })), []);
@@ -70,15 +79,17 @@ function App() {
       {state.connected && <Btn onClick={() => void report(() => call('openFlux'))}>Открыть Flux</Btn>}
       {state.connected && <Btn onClick={() => void report(() => call('disconnect'))}>Отключиться</Btn>}
       <Btn title="Сохранить журналы диагностики. Они не содержат содержимое файлов, пароли или закрытые ключи" aria-label="Сохранить журналы диагностики" onClick={() => void report(() => call('exportDiagnostics'))}>Журналы</Btn>
+      {(state.remember?.keptUntil || state.remember?.server) ? <Btn title="Стереть сохранённые на этом компьютере пароль хранилища и адрес базы" onClick={() => void report(() => call('forgetRemembered'))}>Забыть сохранённое</Btn> : null}
       {!gated && <Btn onClick={() => void call('lock').then(() => reload())}>Запереть хранилище</Btn>}
     </div>
     <div className="tabs" role="tablist" aria-label="Разделы владельца">{TABS.map(([id, label]) =>
       <button key={id} role="tab" type="button" aria-selected={tab === id} onClick={() => setTab(id)}>{label}
         {id === 'programs' && counts.requests + counts.certificates > 0 && <span className="count">{counts.requests + counts.certificates}</span>}</button>)}</div>
     <div className="body">
-      {gated ? <VaultGate state={state} wizard={wizard} onWizard={setWizard} onState={setState} />
+      {state.resuming ? <section className="card" aria-live="polite" data-testid="resuming"><h2>Открываем с сохранёнными данными</h2><p className="muted">Пароль хранилища и адрес базы запомнены на этом компьютере. Подождите, идёт вход.</p></section>
+        : gated ? <VaultGate state={state} wizard={wizard} onWizard={setWizard} onState={setState} />
         : tab === 'licenses' ? <Licenses section={licenseSection} onSection={setLicenseSection} />
-          : !ready ? <Connect onState={setState} />
+          : !ready ? <Connect state={state} onState={setState} />
             : tab === 'programs' ? <Programs section={section} onSection={setSection} counts={counts} onRequests={onRequests} onCertificates={onCertificates} />
               : <Updates onPublish={() => { setLicenseSection('publish'); setTab('licenses'); }} />}
     </div>

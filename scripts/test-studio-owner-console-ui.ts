@@ -50,7 +50,8 @@ const devices = [
 /** Заглушка главного процесса: те же имена действий и форма ответов, что у console.cjs */
 const bridge = () => `(() => {
   const data = ${JSON.stringify({ request, other, detail, devices })};
-  let state = { version: '9.9.9', unlocked: false, vaultExists: true, backupSession: false, kind: '', connected: false, display: '', user: null };
+  let state = { version: '9.9.9', unlocked: false, vaultExists: true, backupSession: false, kind: '', connected: false, display: '', user: null,
+    remember: { available: true, server: '', keptUntil: 0 }, resuming: false, resumeError: '', canResume: false, ...(window.__initial || {}) };
   let requests = [data.request, data.other], certificates = [{ keyHex: 'ab'.repeat(32), userId: 'developer', name: 'Разработчик', createdAt: new Date().toISOString() }];
   let certRequests = [{ key: 'cd'.repeat(32), userId: 'dev2', name: 'Второй разработчик', at: Date.now() }];
   const now = Date.now();
@@ -61,14 +62,18 @@ const bridge = () => `(() => {
     publicKeys: { license: 'ab'.repeat(32), update: 'cd'.repeat(32), owner: 'ef'.repeat(32) }, backupOwnerPublic: '12'.repeat(32), licenses, updates, revocations, server: state.display, exe });
   window.__calls = [];
   window.ownerConsole = {
-    onLocked: () => () => {}, onDisconnected: () => () => {}, onTab: () => () => {}, onProgress: () => () => {},
+    onLocked: () => () => {}, onDisconnected: () => () => {}, onTab: () => () => {}, onProgress: () => () => {}, onChanged: fn => { window.__changed = fn; return () => {}; },
     call: async (action, args = {}) => {
       window.__calls.push([action, args]);
       const ok = value => ({ ok: true, value });
       switch (action) {
         case 'state': return ok(state);
-        case 'unlock': if (args.password !== 'правильный-пароль') return { ok: false, error: 'Неверный пароль хранилища.' }; state = { ...state, unlocked: true, kind: 'main' }; return ok(state);
-        case 'connect': state = { ...state, connected: true, display: 'MariaDB / MySQL · db.example:3306/Flux', user: { id: 'owner', name: 'Владелец' } }; return ok(state);
+        case 'unlock': if (args.password !== 'правильный-пароль') return { ok: false, error: 'Неверный пароль хранилища.' }; state = { ...state, unlocked: true, kind: 'main', canResume: false, remember: args.remember === false || !state.remember.available ? state.remember : { ...state.remember, keptUntil: Date.now() + 86400000 } }; return ok(state);
+        case 'connect': state = { ...state, connected: true, display: 'MariaDB / MySQL · db.example:3306/Flux', user: { id: 'owner', name: 'Владелец' }, remember: args.remember === false || !state.remember.available ? state.remember : { ...state.remember, server: 'MariaDB / MySQL · db.example:3306/Flux' } }; return ok(state);
+        case 'resume': state = { ...state, unlocked: true, kind: 'main', canResume: false, resuming: false, connected: true, display: 'MariaDB / MySQL · db.example:3306/Flux', user: { id: 'owner', name: 'Владелец' } }; return ok(state);
+        case 'connectRemembered': state = { ...state, connected: true, display: 'MariaDB / MySQL · db.example:3306/Flux', user: { id: 'owner', name: 'Владелец' } }; return ok(state);
+        case 'forgetRemembered': state = { ...state, canResume: false, remember: { ...state.remember, server: '', keptUntil: 0 } }; return ok(state);
+        case 'signPackage': return ok({ file: 'C:/пакеты/Flux-' + args.version + '.fluxupdate', version: args.version, size: 91 * 1048576, sha256: '9f'.repeat(32) });
         case 'lock': state = { ...state, unlocked: false, connected: false }; return ok(state);
         case 'requests': return ok({ requests });
         case 'request': return ok({ ...data.detail, request: requests.find(r => r.id === args.id) });
@@ -141,6 +146,127 @@ async function measure(page: Page, label: string) {
   ok(`${label}: контраст текста не ниже 4.5:1`, contrast(fg.slice(0, 3), bg.slice(0, 3)) >= 4.5);
 }
 const calls = (page: Page, action: string) => page.evaluate((a) => (window as any).__calls.filter((c: unknown[]) => c[0] === a), action) as Promise<Array<[string, any]>>;
+
+/** Запомненный вход, пакет экстренной установки: окно владельца в состояниях, которые заглушка выставляет заранее */
+async function rememberedFlow(browser: Awaited<ReturnType<typeof chromium.launch>>, url: string, theme: 'light' | 'dark') {
+  console.log(`Запомненный вход и пакет экстренной установки, тема: ${theme}`);
+  const open = async (initial: object, tag: string) => {
+    const page = await browser.newPage({ viewport: { width: 1180, height: 860 } });
+    await page.addInitScript((value: string) => { try { localStorage.setItem('theme', value); } catch { /* приватный режим */ } }, theme);
+    await page.addInitScript(`window.__initial = ${JSON.stringify(initial)};`);
+    await page.addInitScript(bridge());
+    const errors: string[] = [];
+    page.on('pageerror', e => errors.push(e.message));
+    page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+    await page.goto(url);
+    return { page, errors, tag };
+  };
+  const remembered = { available: true, server: 'MariaDB / MySQL · db.example:3306/Flux', keptUntil: Date.now() + 5 * 3600 * 1000 };
+
+  // Ручной вход: пароль и адрес запоминаются по умолчанию
+  {
+    const { page, errors } = await open({}, 'gate');
+    await page.getByRole('heading', { name: 'Хранилище владельца' }).waitFor();
+    const keep = page.getByRole('checkbox', { name: /Не спрашивать пароль до конца суток и до блокировки компьютера/ });
+    ok(`${theme}: флажок «не спрашивать пароль» есть и включён по умолчанию`, await keep.isChecked());
+    await measure(page, `${theme}/вход с запоминанием`);
+    await page.screenshot({ path: path.join(shots, `studio-remember-gate-${theme}.png`) });
+    await page.fill('#vault-password', 'правильный-пароль');
+    await page.getByRole('button', { name: 'Открыть хранилище' }).click();
+    await page.getByRole('heading', { name: 'Подключение к общей базе' }).waitFor();
+    ok(`${theme}: пароль ушёл главному процессу с просьбой запомнить`, (await calls(page, 'unlock'))[0][1].remember === true);
+    const keepAddress = page.getByRole('checkbox', { name: 'Запомнить адрес на этом компьютере' });
+    ok(`${theme}: флажок «запомнить адрес» включён по умолчанию`, await keepAddress.isChecked());
+    await page.fill('#uri', 'mysql://U:P@H:3306/Flux');
+    await page.getByRole('button', { name: 'Подключиться', exact: true }).click();
+    await page.getByRole('tab', { name: /Программы на проверку/ }).waitFor();
+    ok(`${theme}: адрес ушёл главному процессу с просьбой запомнить`, (await calls(page, 'connect'))[0][1].remember === true);
+    await page.getByRole('button', { name: 'Забыть сохранённое' }).waitFor();
+    await page.getByRole('button', { name: 'Забыть сохранённое' }).click();
+    await page.getByRole('button', { name: 'Забыть сохранённое' }).waitFor({ state: 'detached' });
+    ok(`${theme}: «Забыть сохранённое» стирает запомненное, кнопка исчезает`, (await calls(page, 'forgetRemembered')).length === 1);
+    ok(`${theme}: ошибок страницы нет`, errors.length === 0);
+    await page.close();
+  }
+  // Человек снял флажок
+  {
+    const { page } = await open({}, 'off');
+    await page.getByRole('checkbox', { name: /Не спрашивать пароль/ }).uncheck();
+    await page.fill('#vault-password', 'правильный-пароль');
+    await page.getByRole('button', { name: 'Открыть хранилище' }).click();
+    await page.getByRole('heading', { name: 'Подключение к общей базе' }).waitFor();
+    ok(`${theme}: снятый флажок — запоминать не просят`, (await calls(page, 'unlock'))[0][1].remember === false);
+    await page.getByRole('checkbox', { name: 'Запомнить адрес на этом компьютере' }).uncheck();
+    await page.fill('#uri', 'mysql://U:P@H:3306/Flux');
+    await page.getByRole('button', { name: 'Подключиться', exact: true }).click();
+    await page.getByRole('tab', { name: /Программы на проверку/ }).waitFor();
+    ok(`${theme}: снятый флажок адреса — адрес не запоминается`, (await calls(page, 'connect'))[0][1].remember === false);
+    ok(`${theme}: без запомненного кнопки «Забыть сохранённое» нет`, (await page.getByRole('button', { name: 'Забыть сохранённое' }).count()) === 0);
+    await page.close();
+  }
+  // Нет защищённого хранилища Windows
+  {
+    const { page } = await open({ remember: { available: false, server: '', keptUntil: 0 } }, 'weak');
+    await page.getByRole('heading', { name: 'Хранилище владельца' }).waitFor();
+    ok(`${theme}: без защиты ОС флажка нет, а причина названа`, (await page.getByRole('checkbox').count()) === 0 && /нет защищённого хранилища Windows/.test(await page.locator('body').innerText()));
+    await measure(page, `${theme}/без защиты ОС`);
+    await page.close();
+  }
+  // Пароль ещё действует: открыть без пароля
+  {
+    const { page, errors } = await open({ canResume: true, remember: remembered }, 'resume');
+    await page.getByTestId('resume-notice').waitFor();
+    await measure(page, `${theme}/пароль сохранён`);
+    await page.screenshot({ path: path.join(shots, `studio-remember-resume-${theme}.png`) });
+    await page.getByRole('button', { name: 'Открыть сохранённым паролем' }).click();
+    await page.getByRole('tab', { name: /Программы на проверку/ }).waitFor();
+    ok(`${theme}: вход сохранённым паролем идёт без ввода пароля и сразу с базой`, (await calls(page, 'resume')).length === 1 && (await calls(page, 'unlock')).length === 0 && /db\.example/.test(await page.locator('.top').innerText()));
+    ok(`${theme}: ошибок страницы нет (вход сохранённым паролем)`, errors.length === 0);
+    await page.close();
+  }
+  // Идёт автоматический вход: экран входа не мигает
+  {
+    const { page } = await open({ resuming: true, remember: remembered }, 'resuming');
+    await page.getByTestId('resuming').waitFor();
+    ok(`${theme}: во время автоматического входа поля пароля и адреса не показаны`, (await page.locator('#vault-password').count()) === 0 && (await page.locator('#uri').count()) === 0);
+    await page.close();
+  }
+  // Хранилище открыто, а база не подключилась: причина и кнопка по сохранённому адресу
+  {
+    const { page } = await open({ unlocked: true, kind: 'main', remember: remembered, resumeError: 'Не удалось подключиться по сохранённому адресу (db.example): база не отвечает' }, 'saved');
+    await page.getByTestId('saved-server').waitFor();
+    ok(`${theme}: причина сбоя автоматического подключения видна`, /база не отвечает/.test(await page.getByRole('alert').innerText()));
+    await measure(page, `${theme}/сохранённый адрес`);
+    await page.screenshot({ path: path.join(shots, `studio-remember-server-${theme}.png`) });
+    await page.getByRole('button', { name: 'Подключиться по сохранённому адресу' }).click();
+    await page.getByRole('tab', { name: /Программы на проверку/ }).waitFor();
+    ok(`${theme}: подключение по сохранённому адресу не требует ввода адреса`, (await calls(page, 'connectRemembered')).length === 1 && (await calls(page, 'connect')).length === 0);
+    await page.close();
+  }
+  // Пакет экстренной установки: подписывается без подключения к базе
+  {
+    const { page, errors } = await open({ unlocked: true, kind: 'main', remember: remembered }, 'package');
+    await page.getByRole('tab', { name: 'Лицензии' }).click();
+    await page.getByRole('button', { name: /Выпуск Flux/ }).click();
+    await page.getByRole('heading', { name: 'Выпуск для сотрудников' }).waitFor();
+    const save = page.getByRole('button', { name: 'Сохранить пакет .fluxupdate' });
+    ok(`${theme}: пока EXE не выбран, пакет сохранить нельзя`, await save.isDisabled());
+    await page.getByRole('button', { name: 'Выбрать EXE' }).click();
+    await page.getByTestId('exe-details').getByText(/Flux-1\.21\.0\.exe/).waitFor();
+    ok(`${theme}: к базе подключения нет, а сохранить пакет можно`, (await page.locator('.top').innerText()).includes('Нет подключения') && await save.isEnabled());
+    ok(`${theme}: «Подписать и опубликовать» без подключения недоступна`, await page.getByRole('button', { name: 'Подписать и опубликовать' }).isDisabled());
+    await page.fill('#pub-version', '1.21.0');
+    await measure(page, `${theme}/пакет`);
+    await save.click();
+    await page.getByText(/Пакет обновления сохранён/).waitFor();
+    const sign = (await calls(page, 'signPackage'))[0][1];
+    ok(`${theme}: пакет подписан по введённой версии, подключения к базе не было`, sign.version === '1.21.0' && (await calls(page, 'connect')).length === 0 && (await calls(page, 'publish')).length === 0);
+    ok(`${theme}: рядом объяснено, как передать файл и где его выбрать`, /Caps Lock \+ Shift \+ Ctrl/.test(await page.getByTestId('emergency-package').innerText()));
+    await page.screenshot({ path: path.join(shots, `studio-package-${theme}.png`) });
+    ok(`${theme}: ошибок страницы нет (пакет)`, errors.length === 0);
+    await page.close();
+  }
+}
 
 async function main() {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'flux-owner-console-ui-'));
@@ -414,6 +540,7 @@ async function main() {
       ok(`${theme}: ошибок страницы нет`, errors.length === 0);
       await page.close();
     }
+    for (const theme of ['light', 'dark'] as const) await rememberedFlow(browser, url, theme);
     console.log(`\nStudio — Владелец: разделы в окне — ${passed} проверок пройдено, снимки: ${shots}`);
   } finally { await browser.close(); fs.rmSync(temp, { recursive: true, force: true }); }
 }
