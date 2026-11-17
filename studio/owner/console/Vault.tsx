@@ -24,6 +24,8 @@ export default function VaultGate({ state, wizard, onWizard, onState }: {
   state: Snapshot; wizard: Wizard; onWizard: (w: Wizard) => void; onState: (s: Snapshot) => void;
 }) {
   const [password, setPassword] = useState('');
+  // По умолчанию пароль запоминается: спрашивать его раз в сутки и после блокировки компьютера (запомненное защищает учётная запись Windows)
+  const [keep, setKeep] = useState(true);
   const [setup, setSetup] = useState({ password: '', confirm: '' });
   const [folder, setFolder] = useState('');
   const [verify, setVerify] = useState('');
@@ -36,7 +38,7 @@ export default function VaultGate({ state, wizard, onWizard, onState }: {
   const refreshKit = async () => setKit(await call<LicensesState>('licensesState'));
   const unlock = async (event: React.FormEvent) => {
     event.preventDefault();
-    const done = await run(() => call<Snapshot>('unlock', { password }));
+    const done = await run(() => call<Snapshot>('unlock', { password, remember: keep }));
     setPassword('');
     if (!done) return;
     onState(done.value);
@@ -73,6 +75,7 @@ export default function VaultGate({ state, wizard, onWizard, onState }: {
     setRestore({ from: '', password: '', again: '' });
     if (done && !done.value.canceled) { onState(await call<Snapshot>('state')); onWizard(''); }
   };
+  const resume = async () => { const done = await run(() => call<Snapshot>('resume')); if (done) onState(done.value); };
   const folderHint = state.vaultExists ? 'Прежнее хранилище сохранится отдельно; рабочий файл получит новые ключи. Старые лицензии подписаны прежними ключами и после замены не подойдут: их потребуется выпустить заново.' : '';
 
   if (wizard === 'edit') {
@@ -114,9 +117,14 @@ export default function VaultGate({ state, wizard, onWizard, onState }: {
     <h2 id="gate-title">Хранилище владельца</h2>
     {state.vaultExists
       ? <><p className="muted">Подписи выпусков, сертификатов, лицензий и обновлений ставятся ключами из вашего хранилища. Ключи остаются на этом компьютере.</p>
+        {state.canResume && <div className="notice" role="status" data-testid="resume-notice">Пароль введён сегодня и сохранён на этом компьютере. Хранилище можно открыть без него.
+          <div className="rows" style={{ marginTop: 8 }}><Btn tone="primary" disabled={busy} onClick={() => void resume()}>Открыть сохранённым паролем</Btn></div></div>}
         <Password id="vault-password" label="Пароль хранилища" value={password} onChange={setPassword} autoComplete="current-password" />
-        <ErrorLine text={error} />
-        <div className="rows"><Btn type="submit" tone="primary" disabled={busy || password.length < MIN}>{busy ? 'Открываем…' : 'Открыть хранилище'}</Btn>
+        {state.remember?.available
+          ? <label className="check"><input type="checkbox" checked={keep} onChange={e => setKeep(e.target.checked)} />Не спрашивать пароль до конца суток и до блокировки компьютера</label>
+          : <p className="hint" role="note">На этом компьютере нет защищённого хранилища Windows, поэтому пароль будет спрашиваться при каждом открытии.</p>}
+        <ErrorLine text={error || state.resumeError || ''} />
+        <div className="rows"><Btn type="submit" tone={state.canResume ? '' : 'primary'} disabled={busy || password.length < MIN}>{busy ? 'Открываем…' : 'Открыть хранилище'}</Btn>
           <Btn disabled={busy} onClick={() => { setError(''); onWizard('edit'); }}>Создать новые ключи</Btn></div></>
       : <><p className="muted">Хранилища ключей на этом компьютере нет. Закрытые ключи остаются на этом компьютере.</p>
         <ErrorLine text={error} />
