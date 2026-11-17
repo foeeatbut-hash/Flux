@@ -17,7 +17,7 @@ import { bumpElementsOfTags } from '../equipmentVersion.js';
 import { keepVersion } from '../versionBump.js';
 import { expectedVersionOf, guardedWrite, guardedDelete, sendRecordGone, sendGuardRefusal } from '../versionGuard.js';
 import { staleElement, staleSystemDelete, badVersion } from '../equipmentStale.js';
-import { deleteChangedText } from '../../src/lib/refusalTexts.js';
+import { deleteChangedText, undoChangedText } from '../../src/lib/refusalTexts.js';
 import { sendEquipmentRefusal, systemCascade } from '../equipmentRefusal.js';
 import { writeTag, writeTags, metadataPatchOf, tagWriteFailure, tagFailure, assertFreeTagCode } from '../tagWrite.js';
 import { tagCodeKey, withCodeKey, isCodeKeyViolation } from '../tagCodeKey.js';
@@ -451,7 +451,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
         const history: Array<TagChangeSet | null> = [];
         const changedTagIds = new Set<string>();
         let deleted = 0, restored = 0;
-        await assertSeenVersions(tx, 'tag', seen, { where: { projectId } });
+        await assertSeenVersions(tx, 'tag', seen, { where: { projectId }, message: undoChangedText() });
         // Только теги этого проекта: идентификатор из чужого проекта сюда не пройдёт
         if (Array.isArray(deleteIds) && deleteIds.length) {
           const ids = deleteIds.slice(0, 2000);

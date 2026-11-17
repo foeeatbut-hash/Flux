@@ -496,6 +496,32 @@ FileNode, Dictionary, DictionaryItem, TagTemplate) есть целая коло�
 - **Переведены:** «Оборудование» (`equipment.md`), теги — «Реестр» и
   «Закупки» (`registry.md`), ВДР (`docflow.md`), «Проекты» (`projects.md`),
   «Справочники» (`directory.md`); у каждой раздел «Сверка версии при записи».
+  Файлы Проводника и рабочего стола — маршруты `explorer.ts` и `desktop.ts`;
+  на столе отказ показывает окно с перечнем (`src/components/desktop/`,
+  `useDeskWrite`). Папки, запись из Office, файлы чата и архивы — не
+  переведены.
+- **Кто изменил.** Отказ 409 из `guardedWrite`/`guardedDelete` несёт
+  `changedBy: { userId, name, at } | null` — последняя строка журнала
+  изменений по записи. Экран показывает строку «Изменил: Иванов И. И.,
+  16.11.2026 12:30» между текстом отказа и перечнем (`ConflictNotice`,
+  свойство `changedBy`; текст — `changedByText` в `refusalTexts.ts`). Нет
+  автора — строки нет.
+- **Кто создал.** `src/components/ui/RecordOrigin.tsx` («Создал: …, дата»)
+  читает `GET /api/record-origin?model=&id=`; нет данных или сбой — ничего не
+  рисует. Ставится в карточку записи под заголовком.
+
+### Журнал изменений (`ChangeFeed`)
+
+Всякая запись по версионным моделям оставляет строку журнала в той же
+транзакции (`server/changeFeed.ts`): кто, когда, модель, запись, версия, вид.
+Правила для кода сервера:
+- внутри `$transaction(async (tx) => …)` писать только через `tx`; запись
+  версионной модели внешним клиентом внутри открытой транзакции или в
+  пакетной `$transaction([...])` бросает `ChangeFeedError`;
+- `keepVersion` в журнал не пишет;
+- сырой SQL, вложенные `create` и каскад базы журнал не видит — новых таких
+  мест не заводить.
+Проверки: `test-change-feed`, `test-change-feed-routes`.
 
 Проверки: `test-refusal-texts`, `test-record-changes`, `test-conflict-notice`,
 `test-open-records`, `test-open-records-client`, `test-version-guard`.
