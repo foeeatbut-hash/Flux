@@ -4,8 +4,8 @@
  *
  * Сам файл, предел и битый файл проверяет test-modules-storage; здесь проверено то, что вокруг: кому вообще положен диск (только
  * самостоятельной программе, по проверенному манифесту), чьи это папки (человек и область), порядок записей из разных окон,
- * отказ LIMIT/FAILED до программы и в журнал, и 1 МиБ состояния, проходящий через мост (сообщение больше 1 МиБ мост молча
- * отбрасывает, поэтому для `state-keep` у него есть запас). Каждая защита проверена мутацией.
+ * отказ FAILED до программы и в журнал, и состояние любого размера, проходящее через мост (другие сообщения больше 1 МиБ мост молча
+ * отбрасывает, но у `state-keep` самостоятельной программы предела нет). Предела хранилища нет: решение владельца 15 ноября 2026. Каждая защита проверена мутацией.
  *
  * Запуск: npx tsx scripts/test-modules-storage-host.ts
  */
@@ -87,13 +87,14 @@ async function battery(parts: Parts): Promise<Battery> {
     ok('нет вошедшего человека — отказ FAILED, а не общая папка', (await storage.keep('notes', '1.0.0', { a: 3 }) as any).code === 'FAILED' && (await storage.load('notes', '1.0.0') as any).code === 'FAILED');
     user = 'user-1';
 
-    // Предел: LIMIT с текстом, прежнее цело, журнал знает
-    const atLimit = await storage.keep('notes', '1.0.0', big(MIB));
-    ok('ровно 1 МиБ сохраняется', atLimit.ok && (atLimit as any).bytes === MIB);
+    // Предела нет (решение владельца 15 ноября 2026): большое состояние сохраняется, отказа и записи «хранилище заполнено» в журнале нет
+    const atMib = await storage.keep('notes', '1.0.0', big(MIB));
+    ok('1 МиБ сохраняется', atMib.ok && (atMib as any).bytes === MIB);
     const over = await storage.keep('notes', '1.0.0', big(MIB + 120 * 1024)) as any;
-    ok('больше 1 МиБ — LIMIT с текстом для человека', over.ok === false && over.code === 'LIMIT' && over.text === 'Хранилище программы заполнено: 1,1 МиБ из 1 МиБ');
-    ok('после отказа прежнее состояние цело', (await storage.load('notes', '1.0.0') as any).bytes === MIB);
-    ok('отказ записан в журнал программ тем же текстом и без содержимого', entries().some(e => e.moduleId === 'notes' && e.event === 'storage-full' && e.outcome === 'limit' && e.detail === over.text && e.userId === 'user-1'));
+    ok('больше прежнего предела — сохраняется, а не LIMIT', over.ok === true && over.bytes === MIB + 120 * 1024 && !('code' in over));
+    const huge = await storage.keep('notes', '1.0.0', big(6 * MIB)) as any;
+    ok('6 МиБ сохраняются и читаются обратно целиком', huge.ok === true && (await storage.load('notes', '1.0.0') as any).bytes === 6 * MIB);
+    ok('в журнале программ нет записи «хранилище заполнено»', !entries().some(e => e.event === 'storage-full' || e.outcome === 'limit'));
 
     // Сбой диска
     await storage.keep('notes', '1.0.0', { a: 'до сбоя' });
@@ -151,11 +152,11 @@ async function battery(parts: Parts): Promise<Battery> {
       return sent.length ? sent[0] : null;
     };
     const keeper = (limit: number | undefined, answer: () => any = () => undefined) => open({ loadState: async () => ({ a: 1 }), keepState: async () => { reached++; return answer(); }, stateLimit: limit });
-    let b = await keeper(MIB);
+    let b = await keeper(Infinity);
     ok('state-load ждёт асинхронное чтение и отдаёт данные', (await ask(b, { op: 'state-load' }))?.data?.a === 1);
     reached = 0;
     ok('состояние 1 МиБ проходит мост (сообщение чуть больше 1 МиБ не отбрасывается)', (await ask(b, { op: 'state-keep', state: big(MIB) }))?.type === 'page-result' && reached === 1);
-    ok('на байт больше предела — LIMIT, до хранилища не доходит', (await (async () => { reached = 0; const r = await ask(b, { op: 'state-keep', state: big(MIB + 1) }); return r?.code === 'LIMIT' && reached === 0; })()));
+    ok('и на байт больше прежнего предела, и 5 МиБ — проходят до хранилища, отказа моста нет', (await (async () => { reached = 0; const r = await ask(b, { op: 'state-keep', state: big(MIB + 1) }); const r2 = await ask(b, { op: 'state-keep', state: big(5 * MIB) }); return r?.type === 'page-result' && r2?.type === 'page-result' && reached === 2; })()));
     b = await keeper(256 * 1024);
     reached = 0;
     ok('у остальных программ прежний предел 256 КиБ: на байт больше — LIMIT', (await ask(b, { op: 'state-keep', state: big(256 * 1024 + 1) }))?.code === 'LIMIT' && reached === 0);
@@ -171,7 +172,7 @@ async function battery(parts: Parts): Promise<Battery> {
     ok('исключение при сохранении — FAILED, а не молчание', (await ask(b, { op: 'state-keep', state: { a: 1 } }))?.code === 'FAILED');
     b = await open({ loadState: async () => { throw new Error('диск'); }, keepState: () => undefined, stateLimit: MIB });
     ok('исключение при чтении — FAILED, а не молчание', (await ask(b, { op: 'state-load' }))?.code === 'FAILED');
-    b = await keeper(MIB);
+    b = await keeper(Infinity);
     sent.length = 0;
     await b.handle({ source: frame as never, origin: 'null', data: { ...env, id: 'c', type: 'page', op: 'channel-send', data: { t: 'a'.repeat(MIB + 100) } } });
     ok('другие сообщения больше 1 МиБ мост по-прежнему отбрасывает (запас только у state-keep)', sent.length === 0);
@@ -193,8 +194,6 @@ async function battery(parts: Parts): Promise<Battery> {
     ok('главный процесс сказал «диска нет»: состояние в памяти окна', (await store.load()).m === 1);
     ok('и память общая для окон одной программы', (await parts.createProgramStateStore(program).load()).m === 1);
     ok('«диска нет» и состояние больше 256 КиБ — LIMIT, память не тронута', (await store.keep(big(256 * 1024 + 1)))?.code === 'LIMIT' && (await store.load()).m === 1);
-    reply = { ok: false, code: 'LIMIT', text: 'x', bytes: MIB + 1 };
-    ok('отказ LIMIT главного процесса передаётся программе', (await store.keep({ x: 1 }))?.code === 'LIMIT');
     reply = { ok: false, code: 'FAILED' };
     ok('ошибка диска FAILED передаётся программе', (await store.keep({ x: 1 }))?.code === 'FAILED');
     reply = new Error('канал закрыт');
@@ -227,8 +226,6 @@ async function main() {
     { name: 'главный процесс: диск и читающей данные Flux программе (запись)', file: 'electron/moduleStorage.ts', from: "if (!found || !isStandalone(found.manifest)) return { ok: true, disk: false };\n    if (!userId) return { ok: false, code: 'FAILED' };\n    const target = this.target(userId, found.manifest.id, found.scope);\n    const result = await writeEnvelope", to: "if (!found) return { ok: true, disk: false };\n    if (!userId) return { ok: false, code: 'FAILED' };\n    const target = this.target(userId, found.manifest.id, found.scope);\n    const result = await writeEnvelope" },
     { name: 'главный процесс: область всегда released', file: 'electron/moduleStorage.ts', from: 'found.scope', to: "'released'", all: true },
     { name: 'главный процесс: все люди в одной папке', file: 'electron/moduleStorage.ts', from: 'this.target(userId,', to: "this.target('shared',", all: true },
-    { name: 'главный процесс: отказ LIMIT не попадает в журнал', file: 'electron/moduleStorage.ts', from: "this.note(found.manifest.id, found.version, 'warn', 'storage-full', text, 'limit');", to: '' },
-    { name: 'главный процесс: текст LIMIT без размера', file: 'electron/moduleStorage.ts', from: 'const text = storageFullText(result.bytes ?? 0);', to: "const text = 'Хранилище заполнено';" },
     { name: 'главный процесс: сбой записи не в журнале', file: 'electron/moduleStorage.ts', from: "this.note(found.manifest.id, found.version, 'warn', 'storage-failed', `Хранилище программы не записано${code ? ` (${code})` : ''}`, 'failed');\n    return", to: 'return' },
     { name: 'главный процесс: сбой записи выдан за успех', file: 'electron/moduleStorage.ts', from: "this.note(found.manifest.id, found.version, 'warn', 'storage-failed', `Хранилище программы не записано${code ? ` (${code})` : ''}`, 'failed');\n    return { ok: false, code: 'FAILED' };", to: "return { ok: true, disk: true };" },
     { name: 'главный процесс: ошибка чтения выдана за пустое состояние', file: 'electron/moduleStorage.ts', from: "if (!result.ok) { this.note(found.manifest.id, found.version, 'warn', 'storage-failed', 'Хранилище программы не прочитано', 'failed'); return { ok: false, code: 'FAILED' }; }", to: "if (!result.ok) return { ok: true, disk: true, state: {}, bytes: 0 };" },
@@ -245,7 +242,7 @@ async function main() {
     { name: 'мост: предел сообщения снят', file: 'modules/bridge.ts', from: 'Math.max(1024 * 1024, room)', to: 'Math.max(64 * 1024 * 1024, room)' },
     { name: 'мост: запас есть у всех сообщений', file: 'modules/bridge.ts', from: "message.type === 'page' && message.op === 'state-keep' ? (options.page?.stateLimit ?? 0) + 1024 : 0", to: '(options.page?.stateLimit ?? 0) + 1024' },
     { name: 'окно: «диска нет» без предела памяти', file: 'src/services/moduleStateStorage.ts', from: 'if ((stateBytes(state) ?? Infinity) > MEMORY_LIMIT_BYTES) return { code: \'LIMIT\' };', to: '' },
-    { name: 'окно: LIMIT превращается в FAILED', file: 'src/services/moduleStateStorage.ts', from: "reply?.code === 'LIMIT' ? 'LIMIT' : 'FAILED'", to: "'FAILED'" },
+    { name: 'мост: сообщение с состоянием снова режется по 1 МиБ', file: 'modules/bridge.ts', from: '(options.page?.stateLimit ?? 0) + 1024', to: 'Math.min(options.page?.stateLimit ?? 0, 1024 * 1024) + 1024' },
     { name: 'окно: обрыв канала выдан за успех', file: 'src/services/moduleStateStorage.ts', from: "catch { return { code: 'FAILED' }; }", to: 'catch { return; }' },
     { name: 'окно: прочитанное с диска игнорируется', file: 'src/services/moduleStateStorage.ts', from: 'return reply.disk ? (reply.state as Record<string, unknown>) : pageState.load(memoryKey);', to: 'return pageState.load(memoryKey);' },
     { name: 'окно: ошибка чтения выдана за пустое', file: 'src/services/moduleStateStorage.ts', from: "if (!reply?.ok) throw new Error('Хранилище программы не прочитано');", to: '' },

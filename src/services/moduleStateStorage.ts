@@ -33,11 +33,12 @@ export function createProgramStateStore(program: { moduleId: string; version: st
       try { reply = await ipc.invoke('modules:state-keep', { moduleId, version, state }); } catch { return { code: 'FAILED' }; }
       if (reply?.ok && reply.disk) return;
       if (reply?.ok) {
-        // Главный процесс не признал программу самостоятельной (окно могло ошибиться с пределом): память — прежние 256 КиБ
+        // Главный процесс не признал программу самостоятельной (окно могло ошибиться и снять предел): память — прежние 256 КиБ
         if ((stateBytes(state) ?? Infinity) > MEMORY_LIMIT_BYTES) return { code: 'LIMIT' };
         pageState.keep(memoryKey, state); return;
       }
-      return { code: reply?.code === 'LIMIT' ? 'LIMIT' : 'FAILED' };
+      // Главный процесс отвечает диску только FAILED: предела размера нет
+      return { code: 'FAILED' };
     },
   };
 }

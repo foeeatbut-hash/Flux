@@ -9,7 +9,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { ModuleManifest } from '../modules/contract';
-import { STORAGE_IN_MEMORY_TEXT, STORAGE_LIMIT_BYTES, storageFullText } from '../modules/storage/model';
+import * as storageModel from '../modules/storage/model';
+import { STORAGE_IN_MEMORY_TEXT } from '../modules/storage/model';
 import { userDirName } from '../modules/storage/disk';
 import { RunStorage } from '../studio/shell/runStorage';
 import { keepRow } from '../studio/renderer/sections/run/storageRow';
@@ -42,23 +43,24 @@ async function main() {
 
     console.log('Самостоятельная программа: диск области studio');
     run = { id: 'r2', manifest: standalone };
-    ok('пока пусто: «Хранилище: 0 Б из 1 МиБ»', (await storage.info()).text === 'Хранилище: 0 Б из 1 МиБ' && (await storage.info()).standalone);
+    ok('пока пусто: «Хранилище: 0 Б» (без «из …»: предела нет)', (await storage.info()).text === 'Хранилище: 0 Б' && (await storage.info()).standalone);
     const kept = await storage.keep({ notes: ['первая', 'вторая'] });
     ok('запись прошла, файл лежит в <данные>/program-data/<человек>/<программа>/studio/state.json', 'stored' in kept && kept.stored === true && fs.existsSync(path.join(folder('notes'), 'state.json')));
     const envelope = JSON.parse(fs.readFileSync(path.join(folder('notes'), 'state.json'), 'utf8'));
     ok('формат файла: format 1, программа, версия записавшего, состояние', envelope.format === 1 && envelope.program === 'notes' && envelope.writtenBy === '9.9.9' && envelope.state.notes.length === 2);
     ok('другие области Flux (released, dev) не созданы', !fs.existsSync(folder('notes', 'released')) && !fs.existsSync(folder('notes', 'dev')));
     ok('переживает перезапуск службы: новая служба читает то же', JSON.stringify((await make().load()).state) === JSON.stringify({ notes: ['первая', 'вторая'] }));
-    ok('строка показывает занятое', /^Хранилище: \d+(,\d)? (Б|КиБ) из 1 МиБ$/.test((await storage.info()).text) && (await storage.info()).bytes! > 0);
+    ok('строка показывает занятое', /^Хранилище: \d+(,\d)? (Б|КиБ)$/.test((await storage.info()).text) && (await storage.info()).bytes! > 0);
 
-    console.log('Предел 1 МиБ проверяет главный процесс');
-    const before = fs.readFileSync(path.join(folder('notes'), 'state.json'), 'utf8');
-    const big = await storage.keep({ blob: 'x'.repeat(STORAGE_LIMIT_BYTES) });
-    ok('больше предела — LIMIT тем же текстом, что у человека', 'code' in big && big.code === 'LIMIT' && big.line.startsWith('Хранилище программы заполнено: ') && big.line.endsWith('из 1 МиБ') && big.line === storageFullText(STORAGE_LIMIT_BYTES + 'x'.repeat(0).length + JSON.stringify({ blob: '' }).length));
-    ok('прежнее сохранённое состояние цело', fs.readFileSync(path.join(folder('notes'), 'state.json'), 'utf8') === before);
-    ok('журнал запуска: строка об отказе с кодом LIMIT и тем же текстом', keepRow(big)!.level === 'error' && keepRow(big)!.text.startsWith('LIMIT: Хранилище программы заполнено: ') && keepRow(big)!.kind === 'хранилище');
-    ok('успешная запись журнал не засоряет', keepRow(kept) === null);
-    ok('ровно в пределе — проходит', (await storage.keep({ blob: 'x'.repeat(STORAGE_LIMIT_BYTES - JSON.stringify({ blob: '' }).length) })).ok);
+    console.log('Предела нет: решение владельца 15 ноября 2026');
+    const blob = 3 * 1024 * 1024;
+    const big = await storage.keep({ blob: 'x'.repeat(blob) });
+    ok('3 МиБ записываются, отказа LIMIT нет', big.ok && 'stored' in big && big.stored === true && !('code' in big));
+    ok('файл лежит на диске целиком', JSON.parse(fs.readFileSync(path.join(folder('notes'), 'state.json'), 'utf8')).state.blob.length === blob);
+    ok('строка занятого в МиБ, без «из …» и без предупреждения', /^Хранилище: 3(,\d)? МиБ$/.test((await storage.info()).text));
+    ok('в модели нет ни константы предела, ни текста «хранилище заполнено»', !('STORAGE_LIMIT_BYTES' in storageModel) && !('storageFullText' in storageModel));
+    ok('успешная запись журнал не засоряет', keepRow(kept) === null && keepRow(big) === null);
+    ok('отказ диска остаётся отказом FAILED с кодом в журнале запуска', keepRow({ ok: false, code: 'FAILED', line: 'Хранилище не записано: ошибка диска; состояние живёт в окне до закрытия' })!.text.startsWith('FAILED: '));
 
     console.log('Битый файл не затирается');
     fs.writeFileSync(path.join(folder('notes'), 'state.json'), '{ не json');

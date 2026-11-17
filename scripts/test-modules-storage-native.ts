@@ -5,7 +5,7 @@
  * Что доказывается на настоящем пути:
  * - самостоятельная программа (ничего не читает во Flux, открывается из «Пуска») сохраняет состояние в файл
  *   `<данные>/program-data/<человек>/<id>/released/state.json`, и после перезагрузки окна получает его обратно;
- * - состояние ровно 1 МиБ проходит через postMessage кадра, мост и IPC; на байт больше — LIMIT, прежнее состояние цело;
+ * - состояние 1 МиБ, на байт больше и 5 МиБ проходят через postMessage кадра, мост и IPC без отказа (предела хранилища нет);
  * - программа, читающая данные Flux, остаётся в памяти окна: на диск ничего не попадает, после перезагрузки окна состояния нет;
  * - повреждённый файл не затирается: откладывается рядом, программа получает пустое состояние;
  * - IPC очистки: чужая область (studio), неизвестная область и негодный идентификатор отвергнуты, своя области удалена, соседние целы.
@@ -128,11 +128,11 @@ async function main() {
     notes = await waitReady('store-notes');
     check('после перезагрузки окна (память окна потеряна) состояние читается с диска', (await get(notes)).text === 'Заметка');
 
-    // ── 2. Предел 1 МиБ через настоящий postMessage и IPC ──
-    check('ровно 1 МиБ сохраняется', await set(notes, big(MIB)) === 'ok' && fs.statSync(stateFile('store-notes')).size > MIB);
-    check('на байт больше — LIMIT', await set(notes, big(MIB + 1)) === 'LIMIT');
-    check('после отказа прежнее состояние цело (1 МиБ)', ((await get(notes)).t as string).length === MIB - '{"t":""}'.length);
-    check('после отказа рядом нет временных файлов', fs.readdirSync(path.dirname(stateFile('store-notes'))).join() === 'state.json');
+    // ── 2. Предела нет: 1 МиБ, на байт больше и 5 МиБ проходят через настоящий postMessage и IPC ──
+    check('1 МиБ сохраняется', await set(notes, big(MIB)) === 'ok' && fs.statSync(stateFile('store-notes')).size > MIB);
+    check('на байт больше прежнего предела — тоже сохраняется, а не LIMIT', await set(notes, big(MIB + 1)) === 'ok');
+    check('5 МиБ сохраняются и читаются обратно целиком', await set(notes, big(5 * MIB)) === 'ok' && ((await get(notes)).t as string).length === 5 * MIB - '{"t":""}'.length && fs.statSync(stateFile('store-notes')).size > 5 * MIB);
+    check('рядом нет временных файлов', fs.readdirSync(path.dirname(stateFile('store-notes'))).join() === 'state.json');
     check('сохранение не-объекта отвергнуто схемой моста, а не молча принято', await ev(notes, () => (flux.state.set as any)([1]).then(() => 'ok', (e: any) => e.code)) !== 'ok');
     await set(notes, { n: 2 });
 

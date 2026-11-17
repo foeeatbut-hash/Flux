@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { PROGRAM_ID } from '../programs/model';
 import {
-  STORAGE_FILE, STORAGE_FORMAT, STORAGE_LIMIT_BYTES, STORAGE_SCOPES, isPlainObject, stateBytes,
+  STORAGE_FILE, STORAGE_FORMAT, STORAGE_SCOPES, isPlainObject, stateBytes,
   type StorageErrorCode, type StorageScope,
 } from './model';
 
@@ -58,17 +58,14 @@ export type WriteResult = { ok: true; bytes: number; broken?: { kept: string } }
 const reasonOf = (e: unknown) => { const err = e as NodeJS.ErrnoException | undefined; return `${err?.code ?? 'ERR'}: ${String(err?.message ?? e).slice(0, 200)}`; };
 
 const isMissing = (e: unknown) => (e as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
-/** Файл крупнее предела состояния с запасом на конверт не может быть нашим: читать его целиком незачем */
-const MAX_FILE_BYTES = STORAGE_LIMIT_BYTES + 16 * 1024;
-
 type Inspect = { kind: 'missing' } | { kind: 'ok'; envelope: StorageEnvelope; bytes: number } | { kind: 'broken' } | { kind: 'error' };
 
 /** Разбор файла: «нет», «наш и цел», «битый или чужого формата» (его откладывают) или «диск не отвечает» (его не трогают) */
 async function inspect(fs: StorageFs, file: string, programId: string): Promise<Inspect> {
   let info: Awaited<ReturnType<StorageFs['lstat']>>;
   try { info = await fs.lstat(file); } catch (e) { return isMissing(e) ? { kind: 'missing' } : { kind: 'error' }; }
-  // Ссылка, папка и гигантский файл на месте `state.json` — не наш файл; ссылку не читаем: она может вести куда угодно
-  if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_FILE_BYTES) return { kind: 'broken' };
+  // Ссылка и папка на месте `state.json` — не наш файл; ссылку не читаем: она может вести куда угодно. Размера у нашего файла предела нет
+  if (!info.isFile() || info.isSymbolicLink()) return { kind: 'broken' };
   let text: string;
   try { text = await fs.readFile(file, 'utf8'); } catch (e) { return isMissing(e) ? { kind: 'missing' } : { kind: 'error' }; }
   let parsed: unknown;
@@ -76,7 +73,7 @@ async function inspect(fs: StorageFs, file: string, programId: string): Promise<
   if (!isPlainObject(parsed) || parsed.format !== STORAGE_FORMAT || parsed.program !== programId
     || typeof parsed.writtenBy !== 'string' || typeof parsed.savedAt !== 'string' || !isPlainObject(parsed.state)) return { kind: 'broken' };
   const bytes = stateBytes(parsed.state);
-  if (bytes === null || bytes > STORAGE_LIMIT_BYTES) return { kind: 'broken' };
+  if (bytes === null) return { kind: 'broken' };
   return { kind: 'ok', envelope: parsed as unknown as StorageEnvelope, bytes };
 }
 
@@ -139,7 +136,7 @@ async function renameWithRetry(fs: StorageFs, from: string, to: string): Promise
 
 let counter = 0;
 /**
- * Записывает состояние целиком. Предел проверяется здесь: `LIMIT` — и ничего на диске не тронуто (прежнее состояние цело).
+ * Записывает состояние целиком. Предела размера нет; остановить запись может только диск (`FAILED`, прежнее состояние цело).
  * Запись атомарная: временный файл рядом, потом переименование; любой сбой — `FAILED`, временный файл убирается, прежний файл цел.
  * Лежащий на месте негодный файл (битый, чужой) сначала откладывается, а не перекрывается.
  */
@@ -147,7 +144,6 @@ export async function writeEnvelope(fs: StorageFs, target: StorageTarget, input:
   const dir = dirOf(target);
   const bytes = stateBytes(input.state);
   if (bytes === null || !isPlainObject(input.state)) return { ok: false, code: 'FAILED', reason: 'состояние не объект JSON' };
-  if (bytes > STORAGE_LIMIT_BYTES) return { ok: false, code: 'LIMIT', bytes };
   return withLock(dir, () => writeLocked(fs, target, dir, bytes, input as { writtenBy: string; state: Record<string, unknown>; now?: Date }));
 }
 async function writeLocked(fs: StorageFs, target: StorageTarget, dir: string, bytes: number, input: { writtenBy: string; state: Record<string, unknown>; now?: Date }): Promise<WriteResult> {
