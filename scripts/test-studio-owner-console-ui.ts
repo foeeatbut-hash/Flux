@@ -55,7 +55,7 @@ const bridge = () => `(() => {
   let certRequests = [{ key: 'cd'.repeat(32), userId: 'dev2', name: 'Второй разработчик', at: Date.now() }];
   const now = Date.now();
   let licenses = [{ id: 'LIC-0001', inst: 'inst-aaaa-1111', org: 'ООО «Север»', logins: ['ivanov', 'petrov'], exp: now + 200 * 86400000, code: 'FLUX2.aaa' }, { id: 'LIC-0002', inst: 'inst-bbbb-2222', org: 'АО «Юг»', logins: ['sidorov'], exp: now - 5 * 86400000, code: 'FLUX2.bbb' }];
-  let revocations = [], exe = null, setupKit = false;
+  let revocations = [], exe = null, setupKit = false, assignments = [];
   const updates = [{ version: '1.20.20', published: true, iat: now - 86400000, name: 'Flux-1.20.20.exe', size: 90 * 1048576, signature: 'FLUXUPD1.x', server: 'MariaDB / MySQL · db.example:3306/Flux' }];
   const full = () => ({ ...state, vaultPath: 'C:/Users/owner/.flux-owner/vault.flux-owner', setupKitPath: setupKit ? 'C:/копии/комплект' : '', publicFilePath: '', previousVaultPath: setupKit ? 'C:/старое.flux-owner' : '', setupVerified: false,
     publicKeys: { license: 'ab'.repeat(32), update: 'cd'.repeat(32), owner: 'ef'.repeat(32) }, backupOwnerPublic: '12'.repeat(32), licenses, updates, revocations, server: state.display, exe });
@@ -84,8 +84,14 @@ const bridge = () => `(() => {
         case 'certificates': return ok({ certificates, requests: certRequests });
         case 'certify': certificates = [...certificates, { keyHex: args.key, userId: args.userId, name: args.name, createdAt: new Date().toISOString() }]; certRequests = certRequests.filter(r => r.key !== args.key); return ok({ done: true });
         case 'declineCertificate': certRequests = certRequests.filter(r => r.key !== args.key); return ok({ done: true });
-        case 'devices': return ok({ inst: 'company', devices: data.devices, releases: [{ version: '2.0.0', generation: 'g', signature: 's', sha256: 'a' }] });
+        case 'devices': return ok({ inst: 'company', devices: data.devices, releases: [{ version: '2.0.0', generation: 'g', signature: 's', sha256: 'a' }, { version: '1.0.0', generation: 'g1', signature: 's1', sha256: 'b' }] });
         case 'assignUpdate': return ok({ ids: ['cmd'] });
+        case 'updateAudience': return ok({ users: [{ id: 'u1', name: 'Иван Первый', symbol: '1', isActive: true, departmentId: 'vent-a' }, { id: 'u2', name: 'Пётр Второй', symbol: '2', isActive: true, departmentId: 'gas' }, { id: 'u3', name: 'Анна Третья', symbol: '3', isActive: false, departmentId: null }],
+          departments: [{ id: 'vent', name: 'Вентиляция', parentId: null, kind: 'division' }, { id: 'vent-a', name: 'Группа А', parentId: 'vent', kind: 'group' }, { id: 'gas', name: 'Газ', parentId: null, kind: 'division' }],
+          assignments: assignments, releases: [{ version: '2.0.0', generation: 'g', signature: 's', sha256: 'a' }] });
+        case 'assignAudience': assignments = [{ id: 'as-1', version: args.version, generation: 'g', userIds: args.userIds, departmentIds: args.departmentIds, createdAt: now, createdBy: 'o', covered: 1, people: [], units: ['Вентиляция'] }]; return ok({ id: 'as-1' });
+        case 'cancelAudience': assignments = assignments.map(a => ({ ...a, cancelledAt: now })); return ok({ success: true });
+        case 'rollbackAll': return ok({ ids: ['rb'], version: '1.0.0', devices: 1 });
         case 'licensesState': return ok(full());
         case 'licenseRequest': return ok({ inst: 'inst-cccc-3333', org: 'ООО «Запад»', people: [{ login: 'ivanov', name: 'Иван Иванов' }, { login: 'kuznetsov', name: 'Пётр Кузнецов' }, { login: 'smirnov', name: 'Анна Смирнова' }] });
         case 'issue': licenses = [...licenses, { id: 'LIC-0003', inst: 'inst-cccc-3333', org: args.org, logins: args.logins, exp: args.expiresAt, code: 'FLUX2.ccc' }]; return ok({ code: 'FLUX2.ccc' });
@@ -309,6 +315,31 @@ async function main() {
 
       // Обновления Flux
       await page.getByRole('tab', { name: 'Flux: обновления' }).click();
+      // Сотрудникам и подразделениям: выбор подразделения и сотрудника, назначение и отмена
+      await page.getByRole('checkbox', { name: 'Подразделение Вентиляция' }).waitFor();
+      ok(`${theme}: «Получат сейчас» считается по выбору, вложенные подразделения входят`, await page.getByText(/Получат сейчас:\s*0/).count() > 0
+        && (await page.getByRole('checkbox', { name: 'Подразделение Вентиляция' }).check(), await page.getByText(/Получат сейчас:\s*1/).count() > 0));
+      await page.getByRole('checkbox', { name: 'Сотрудник Иван Первый' }).check();
+      await measure(page, `${tag}/обновление выбранным`);
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-7a-update-audience.png`) });
+      await page.getByRole('button', { name: 'Назначить обновление' }).click();
+      await page.getByText(/Обновление 2\.0\.0 назначено/).waitFor();
+      const audienceCall = (await calls(page, 'assignAudience'))[0][1];
+      ok(`${theme}: назначение ушло с выпуском, подразделением и сотрудником`, audienceCall.version === '2.0.0' && audienceCall.departmentIds.join() === 'vent' && audienceCall.userIds.join() === 'u1');
+      await page.getByRole('button', { name: 'Отменить назначение 2.0.0' }).click();
+      await page.getByText(/Назначение 2\.0\.0 отменено/).waitFor();
+      ok(`${theme}: отмена назначения ушла с номером`, (await calls(page, 'cancelAudience'))[0][1].id === 'as-1');
+      // Вернуть предыдущую версию всем: диалог говорит, что произойдёт, до подписи
+      await page.getByRole('button', { name: 'Вернуть предыдущую версию всем…' }).click();
+      await page.getByRole('dialog', { name: 'Вернуть предыдущую версию всем' }).waitFor();
+      const rollbackText = await page.getByRole('dialog').innerText();
+      ok(`${theme}: диалог возврата называет версии, охват и что отложить нельзя`, /до версии 2\.0\.0/.test(rollbackText) && /Вернётся версия 1\.0\.0/.test(rollbackText) && /1 чел\., 1 компьютеров/.test(rollbackText) && /отложить его нельзя/.test(rollbackText) && /Новый выпуск не создаётся/.test(rollbackText));
+      await measure(page, `${tag}/возврат версии`);
+      await page.screenshot({ path: path.join(shots, `owner-console-${tag}-7b-update-rollback.png`) });
+      await page.getByRole('dialog').getByRole('button', { name: 'Вернуть версию 1.0.0 всем' }).click();
+      await page.getByRole('dialog').waitFor({ state: 'detached' });
+      ok(`${theme}: возврат ушёл со сроком`, (await calls(page, 'rollbackAll'))[0][1].minutes === 10);
+      await page.getByRole('group', { name: 'Кому назначить' }).getByRole('button', { name: /По компьютерам/ }).click();
       await page.getByRole('button', { name: /Выбрать всех устаревших · 1/ }).waitFor();
       await page.getByRole('button', { name: /Иван Первый/ }).click();
       await measure(page, `${tag}/обновления`);
