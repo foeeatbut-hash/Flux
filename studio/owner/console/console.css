@@ -84,3 +84,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .people { max-height: 220px; overflow: auto; margin-bottom: 8px; }
 .person { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
 progress { height: 8px; width: 160px; }
+
+/* Флажок с подписью: общий input выше задаёт высоту и поля полям ввода, флажку они не нужны */
+label.check { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 13px; color: var(--text); }
+label.check input { height: auto; width: 16px; padding: 0; margin: 0; }

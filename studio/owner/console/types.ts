@@ -25,10 +25,16 @@ export interface UpdateRelease { version: string; generation: string; signature:
 export interface Snapshot {
   version: string; unlocked: boolean; vaultExists: boolean; backupSession: boolean; kind: string;
   connected: boolean; display: string; user: { id: string; name: string } | null;
+  /** Запомненные адрес базы и пароль (под защитой учётной записи Windows); секретов здесь нет */
+  remember?: { available: boolean; server: string; keptUntil: number };
+  /** Идёт вход запомненными данными: экран входа не показывается */
+  resuming?: boolean; resumeError?: string;
+  /** Хранилище заперто, но сохранённый пароль ещё действует */
+  canResume?: boolean;
 }
 /** Полное состояние хранилища для раздела «Лицензии» (действие licensesState): реестры и открытые ключи; закрытых ключей здесь нет */
 export interface LicenseRow { id: string; inst: string; org: string; logins: string[]; exp: number; code: string }
-export interface FluxUpdateRow { version: string; published: boolean; iat: number; name: string; size: number; signature: string; server: string }
+export interface FluxUpdateRow { version: string; published: boolean; iat: number; name: string; size: number; signature: string; server: string; package?: string }
 export interface LicensesState {
   version: string; unlocked: boolean; vaultExists: boolean; vaultPath: string; backupSession: boolean; kind: string;
   setupKitPath: string; publicFilePath: string; previousVaultPath: string; setupVerified: boolean;
