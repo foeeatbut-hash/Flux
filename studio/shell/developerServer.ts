@@ -43,6 +43,15 @@ export async function ownRequests(s: Session): Promise<RequestRow[]> {
   }));
 }
 
+/**
+ * Кому разработчик вправе предложить версию: «в тест» — всем, «сразу всем» — владельцу и тем, у кого есть право «Просить рабочий канал»
+ * (сервер всё равно проверяет его сам при приёме запроса: этот ответ нужен окну, чтобы не предлагать отказ)
+ */
+export async function publishAudience(s: Session): Promise<{ production: boolean }> {
+  const reply = await studioRequest<{ owner?: unknown; publish?: unknown }>(s.origin, 'me', { token: s.token });
+  return { production: reply.owner === true || reply.publish === true };
+}
+
 export const ownBundle = (s: Session, id: string) => studioBinary(s.origin, 'requestBundle', { token: s.token, params: { id } });
 
 /** Последний выпуск программы автора: от него владелец видит разницу; null — программа новая */

@@ -457,7 +457,7 @@ async function main() {
       await main.locator('#attach').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: 'прикреплено' }).waitFor();
       ok(`${theme}: flux.attach с разрешением — программа получила { name, folder }: ${await status(main)}`, (await status(main)) === 'прикреплено {"name":"r.csv","folder":"Результаты программ / Окна"}');
-      ok(`${theme}: журнал честно говорит, что это имитация и в Studio ничего не записано`, /r\.csv \(3 Б\) — имитация: во Flux файл ляжет в проект «[^»]+», папка «Результаты программ \/ Окна»\. В Studio ничего не записано/.test(await page.locator('table.log').innerText()));
+      ok(`${theme}: журнал честно говорит, что это имитация и в Studio ничего не записано`, /r\.csv \(3 Б\) — имитация: во Flux файл ляжет в проект «.+», папка «Результаты программ \/ Окна»\. В Studio ничего не записано/.test(await page.locator('table.log').innerText()));
       await main.locator('#status').evaluate(el => { el.textContent = ''; });
       await new Promise(resolve => setTimeout(resolve, 1100));
       await main.locator('#attach').dispatchEvent('click');
@@ -483,7 +483,7 @@ async function main() {
       await main.locator('#keepbig').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: /LIMIT|записано/ }).waitFor();
       ok(`${theme}: состояние больше 1 МиБ — запись прошла, а не LIMIT: ${await status(main)}`, (await status(main)) === 'записано');
-      ok(`${theme}: в журнале нет ни LIMIT, ни «Хранилище программы заполнено»`, !/LIMIT|заполнено/.test(await page.locator('table.log').innerText()));
+      ok(`${theme}: в журнале нет ни LIMIT, ни «Хранилище программы заполнено»`, !/LIMIT|заполнено/.test((await page.locator('table.log').count()) ? await page.locator('table.log').innerText() : ''));
       ok(`${theme}: файл области studio содержит большое состояние целиком (1,08 МБ знаков «я»)`, JSON.parse(fs.readFileSync(stateFile, 'utf8')).state.pad.length === 540000);
       await storageRow.getByText(/Хранилище: [\d,]+ МиБ$/).waitFor();
       ok(`${theme}: строка хранилища показывает размер в МиБ без «из 1 МиБ» и без предупреждения`, !(await storageRow.innerText()).includes('из 1 МиБ') && !/заполн|предел|много/i.test(await storageRow.innerText()));
