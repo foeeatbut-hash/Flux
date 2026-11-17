@@ -9,6 +9,8 @@ export interface UpdateDelegation {
 export interface UpdateCommand {
   v: 1; id: string; inst: string; actor: string; issuedAt: number; deadline: number;
   action: 'schedule' | 'cancel'; version: string; generation: string; sha256: string;
+  /** Возврат к предыдущему выпуску: только такая команда разрешает поставить версию НИЖЕ работающей (решение руководителя, владелец не подтверждал) */
+  rollback?: boolean;
   targets: { deviceId: string; userId: string; previous: string | null }[];
 }
 export interface SignedUpdateCommand { command: string; delegation: string; releaseSignature: string }
@@ -52,6 +54,7 @@ export function verifyUpdateCommand(envelope: SignedUpdateCommand, context: {
     || !time(c.deadline) || !['schedule', 'cancel'].includes(c.action)
     || (c.action === 'schedule' && (c.deadline - c.issuedAt < 5 * 60000 || c.deadline - c.issuedAt > d.maxMinutes * 60000))
     || (c.action === 'cancel' && c.deadline !== c.issuedAt)
+    || (c.rollback !== undefined && (c.rollback !== true || c.action !== 'schedule'))
     || !release || c.version !== release.version || c.sha256 !== release.sha256
     || typeof c.generation !== 'string' || !/^[a-f0-9-]{36}$/.test(c.generation)
     || !Array.isArray(c.targets) || !c.targets.length || c.targets.length > d.maxTargets) return null;

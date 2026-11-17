@@ -9,6 +9,7 @@ import { newestFirst } from './updateOrder.js';
 import { ensureTables as ensureDbTables, getDialect } from './ddl.js';
 import { clientDialect, resetSchemaPreparations } from './schemaRuntime.js';
 import { registerUpdateCampaignRoutes } from './routes/updateCampaigns.js';
+import { registerUpdateAssignmentRoutes } from './routes/updateAssignments.js';
 import { registerModulePublishingRoutes } from './routes/modulePublishing.js';
 
 export function pickRelease<T extends { version: string }>(list: T[], ok: (r: T) => { ok: boolean; why: string }) {
@@ -141,6 +142,8 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
     }
   };
 
+  // Обычное обновление выбранным (сотрудникам и подразделениям): Studio владельца и ответ «что назначено мне»
+  registerUpdateAssignmentRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, updatePublicKeyHex: deps.updatePublicKeyHex, availability });
   app.get('/api/updates/latest', async (_req: Request, res: Response) => {
     try {
       const db = deps.getPrisma();
@@ -185,7 +188,8 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       const a = await availability(db, r);
       const active = await db.appUpdate.findUnique({ where: { version } });
       if (!isPublished(active) || active?.generation !== r?.generation) return res.json({ version, ok: false, size: 0, why: 'Выпуск отозван' });
-      res.json({ version, generation: r?.generation || '', ...a });
+      // Описание нужно окну назначенного выпуска: он не обязательно «последний», и /latest его не отдаёт
+      res.json({ version, generation: r?.generation || '', ...a, changelog: a.ok ? r?.changelog || '' : '' });
     } catch (e: any) { res.status(503).json({ error: e?.message || 'База обновлений недоступна' }); }
   });
 
