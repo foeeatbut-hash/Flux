@@ -15,6 +15,7 @@ import { Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import CustomSelect from '../CustomSelect';
 import { Btn, Status, Dialog } from '../ui';
+import RecordOrigin from '../ui/RecordOrigin';
 import { useToastStore } from '../../store/toastStore';
 import TagComments from './TagComments';
 import { TagRefusalView } from './TagRefusalView';
@@ -109,6 +110,7 @@ export default function TagCardModal({
               она требовала прокрутки из-за крупных блоков с отступами */}
           <div className="space-y-3 text-left">
             <TagRefusalView refusal={refusal} />
+            <RecordOrigin model="Tag" id={tag.id} />
             <ModuleLaunchActions entry="tag" entityId={tag.id} projectId={projectId} />
 
             {/* Наименование и актуальность — то, ради чего карточку открыли */}

@@ -2,7 +2,8 @@ import type { Express, Request, Response } from 'express';
 import { getPrisma, upsertSetting } from '../context.js';
 import { emitEntityChanged } from '../entityChanged.js';
 import { readEquipmentFile } from '../equipmentFile.js';
-import { importEquipmentToDB } from '../equipmentImport.js';
+import { importEquipmentGuarded } from '../equipmentGuardedImport.js';
+import { seenOf, sendPlanRefusal } from '../planGuard.js';
 import { planEquipmentImport, applyEdits, filterBySelection } from '../equipmentPlan.js';
 import { cleanChoices } from '../equipmentResolve.js';
 import { withBump } from '../equipmentVersion.js';
@@ -91,6 +92,8 @@ export function registerEquipmentCoreRoutes(app: Express): void {
     }
 
     try {
+      // Версии позиций, которые видел предпросмотр; нечитаемые — 400 до любой работы
+      const seen = seenOf(req.body?.seen);
       const projectId = await resolveImportProject(reqProjectId);
       const { result, fileName } = await readEquipmentFile(fileId, projectId, (req as any).authUser);
 
@@ -107,8 +110,8 @@ export function registerEquipmentCoreRoutes(app: Express): void {
       const conflictMode: 'immediate' | 'wait' = (modeSetting && modeSetting.value === 'immediate') ? 'immediate' : 'wait';
 
       // Спорные строки плана: сопоставление идёт по полному расчёту, пишется выбранное
-      const summary = await importEquipmentToDB(
-        prisma, projectId, category, fileName, finalResult, conflictMode, cleanTagLinks(tagLinks),
+      const summary = await importEquipmentGuarded(
+        prisma, seen, projectId, category, fileName, finalResult, conflictMode, cleanTagLinks(tagLinks),
         { userId: (req as any).authUser?.id }, { choices: cleanChoices(choices), full: edited, removeMissing: true },
       );
 
@@ -129,6 +132,8 @@ export function registerEquipmentCoreRoutes(app: Express): void {
         conflictMode,
       });
     } catch (error: any) {
+      // Позиции изменили, пока человек смотрел предпросмотр: 409 с перечнем, в базе ничего нового
+      if (sendPlanRefusal(res, error)) return;
       if (error && error.status) return res.status(error.status).json({ error: error.error });
       console.error('Error in import-to-category:', error);
       res.status(500).json({ error: error.message || 'Не удалось импортировать файл' });

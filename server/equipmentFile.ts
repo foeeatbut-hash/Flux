@@ -19,7 +19,7 @@ import { importPolicyOfProject } from './routes/tagPolicy.js';
 import type { KindMap } from './vezaDict.js';
 import type { VezaOptions } from './vezaXml.js';
 
-/** Общая настройка компании: виды узлов выгрузки, отнесённые к ролям людьми. */
+/** Общая настройка: виды узлов выгрузки, отнесённые к ролям людьми. */
 export const KIND_MAP_KEY = 'veza_kind_map';
 
 export async function kindMap(): Promise<KindMap> {

@@ -79,11 +79,15 @@ async function dropJoinRows(tx: any, table: string, column: 'A' | 'B', ids: stri
  * вызов для уже удалённого проекта ничего не находит и ничего не ломает.
  * `forgetFile` — освободить публикацию файла (таблицы общего доступа создаются
  * отдельным кодом, схемы Prisma их не знает).
+ * `keepProjectRow` — не удалять строку самого проекта: её удаляет вызывающий
+ * под сверкой версии (guardedDelete, server/routes/projects.ts) последним
+ * шагом той же транзакции.
  */
 export async function deleteProjectData(
   tx: any,
   projectId: string,
   forgetFile?: (tx: any, fileId: string) => Promise<void>,
+  options: { keepProjectRow?: boolean } = {},
 ): Promise<RemovedCounts> {
   const e = new Eraser(tx);
 
@@ -210,6 +214,6 @@ export async function deleteProjectData(
   }
 
   // ── Сам проект ──
-  await e.where('project', { id: projectId });
+  if (!options.keepProjectRow) await e.where('project', { id: projectId });
   return e.removed;
 }

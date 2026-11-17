@@ -3,6 +3,10 @@ import { X, Loader2 } from 'lucide-react';
 import { Btn } from '../ui';
 import { WindowDialog } from '../ui/WindowDialog';
 import { useToastStore } from '../../store/toastStore';
+import { sendVdr, type VdrRefusal } from './vdrWrite';
+import { VdrRefusalView } from './VdrRefusal';
+import { itemPlanRefusal, reseenItems, shownById } from './planRefusal';
+import type { VdrNames } from './changeRules';
 
 /**
  * Перенос кодов тегов из строк ВДР в связи по id: план → применение → отмена.
@@ -56,14 +60,20 @@ function Group({ title, tone, rows, hint }: { title: string; tone: string; rows:
   );
 }
 
-export default function TagLinkPlanDialog({ projectId, initial, onClose, onChanged }: {
+export default function TagLinkPlanDialog({ projectId, initial, onClose, onChanged, names = {} }: {
   projectId: string; initial: TagLinkPlan | null; onClose: () => void; onChanged: () => void;
+  /** Имена вместо идентификаторов в перечне изменений строк */
+  names?: VdrNames;
 }) {
   const { addToast } = useToastStore();
   const [plan, setPlan] = useState<TagLinkPlan | null>(initial);
   const [busy, setBusy] = useState(false);
   // Созданные в этом окне связи: по ним «Отменить» снимает ровно их
   const [created, setCreated] = useState<{ itemId: string; tagId: string }[]>([]);
+  // Строки со связями, какими их оставило применение: отмена сверит их версии, а при отказе покажет «было → стало»
+  const [seen, setSeen] = useState<Record<string, number> | undefined>(undefined);
+  const [shown, setShown] = useState<Map<string, any>>(new Map());
+  const [refusal, setRefusal] = useState<VdrRefusal | null>(null);
 
   useEffect(() => {
     let dead = false;
@@ -85,6 +95,7 @@ export default function TagLinkPlanDialog({ projectId, initial, onClose, onChang
       if (r.status === 409 && d.plan) { setPlan(d.plan); addToast(d.error || 'План изменился — проверьте новый', 'error'); return; }
       if (!r.ok) { addToast(d.error || 'Не удалось связать теги', 'error'); return; }
       setPlan(d.plan); setCreated(d.created || []);
+      setSeen(d.versions); setShown(shownById(d.items || [])); setRefusal(null);
       addToast(d.created?.length ? `Связано тегов: ${d.created.length}` : 'Связывать было нечего', 'success');
       onChanged();
     } finally { setBusy(false); }
@@ -92,10 +103,20 @@ export default function TagLinkPlanDialog({ projectId, initial, onClose, onChang
 
   const undo = async () => {
     setBusy(true);
+    setRefusal(null);
     try {
-      const { r, d } = await post('undo', { created });
-      if (!r.ok) { addToast(d.error || 'Не удалось отменить', 'error'); return; }
-      setPlan(d.plan); setCreated([]);
+      const out = await sendVdr('/api/vdr/tag-links/undo', 'POST', { projectId, created, ...(seen ? { seen } : {}) });
+      if (out.kind === 'conflict') {
+        // Строки изменили после применения: ничего не снято. Человек читает перечень; следующее нажатие
+        // подтверждает отмену по тем версиям, что есть сейчас
+        setRefusal(itemPlanRefusal(out.data, shown, names));
+        setShown((prev) => { const next = new Map(prev); for (const c of out.data?.changed || []) next.set(String(c.id), c.current); return next; });
+        setSeen((prev) => reseenItems(prev || {}, out.data));
+        return;
+      }
+      if (out.kind !== 'ok') { addToast(('message' in out && out.message) || 'Не удалось отменить', 'error'); return; }
+      const d = out.data;
+      setPlan(d.plan); setCreated([]); setSeen(undefined);
       addToast(`Связей снято: ${d.removed}`, 'success');
       onChanged();
     } finally { setBusy(false); }
@@ -132,6 +153,7 @@ export default function TagLinkPlanDialog({ projectId, initial, onClose, onChang
             <Group title="Два тега с одним кодом" tone="text-rose-600" rows={plan.ambiguous}
               hint="Программа не выбирает сама: оставьте один тег с этим кодом или выберите нужный в карточке строки." />
             {plan.generic > 0 && <p className="text-xs text-slate-500">Отметок «на все позиции»: {plan.generic} — это не теги, связь им не нужна.</p>}
+            {refusal && <VdrRefusalView refusal={refusal} />}
             {plan.orphaned > 0 && <p className="text-xs text-slate-500">Связей с удалёнными тегами: {plan.orphaned} — остаются с прежним кодом, пока он есть в строке.</p>}
           </>
         )}

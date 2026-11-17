@@ -13,7 +13,7 @@ import { ENV_CONFIG } from '../config/env';
 
 export interface MailAccount {
   id: string;
-  /** PERSONAL — личный ящик сотрудника; SHARED — общая почта компании */
+  /** PERSONAL — личный ящик сотрудника; SHARED — общая рабочая почта */
   scope: 'PERSONAL' | 'SHARED';
   label: string;
   /** Можно ли править настройки: общий ящик правит не всякий, кто его видит */

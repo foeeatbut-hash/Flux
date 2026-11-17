@@ -57,6 +57,8 @@ import ImportOperations, { type OperationBatch } from '../components/equipment/I
 import { writeVersioned, versionIn, recordIn, type WriteResult, type VersionedKind } from '../components/equipment/versionedWrite';
 import { refusalOf, needsReread, plainRefusal, withShownType, type Refusal } from '../components/equipment/conflictView';
 import { useRefusalDialog } from '../components/equipment/useRefusalDialog';
+import PlanRefusalDialog from '../components/equipment/PlanRefusalDialog';
+import { planConflictOf, planRefusalOf, recordTitle, type PlanRefusal } from '../components/equipment/planRefusal';
 import { useEquipmentOpenRecords } from '../components/equipment/useEquipmentOpenRecords';
 import { deleteGoneText } from '../lib/refusalTexts';
 
@@ -421,6 +423,8 @@ export default function Equipment() {
   // и только по согласию человека применяем.
   const [undoable, setUndoable] = useState<LastImport | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
+  // Отказ отмены: позиции изменили после подтверждения плана — перечень окном, записано ничего
+  const [undoRefusal, setUndoRefusal] = useState<PlanRefusal | null>(null);
   useEffect(() => { setUndoable(readLastImport(activeProject?.id || '')); }, [activeProject?.id, systems.length]);
 
   const undoImport = async () => {
@@ -444,10 +448,25 @@ export default function Equipment() {
       if (!yes) return;
       const ar = await fetch('/api/equipment/import-undo', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batchId: undoable.batchId }),
+        // Версии позиций, которые видел человек при подтверждении: изменили хоть одну — сервер ничего не вернёт
+        body: JSON.stringify({ batchId: undoable.batchId, seen: plan.seen }),
       });
       const res = await ar.json();
-      if (!ar.ok) { addToast(res.error || 'Не удалось отменить импорт', 'error'); return; }
+      if (!ar.ok) {
+        if (planConflictOf(ar.status, res)) {
+          const items = [plan.restore, plan.remove, plan.reinstate, plan.reremove, plan.unmove, plan.unrename, plan.retag].flat().filter(Boolean);
+          setUndoRefusal(planRefusalOf(res, {
+            rows: plan.seenRows || {},
+            titleOf: (id, rec) => {
+              const it = items.find((x: any) => x.elementId === id);
+              return it ? [it.where, it.itemCode].filter(Boolean).join(' · ') : recordTitle(id, rec);
+            },
+          }));
+          await loadSystems();
+          return;
+        }
+        addToast(res.error || 'Не удалось отменить импорт', 'error'); return;
+      }
       forgetImport(activeProject?.id || ''); setUndoable(null);
       await loadSystems();
       addToast(`Импорт отменён: вернули ${res.restored}, удалили ${res.removed}${res.skipped ? `, пропустили ${res.skipped}` : ''}`, 'success');
@@ -955,6 +974,7 @@ export default function Equipment() {
         />
       )}
       {refusals.element}
+      {undoRefusal && <PlanRefusalDialog title="Импорт не отменён" refusal={undoRefusal} onClose={() => setUndoRefusal(null)} />}
       </div>
     </div>
   );

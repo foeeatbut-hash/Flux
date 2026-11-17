@@ -21,7 +21,7 @@ import type { Request, Response, NextFunction } from 'express';
 //  - без Origin — не браузер (curl, сам сервер, главный процесс Electron);
 //  - «null» — страница программы, открытая из файла (Electron, file://). Убирать
 //    нельзя: упакованный клиент грузит file://dist/index.html и ходит на сервер
-//    компании, Origin у него именно «null». Вреда немного: ответ идёт без
+//    Flux, Origin у него именно «null». Вреда немного: ответ идёт без
 //    Allow-Credentials, cookie чужой страницы не уходит, а вход по cookie при
 //    чужом Origin отвечает 403 (authCookies.ts);
 //  - тот же хост, что у сервера — окно, открытое с самого сервера;
@@ -357,7 +357,7 @@ export function unmaskDbUrl(incoming: string, stored: string): string {
 // — сотрудники между собой связаны через общую базу, а не через серверы друг
 // друга. Поэтому встроенный слушает только себя.
 //
-// Сервер компании (`node dist/server.cjs` на офисной машине) запускается без
+// Сервер Flux (`node dist/server.cjs` на офисной машине) запускается без
 // оболочки и по-прежнему слушает сеть — к нему ходят все. Явная настройка
 // FLUX_LISTEN_HOST сильнее обоих правил.
 export function listenHost(env: Record<string, string | undefined> = process.env): string {

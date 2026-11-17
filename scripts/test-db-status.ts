@@ -34,7 +34,7 @@ check('история ограничена', list.length === HISTORY && list[lis
 check('последний хороший ответ находится сквозь обрыв', lastGood([ok(11), lost(), lost()])?.rtt === 11);
 check('нет ни одного хорошего — null', lastGood([lost(), dbDown()]) === null);
 check('подпись локальной базы', modeLabel('LOCAL', 'sqlite') === 'Локальная · SQLite');
-check('подпись общей базы', modeLabel('MYSQL', 'mysql') === 'Общая база компании · MySQL');
+check('подпись общей базы', modeLabel('MYSQL', 'mysql') === 'Общая база · MySQL');
 check('миллисекунды', msLabel(3.24) === '3.2 мс' && msLabel(120.6) === '121 мс' && msLabel(null) === '—');
 
 if (failed) { console.log(`${failed} проверок провалено`); process.exit(1); }

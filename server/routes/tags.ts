@@ -17,10 +17,12 @@ import { bumpElementsOfTags } from '../equipmentVersion.js';
 import { keepVersion } from '../versionBump.js';
 import { expectedVersionOf, guardedWrite, guardedDelete, sendRecordGone, sendGuardRefusal } from '../versionGuard.js';
 import { staleElement, staleSystemDelete, badVersion } from '../equipmentStale.js';
-import { deleteChangedText } from '../../src/lib/refusalTexts.js';
+import { deleteChangedText, undoChangedText } from '../../src/lib/refusalTexts.js';
 import { sendEquipmentRefusal, systemCascade } from '../equipmentRefusal.js';
 import { writeTag, writeTags, metadataPatchOf, tagWriteFailure, tagFailure, assertFreeTagCode } from '../tagWrite.js';
 import { tagCodeKey, withCodeKey, isCodeKeyViolation } from '../tagCodeKey.js';
+import { assertSeenVersions, seenOf, sendPlanRefusal } from '../planGuard.js';
+import { importTouchedKeys, tagIdsOfKeys } from '../../shared/tagImportPlan.js';
 import {
   TAG_SOURCE, tagChangeContext, recordChangeSets, recordTagCreated, recordTagUpdate, recordTagDeleted, inTagTransaction,
   prepareTagHistory, markTagTransaction,
@@ -159,12 +161,19 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
 
   // Массовый импорт тегов из размеченной таблицы
   // rows: [{identifier, brand, name, department, fluid, wbs, parent, actuality}], mode: 'add'|'update'
+  //
+  // `seen: { [id тега]: version }` — версии тегов, которые видел предпросмотр мастера и которые
+  // ввоз тронет (shared/tagImportPlan.ts). Сверка — в той же транзакции до первой записи
+  // (server/planGuard.ts): хоть один тег изменили или удалили, а тронутый тег предпросмотру
+  // не показывали — 409 `VERSION_CONFLICT` с перечнем `changed` / `gone`, не записано ничего.
+  // Без `seen` (прежний клиент) ввоз сверяется только с чтением сервера.
   app.post('/api/projects/:projectId/tags/bulk-import', async (req: Request, res: Response) => {
     const prisma = getPrisma();
     let { projectId } = req.params;
     const { rows, mode } = req.body;
     let lastCode = '';
     try {
+      const seen = seenOf(req.body?.seen);
       if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
         let fp = await prisma.project.findFirst(); if (!fp) fp = await prisma.project.create({ data: { id: await nextProjectId(prisma), name: 'Общий Проект' } }); projectId = fp.id;
       }
@@ -176,6 +185,11 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       const { created, updated, dupes, changedTagIds } = await inTagTransaction(prisma, async (tx: any) => {
         const history: Array<TagChangeSet | null> = [];
         const existing = await tx.tag.findMany({ where: { projectId: pid } });
+        // Сверка с предпросмотром — до первой записи: бросок откатывает транзакцию целиком
+        await assertSeenVersions(tx, 'tag', seen, {
+          where: { projectId: pid },
+          touched: seen ? tagIdsOfKeys(existing, importTouchedKeys(rows || [], mode === 'update' ? 'update' : 'add')) : undefined,
+        });
         // Коды сравниваются по ключу (регистр, пробелы, NFC): тот же, что держит база
         const byCode = new Map<string, any>();
         const codeToId = new Map<string, string>();
@@ -252,6 +266,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       emitEntitiesChanged('tag', changedTagIds, req);
       res.json({ created, updated, duplicates: [...new Set(dupes)] });
     } catch (err: any) {
+      if (sendPlanRefusal(res, err)) return;
       // Код заняли между чтением и записью — отказ с кодом, а не 500
       const known = await tagFailure(prisma, err, String(projectId), lastCode);
       if (known) return res.status(known.status).json(known.body);
@@ -280,6 +295,10 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
     };
     let lastCode = '';
     try {
+      // `seen` — версии существующих тегов, которые план собирается дополнить или заменить
+      // (строки «дополнить»/«заменить»); сверка в транзакции до первой записи (server/planGuard.ts).
+      // В ответе `versions` — версии записанного: по ним отмена проверяет, что с тех пор тег не менялся
+      const seen = seenOf(req.body?.seen);
       if (!projectId || ['null', 'undefined', 'default'].includes(projectId)) {
         let fp = await prisma.project.findFirst();
         if (!fp) fp = await prisma.project.create({ data: { id: await nextProjectId(prisma), name: 'Общий Проект' } });
@@ -292,6 +311,14 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       const history: Array<TagChangeSet | null> = [];
       const existing = await tx.tag.findMany({ where: { projectId: pid } });
       const byId = new Map(existing.map((t: any) => [t.id, t]));
+        await assertSeenVersions(tx, 'tag', seen, {
+          where: { projectId: pid },
+          touched: seen ? (rows || []).filter(r => (r.action === 'fill' || r.action === 'replace') && r.targetId).map(r => String(r.targetId)) : undefined,
+        });
+        // Версии записанного после применения: по ним отмена узнаёт, менял ли тег кто-то ещё
+        const versions: Record<string, number> = {};
+        // Теги, какими они стали: отмена показывает по ним «было → стало», не примешивая правку самого захвата
+        const written: Record<string, any> = {};
         // Занятые коды по ключу: второй тег с кодом, уже стоящим в проекте, база не примет
         const takenKeys = new Set<string>(existing.map((t: any) => tagCodeKey(t.identifier)));
         const refused: { identifier: string; reason: string }[] = [];
@@ -348,6 +375,8 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
             history.push(updateSet(target, after));
             changedTagIds.add(after.id);
             byId.set(target.id, after);
+            versions[target.id] = after.version;
+            written[target.id] = after;
             filled.push({ id: target.id, identifier: target.identifier });
             continue;
           }
@@ -380,15 +409,18 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
           takenKeys.add(tagCodeKey(code));
           history.push(createdSet(t));
           changedTagIds.add(t.id);
+          versions[t.id] = t.version;
+          written[t.id] = t;
           (action === 'duplicate' ? duplicated : created).push({ id: t.id, identifier: code });
         }
         await recordChangeSets(tx, tagChangeContext(req, pid, TAG_SOURCE.capture), history);
-        return { created, filled, duplicated, linked, skipped, refused, changedTagIds };
+        return { created, filled, duplicated, linked, skipped, refused, changedTagIds, versions, written };
       }, { timeout: 120000, maxWait: 15000 });
-      const { created, filled, duplicated, linked, skipped, refused, changedTagIds } = outcome;
+      const { created, filled, duplicated, linked, skipped, refused, changedTagIds, versions, written } = outcome;
       emitEntitiesChanged('tag', changedTagIds, req);
-      res.json({ created, filled, duplicated, linked, skipped, refused });
+      res.json({ created, filled, duplicated, linked, skipped, refused, versions, written });
     } catch (err: any) {
+      if (sendPlanRefusal(res, err)) return;
       const known = await tagFailure(prisma, err, String(projectId), lastCode);
       if (known) return res.status(known.status).json(known.body);
       res.status(500).json({ error: err.message });
@@ -410,11 +442,16 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
                  fluid: string | null; wbs: string | null; metadata: string | null }[];
     };
     try {
+      // `seen` — версии, которые теги имели сразу после применения (`versions` из ответа
+      // capture-apply). Тег с тех пор менял кто-то ещё — отмена не пишет «до» поверх чужой правки
+      // и не удаляет созданное, а отвечает 409 с перечнем (server/planGuard.ts). Без `seen` — как прежде
+      const seen = seenOf((req.body as any)?.seen);
       // Удаление, возврат прежних значений и история — одна транзакция
       const { deleted, restored, changedTagIds } = await inTagTransaction(prisma, async (tx: any) => {
         const history: Array<TagChangeSet | null> = [];
         const changedTagIds = new Set<string>();
         let deleted = 0, restored = 0;
+        await assertSeenVersions(tx, 'tag', seen, { where: { projectId }, message: undoChangedText() });
         // Только теги этого проекта: идентификатор из чужого проекта сюда не пройдёт
         if (Array.isArray(deleteIds) && deleteIds.length) {
           const ids = deleteIds.slice(0, 2000);
@@ -449,6 +486,7 @@ export function registerTagRoutes(app: Express, deps: TagDeps): void {
       emitEntitiesChanged('tag', changedTagIds, req);
       res.json({ deleted, restored });
     } catch (err: any) {
+      if (sendPlanRefusal(res, err)) return;
       res.status(500).json({ error: err.message });
     }
   });

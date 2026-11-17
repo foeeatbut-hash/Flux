@@ -23,7 +23,7 @@ export async function licenseRequest<T>(path: string, body?: unknown): Promise<T
   return data;
 }
 
-/** Решение принимает сервер компании по вошедшему сотруднику, включая отдельные окна. */
+/** Решение принимает сервер Flux по вошедшему сотруднику, включая отдельные окна. */
 export async function fetchLicenseStatus(): Promise<LicenseStatus> {
   return licenseRequest<LicenseStatus>('me');
 }

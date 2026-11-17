@@ -158,7 +158,7 @@ function nameParts(src: any): {
 
 // ── Должности сотрудников ───────────────────────────────────────────────────
 // Должности (таблица Role) ведёт владелец или администратор с правом
-// «Должности: справочник», а не программист: в разных компаниях они
+// «Должности: справочник», а не программист: в разных организациях они
 // называются по-разному. Уровень доступа — другое: владелец и администратор
 // в справочнике не показываются (строки OWNER и ADMIN остались от старой
 // модели). Встроенные должности не удаляются — их использует сама программа.
@@ -167,7 +167,7 @@ const grant = (...ids: string[]) =>
 
 // Обычная инженерная работа: вести теги и оборудование, класть файлы,
 // отмечать этапы закупки и вести реестр. Опасное (удаление тегов и файлов,
-// настройка этапов и стандартов на всю компанию, управление проектами)
+// настройка этапов и стандартов на всех, управление проектами)
 // в набор по умолчанию не входит — это выдаёт администратор осознанно.
 const ENGINEER_GRANTS = grant(
   'tags.manage', 'dictionaries.manage', 'equipment.import', 'equipment.manage',
@@ -188,7 +188,7 @@ const MANAGER_GRANTS = grant(
 
 export const BUILTIN_ROLES = [
   { code: 'OWNER', name: 'Владелец Flux', color: 'slate', icon: 'key-round', level: 0, sortOrder: 0, description: 'Вход только по ключу; доверие, лицензии и обновления', permissions: '{}' },
-  { code: 'ADMIN',          name: 'Администратор',     color: 'rose',    icon: 'shield-check', level: 1,  sortOrder: 10, description: 'Работа компании; административные полномочия выдает владелец', permissions: '{}' },
+  { code: 'ADMIN',          name: 'Администратор',     color: 'rose',    icon: 'shield-check', level: 1,  sortOrder: 10, description: 'Работа организации; административные полномочия выдает владелец', permissions: '{}' },
   { code: 'MANAGER',        name: 'Менеджер проектов', color: 'amber',   icon: 'briefcase',    level: 20, sortOrder: 20, description: 'Проекты, закупки, документооборот', permissions: MANAGER_GRANTS },
   { code: 'ENGINEER_VENT',  name: 'Инженер ОВиК',      color: 'sky',     icon: 'airplay',      level: 50, sortOrder: 30, description: 'Вентиляция и кондиционирование', permissions: ENGINEER_GRANTS },
   { code: 'ENGINEER_AUTO',  name: 'Инженер КИПиА',     color: 'emerald', icon: 'cpu',          level: 50, sortOrder: 40, description: 'Автоматика и приборы', permissions: ENGINEER_GRANTS },

@@ -61,6 +61,9 @@ export function bumpedData(data: any): any {
   return { ...data, version: { increment: 1 } };
 }
 
+/** Помечены ли данные записи как «версию не двигать» (журнал изменений такую запись не пишет, server/changeFeed.ts). */
+export const keepsVersion = (data: any): boolean => !!data && typeof data === 'object' && !!data[KEEP];
+
 /** Снять метку keepVersion перед запросом: Prisma не знает такого поля. */
 function stripKeep(data: any): any {
   if (!data || typeof data !== 'object' || !data[KEEP]) return data;

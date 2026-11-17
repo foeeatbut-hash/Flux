@@ -45,6 +45,11 @@ export const NOUNS = {
   tag: { nom: 'тег', acc: 'тег', prep: 'теге', gender: 'm' },
   register: { nom: 'реестр', acc: 'реестр', prep: 'реестре', gender: 'm' },
   registerItem: { nom: 'строка реестра', acc: 'строку реестра', prep: 'строке реестра', gender: 'f' },
+  file: { nom: 'файл', acc: 'файл', prep: 'файле', gender: 'm' },
+  project: { nom: 'проект', acc: 'проект', prep: 'проекте', gender: 'm' },
+  dictionary: { nom: 'справочник', acc: 'справочник', prep: 'справочнике', gender: 'm' },
+  dictionaryItem: { nom: 'пункт справочника', acc: 'пункт справочника', prep: 'пункте справочника', gender: 'm' },
+  tagTemplate: { nom: 'шаблон тегов', acc: 'шаблон тегов', prep: 'шаблоне тегов', gender: 'm' },
 } as const satisfies Record<string, Noun>;
 
 export type RefusalNoun = keyof typeof NOUNS;
@@ -93,6 +98,26 @@ export function createInsideChangedText(noun: RefusalNoun, name?: unknown): stri
 /** Массовое действие по предпросмотру: часть записей изменили, пока человек смотрел */
 export function bulkChangedText(): string {
   return 'Пока вы смотрели предпросмотр, часть записей изменили. Ничего не записано. Ниже — что изменилось; проверьте и подтвердите заново.';
+}
+
+/** Кто и когда изменил запись последним — строка под текстом отказа; автора нет (система, запись старше журнала) — строки нет */
+export function changedByText(name: unknown, at: unknown): string {
+  const who = typeof name === 'string' ? name.trim() : '';
+  if (!who) return '';
+  const d = typeof at === 'string' || at instanceof Date ? new Date(at) : null;
+  if (!d || Number.isNaN(d.getTime())) return `Изменил: ${who}`;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `Изменил: ${who}, ${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Отмена действия: записи после него успел изменить кто-то ещё */
+export function undoChangedText(): string {
+  return 'После этого действия часть записей изменили. Отмена не выполнена, ничего не записано. Ниже — что изменилось; проверьте и повторите отмену.';
+}
+
+/** Загрузка файла без предпросмотра: строку изменили прямо во время загрузки */
+export function importChangedText(): string {
+  return 'Пока шла загрузка, часть строк реестра изменили. Ничего не записано. Ниже — что изменилось; проверьте и повторите загрузку.';
 }
 
 /** Правка удалённой записи (404) */

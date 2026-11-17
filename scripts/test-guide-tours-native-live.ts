@@ -198,7 +198,9 @@ async function main() {
       const projectsAfter = await page.evaluate(async () => {
         const r = await fetch('/api/projects'); const j = await r.json(); return Array.isArray(j) ? j.length : j?.projects?.length;
       });
-      check('единственная запись API — вход; демонстрации не меняли данные', writes.every((entry) => entry === 'POST /api/login') && projectsAfter === 1, writes);
+      // Отметка «запись открыта» (PUT /api/open-records) — не данные проекта: её ставит открытая форма проекта,
+      // чтобы коллега не удалил запись из-под рук; сама гаснет через 90 с.
+      check('запись API — только вход и отметки открытых записей; демонстрации не меняли данные', writes.every((entry) => entry === 'POST /api/login' || entry === 'PUT /api/open-records') && projectsAfter === 1, writes);
       check('браузерный сценарий завершился без исключений приложения', pageErrors.length === 0, pageErrors.slice(0, 5));
     } finally {
       await browser.close();

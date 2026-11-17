@@ -18,7 +18,7 @@ export function VdrRefusalView({ refusal, className = '' }: { refusal: VdrRefusa
   if (refusal.kind === 'plain') return <div role="alert" className={`fx-error ${className}`.trim()}>{refusal.message}</div>;
   return (
     <div data-vdr-refusal className={className}>
-      <ConflictNotice message={refusal.message}
+      <ConflictNotice message={refusal.message} changedBy={refusal.kind === 'conflict' && !refusal.groups ? refusal.changedBy : undefined}
         changes={refusal.kind === 'conflict' && !refusal.groups ? refusal.changes : undefined}
         groups={refusal.kind === 'conflict' && refusal.groups?.some((g) => g.changes.length > 0) ? refusal.groups : undefined} />
       {refusal.notes && refusal.notes.length > 0 && (

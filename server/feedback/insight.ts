@@ -386,6 +386,6 @@ export function toMarkdown(report: any, comments: any[], attachments: any[], tri
     }
   }
   if (report.resolution) lines.push('', '## Решение', '', String(report.resolution));
-  lines.push('', '---', '', 'Выгружено из Flux. Наружу это не уходило: файл собран на сервере компании.');
+  lines.push('', '---', '', 'Выгружено из Flux. Наружу это не уходило: файл собран на сервере Flux.');
   return lines.join('\n');
 }

@@ -84,6 +84,8 @@ export interface Project {
   info?: string;
   status: string;
   createdAt: string;
+  /** Номер версии записи: растёт при каждой правке; по нему сервер замечает, что проект успели изменить */
+  version?: number;
 }
 
 export interface ProjectInput {
@@ -444,6 +446,53 @@ async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
   }
 }
 
+/**
+ * Отказ сервера на запись с проверкой версии: статус и тело ответа целиком.
+ *
+ * Зачем отдельно от `request`. Тот при любой ошибке отвечает данными из локальной
+ * автономной базы, а потому теряет код отказа (`VERSION_CONFLICT`, `RECORD_GONE`,
+ * `RECORD_OPEN`), текущую запись (`current`) и тех, у кого запись открыта
+ * (`holders`). Экрану это нужно, чтобы показать, что именно изменил коллега.
+ * Разбор по коду — `components/projects/projectWrite.ts`.
+ */
+export class WriteRefusal extends Error {
+  constructor(public status: number, public body: any, message: string) {
+    super(message);
+    this.name = 'WriteRefusal';
+  }
+}
+
+/** Целая версия ≥ 1 — единственное, что уходит как `expectedVersion`; остальное (нет записи, старый ответ без колонки) не отправляется. */
+function versionOnly(version: unknown): number | undefined {
+  const n = typeof version === 'string' && version.trim() !== '' ? Number(version) : version;
+  return typeof n === 'number' && Number.isInteger(n) && n >= 1 ? n : undefined;
+}
+
+/**
+ * Запрос записи, у которого отказ сервера доходит до экрана как `WriteRefusal`.
+ * Нет связи с сервером — как у `request`: автономная база.
+ */
+async function requestWrite<T>(endpoint: string, method: 'PUT' | 'DELETE' | 'PATCH' | 'POST', payload: Record<string, unknown>): Promise<T> {
+  const url = `${ENV_CONFIG.apiUrl}${endpoint}`;
+  const body = JSON.stringify(payload);
+  useLogStore.getState().addLog('INFO', 'Network Stack', `[${method}] отправка запроса: ${endpoint}`);
+  let response: Response;
+  try {
+    response = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body });
+  } catch (err: any) {
+    useLogStore.getState().addLog('WARN', 'Network Stack', `[${method}] сбой при отправке запроса. Активация локальной автономной БД для ${endpoint}: ${err.message}`);
+    return getFallbackData<T>(endpoint, method, body);
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = data?.message || data?.error || `Http request failed: ${response.status}`;
+    useLogStore.getState().addLog('ERROR', 'Network Stack', `[${method}] запрос ${endpoint} завершился с ошибкой: ${message}`);
+    throw new WriteRefusal(response.status, data, message);
+  }
+  useLogStore.getState().addLog('INFO', 'Network Stack', `[${method}] получен успешный ответ от ${endpoint}`);
+  return data as T;
+}
+
 // --- DATA ACCESS SERVICE (DAO PATTERN) ---
 export const dataService = {
   
@@ -500,11 +549,12 @@ export const dataService = {
     return res.project;
   },
 
-  async updateProject(id: string, data: ProjectInput, actorId?: string): Promise<Project> {
-    const res = await request<{ project: Project }>(`/projects/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ ...data, actorId }),
-    });
+  /**
+   * Правка проекта. `expectedVersion` — версия, которую экран показывал: проект
+   * изменили — отказ `WriteRefusal` (409 `VERSION_CONFLICT` с `current`), удалили — 404 `RECORD_GONE`.
+   */
+  async updateProject(id: string, data: ProjectInput, actorId?: string, expectedVersion?: number): Promise<Project> {
+    const res = await requestWrite<{ project: Project }>(`/projects/${id}`, 'PUT', { ...data, actorId, expectedVersion: versionOnly(expectedVersion) });
     return res.project;
   },
 
@@ -521,11 +571,14 @@ export const dataService = {
     });
   },
 
-  async deleteProject(id: string, actorId?: string): Promise<{ success: boolean }> {
-    return request<{ success: boolean }>(`/projects/${id}`, {
-      method: 'DELETE',
-      body: JSON.stringify({ actorId }),
-    });
+  /**
+   * Удаление проекта. Версия идёт в строке запроса (`?expectedVersion=`): у DELETE тела
+   * для сверки нет. Отказы — `WriteRefusal`: проект изменили, удалили или он (либо его
+   * записи) открыт у коллеги (409 `RECORD_OPEN`). `alreadyGone` — проекта уже не было.
+   */
+  async deleteProject(id: string, actorId?: string, expectedVersion?: number): Promise<{ success: boolean; alreadyGone?: boolean }> {
+    const v = versionOnly(expectedVersion);
+    return requestWrite<{ success: boolean; alreadyGone?: boolean }>(`/projects/${id}${v === undefined ? '' : `?expectedVersion=${v}`}`, 'DELETE', { actorId });
   },
 
   // --- SYSTEMS / EQUIPMENT & CONFLICTS ---
@@ -597,9 +650,12 @@ export const dataService = {
   async bulkImportTags(
     projectId: string,
     rows: { identifier: string; brand?: string; name?: string; department?: string; fluid?: string; wbs?: string; parent?: string; actuality?: string }[],
-    mode: 'add' | 'update'
+    mode: 'add' | 'update',
+    // Версии тегов, которые видел предпросмотр мастера: сервер сверяет их до первой записи.
+    // Отказ приходит как `WriteRefusal` с перечнем `changed` / `gone` (components/registry/planWrite.ts)
+    seen?: Record<string, number>,
   ): Promise<{ created: number; updated: number; duplicates: string[] }> {
-    return request(`/projects/${projectId}/tags/bulk-import`, { method: 'POST', body: JSON.stringify({ rows, mode }) });
+    return requestWrite(`/projects/${projectId}/tags/bulk-import`, 'POST', { rows, mode, ...(seen ? { seen } : {}) });
   },
 
   // Применение плана захвата с экрана: решение своё у каждой строки
@@ -611,17 +667,18 @@ export const dataService = {
       action: 'create' | 'skip' | 'fill' | 'replace' | 'duplicate' | 'link';
       targetId?: string;
     }[],
+    // Версии существующих тегов, которые план дополняет или заменяет (сверка в транзакции до записи)
+    seen?: Record<string, number>,
   ): Promise<{
     created: { id: string; identifier: string }[];
     filled: { id: string; identifier: string }[];
     duplicated: { id: string; identifier: string }[];
     linked: { id: string; identifier: string }[];
     skipped: string[];
+    /** Версии записанных тегов: по ним отмена узнаёт, менял ли тег кто-то ещё */
+    versions?: Record<string, number>;
   }> {
-    return request(`/projects/${projectId}/tags/capture-apply`, {
-      method: 'POST',
-      body: JSON.stringify({ rows }),
-    });
+    return requestWrite(`/projects/${projectId}/tags/capture-apply`, 'POST', { rows, ...(seen ? { seen } : {}) });
   },
 
   // Отмена захвата: снимок прежних значений даёт клиент — он снял его до применения
@@ -631,12 +688,11 @@ export const dataService = {
       deleteIds: string[];
       restore: { id: string; brand: string | null; department: string | null;
                  fluid: string | null; wbs: string | null; metadata: string | null }[];
+      /** Версии тегов после применения: тег менял кто-то ещё — отмена откажет с перечнем */
+      seen?: Record<string, number>;
     },
   ): Promise<{ deleted: number; restored: number }> {
-    return request(`/projects/${projectId}/tags/capture-undo`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    return requestWrite(`/projects/${projectId}/tags/capture-undo`, 'POST', payload);
   },
 
   async linkTagToComponent(componentId: string, tagId: string): Promise<any> {
@@ -662,10 +718,12 @@ export const dataService = {
     return request(`/projects/${projectId}/tag-template`);
   },
 
-  async saveTagTemplate(projectId: string, schemaJson: string): Promise<any> {
+  // Шаблон пишется методом PUT (POST на сервере нет). `expectedVersion` — версия шаблона, которую
+  // видел экран: чужая правка даст 409 с `code`, а не молча затрётся; без неё — создание или запись вслепую.
+  async saveTagTemplate(projectId: string, schemaJson: string, expectedVersion?: number): Promise<any> {
     return request(`/projects/${projectId}/tag-template`, {
-      method: 'POST',
-      body: JSON.stringify({ schemaJson }),
+      method: 'PUT',
+      body: JSON.stringify({ schemaJson, ...(expectedVersion !== undefined ? { expectedVersion } : {}) }),
     });
   },
 
@@ -804,13 +862,25 @@ export const dataService = {
     return request('/desktop/doc', { method: 'POST', body: JSON.stringify({ projectId, kind, name, scope }) });
   },
 
-  async moveDesktopItem(projectId: string, id: string, to: 'SHARED' | 'PERSONAL'): Promise<{ success: boolean }> {
-    return request('/desktop/move', { method: 'POST', body: JSON.stringify({ projectId, id, to }) });
+  /**
+   * Файл с общего стола на личный и обратно. `expectedVersion` — версия файла, которую показывал стол:
+   * файл изменили — `WriteRefusal` (409 `VERSION_CONFLICT` с `current`), нет — 404 `RECORD_GONE`.
+   * У папки версии нет — запрос прежний.
+   */
+  async moveDesktopItem(projectId: string, id: string, to: 'SHARED' | 'PERSONAL', expectedVersion?: number): Promise<{ success: boolean; version?: number }> {
+    const v = versionOnly(expectedVersion);
+    if (v === undefined) return request('/desktop/move', { method: 'POST', body: JSON.stringify({ projectId, id, to }) });
+    return requestWrite('/desktop/move', 'POST', { projectId, id, to, expectedVersion: v });
   },
 
-  /** Переименование файла или папки — то же, что в Проводнике */
-  async renameNode(id: string, isFile: boolean, name: string): Promise<any> {
-    return request(isFile ? `/files/${id}` : `/folders/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+  /**
+   * Переименование файла или папки — то же, что в Проводнике. Файл идёт под сверкой версии
+   * (`expectedVersion` в теле, отказ — `WriteRefusal`), папка — как была: версии у неё нет.
+   */
+  async renameNode(id: string, isFile: boolean, name: string, expectedVersion?: number): Promise<any> {
+    const v = isFile ? versionOnly(expectedVersion) : undefined;
+    if (v === undefined) return request(isFile ? `/files/${id}` : `/folders/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
+    return requestWrite(`/files/${id}`, 'PATCH', { name, expectedVersion: v });
   },
 
   /**
@@ -826,9 +896,14 @@ export const dataService = {
   },
 
 
-  /** Удаление мягкое: содержимое уходит в корзину Проводника и восстановимо */
-  async trashNode(id: string, isFile: boolean): Promise<{ success: boolean; trashed?: boolean }> {
-    return request(isFile ? `/files/${id}` : `/folders/${id}`, { method: 'DELETE' });
+  /**
+   * Удаление мягкое: содержимое уходит в корзину Проводника и восстановимо. Файл — под сверкой версии
+   * (в строке запроса: у DELETE тела для сверки нет), отказ — `WriteRefusal`; папка — как была.
+   */
+  async trashNode(id: string, isFile: boolean, expectedVersion?: number): Promise<{ success: boolean; trashed?: boolean; alreadyGone?: boolean }> {
+    const v = isFile ? versionOnly(expectedVersion) : undefined;
+    if (v === undefined) return request(isFile ? `/files/${id}` : `/folders/${id}`, { method: 'DELETE' });
+    return requestWrite(`/files/${id}?expectedVersion=${v}`, 'DELETE', {});
   },
 
   // --- USER NOTES & LOGS ---

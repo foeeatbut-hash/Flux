@@ -26,7 +26,7 @@ export type PolicyMap = Record<string, PolicyEntry | boolean>;
 
 /** Состояние платформы целиком — общее для всех сотрудников. */
 export interface PlatformState {
-  /** Платформа включена администратором компании */
+  /** Платформа включена администратором */
   enabled: boolean;
   /**
    * База умеет держать инварианты платформы.
@@ -147,7 +147,7 @@ export function decide(
     return { allowed: false, source: 'platform', note: p.note || 'База не поддерживает платформу' };
   }
   if (!p.enabled && !opts.ignoreSwitch) {
-    return { allowed: false, source: 'platform', note: p.note || 'Платформа выключена в настройках компании' };
+    return { allowed: false, source: 'platform', note: p.note || 'Платформа выключена в настройках Flux' };
   }
 
   // Владелец управляет всей программой, включая встроенные приложения. Общий

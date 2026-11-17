@@ -563,13 +563,11 @@ console.log('\n10. Запись в версионные модели не обх
   const SET = /[?:,(]\s*\{\s*version\s*:(?!\s*(?:\{\s*increment|true\b|false\b|\d|'desc'|'asc'))|\bdata\s*:\s*\{\s*version\s*:(?!\s*\{\s*increment)/g;
   compare('версия, поставленная руками', tally((_rel, src) => writeCall.test(src)
     ? src.split('\n').filter((l) => { SET.lastIndex = 0; return SET.test(l); }).length : 0), {
-    'server/routes/equipmentXmlSources.ts': { n: 2, why: 'часть 5: «хватка» позиции и откат XML-ревизии ставят прочитанную версию; откат назад нарушает «версия только растёт»' },
-    'server/equipmentXmlUndo.ts': { n: 1, why: 'часть 5: то же для отмены XML-ревизии' },
   });
 
   // 4. Клиент сервера собирается с расширением (проверка роста версии — scripts/test-version-bump.ts)
   ok('server.ts: клиент базы создаётся с расширением роста версии',
-    /traceDatabase\(\s*withVersionBump\(\s*buildPrismaClient\(/.test(read('server.ts')));
+    /withChangeFeed\(\s*buildPrismaClient\([^)]*\)\s*,\s*\(\w+\)\s*=>\s*traceDatabase\(\s*withVersionBump\(/.test(read('server.ts')));
 
   // 5. Удаление под защитой открытой записи: всякий вызов guardedDelete несёт openCheck (запись и всё,
   // что уйдёт вместе с ней, не открыты у коллеги — иначе у него на экране остаётся то, чего уже нет).
@@ -592,8 +590,9 @@ console.log('\n10. Запись в версионные модели не обх
   };
   const guarded = tally((_rel, src) => callsOf(src).filter((c) => /\bopenCheck\s*:/.test(c)).length);
   // Позиция; установка и тег; реестр ВДР и его строка. Убрали защиту у одного из них — число упадёт
-  ok('guardedDelete: защита открытой записи стоит у удаления позиции, установки, тега, реестра и строки ВДР',
-    guarded['server/routes/equipmentEdit.ts'] === 1 && guarded['server/routes/tags.ts'] === 2 && guarded['server/routes/vdr.ts'] === 2, guarded);
+  ok('guardedDelete: защита открытой записи стоит у удаления позиции, установки, тега, реестра и строки ВДР, проекта и пункта справочника',
+    guarded['server/routes/equipmentEdit.ts'] === 1 && guarded['server/routes/tags.ts'] === 2 && guarded['server/routes/vdr.ts'] === 2
+      && guarded['server/routes/projects.ts'] === 1 && guarded['server/routes/dictionaries.ts'] === 1, guarded);
   compare('guardedDelete без openCheck', tally((_rel, src) => callsOf(src).filter((c) => !/\bopenCheck\s*:/.test(c)).length), {
     // 'server/routes/…': { n: 1, why: 'строки 2–4 очерёдности: … (удаление вне оборудования)' },
   });

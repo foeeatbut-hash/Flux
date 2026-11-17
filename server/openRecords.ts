@@ -41,6 +41,11 @@ export const NOUN_OF_MODEL: Record<string, RefusalNoun> = {
   Tag: 'tag',
   DocRegister: 'register',
   DocRegisterItem: 'registerItem',
+  FileNode: 'file',
+  Project: 'project',
+  Dictionary: 'dictionary',
+  DictionaryItem: 'dictionaryItem',
+  TagTemplate: 'tagTemplate',
 };
 
 /** Делегат клиента → имя модели: `componentElement` → `ComponentElement` */
@@ -199,4 +204,29 @@ export async function findOpen(db: any, input: { userId: string; records: OpenRe
   }
   // В порядке, в каком записи названы: сама удаляемая первой, затем вложенные
   return Array.from(wanted.keys()).filter((k) => hits.has(k)).map((k) => hits.get(k)!);
+}
+
+/**
+ * Все свежие отметки чужих окон — без списка записей, которыми они могли бы быть.
+ *
+ * Для обратного обхода: у удаляемого проекта могут быть десятки тысяч тегов, и
+ * спрашивать «а этот открыт?» по каждому нельзя, а чужих окон мало (в каждом не
+ * больше OPEN_MAX_RECORDS записей). Берём то, что открыто, и уже по нему решает
+ * вызывающий, какие записи принадлежат проекту. Каждая запись — один раз.
+ * `db` и ошибки — как у `findOpen`.
+ */
+export async function findFreshOpenRefs(db: any, input: { userId: string }, now = Date.now()): Promise<OpenRef[]> {
+  const rows: Array<{ model: string; recordId: string }> = await db.openRecord.findMany({
+    where: { userId: { not: input.userId }, at: { gte: new Date(now - OPEN_FRESH_MS) } },
+    select: { model: true, recordId: true },
+  });
+  const seen = new Set<string>();
+  const out: OpenRef[] = [];
+  for (const row of rows) {
+    const key = `${row.model}\u0000${row.recordId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ model: row.model, id: row.recordId });
+  }
+  return out;
 }

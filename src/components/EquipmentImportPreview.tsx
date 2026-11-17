@@ -14,6 +14,8 @@ import FileBadge from './ui/FileBadge';
 import { ICON_SIZE } from '../lib/metrics';
 import type { EquipmentDocumentImportSource } from '../../equipment/documentBindings';
 import { loadEquipmentDocumentBindings } from '../lib/equipmentDocumentBindings';
+import ConflictNotice from './ui/ConflictNotice';
+import { pickSeen, planConflictOf, planRefusalOf, recordTitle, type PlanRefusal } from './equipment/planRefusal';
 
 // ── Предпросмотр импорта оборудования (dry-run, Фаза 2 «Импорт бланков 2.0») ──
 // Показывает, ЧТО изменится в проекте, ДО записи: дерево систем/блоков с диффом,
@@ -62,6 +64,12 @@ interface ImportPlan {
   /** Сколько затрагиваемых позиций уже стоит в схеме КИП (предупреждение, не запрет) */
   inScheme?: { count: number; bySystem: Record<string, number> };
   unknownKinds?: string[];
+  /**
+   * Версии позиций, которые план читал и собирается менять, заменять и снимать, и их показанные
+   * поля. Запись присылает версии обратно: изменили хоть одну — сервер ничего не пишет (409).
+   */
+  seen?: Record<string, number>;
+  seenRows?: Record<string, any>;
   totals: { removed?: number; restored?: number; systems: number; newBlocks: number; updatedBlocks: number; unchangedBlocks: number; conflicts: number; warnings: number; overrides: number; tagsNew?: number; tagsLinked?: number };
 }
 
@@ -115,6 +123,8 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
   const [choices, setChoices] = useState<Record<string, string>>({});
   const [showMatches, setShowMatches] = useState(false);
   const [bindingRevision, setBindingRevision] = useState(draft?.sourceBinding?.expectedLedgerRevision);
+  // Отказ записи: позиции изменили, пока человек смотрел предпросмотр. Висит над планом, пока человек не подтвердит заново
+  const [refusal, setRefusal] = useState<PlanRefusal | null>(null);
 
   useEffect(() => setBindingRevision(draft?.sourceBinding?.expectedLedgerRevision), [draft?.sourceBinding?.expectedLedgerRevision]);
 
@@ -147,7 +157,7 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
     finally { setLoading(false); }
   };
 
-  useEffect(() => { setExcluded(new Set()); setEdits({}); setChoices({}); setShowTags(false); setShowMatches(false); loadPlan({}); /* новый источник */ }, [fileId, draft?.fileName]);
+  useEffect(() => { setExcluded(new Set()); setEdits({}); setChoices({}); setShowTags(false); setShowMatches(false); setRefusal(null); loadPlan({}); /* новый источник */ }, [fileId, draft?.fileName]);
 
   const titleOfBlock = (key: string) => {
     const b = plan?.blocks.find(x => x.key === key);
@@ -257,21 +267,45 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
         // Решение «оставить как в файле» уезжает написанием из файла
         .map(l => ({ ...l, identifier: writtenAs(l) }));
       const selection = selectedBlocks.map(b => b.key);
+      // Версии позиций, которых коснётся запись: выбранные блоки (и прежние записи, что «Переподобрано» снимет)
+      // и позиции «будет снято», где решение не «оставить». Снятый с выбора блок не сверяется
+      const touched = new Set<string>();
+      for (const b of selectedBlocks) { if (b.elementId) touched.add(b.elementId); if (b.replacesId) touched.add(b.replacesId); }
+      for (const m of missingShown) if ((choices[m.key] ?? (m.remove ? 'remove' : 'keep')) === 'remove') touched.add(m.id);
+      const seen = pickSeen(plan.seen, touched);
+      setRefusal(null);
       const r = draft
         ? await fetch('/api/equipment/import-draft', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               units: draft.units, fileName: draft.fileName,
-              category, projectId, edits, selection, tagLinks: chosenTags, choices,
+              category, projectId, edits, selection, tagLinks: chosenTags, choices, seen,
               ...(draft.sourceBinding ? { sourceBinding: { ...draft.sourceBinding, expectedLedgerRevision: bindingRevision ?? draft.sourceBinding.expectedLedgerRevision } } : {}),
             }),
           })
         : await fetch('/api/equipment/import-to-category', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fileId, category, projectId, edits, selection, tagLinks: chosenTags, choices }),
+            body: JSON.stringify({ fileId, category, projectId, edits, selection, tagLinks: chosenTags, choices, seen }),
           });
       const d = await r.json();
       if (!r.ok) {
+        // Позиции изменили после предпросмотра: ничего не записано. Показываем перечень, строим предпросмотр
+        // заново по тому, что есть сейчас, и ждём нового подтверждения — молча не пишем и не повторяем
+        if (planConflictOf(r.status, d)) {
+          const rows = plan.seenRows || {};
+          const blockOf = (id: string) => plan.blocks.find(b => b.elementId === id || b.replacesId === id);
+          setRefusal(planRefusalOf(d, {
+            rows,
+            titleOf: (id, rec) => {
+              const b = blockOf(id);
+              const miss = (plan.missing || []).find(m => m.id === id);
+              return b ? `${b.systemName} · ${b.title || b.itemCode}` : miss ? `${miss.systemName} · ${miss.title}` : recordTitle(id, rec);
+            },
+          }));
+          setApplying(false);
+          await loadPlan(edits, choices, true);
+          return;
+        }
         if (r.status === 409 && draft?.sourceBinding) {
           try { setBindingRevision((await loadEquipmentDocumentBindings(projectId)).revision); }
           catch (_) { /* Ошибка CAS остаётся видимой; локальная ревизия не подменяется. */ }
@@ -388,6 +422,12 @@ export default function EquipmentImportPreview({ fileIds = [], draft, category, 
                 </button>
               )}
             </div>
+
+            {refusal && (
+              <div data-plan-refusal className="px-5 py-3 border-b border-slate-200 dark:border-slate-800 shrink-0 max-h-56 overflow-auto">
+                <ConflictNotice message={refusal.message} groups={refusal.groups} />
+              </div>
+            )}
 
             {plan.inScheme && plan.inScheme.count > 0 && <InSchemeNotice inScheme={plan.inScheme} />}
 

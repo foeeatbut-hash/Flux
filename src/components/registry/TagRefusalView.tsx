@@ -17,6 +17,7 @@ export function TagRefusalView({ refusal, className = '' }: { refusal: TagRefusa
   if (refusal.kind === 'plain') return <div role="alert" className={`fx-error ${className}`.trim()}>{refusal.message}</div>;
   return (
     <ConflictNotice message={refusal.message} className={className}
+      changedBy={refusal.kind === 'conflict' && !refusal.groups ? refusal.changedBy : undefined}
       changes={refusal.kind === 'conflict' && !refusal.groups ? refusal.changes : undefined}
       groups={refusal.kind === 'conflict' ? refusal.groups : undefined} />
   );

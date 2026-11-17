@@ -30,7 +30,7 @@ const MAX_RESPONSE = 24 * 1024 * 1024;
 /** Ответ JSON либо байты (`binary`): пакет программы приходит как есть */
 function consoleRequest(origin, method, route, { body = null, token = '', binary = false, signal = null } = {}) {
   if (!routeAllowed(method, route)) return Promise.reject(new Error('Маршрут недоступен разделу владельца.'));
-  if (!token) return Promise.reject(new Error('Подключитесь к общей БД компании.'));
+  if (!token) return Promise.reject(new Error('Подключитесь к общей БД.'));
   const base = serverUrl(origin), url = new URL(route, base), transport = url.protocol === 'https:' ? https : http;
   const json = body === null ? null : Buffer.from(JSON.stringify(body));
   return new Promise((resolve, reject) => {

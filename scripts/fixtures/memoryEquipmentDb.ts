@@ -89,6 +89,7 @@ export function memoryEquipmentDb(): MemoryDb {
       create: async ({ data }: any) => { const r = { id: id('sys'), createdAt: new Date(), ...data }; systems.push(r); return { ...r }; },
       update: async ({ where, data }: any) => ({ ...patch(systems.find(s => s.id === where.id)!, data) }),
       delete: async ({ where }: any) => { const i = systems.findIndex(s => s.id === where.id); if (i >= 0) systems.splice(i, 1); return {}; },
+      deleteMany: async ({ where }: any) => { const i = systems.findIndex(s => s.id === where.id); if (i >= 0) systems.splice(i, 1); return { count: i >= 0 ? 1 : 0 }; },
     },
     monoblock: {
       findUnique: async ({ where }: any) => { const r = monoblocks.find(m => m.id === where.id); return r ? { id: r.id } : null; },
@@ -99,6 +100,7 @@ export function memoryEquipmentDb(): MemoryDb {
         components: elements.filter(e => e.monoblockId === m.id).map(e => withTags(e, include?.components?.include)),
       })),
       delete: async ({ where }: any) => { const i = monoblocks.findIndex(m => m.id === where.id); if (i >= 0) monoblocks.splice(i, 1); return {}; },
+      deleteMany: async ({ where }: any) => { const i = monoblocks.findIndex(m => m.id === where.id); if (i >= 0) monoblocks.splice(i, 1); return { count: i >= 0 ? 1 : 0 }; },
     },
     componentElement: {
       findUnique: async ({ where }: any) => { const r = elements.find(e => e.id === where.id); return r ? { id: r.id } : null; },
@@ -118,6 +120,11 @@ export function memoryEquipmentDb(): MemoryDb {
         const i = elements.findIndex(e => e.id === where.id);
         if (i >= 0) { for (const k of [...links]) if (k.startsWith(`${where.id}|`)) links.delete(k); elements.splice(i, 1); }
         return {};
+      },
+      deleteMany: async ({ where }: any) => {
+        const i = elements.findIndex(e => e.id === where.id);
+        if (i >= 0) { for (const k of [...links]) if (k.startsWith(`${where.id}|`)) links.delete(k); elements.splice(i, 1); }
+        return { count: i >= 0 ? 1 : 0 };
       },
     },
     equipmentHistory: {

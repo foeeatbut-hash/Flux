@@ -9,12 +9,21 @@
 import { VDR_PERM_RULES } from './vdrPermissions.js';
 
 export type PermRequirement = { perm: string; title: string };
-export type PermRule = PermRequirement & { method: RegExp; path: RegExp; also?: PermRequirement[] };
+export type PermRule = PermRequirement & {
+  method: RegExp; path: RegExp; also?: PermRequirement[];
+  /** Правило действует, только если тело запроса ему подходит (иначе поиск идёт дальше по таблице) */
+  when?: (body: unknown) => boolean;
+};
 export const PERM_ROUTES: PermRule[] = [
   { method: /^(POST|PUT|DELETE|PATCH)$/, path: /^\/api\/projects\/?$|^\/api\/projects\/[^/]+$/,
     perm: 'project.manage', title: 'Управление проектами' },
   { method: /^(POST|PUT|PATCH)$/, path: /^\/api\/projects\/[^/]+\/tags(?:\/|$)/,
     perm: 'tags.manage', title: 'Создание и правка тегов' },
+  // «Закупки» пишут в тег только свой ключ `procurement`, и право у них своё: правка тегов
+  // здесь не нужна, а одного права на закупки хватает. Правила стоят выше общего правила тегов.
+  { method: /^PATCH$/, path: /^\/api\/tags\/[^/]+\/procurement\/?$/, perm: 'procurement.manage', title: 'Этапы закупки' },
+  { method: /^PUT$/, path: /^\/api\/tags\/bulk-metadata\/?$/, perm: 'procurement.manage', title: 'Этапы закупки',
+    when: (body) => (body as { source?: unknown } | null | undefined)?.source === 'Закупки' },
   { method: /^(PUT|PATCH)$/, path: /^\/api\/tags\//, perm: 'tags.manage', title: 'Создание и правка тегов' },
   // Генератор создаёт тег, и право то же, что у правки: раньше POST сюда не доходил ни одно правило
   { method: /^POST$/, path: /^\/api\/tags\/generate\/?$/, perm: 'tags.manage', title: 'Создание и правка тегов' },
@@ -48,6 +57,6 @@ export const PERM_ROUTES: PermRule[] = [
 ];
 
 /** Правило для запроса или null, если запись по этому маршруту не требует отдельного права. */
-export function permRuleFor(method: string, route: string): PermRule | null {
-  return PERM_ROUTES.find(r => r.method.test(method) && r.path.test(route)) ?? null;
+export function permRuleFor(method: string, route: string, body?: unknown): PermRule | null {
+  return PERM_ROUTES.find(r => r.method.test(method) && r.path.test(route) && (!r.when || r.when(body))) ?? null;
 }

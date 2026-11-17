@@ -27,6 +27,7 @@
  */
 
 import { bumpedData } from './versionBump.js';
+import { lastChange, type ChangedBy } from './changeFeedRead.js';
 import { findOpen, isMissingTable, NOUN_OF_MODEL, schemaModelOf, type OpenHolder, type OpenRef } from './openRecords.js';
 import {
   RECORD_GONE, RECORD_OPEN, VERSION_CONFLICT, createInsideGoneText, deleteOpenNestedText, deleteOpenText,
@@ -35,10 +36,26 @@ import {
 
 /** Запись не применена: запись до этого изменили. `current` — какой она стала (`null`, если уже не прочесть). */
 export class VersionConflict extends Error {
+  /**
+   * Кто изменил запись последним (журнал изменений). `undefined` — не искали:
+   * дополняют guardedWrite/guardedDelete; места, что бросают отказ сами, отдают `null`.
+   */
+  changedBy?: ChangedBy | null;
   constructor(message: string, public current: any = null) {
     super(message);
     this.name = 'VersionConflict';
   }
+}
+
+/**
+ * Дополнить отказ строкой «кто изменил»: последняя строка журнала по записи
+ * (`current.id`). Делается после отката транзакции, обычным клиентом. Не нашли
+ * или журнала нет — `null`: отказ от этого не меняется.
+ */
+async function withChangedBy(prisma: any, delegate: string, e: VersionConflict): Promise<void> {
+  if (e.changedBy !== undefined) return;
+  const id = e.current?.id;
+  e.changedBy = id ? await lastChange(prisma, schemaModelOf(delegate), String(id)) : null;
 }
 
 /** Внутренний сигнал «проиграл гонку, можно перечитать и повторить». */
@@ -93,9 +110,16 @@ export function expectedVersionOf(raw: unknown): number | undefined | null {
  * Транзакция, если база их умеет. Заглушки проверок без `$transaction`
  * получают сам клиент: сверка «сравни и поменяй» остаётся в силе.
  */
-export function inTransaction<T>(prisma: any, fn: (db: any) => Promise<T>): Promise<T> {
-  return typeof prisma.$transaction === 'function' ? prisma.$transaction(fn) : fn(prisma);
+export function inTransaction<T>(prisma: any, fn: (db: any) => Promise<T>, options?: TransactionOptions): Promise<T> {
+  return typeof prisma.$transaction === 'function' ? (options ? prisma.$transaction(fn, options) : prisma.$transaction(fn)) : fn(prisma);
 }
+
+/**
+ * Параметры транзакции для маршрутов, чьё тело долгое (удаление проекта со всем
+ * содержимым) или требует уровня изоляции (перенос значений при переименовании
+ * категории справочника). Без них — умолчания клиента базы.
+ */
+export interface TransactionOptions { timeout?: number; maxWait?: number; isolationLevel?: 'Serializable' | 'RepeatableRead' | 'ReadCommitted' }
 
 const sameInstant = (a: any, b: any): boolean => new Date(a).getTime() === new Date(b).getTime();
 
@@ -136,6 +160,8 @@ export interface GuardedWriteOptions<R> {
   after?: (db: any, before: any, after: any) => Promise<void>;
   /** Как называется запись в словаре отказов: проигранная гонка с удалением отвечает «записи уже нет», а не пустым конфликтом. */
   goneNoun?: RefusalNoun;
+  /** Время и уровень изоляции транзакции, если умолчаний мало */
+  transaction?: TransactionOptions;
 }
 
 /**
@@ -163,13 +189,16 @@ export async function guardedWrite<R = undefined>(prisma: any, opts: GuardedWrit
         const after = await db[opts.model].findUnique({ where: { id: current.id } });
         if (opts.after) await opts.after(db, current, after);
         return { before: current, after, extra };
-      });
+      }, opts.transaction);
     } catch (e) {
+      if (e instanceof VersionConflict) await withChangedBy(prisma, opts.model, e);
       if (!(e instanceof RaceLost)) throw e;
       if (n < attempts) continue;
       const fresh = await prisma[opts.model].findUnique({ where: { id: opts.id } }).catch(() => null);
       if (!fresh && opts.goneNoun) throw new RecordGone(opts.goneNoun);
-      throw new VersionConflict(expecting ? RACE_WITH_EXPECTATION : RACE_WITHOUT_EXPECTATION, fresh);
+      const lost = new VersionConflict(expecting ? RACE_WITH_EXPECTATION : RACE_WITHOUT_EXPECTATION, fresh);
+      await withChangedBy(prisma, opts.model, lost);
+      throw lost;
     }
   }
 }
@@ -209,6 +238,8 @@ export interface GuardedDeleteOptions {
    * (scripts/test-architecture.ts) до своей очереди.
    */
   openCheck?: OpenCheckOptions;
+  /** Время и уровень изоляции транзакции, если умолчаний мало (удаление проекта идёт минуты) */
+  transaction?: TransactionOptions;
 }
 
 const defaultName = (row: any): string => String(row?.name || row?.itemCode || '').trim();
@@ -226,15 +257,25 @@ async function assertNotOpen(db: any, opts: GuardedDeleteOptions, current: any):
   const nameOf = check.nameOf || defaultName;
   const self: OpenRef = { model: schemaModelOf(opts.model), id: current.id, name: nameOf(current) };
   const selfNoun = nounOfModel(self.model);
-  const nested = check.cascade ? await check.cascade(db, current) : [];
-  for (const r of nested) nounOfModel(r.model);
-  let hits: Awaited<ReturnType<typeof findOpen>>;
-  try {
-    hits = await findOpen(db, { userId: check.userId, records: [self, ...nested] });
-  } catch (e) {
+  // Чтение вложенного (cascade) и открытых — одно и то же чтение «кто что держит»: нет таблицы
+  // открытых записей — защиты пока нет, иной сбой — удалять вслепую нельзя
+  const unreadable = (e: any): never => {
     // Общая база создана версией без таблицы: защиты пока нет, а удаление не должно из-за этого вставать
     if (isMissingTable(e)) throw new OpenTableMissing();
     throw new OpenCheckUnavailable(e);
+  };
+  let nested: OpenRef[] = [];
+  try {
+    nested = check.cascade ? await check.cascade(db, current) : [];
+  } catch (e) {
+    unreadable(e);
+  }
+  for (const r of nested) nounOfModel(r.model);
+  let hits: Awaited<ReturnType<typeof findOpen>> = [];
+  try {
+    hits = await findOpen(db, { userId: check.userId, records: [self, ...nested] });
+  } catch (e) {
+    unreadable(e);
   }
   const hit = hits[0];
   if (!hit) return;
@@ -262,15 +303,18 @@ export async function guardedDelete(prisma: any, opts: GuardedDeleteOptions): Pr
         const gone = await db[opts.model].deleteMany({ where: { id: current.id, version: current.version } });
         if (gone.count !== 1) throw new RaceLost();
         return { before: current };
-      });
+      }, opts.transaction);
     } catch (e) {
       // Транзакция с отказом чтения откатилась целиком (в PostgreSQL после сбоя запроса она негодна) —
       // повторяем удаление без защиты
       if (e instanceof OpenTableMissing && guarded) { guarded = false; continue; }
+      if (e instanceof VersionConflict) await withChangedBy(prisma, opts.model, e);
       if (!(e instanceof RaceLost)) throw e;
       // Проигравший гонку: победитель уже записан, его и показываем в отказе
       const fresh = await prisma[opts.model].findUnique({ where: { id: opts.id } }).catch(() => null);
-      throw new VersionConflict(RACE_WITH_EXPECTATION, fresh);
+      const lost = new VersionConflict(RACE_WITH_EXPECTATION, fresh);
+      await withChangedBy(prisma, opts.model, lost);
+      throw lost;
     }
   }
 }
@@ -280,11 +324,14 @@ type Res = { status: (code: number) => { json: (body: unknown) => unknown } };
 /**
  * Ответ 409: текст для человека (по-русски, без кода) и текущая запись, чтобы
  * экран показал отказ и перечитал её, а не затёр чужое. Код — отдельным полем.
+ * `changedBy: { userId, name, at } | null` — кто изменил запись последним (его
+ * вписывают guardedWrite/guardedDelete; у отказов, что бросают маршруты сами, — `null`).
  * `present` — как маршрут обычно отдаёт эту запись (разбор JSON-полей и т. п.).
  */
 export function sendVersionConflict(res: Res, e: VersionConflict, present?: (record: any) => unknown): unknown {
   const current = e.current && present ? present(e.current) : e.current ?? null;
-  return res.status(409).json({ error: e.message, code: VERSION_CONFLICT, current });
+  // `changedBy` — кто изменил запись последним (журнал изменений); без него экран показывает отказ без подписи
+  return res.status(409).json({ error: e.message, code: VERSION_CONFLICT, current, changedBy: e.changedBy ?? null });
 }
 
 /**

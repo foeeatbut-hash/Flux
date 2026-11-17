@@ -336,9 +336,10 @@ async function main() {
     {
       await seedEquipment();
       // Справочник: версионная модель, у которой слова в словаре пока нет (появится в строке 3 очерёдности — тогда взять другую)
-      const d = await raw.dictionary.create({ data: { id: 'dc-noun', projectId: 'p1', name: 'Без слова' } });
-      const e = await rejects(() => guardedDelete(raw, { model: 'dictionary', id: d.id, staleMessage: stale, openCheck: { userId: 'U1' } }));
-      check('модель без существительного в словаре: ошибка разработчика сразу, а не молчание', e instanceof Error && /NOUN_OF_MODEL/.test(e.message) && !!(await raw.dictionary.findUnique({ where: { id: d.id } })), e?.message);
+      // У справочника слово теперь есть; документ Конструктора — модель с версией, но без слова
+      const d = await raw.constructorDoc.create({ data: { id: 'cd-noun', projectId: 'p1', name: 'Без слова' } });
+      const e = await rejects(() => guardedDelete(raw, { model: 'constructorDoc', id: d.id, staleMessage: stale, openCheck: { userId: 'U1' } }));
+      check('модель без существительного в словаре: ошибка разработчика сразу, а не молчание', e instanceof Error && /NOUN_OF_MODEL/.test(e.message) && !!(await raw.constructorDoc.findUnique({ where: { id: d.id } })), e?.message);
     }
 
     // ── Ответы отказов ──
