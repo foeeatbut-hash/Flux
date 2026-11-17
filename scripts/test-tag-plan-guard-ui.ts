@@ -358,7 +358,7 @@ async function main() {
     });
     same('ввоз ВДР: перечень по строкам — ДОК-2', await groupsOf(importRefusal), ['ДОК-2']);
     same('ввоз ВДР: название было «Схема узла», стало «Схема узла (новая)»', await changesOf(importRefusal), [{ label: 'Наименование (рус)', was: 'Схема узла', now: 'Схема узла (новая)' }]);
-    check('ввоз ВДР: текст отказа про ввоз', /ввоз/i.test((await importRefusal.locator('[data-conflict-message]').textContent())!));
+    check('ввоз ВДР: текст отказа про загрузку', /загрузк/i.test((await importRefusal.locator('[data-conflict-message]').textContent())!));
     await shot('vdr-import-refusal');
     await page.getByRole('button', { name: 'Понятно' }).click();
 
