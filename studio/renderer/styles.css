@@ -21,6 +21,8 @@ body { background: var(--flux-surface); color: var(--flux-text); font-family: va
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; margin: 8px 0; }
 .field > label { font-size: 12px; line-height: 16px; font-weight: 500; color: var(--flux-text-muted); }
+/* Переключатель вариантов в поле — по размеру кнопок, а не на всю ширину окна */
+.field > .fx-segctl { align-self: flex-start; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .row.tight { flex-wrap: nowrap; }
 .muted { color: var(--flux-text-muted); }

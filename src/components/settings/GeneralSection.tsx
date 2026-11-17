@@ -11,6 +11,7 @@ import SectionShell from './SectionShell';
 import FluxLogo from '../FluxLogo';
 import OnlineVisibility from './OnlineVisibility';
 import DisplaySettings from '../shell/DisplaySettings';
+import UpdaterWidget from '../UpdaterWidget';
 import { useStore } from '../../store/store';
 
 export default function GeneralSection({ theme, toggleTheme, density, setDensity, addToast, user }: any) {
@@ -48,6 +49,10 @@ export default function GeneralSection({ theme, toggleTheme, density, setDensity
       <DisplaySettings />
 
       <StartupSection />
+
+      {/* Сведения об обновлении видны всегда, назначено оно этому сотруднику или нет: поставить опубликованную
+          версию отсюда можно в любой момент. Значок у часов, наоборот, светится только по назначению */}
+      <UpdaterWidget />
 
       <div className="fx-set-group">
         <h3 className="fx-group-title">О программе</h3>

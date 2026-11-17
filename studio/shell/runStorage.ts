@@ -2,7 +2,7 @@
  * Хранилище самостоятельной программы в запуске Studio, главный процесс (область `studio`).
  *
  * Те же правила, что у Flux (modules/storage): на диск попадает состояние ТОЛЬКО самостоятельной программы (ничего не читает
- * во Flux, открывается из «Пуска»), предел 1 МиБ проверяет этот процесс, а не окно, запись атомарная, битый файл откладывается
+ * во Flux, открывается из «Пуска»), предела размера нет, запись атомарная, битый файл откладывается
  * рядом. Программа, читающая данные Flux, остаётся с состоянием в памяти окна, как раньше. Папка — `program-data` в данных
  * Studio, область `studio`: с областями `released` и `dev` Flux она не пересекается. Данные проектов сюда не попадают: тестовая
  * база лежит отдельно, а на диске оказывается только то, что программа сама положила в `flux.state`.
@@ -13,7 +13,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { clearStorage, readEnvelope, storageUsage, writeEnvelope, type StorageTarget, type WriteResult } from '../../modules/storage/disk';
-import { STORAGE_IN_MEMORY_TEXT, isStandalone, storageFullText, storageUsageText } from '../../modules/storage/model';
+import { STORAGE_IN_MEMORY_TEXT, isStandalone, storageUsageText } from '../../modules/storage/model';
 import type { RunStorageInfo, RunStorageKeepReply, RunStorageLoadReply } from '../shared/runActions';
 import { StudioFailure } from './api';
 import type { RunContext } from './runConnections';
@@ -61,7 +61,6 @@ export class RunStorage {
     const wrote: WriteResult = await writeEnvelope(fs, target, { writtenBy: this.deps.version, state }).catch((): WriteResult => ({ ok: false, code: 'FAILED' }));
     if (wrote.ok) return { ok: true, stored: true, bytes: wrote.bytes, ...(wrote.broken ? { line: `Прежний файл хранилища не распознан и отложен: ${path.basename(wrote.broken.kept)}` } : {}) };
     const failed = wrote as Extract<WriteResult, { ok: false }>;
-    if (failed.code === 'LIMIT') return { ok: false, code: 'LIMIT', line: storageFullText(failed.bytes ?? 0) };
     return { ok: false, code: 'FAILED', line: 'Хранилище не записано: ошибка диска; состояние живёт в окне до закрытия' };
   }
 

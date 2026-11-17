@@ -11,12 +11,19 @@ import { pageHung, type WindowOptions, type PageDialog, type PageDialogAnswer } 
 import type { ModuleManifest } from '../../../../modules/contract';
 import RunDialog from '../RunDialog';
 import { dialogAnswerLine, dialogStartLine } from '../../work/programDialog';
-import { STORAGE_LIMIT_BYTES, isStandalone } from '../../../../modules/storage/model';
+import { NO_STORAGE_LIMIT, isStandalone } from '../../../../modules/storage/model';
 import { CLOSE_TITLE, DEFAULT_MAIN, DEFAULT_WINDOW, closeRequest, windowTitle, type Log, type PageBus, type Started, type WindowSpec } from './model';
 
 /** Общее для всех окон запуска: то, что не зависит от окна (чтение, расчёт, сеть, подключения, другие программы, файлы) */
-/** Запас над пределом хранилища для окна запуска: состояние чуть больше 1 МиБ доходит до главного процесса и получает от него LIMIT */
-const STUDIO_LIMIT_MARGIN = 64 * 1024;
+/** Что значит каждый отказ прикрепления — теми же словами, что у человека во Flux */
+const ATTACH_REFUSALS = {
+  FORBIDDEN: 'у программы нет разрешения прикреплять результаты к проектам',
+  UNAVAILABLE: 'это окно не умеет прикреплять результаты',
+  NO_PROJECT: 'проект не выбран: во Flux результат тоже некуда прикрепить',
+  DENIED: 'недопустимое имя файла или проект закрыт для человека',
+  LIMIT: 'файл больше предела или вызовы слишком частые',
+  FAILED: 'не удалось',
+} as const;
 
 export interface RunHost {
   started: Started;
@@ -31,6 +38,8 @@ export interface RunHost {
   manifest: ModuleManifest;
   offerFile: (file: { name: string; mime: string; bytes: Uint8Array }) => Promise<'saved' | 'cancelled'>;
   pickFile: NonNullable<NonNullable<ModuleBridgeOptions['page']>['pickFile']>;
+  /** Прикрепление к проекту: в Studio честная имитация, файл нигде не пишется (Run.tsx) */
+  attach: NonNullable<NonNullable<ModuleBridgeOptions['page']>['attach']>;
   /** Открыть ещё одно окно; false — предел числа окон или такой страницы нет */
   openWindow: (page: string, params: Record<string, unknown>, options?: WindowOptions) => boolean;
   /** Окно сообщает, есть ли в нём несохранённое (текст — для вопроса); null — нет */
@@ -96,14 +105,13 @@ export default function ProgramWindow({ host, spec, onClose, width }: Props) {
           if (!refusal || refusal.code === 'FAILED') hostRef.current.kept.current = state;
           return refusal || undefined;
         },
-        // Окно пропускает чуть больше предела, чтобы отказ по пределу дал главный процесс (с текстом для журнала), а не молчаливый отказ окна
-        stateLimit: isStandalone(manifest) ? STORAGE_LIMIT_BYTES + STUDIO_LIMIT_MARGIN : undefined,
+        // У самостоятельной программы предела состояния нет (диск), у остальных — прежние 256 КиБ в памяти
+        stateLimit: isStandalone(manifest) ? NO_STORAGE_LIMIT : undefined,
         offerFile: file => hostRef.current.offerFile(file),
         pickFile: request => hostRef.current.pickFile(request),
-        // Прикрепление к проектам только заложено: журнал показывает тот же отказ, что получит программа (во Flux — то же самое)
-        onAttach: ({ name, bytes, code }) => log('прикрепление', code === 'FORBIDDEN'
-          ? `${name} (${bytes} Б) — FORBIDDEN: у программы нет разрешения прикреплять результаты к проектам`
-          : `${name} (${bytes} Б) — UNAVAILABLE: прикрепление появится позже, ничего не записано`, 'warn'),
+        attach: file => hostRef.current.attach(file),
+        // Отказы прикрепления — одной строкой в журнал, с кодом, который получит программа; успех описывает хост (имитация, Run.tsx)
+        onAttach: ({ name, bytes, code }) => { if (code !== 'OK') log('прикрепление', `${name} (${bytes} Б) — ${code}: ${ATTACH_REFUSALS[code]}`, 'warn'); },
         onBeat: () => { beats.current++; lastBeat.current = Date.now(); setHung(false); },
         openWindow: (page, p, options) => hostRef.current.openWindow(page, p, options),
         dialog: request => new Promise<PageDialogAnswer>(resolve => {

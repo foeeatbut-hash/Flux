@@ -43,7 +43,7 @@ import type { SaveDialog } from './runSaveFile';
 import { DevRunRefused } from '../shared/devRun';
 import { studioRequest, StudioFailure, type StudioUser } from './api';
 import {
-  certificateEnvelope, certificateStatus, lastRelease, markFixed, ownBundle, ownErrors, ownReleases, ownRequests, versionWarning, type Session,
+  certificateEnvelope, certificateStatus, lastRelease, markFixed, ownBundle, ownErrors, ownReleases, ownRequests, publishAudience, versionWarning, type Session,
 } from './developerServer';
 
 export interface DeveloperDeps {
@@ -352,6 +352,7 @@ export class DeveloperService {
       case 'check': return this.check(moduleId(args.id));
       case 'publish': return this.publish(moduleId(args.id));
       case 'requests': return ownRequests(this.session());
+      case 'publishAudience': return publishAudience(this.session());
       case 'errors': return ownErrors(this.session(), this.session().owner);
       case 'errorFixed': {
         await markFixed(this.session(), { reportId: text(args.reportId, 64), version: text(args.version, 40), revision: Number(args.revision) });

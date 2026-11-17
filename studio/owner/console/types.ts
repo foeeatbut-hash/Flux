@@ -18,17 +18,31 @@ export interface UpdateDevice {
   deviceId: string; userId: string; name: string; symbol: string; isActive: boolean;
   version: string; platform: string; arch: string; lastSeen: number; offline: boolean;
   status: string; code: string; commandId: string | null; action: string | null;
-  deadline: number | null; targetVersion: string | null;
+  deadline: number | null; targetVersion: string | null; rollback?: boolean;
   commandRelease?: { version: string; generation: string; sha256: string; releaseSignature: string } | null;
 }
+/** Обычное обновление сотрудникам и подразделениям (действие updateAudience) */
+export interface AudienceUser { id: string; name: string; symbol: string; isActive: boolean; departmentId: string | null }
+export interface AudienceDepartment { id: string; name: string; parentId: string | null; kind: string }
+export interface AudienceAssignment {
+  id: string; version: string; generation: string; userIds: string[]; departmentIds: string[]; createdAt: number; createdBy: string;
+  cancelledAt?: number; covered: number; people: string[]; units: string[];
+}
+export interface AudienceState { users: AudienceUser[]; departments: AudienceDepartment[]; assignments: AudienceAssignment[]; releases: UpdateRelease[] }
 export interface UpdateRelease { version: string; generation: string; signature: string; sha256: string }
 export interface Snapshot {
   version: string; unlocked: boolean; vaultExists: boolean; backupSession: boolean; kind: string;
   connected: boolean; display: string; user: { id: string; name: string } | null;
+  /** Запомненные адрес базы и пароль (под защитой учётной записи Windows); секретов здесь нет */
+  remember?: { available: boolean; server: string; keptUntil: number };
+  /** Идёт вход запомненными данными: экран входа не показывается */
+  resuming?: boolean; resumeError?: string;
+  /** Хранилище заперто, но сохранённый пароль ещё действует */
+  canResume?: boolean;
 }
 /** Полное состояние хранилища для раздела «Лицензии» (действие licensesState): реестры и открытые ключи; закрытых ключей здесь нет */
 export interface LicenseRow { id: string; inst: string; org: string; logins: string[]; exp: number; code: string }
-export interface FluxUpdateRow { version: string; published: boolean; iat: number; name: string; size: number; signature: string; server: string }
+export interface FluxUpdateRow { version: string; published: boolean; iat: number; name: string; size: number; signature: string; server: string; package?: string }
 export interface LicensesState {
   version: string; unlocked: boolean; vaultExists: boolean; vaultPath: string; backupSession: boolean; kind: string;
   setupKitPath: string; publicFilePath: string; previousVaultPath: string; setupVerified: boolean;

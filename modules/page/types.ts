@@ -53,7 +53,7 @@ declare const flux: {
   read<R extends FluxResource>(resource: R, entityId?: string): Promise<FluxReadData[R]>;
   /** Расчёт логики (Python, WebAssembly): вход JSON, выход state и calc.out */
   compute(input: Record<string, unknown>): Promise<FluxOutput>;
-  /** Состояние, общее для окон программы. Читающая данные Flux программа: в памяти Flux, до ${PAGE_LIMITS.stateBytes / 1024} КиБ. Самостоятельная (ничего не читает во Flux, открывается только из «Пуска»): на диске этого компьютера у этого человека, до 1 МиБ; ошибки LIMIT (предел) и FAILED (диск). Данные не удаляются при обновлении и откате версии: старый и новый формат программа читает сама */
+  /** Состояние, общее для окон программы. Читающая данные Flux программа: в памяти Flux, до ${PAGE_LIMITS.stateBytes / 1024} КиБ. Самостоятельная (ничего не читает во Flux, открывается только из «Пуска»): на диске этого компьютера у этого человека, размер не ограничен; ошибка FAILED (диск). Данные не удаляются при обновлении и откате версии: старый и новый формат программа читает сама */
   state: { get(): Promise<Record<string, unknown>>; set(state: Record<string, unknown>): Promise<null> };
   /** Подключение из manifest.json; первое обращение Flux подтверждает у человека */
   connect: { call(connection: string, call: Record<string, unknown>): Promise<unknown> };
@@ -76,8 +76,8 @@ declare const flux: {
   };
   /** Отдать файл пользователю: Flux спросит и сохранит через системный диалог (до ~500 КБ) */
   saveFile(name: string, data: string | Uint8Array, mime?: string): Promise<'saved'>;
-  /** Прикрепить результат к проекту (заложено): нужно разрешение { kind: 'attach', does: '…' } в permissions manifest.json (contractVersion 3). Пока Flux ничего не прикрепляет: без разрешения FORBIDDEN, с разрешением UNAVAILABLE */
-  attach(name: string, data: string | Uint8Array, mime?: string): Promise<never>;
+  /** Прикрепить результат к проекту: нужно разрешение { kind: 'attach', does: '…' } в permissions manifest.json (contractVersion 3). Файл ложится в папку открытого проекта «Результаты программ / название программы» в Проводнике Flux, прежний не перезаписывается (при занятом имени появляется номер — ответ называет настоящее имя). Ошибки: FORBIDDEN — нет разрешения, NO_PROJECT — проект не открыт, DENIED — недопустимое имя или проект закрыт для человека, LIMIT, FAILED. В Studio запись имитируется: файл никуда не ложится */
+  attach(name: string, data: string | Uint8Array, mime?: string): Promise<{ name: string; folder: string }>;
   /** Попросить у пользователя файл: Flux покажет системный диалог; программа получает имя и содержимое только выбранного файла (до ${PAGE_LIMITS.openBytes / 1024} КиБ). Отказ человека — ошибка CANCELLED */
   openFile(options?: { accept?: string[] }): Promise<{ name: string; size: number; mime: string; bytes(): Uint8Array; text(): string }>;
   /** Свои окна программы (до ${WINDOW_LIMITS.windows}): страница index.html или объявленная в manifest.json pages */

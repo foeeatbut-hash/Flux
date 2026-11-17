@@ -65,7 +65,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .sect { padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .sect h3 { margin: 0 0 6px; font-size: 13px; }
 .box { margin-top: 6px; padding: 8px; border: 1px solid var(--border); border-radius: var(--flux-radius-sm, 4px); }
-.overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(15, 23, 42, .6); padding: 16px; }
+.overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; background: rgba(15, 23, 42, .6); padding: 16px; }
 .dialog { width: min(640px, 100%); max-height: 92vh; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: var(--flux-radius-sm, 4px); }
 .dialog > header { padding: 10px 16px; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 13px; }
 .dialog > .content { padding: 12px 16px; overflow: auto; }
@@ -84,3 +84,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-
 .people { max-height: 220px; overflow: auto; margin-bottom: 8px; }
 .person { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
 progress { height: 8px; width: 160px; }
+
+/* Флажок с подписью: общий input выше задаёт высоту и поля полям ввода, флажку они не нужны */
+label.check { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 13px; color: var(--text); }
+label.check input { height: auto; width: 16px; padding: 0; margin: 0; }

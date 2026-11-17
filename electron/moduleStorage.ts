@@ -3,7 +3,7 @@
  *
  * Окно программы зовёт `state-load` / `state-keep` через мост, окно Flux переправляет вызов сюда. Здесь решается всё, что
  * нельзя доверить окну: самостоятельная ли программа (по проверенному манифесту, а не по слову окна), чья это папка (человек —
- * из главного процесса, а не из запроса), какая область (выпуск или сборка из разработки), предел 1 МиБ и сам файл
+ * из главного процесса, а не из запроса), какая область (выпуск или сборка из разработки), сам файл
  * (modules/storage/disk.ts: атомарная запись, битый файл откладывается). Программа, читающая данные Flux, на диск не попадает:
  * ей отвечается «хранилища нет», и окно держит её состояние в памяти, как раньше.
  *
@@ -14,7 +14,7 @@ import path from 'node:path';
 import type { ModuleManifest } from '../modules/contract';
 import { PROGRAM_ID } from '../modules/programs/model';
 import { clearStorage, readEnvelope, storageUsage, writeEnvelope, type StorageFs, type StorageTarget } from '../modules/storage/disk';
-import { isStandalone, storageFullText, type StorageScope } from '../modules/storage/model';
+import { isStandalone, type StorageScope } from '../modules/storage/model';
 import type { ModuleJournal } from './moduleJournal';
 
 /** Какую программу и в какой области сейчас запускает человек: ответ главного процесса по проверенному выпуску или пакету разработки */
@@ -33,7 +33,7 @@ export interface ModuleStorageHost {
 }
 
 export type StorageLoadReply = { ok: true; disk: false } | { ok: true; disk: true; state: Record<string, unknown>; bytes: number } | { ok: false; code: 'FAILED' };
-export type StorageKeepReply = { ok: true; disk: boolean; bytes?: number } | { ok: false; code: 'LIMIT'; text: string; bytes: number } | { ok: false; code: 'FAILED' };
+export type StorageKeepReply = { ok: true; disk: boolean; bytes?: number } | { ok: false; code: 'FAILED' };
 
 export class ModuleStorage {
   private fs: StorageFs;
@@ -68,11 +68,6 @@ export class ModuleStorage {
     if (result.ok) {
       if (result.broken) this.note(found.manifest.id, found.version, 'warn', 'storage-broken', `Файл хранилища повреждён и отложен: ${result.broken.kept}`, 'broken');
       return { ok: true, disk: true, bytes: result.bytes };
-    }
-    if (result.ok === false && result.code === 'LIMIT') {
-      const text = storageFullText(result.bytes ?? 0);
-      this.note(found.manifest.id, found.version, 'warn', 'storage-full', text, 'limit');
-      return { ok: false, code: 'LIMIT', text, bytes: result.bytes ?? 0 };
     }
     // В журнал уходит только код ошибки диска: текст ошибки содержит путь к папке человека
     const code = (result.ok === false && result.reason ? result.reason.split(':')[0] : '').slice(0, 20);

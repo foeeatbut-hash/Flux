@@ -8,7 +8,7 @@ export const DEVELOPER_ACTIONS = [
   'build', 'runStart', 'runRead', 'runCompute', 'runShot', 'runPickFile', 'runNet', 'runConnect', 'runConnectAnswer', 'runStop', 'runProgram', 'runSaveFile', 'runStorageInfo', 'runStorageLoad', 'runStorageKeep', 'runStorageClear', 'testPrograms', 'testProgramInstall', 'testProgramRemove', 'devRunStart', 'devRunStop', 'devRunState',
   'historyList', 'historySave', 'historyCompare', 'historyPlan', 'historyRollback', 'historyRemove',
   'ownerNotes', 'releaseList',
-  'check', 'publish', 'requests', 'errors', 'errorFixed',
+  'check', 'publish', 'requests', 'publishAudience', 'errors', 'errorFixed',
 ] as const;
 export type DeveloperAction = typeof DEVELOPER_ACTIONS[number];
 export const ALL_ACTIONS: readonly string[] = [...SHELL_ACTIONS, ...DEVELOPER_ACTIONS];

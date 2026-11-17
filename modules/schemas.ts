@@ -73,7 +73,7 @@ export const messageSchemas = {
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'state-keep' }, state: { type: 'object' } }),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'file-offer' }, name: { type: 'string', minLength: 1, maxLength: 100 },
       mime: { type: 'string', maxLength: 100 }, data: { type: 'string', maxLength: 700_000 }, encoding }, ['flux', 'v', 'session', 'id', 'type', 'op', 'name', 'data', 'encoding']),
-    // Прикрепить результат к проекту (заложено): форма как у file-offer; обрабатывает только отказом (FORBIDDEN / UNAVAILABLE)
+    // Прикрепить результат к проекту (flux.attach): форма как у file-offer; запись во Flux делает хост окна, мост проверяет разрешение
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'attach' }, name: { type: 'string', minLength: 1, maxLength: 100 },
       mime: { type: 'string', maxLength: 100 }, data: { type: 'string', maxLength: 700_000 }, encoding }, ['flux', 'v', 'session', 'id', 'type', 'op', 'name', 'data', 'encoding']),
     object({ ...envelope, id, type: { const: 'page' }, op: { const: 'file-pick' }, accept: { type: 'array', maxItems: 10, items: { type: 'string', pattern: '^\\.[A-Za-z0-9]{1,10}$' } } }, ['flux', 'v', 'session', 'id', 'type', 'op']),
@@ -94,7 +94,7 @@ export const messageSchemas = {
   ] },
   'page-message': object({ ...envelope, type: { const: 'page-message' }, data: {} }),
   'page-result': object({ ...envelope, id, type: { const: 'page-result' }, data: {} }),
-  'page-error': object({ ...envelope, id, type: { const: 'page-error' }, code: { enum: ['DENIED', 'LIMIT', 'FAILED', 'CANCELLED', 'FORBIDDEN', 'UNAVAILABLE'] } }),
+  'page-error': object({ ...envelope, id, type: { const: 'page-error' }, code: { enum: ['DENIED', 'LIMIT', 'FAILED', 'CANCELLED', 'FORBIDDEN', 'UNAVAILABLE', 'NO_PROJECT'] } }),
   error: object({ ...envelope, id, type: { const: 'error' }, code: { enum: ['READ_ONLY', 'DENIED', 'NO_PROJECT', 'FAILED', 'LIMIT'] } }),
   event: object({
     ...envelope, type: { const: 'event' }, event: { enum: ['opened', 'project-changed', 'changed'] },

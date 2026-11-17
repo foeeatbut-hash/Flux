@@ -13,7 +13,7 @@ import { createProgramCaller } from '../../services/moduleProgramCall';
 import { journalEvent } from '../../services/moduleJournalClient';
 import { bridge as hostBridge } from '../../services/moduleReleaseService';
 import type { GrantAsk } from '../../../modules/connections/model';
-import { joinPageBus, openModuleWindow, offerFileToUser, pickFileForProgram, pageTimings } from '../../services/modulePage';
+import { joinPageBus, openModuleWindow, offerFileToUser, pickFileForProgram, attachResultToProject, pageTimings } from '../../services/modulePage';
 import { pageHung } from '../../../modules/page/model';
 import { stateLimitFor } from '../../../modules/storage/model';
 import { createProgramStateStore } from '../../services/moduleStateStorage';
@@ -106,6 +106,10 @@ export default function ModuleFrame({ manifest, context, theme, createReadCycle,
         loadState: programState.load, keepState: programState.keep, stateLimit: stateLimitFor(manifest),
         offerFile: file => offerFileToUser(manifest.name, file),
         pickFile: request => pickFileForProgram(manifest.name, request.accept),
+        // Проект — тот, что открыт в этом окне Flux (context.projectId), а не названный программой
+        attach: file => attachResultToProject({ id: manifest.id, name: manifest.name }, latest.current.context.projectId, file),
+        // В журнал уходят исход и размер, но не имя файла и не проект: журнал программ — только метаданные
+        onAttach: ({ bytes, code }) => journalEvent({ ...base, category: 'permission', level: code === 'OK' ? 'info' : 'warn', event: 'attach', outcome: code.toLowerCase(), bytesOut: bytes }),
         onBeat: () => { beats.current++; lastBeat.current = Date.now(); setHung(false); },
         openWindow: (target, params, options) => openModuleWindow(manifest.id, target, params, options),
         dialog: program.host.dialog, setTitle: program.host.setTitle, setUnsaved: program.host.setUnsaved,

@@ -6,6 +6,7 @@
  */
 import { useWindowStore } from '../store/windowStore';
 import { PAGE_LIMITS, WINDOW_LIMITS, WINDOW_OPTION_LIMITS, type WindowOptions } from '../../modules/page/model';
+import type { AttachResult } from '../../modules/page/attach';
 
 export { pageState, pageStateKey } from '../lib/pageStateMemory';
 /** Пороги «не отвечает»; поле, а не константа, чтобы проверка в настоящем Electron не ждала полминуты */
@@ -85,4 +86,32 @@ export async function offerFileToUser(program: string, file: { name: string; mim
   document.body.append(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
   return 'saved';
+}
+
+/** Что сервер ответил отказом → код, который получит программа: окно не пересказывает текст, а передаёт причину */
+export function attachRefusalCode(status: number, code: unknown): 'NO_PROJECT' | 'DENIED' | 'LIMIT' | 'FAILED' {
+  if (code === 'NO_PROJECT') return 'NO_PROJECT';
+  if (code === 'LIMIT' || status === 413) return 'LIMIT';
+  if (code === 'PROJECT_CLOSED' || code === 'DISK' || code === 'BAD_NAME' || code === 'LICENSE' || status === 401 || status === 403) return 'DENIED';
+  return 'FAILED';
+}
+
+/**
+ * Прикрепить результат программы к открытому проекту (flux.attach): запись делает сервер, одной транзакцией, под правами вошедшего
+ * человека — не программы. Проект берётся только из окна Flux, а не из слов программы: программа не может назвать чужой проект.
+ * Без открытого проекта запрос не уходит вовсе.
+ */
+export async function attachResultToProject(program: { id: string; name: string }, projectId: string | null, file: { name: string; mime: string; bytes: Uint8Array }): Promise<AttachResult | { code: 'NO_PROJECT' | 'DENIED' | 'LIMIT' | 'FAILED' }> {
+  if (!projectId) return { code: 'NO_PROJECT' };
+  let raw = '';
+  for (let i = 0; i < file.bytes.length; i += 0x8000) raw += String.fromCharCode(...file.bytes.subarray(i, i + 0x8000));
+  try {
+    const res = await fetch('/api/modules/attach', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId, moduleId: program.id, program: program.name, name: file.name, mime: file.mime, data: btoa(raw) }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok && typeof body?.name === 'string' && typeof body?.folder === 'string') return { name: body.name, folder: body.folder };
+    return { code: attachRefusalCode(res.status, body?.code) };
+  } catch { return { code: 'FAILED' }; }
 }

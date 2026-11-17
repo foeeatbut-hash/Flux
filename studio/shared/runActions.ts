@@ -48,10 +48,10 @@ export type RunSaveReply = 'saved' | 'cancelled';
 export interface RunStorageInfo { standalone: boolean; bytes: number | null; text: string }
 /** Состояние при запуске (`runStorageLoad`); `line` — строка для журнала запуска (битый файл, диск не отвечает) */
 export interface RunStorageLoadReply { standalone: boolean; state: Record<string, unknown>; line?: string; failed?: boolean }
-/** Ответ `runStorageKeep`: `LIMIT` и `FAILED` — отказы, текст `line` — тот же, что видит человек во Flux */
+/** Ответ `runStorageKeep`: отказ — только `FAILED` (диск), предела размера нет; текст `line` — тот же, что видит человек во Flux */
 export type RunStorageKeepReply =
   | { ok: true; stored: boolean; bytes?: number; line?: string }
-  | { ok: false; code: 'LIMIT' | 'FAILED'; line: string };
+  | { ok: false; code: 'FAILED'; line: string };
 
 /** Аргументы действий (для окна и для проверок) */
 export interface RunActionArgs {

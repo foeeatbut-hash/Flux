@@ -61,10 +61,11 @@ async function battery(label: string, model: Model, disk: Disk): Promise<Battery
     ok('обращение к программе снимает метку', !model.worksOffline(manifest({ permissions: [{ kind: 'program', program: 'rates', does: 'Берёт курс валюты у программы курсов' }] })));
     ok('подключение к программе на компьютере метку не снимает', model.worksOffline(manifest({ connections: [{ app: 'E3.series', access: 'read', does: 'Читает список листов открытого проекта', transport: 'com' }] as any })));
     ok('читающая данные Flux метку не получает', !model.worksOffline(manifest({ reads: ['project'] })));
-    ok('предел состояния: диск 1 МиБ у самостоятельной, память 256 КиБ у остальных', model.stateLimitFor(manifest()) === 1024 * 1024 && model.stateLimitFor(manifest({ reads: ['tag'] })) === 256 * 1024);
+    ok('предел состояния: у самостоятельной (диск) предела нет, у остальных (память) прежние 256 КиБ', model.stateLimitFor(manifest()) === Infinity && model.stateLimitFor(manifest({ reads: ['tag'] })) === 256 * 1024);
     ok('размер состояния — байты UTF-8, а не знаки', model.stateBytes({ t: 'я' }) === model.stateBytes({ t: 'a' })! + 1 && model.stateBytes({ n: 1n }) === null);
-    ok('текст отказа называет размер и предел', model.storageFullText(1.3 * 1024 * 1024) === 'Хранилище программы заполнено: 1,3 МиБ из 1 МиБ' && model.storageUsageText(12 * 1024) === 'Хранилище: 12 КиБ из 1 МиБ' && model.sizeText(3 * 1024) === '3 КиБ');
-    ok('меньше килобайта — в байтах, пустое — «0 Б» (не «0 КиБ» при сохранённых данных)', model.sizeText(0) === '0 Б' && model.sizeText(312) === '312 Б' && model.sizeText(1023) === '1023 Б' && model.sizeText(1024) === '1 КиБ' && model.storageUsageText(312) === 'Хранилище: 312 Б из 1 МиБ');
+    ok('строка «сколько занято» без «из …»: предела нет, предупреждения о большом хранилище тоже', model.storageUsageText(12 * 1024) === 'Хранилище: 12 КиБ' && model.storageUsageText(300 * 1024 * 1024) === 'Хранилище: 300 МиБ' && model.sizeText(3 * 1024) === '3 КиБ');
+    ok('ни константы предела, ни текста «хранилище заполнено» в модели не осталось', !('STORAGE_LIMIT_BYTES' in model) && !('storageFullText' in model));
+    ok('меньше килобайта — в байтах, пустое — «0 Б» (не «0 КиБ» при сохранённых данных)', model.sizeText(0) === '0 Б' && model.sizeText(312) === '312 Б' && model.sizeText(1023) === '1023 Б' && model.sizeText(1024) === '1 КиБ' && model.storageUsageText(312) === 'Хранилище: 312 Б');
 
     // ── 2. Путь ──────────────────────────────────────────────────────────────
     const dir = disk.storagePath(root, 'user-1', 'notes', 'released');
@@ -94,18 +95,21 @@ async function battery(label: string, model: Model, disk: Disk): Promise<Battery
     ok('запись не-объекта (массив, null, строка) — отказ FAILED', (await disk.writeEnvelope(real, t, { writtenBy: '1', state: [1] as any })).ok === false && (await disk.writeEnvelope(real, t, { writtenBy: '1', state: null })).ok === false && (await disk.writeEnvelope(real, t, { writtenBy: '1', state: 'x' })).ok === false);
     ok('состояние, которое не превращается в JSON, — отказ FAILED, прежнее цело', (await disk.writeEnvelope(real, t, { writtenBy: '1', state: { n: 1n } })).ok === false && (await disk.readEnvelope(real, t) as any).state.text === 'Привет');
 
-    // ── 4. Предел 1 МиБ: проверяет сам слой диска ────────────────────────────
+    // ── 4. Предела размера нет: решение владельца 15 ноября 2026 («сколько угодно»), замены пределу нет ───
     const limitTarget = target({ programId: 'limits' });
-    const atLimit = await disk.writeEnvelope(real, limitTarget, { writtenBy: '1', state: big(1024 * 1024) });
-    ok('ровно 1 МиБ записывается', atLimit.ok && atLimit.bytes === 1024 * 1024);
-    const over = await disk.writeEnvelope(real, limitTarget, { writtenBy: '1', state: big(1024 * 1024 + 1) });
-    ok('на байт больше — LIMIT с размером', over.ok === false && over.code === 'LIMIT' && over.bytes === 1024 * 1024 + 1);
-    const afterOver = await disk.readEnvelope(real, limitTarget);
-    ok('после отказа прежнее состояние цело', afterOver.ok && afterOver.bytes === 1024 * 1024 && (afterOver.state as any).text.length === 1024 * 1024 - 11);
-    ok('после отказа нет временных файлов', ls(path.dirname(file(limitTarget))).join() === 'state.json');
+    const atMib = await disk.writeEnvelope(real, limitTarget, { writtenBy: '1', state: big(1024 * 1024) });
+    ok('1 МиБ записывается', atMib.ok && atMib.bytes === 1024 * 1024);
+    const overMib = await disk.writeEnvelope(real, limitTarget, { writtenBy: '1', state: big(1024 * 1024 + 1) });
+    ok('на байт больше прежнего предела — записывается, а не LIMIT', overMib.ok && overMib.bytes === 1024 * 1024 + 1);
+    const fiveMib = await disk.writeEnvelope(real, limitTarget, { writtenBy: '1', state: big(5 * 1024 * 1024) });
+    ok('5 МиБ записываются', fiveMib.ok && fiveMib.bytes === 5 * 1024 * 1024);
+    const afterBig = await disk.readEnvelope(real, limitTarget);
+    ok('и читаются обратно целиком, без пометки «битый»', afterBig.ok && !afterBig.broken && afterBig.bytes === 5 * 1024 * 1024 && (afterBig.state as any).text.length === 5 * 1024 * 1024 - 11);
+    ok('использование хранилища называет настоящий размер', await disk.storageUsage(real, limitTarget) === 5 * 1024 * 1024);
+    ok('после записи нет временных файлов', ls(path.dirname(file(limitTarget))).join() === 'state.json');
     const cyr = { text: 'я'.repeat(600 * 1024) };
     const cyrWrite = await disk.writeEnvelope(real, target({ programId: 'cyr' }), { writtenBy: '1', state: cyr });
-    ok('предел считается в байтах: 600 тысяч «я» (1,2 МиБ в UTF-8) — LIMIT', cyrWrite.ok === false && cyrWrite.code === 'LIMIT');
+    ok('600 тысяч «я» (1,2 МиБ в UTF-8) тоже записываются', cyrWrite.ok && cyrWrite.bytes === model.stateBytes(cyr));
 
     // ── 5. Сбой диска посреди записи: прежнее состояние цело ─────────────────
     const diskT = target({ programId: 'disk' });
@@ -166,7 +170,6 @@ async function battery(label: string, model: Model, disk: Disk): Promise<Battery
       ['без format', (p, id) => fs.writeFileSync(p, JSON.stringify({ program: id, writtenBy: '1', savedAt: 'x', state: { t: 1 } }))],
       ['чужая программа', (p, id) => fs.writeFileSync(p, JSON.stringify({ format: 1, program: 'other', writtenBy: '1', savedAt: 'x', state: { t: 1 } }))],
       ['состояние — массив', (p, id) => fs.writeFileSync(p, JSON.stringify({ format: 1, program: id, writtenBy: '1', savedAt: 'x', state: [1] }))],
-      ['состояние больше предела', (p, id) => fs.writeFileSync(p, JSON.stringify({ format: 1, program: id, writtenBy: '1', savedAt: 'x', state: big(1024 * 1024 + 100) }))],
       ['пустой файл', (p, id) => fs.writeFileSync(p, '')],
     ];
     let bn = 0;
@@ -223,7 +226,7 @@ async function battery(label: string, model: Model, disk: Disk): Promise<Battery
     fs.writeFileSync(file(hugeT), 'x'.repeat(3 * 1024 * 1024));
     let reads = 0;
     const hr = await disk.readEnvelope(flaky({ readFile: async (p: string, e: string) => { reads++; return fs.promises.readFile(p, e as 'utf8'); } }), hugeT);
-    ok('файл в несколько МиБ откладывается, не читаясь целиком', hr.ok && !!hr.broken && reads === 0);
+    ok('файл в несколько МиБ, который не JSON, откладывается как битый, а не падает', hr.ok && !!hr.broken && Object.keys(hr.state).length === 0 && reads === 1);
     const dirT = target({ programId: 'folder' });
     fs.mkdirSync(file(dirT), { recursive: true });
     const dr = await disk.readEnvelope(real, dirT);
@@ -278,10 +281,10 @@ async function main() {
 
   console.log('2. Мутации: каждая защита выключается по одной, батарея обязана заметить');
   const mutants: Array<{ name: string; file: 'model' | 'disk'; from: string; to: string }> = [
-    { name: 'предел в записи не проверяется', file: 'disk', from: "if (bytes > STORAGE_LIMIT_BYTES) return { ok: false, code: 'LIMIT', bytes };", to: '' },
+    { name: 'запись снова отказывает больше 1 МиБ', file: 'disk', from: "if (bytes === null || !isPlainObject(input.state)) return { ok: false, code: 'FAILED', reason: 'состояние не объект JSON' };", to: "if (bytes === null || !isPlainObject(input.state)) return { ok: false, code: 'FAILED', reason: 'состояние не объект JSON' };\n  if (bytes > 1024 * 1024) return { ok: false, code: 'LIMIT', bytes };" },
     { name: 'малое состояние показывается как «0 КиБ»', file: 'model', from: 'if (bytes < 1024) return `${Math.max(0, Math.round(bytes))} Б`;', to: '' },
     { name: 'размер считается знаками, а не байтами', file: 'model', from: 'return json === undefined ? null : new TextEncoder().encode(json).length;', to: 'return json === undefined ? null : json.length;' },
-    { name: 'предел записи на 4 КиБ мягче', file: 'model', from: 'export const STORAGE_LIMIT_BYTES = 1024 * 1024;', to: 'export const STORAGE_LIMIT_BYTES = 1024 * 1024 + 4096;' },
+    { name: 'в модели снова есть предел 1 МиБ', file: 'model', from: 'export const NO_STORAGE_LIMIT = Number.POSITIVE_INFINITY;', to: 'export const NO_STORAGE_LIMIT = 1024 * 1024; export const STORAGE_LIMIT_BYTES = 1024 * 1024;' },
     { name: 'запись не атомарная: старый файл удаляется до замены', file: 'disk', from: 'await renameWithRetry(fs, tmp, file);', to: 'await fs.rm(file, { recursive: true, force: true }); await renameWithRetry(fs, tmp, file);' },
     { name: 'временный файл остаётся после сбоя', file: 'disk', from: 'await fs.rm(tmp, { recursive: true, force: true }).catch(() => undefined);', to: '' },
     { name: 'битый файл на месте не откладывается при записи', file: 'disk', from: "if (found.kind === 'broken') {", to: "if (false as boolean) {" },
@@ -289,9 +292,9 @@ async function main() {
     { name: 'неизвестный формат принимается', file: 'disk', from: 'parsed.format !== STORAGE_FORMAT ||', to: '' },
     { name: 'файл чужой программы принимается', file: 'disk', from: 'parsed.program !== programId', to: 'false' },
     { name: 'состояние не-объект принимается', file: 'disk', from: '|| !isPlainObject(parsed.state)) return { kind: \'broken\' };', to: ') return { kind: \'broken\' };' },
-    { name: 'состояние сверх предела принимается при чтении', file: 'disk', from: 'if (bytes === null || bytes > STORAGE_LIMIT_BYTES) return { kind: \'broken\' };', to: 'if (bytes === null) return { kind: \'broken\' };' },
-    { name: 'ссылка и папка на месте файла читаются', file: 'disk', from: 'if (!info.isFile() || info.isSymbolicLink() || info.size > MAX_FILE_BYTES) return { kind: \'broken\' };', to: 'if (info.size > MAX_FILE_BYTES) return { kind: \'broken\' };' },
-    { name: 'огромный файл читается целиком', file: 'disk', from: ' || info.size > MAX_FILE_BYTES) return', to: ') return' },
+    { name: 'чтение отбрасывает состояние больше 1 МиБ как битое', file: 'disk', from: 'if (bytes === null) return { kind: \'broken\' };', to: 'if (bytes === null || bytes > 1024 * 1024) return { kind: \'broken\' };' },
+    { name: 'файл больше 1 МиБ считается чужим', file: 'disk', from: 'if (!info.isFile() || info.isSymbolicLink()) return { kind: \'broken\' };', to: 'if (!info.isFile() || info.isSymbolicLink() || info.size > 1024 * 1024 + 16 * 1024) return { kind: \'broken\' };' },
+    { name: 'ссылка и папка на месте файла читаются', file: 'disk', from: 'if (!info.isFile() || info.isSymbolicLink()) return { kind: \'broken\' };', to: '' },
     { name: 'отказ диска на чтении считается «файла нет»', file: 'disk', from: "try { info = await fs.lstat(file); } catch (e) { return isMissing(e) ? { kind: 'missing' } : { kind: 'error' }; }", to: "try { info = await fs.lstat(file); } catch (e) { return { kind: 'missing' }; }" },
     { name: 'не удалось отложить — всё равно отдаём пустое', file: 'disk', from: "return kept ? { ok: true, state: {}, bytes: 0, savedAt: null, broken: { kept } } : { ok: false, code: 'FAILED' };", to: "return { ok: true, state: {}, bytes: 0, savedAt: null, broken: { kept: kept ?? '' } };" },
     { name: 'не удалось отложить — запись всё равно идёт', file: 'disk', from: "if (!kept) return { ok: false, code: 'FAILED', reason: 'повреждённый файл не удалось отложить' };\n      broken = { kept };", to: "broken = { kept: kept ?? '' };" },
@@ -316,7 +319,8 @@ async function main() {
     { name: 'самостоятельная читает данные Flux', file: 'model', from: 'manifest.reads.length === 0 && ', to: '' },
     { name: 'самостоятельная открывается откуда угодно', file: 'model', from: "&& manifest.entries.every(e => e === 'start')", to: '' },
     { name: 'самостоятельная без мест запуска', file: 'model', from: 'manifest.entries.length > 0 && ', to: '' },
-    { name: 'предел окна для самостоятельной — прежний 256 КиБ', file: 'model', from: 'isStandalone(manifest) ? STORAGE_LIMIT_BYTES : MEMORY_LIMIT_BYTES', to: 'MEMORY_LIMIT_BYTES' },
+    { name: 'предел окна для самостоятельной — прежний 256 КиБ', file: 'model', from: 'isStandalone(manifest) ? NO_STORAGE_LIMIT : MEMORY_LIMIT_BYTES', to: 'MEMORY_LIMIT_BYTES' },
+    { name: 'в строке «сколько занято» снова «из 1 МиБ»', file: 'model', from: 'export const storageUsageText = (bytes: number) => `Хранилище: ${sizeText(bytes)}`;', to: 'export const storageUsageText = (bytes: number) => `Хранилище: ${sizeText(bytes)} из 1 МиБ`;' },
   ];
   const stamp = `__mutant_${process.pid}`;
   const dirOfModule = 'modules/storage';

@@ -7,6 +7,7 @@ import { ComputeError, codeOf, type ComputeErrorCode } from './engine/types';
 import { encodeJson } from './engine/json';
 import type { ConnectCall, ConnectErrorCode, NetCall } from './connections/model';
 import { hasAttachPermission, hasNetPermission, hasProgramPermission } from './permissions/registry';
+import type { AttachResult } from './page/attach';
 import { PROGRAM_LIMITS, type ProgramCall, type ProgramCallErrorCode, type ProgramReply } from './programs/model';
 import { DIALOG_LIMITS, hasControlChars, openAcceptProblem, PAGE_LIMITS, saveNameProblem, WINDOW_LIMITS, WINDOW_OPTION_LIMITS, type PageDialog, type PageDialogAnswer, type WindowOptions } from './page/model';
 
@@ -50,9 +51,9 @@ export interface ModuleBridgeOptions {
   page?: {
     /** Состояние страницы: окно держит его в памяти, а у самостоятельной программы читает с диска через главный процесс (modules/storage), поэтому ответ может быть асинхронным; сбой — исключение (программе уйдёт FAILED) */
     loadState: () => Record<string, unknown> | Promise<Record<string, unknown>>;
-    /** Отказ — `{ code }` (предел хранилища, ошибка диска); `void` — сохранено. Состояние в памяти окна при отказе остаётся прежним */
+    /** Отказ — `{ code }` (ошибка диска; LIMIT — только у состояния в памяти); `void` — сохранено. Состояние в памяти окна при отказе остаётся прежним */
     keepState: (state: Record<string, unknown>) => void | { code: 'LIMIT' | 'FAILED' } | Promise<void | { code: 'LIMIT' | 'FAILED' }>;
-    /** Предел размера состояния, байт: 1 МиБ у самостоятельной программы (диск), прежние 256 КиБ у остальных (память). Нет поля — прежний */
+    /** Предел размера состояния, байт: у самостоятельной программы (диск) его нет (`Infinity`), прежние 256 КиБ у остальных (память). Нет поля — прежний */
     stateLimit?: number;
     offerFile: (file: { name: string; mime: string; bytes: Uint8Array }) => Promise<'saved' | 'cancelled'>;
     /**
@@ -61,8 +62,14 @@ export interface ModuleBridgeOptions {
      */
     pickFile?: (request: { accept: string[] }) => Promise<{ name: string; mime: string; bytes: Uint8Array } | 'cancelled' | 'limit'>;
     onBeat: () => void;
-    /** Попытка flux.attach получила отказ (хост записывает строку в журнал программы, как для файлов); сам отказ мост отправляет программе */
-    onAttach?: (attempt: { name: string; bytes: number; code: 'FORBIDDEN' | 'UNAVAILABLE' }) => void;
+    /**
+     * Прикрепить результат к проекту (flux.attach): хост окна записывает файл в проект открытого окна Flux (или честно имитирует запись в Studio)
+     * и отвечает `{ name, folder }`; отказ — код. Нет поля — хост этого не умеет, программе при разрешении отвечают UNAVAILABLE.
+     * Разрешение `attach` мост проверил до вызова: хост его не перепроверяет, но обязан сам проверить, что проект открыт и человеку доступен
+     */
+    attach?: (file: { name: string; mime: string; bytes: Uint8Array }) => Promise<AttachResult | { code: 'NO_PROJECT' | 'DENIED' | 'LIMIT' | 'FAILED' }>;
+    /** Исход flux.attach для журнала программы (как для файлов): `OK` или код отказа; сам ответ программе мост отправляет отдельно */
+    onAttach?: (attempt: { name: string; bytes: number; code: 'OK' | 'FORBIDDEN' | 'UNAVAILABLE' | 'NO_PROJECT' | 'DENIED' | 'LIMIT' | 'FAILED' }) => void;
     /** Свои окна программы: Flux открывает обычное окно с этой страницей пакета; false — предел или страницы нет */
     openWindow: (page: string, params: Record<string, unknown>, options?: WindowOptions) => boolean;
     /**
@@ -201,8 +208,10 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
   let picking = false;
   let pickedAt = 0;
   let offeredAt = 0;
+  let attaching = false;
+  let attachedAt = 0;
   async function runPage(message: { id: string } & PageOp) {
-    const answer = (result: { data: unknown } | { code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' | 'FORBIDDEN' | 'UNAVAILABLE' }) => {
+    const answer = (result: { data: unknown } | { code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' | 'FORBIDDEN' | 'UNAVAILABLE' | 'NO_PROJECT' }) => {
       if (disposed) return;
       if ('code' in result) post({ flux: 'module', v: 1, session: options.session, type: 'page-error', id: message.id, code: result.code } as PageHostMessage);
       else post({ flux: 'module', v: 1, session: options.session, type: 'page-result', id: message.id, data: result.data } as PageHostMessage);
@@ -259,12 +268,29 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
       answer(page.openWindow(message.page, message.params ?? {}, windowOptions ? { ...(windowOptions.title?.trim() ? { title: windowOptions.title.trim() } : {}), ...(windowOptions.width ? { width: windowOptions.width } : {}), ...(windowOptions.height ? { height: windowOptions.height } : {}) } : undefined)
         ? { data: null } : { code: 'LIMIT' }); return;
     }
-    // Прикрепление результата к проекту только заложено: без разрешения в манифесте — FORBIDDEN, с разрешением — UNAVAILABLE.
-    // Данные не читаются, не сохраняются и никуда не передаются: ни одного обработчика записи нет ни в сервере, ни в Electron
+    // Прикрепление результата к проекту (flux.attach). Порядок строгий: разрешение в подписанном манифесте, затем форма файла,
+    // затем один вызов за раз и не чаще раза в секунду, и только потом хост пишет файл. Без разрешения не читается и не уходит никуда ни байт
     if (message.op === 'attach') {
-      const code = hasAttachPermission(options.manifest) ? 'UNAVAILABLE' : 'FORBIDDEN';
-      page.onAttach?.({ name: message.name, bytes: message.encoding === 'base64' ? Math.floor(message.data.length * 3 / 4) : new TextEncoder().encode(message.data).length, code });
-      answer({ code }); return;
+      const size = message.encoding === 'base64' ? Math.floor(message.data.length * 3 / 4) : new TextEncoder().encode(message.data).length;
+      const refuse = (code: 'FORBIDDEN' | 'UNAVAILABLE' | 'DENIED' | 'LIMIT' | 'FAILED' | 'NO_PROJECT') => { page.onAttach?.({ name: message.name, bytes: size, code }); answer({ code }); };
+      if (!hasAttachPermission(options.manifest)) { refuse('FORBIDDEN'); return; }
+      if (!page.attach) { refuse('UNAVAILABLE'); return; }
+      if (saveNameProblem(message.name)) { refuse('DENIED'); return; }
+      if (attaching || Date.now() - attachedAt < 1000) { refuse('LIMIT'); return; }
+      let bytes: Uint8Array;
+      try {
+        bytes = message.encoding === 'base64'
+          ? Uint8Array.from(atob(message.data), c => c.charCodeAt(0)) : new TextEncoder().encode(message.data);
+      } catch { refuse('FAILED'); return; }
+      attaching = true; attachedAt = Date.now();
+      try {
+        const result = await page.attach({ name: message.name, mime: message.mime || 'application/octet-stream', bytes });
+        if ('code' in result) { refuse(result.code); return; }
+        page.onAttach?.({ name: message.name, bytes: bytes.length, code: 'OK' });
+        answer({ data: { name: result.name, folder: result.folder } });
+      } catch { refuse('FAILED'); }
+      finally { attaching = false; }
+      return;
     }
     if (message.op === 'state-load') {
       try { answer({ data: await page.loadState() }); } catch { answer({ code: 'FAILED' }); }
@@ -332,8 +358,8 @@ export function createModuleBridge(options: ModuleBridgeOptions) {
     }
     if (--budget < 0) return;
     try {
-      // Состояние самостоятельной программы — до 1 МиБ само по себе, а сообщение несёт ещё конверт; без запаса оно молча
-      // отбрасывалось бы здесь, и программа ждала бы ответа до таймаута. Запас дан только сообщению `state-keep`
+      // Состояние самостоятельной программы предела не имеет, а любое другое сообщение несёт не больше 1 МиБ; общий предел сообщения
+      // не должен молча отбрасывать большое состояние (программа ждала бы ответа до таймаута), поэтому он снят только у `state-keep`
       const room = message.type === 'page' && message.op === 'state-keep' ? (options.page?.stateLimit ?? 0) + 1024 : 0;
       if (messageBytes(message) > Math.max(1024 * 1024, room)) return;
     } catch (_) { return; }

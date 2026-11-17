@@ -88,7 +88,7 @@ bind('save', async () => say('файл ' + await flux.saveFile('a.csv', 'a;b', '
 bind('keep', async () => { await flux.state.set({ n: 1, text: 'сохранено', pad: 'я'.repeat(1500) }); say('состояние записано'); });
 bind('keepbig', async () => { try { await flux.state.set({ pad: 'я'.repeat(540000) }); say('записано'); } catch (e) { say('ошибка ' + e.code); } });
 bind('load', async () => say('состояние ' + JSON.stringify(await flux.state.get())));
-bind('attach', async () => say('прикрепление ' + await flux.attach('r.csv', 'a;b', 'text/csv')));
+bind('attach', async () => say('прикреплено ' + JSON.stringify(await flux.attach('r.csv', 'a;b', 'text/csv'))));
 flux.ready.then(() => say('готово'));
 `;
 
@@ -384,7 +384,7 @@ async function main() {
       await main.locator('#status').filter({ hasText: 'состояние записано' }).waitFor();
       ok(`${theme}: состояние такой программы на диск не попало`, !fs.existsSync(stateFile));
 
-      // Прикрепление к проектам (только заложено): в манифесте нет разрешения «attach» — отказ FORBIDDEN, журнал показывает тот же отказ
+      // Прикрепление к проектам: в манифесте нет разрешения «attach» — отказ FORBIDDEN, журнал показывает тот же отказ
       await main.locator('#attach').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: 'FORBIDDEN' }).waitFor();
       ok(`${theme}: flux.attach без разрешения — программа получила FORBIDDEN, ничего не записано`, (await status(main)) === 'ошибка FORBIDDEN');
@@ -431,7 +431,7 @@ async function main() {
       ok(`${theme}: «Снять обе темы» вернула вид «Запуск» и записала оба снимка в проект`, (await runTab.getAttribute('aria-selected')) === 'true' && fs.existsSync(path.join(data, 'projects', projectId, 'store', 'light.png')) && fs.existsSync(path.join(data, 'projects', projectId, 'store', 'dark.png')));
       ok(`${theme}: после снимков тема окна вернулась`, (await page.evaluate(() => document.documentElement.classList.contains('dark'))) === (theme === 'dark'));
 
-      // Разрешение «attach» появилось в манифесте: тот же вызов получает UNAVAILABLE («появится позже»), а не успех
+      // Разрешение «attach» появилось в манифесте: тот же вызов получает ответ { name, folder } — Studio имитирует запись и говорит об этом в журнале
       await service.handle('draftSave' as any, { id: projectId, path: 'manifest.json', text: JSON.stringify({ ...manifest, reads: [], entries: ['start'], permissions: [...manifest.permissions, { kind: 'attach', does: 'Прикрепляет к проекту таблицу результатов расчёта' }] }, null, 2) } as any);
 
       // «Запустить» сверху из вида файла: запуск идёт заново и вид «Запуск» открывается сам; окна прежнего запуска закрыты
@@ -439,6 +439,10 @@ async function main() {
       await page.getByTestId('file-editor').waitFor();
       await page.getByRole('button', { name: 'Запустить' }).first().click();
       await runTab.waitFor();
+      await main.locator('#status').filter({ hasText: 'готово' }).waitFor();
+      // «готово» могло остаться от прежнего запуска: его окна закрываются, новое ещё не открыто (на CI ловили 0 окон,
+      // PR 177 и 178). Ждём, пока перезапуск доедет до одного окна; не доедет — проверка ниже упадёт с увиденным числом.
+      for (let i = 0; i < 100 && await page.locator('[data-testid="program-window"]').count() !== 1; i++) await page.waitForTimeout(100);
       await main.locator('#status').filter({ hasText: 'готово' }).waitFor();
       // Четыре условия порознь: составная проверка дважды падала в тёмной теме на CI (PR 172 и 173),
       // и по журналу было не видно, какое из условий ложно. Значения — в названии проверки.
@@ -455,15 +459,22 @@ async function main() {
       ok(`${theme}: программа запущена заново с одним окном (видели: ${seen})`, relaunch.windows === 1);
       ok(`${theme}: вкладка «Запуск» одна (видели: ${seen})`, relaunch.runTabs === 1);
       await main.locator('#attach').dispatchEvent('click');
-      await main.locator('#status').filter({ hasText: 'UNAVAILABLE' }).waitFor();
-      ok(`${theme}: flux.attach с разрешением в манифесте — UNAVAILABLE, а не успех; журнал: «UNAVAILABLE: прикрепление появится позже, ничего не записано»`, (await status(main)) === 'ошибка UNAVAILABLE' && (await page.locator('table.log').innerText()).includes('UNAVAILABLE: прикрепление появится позже, ничего не записано'));
+      await main.locator('#status').filter({ hasText: 'прикреплено' }).waitFor();
+      ok(`${theme}: flux.attach с разрешением — программа получила { name, folder }: ${await status(main)}`, (await status(main)) === 'прикреплено {"name":"r.csv","folder":"Результаты программ / Окна"}');
+      ok(`${theme}: журнал честно говорит, что это имитация и в Studio ничего не записано`, /r\.csv \(3 Б\) — имитация: во Flux файл ляжет в проект «.+», папка «Результаты программ \/ Окна»\. В Studio ничего не записано/.test(await page.locator('table.log').innerText()));
+      await main.locator('#status').evaluate(el => { el.textContent = ''; });
+      await new Promise(resolve => setTimeout(resolve, 1100));
+      await main.locator('#attach').dispatchEvent('click');
+      await main.locator('#status').filter({ hasText: 'прикреплено' }).waitFor();
+      ok(`${theme}: повтор того же имени получает номер, как во Flux: ${await status(main)}`, (await status(main)) === 'прикреплено {"name":"r (2).csv","folder":"Результаты программ / Окна"}');
+      ok(`${theme}: на диск Studio ничего не попало (нет файла r.csv где-либо в данных Studio)`, !fs.readdirSync(data, { recursive: true } as any).some((f: any) => /(^|[\\/])r( \(2\))?\.csv$/.test(String(f))));
       await page.screenshot({ path: path.join(shots, `studio-run-${theme}-8-attach.png`), fullPage: true });
 
       // Самостоятельная программа (reads пуст, место запуска только «Пуск»): состояние пишется на диск, область studio
-      ok(`${theme}: у самостоятельной программы строка «Хранилище: 0 Б из 1 МиБ» и кнопка «Очистить»`, (await storageRow.innerText()).includes('Хранилище: 0 Б из 1 МиБ') && (await storageRow.getByRole('button', { name: 'Очистить' }).count()) === 1);
+      ok(`${theme}: у самостоятельной программы строка «Хранилище: 0 Б» (без «из …»: предела нет) и кнопка «Очистить»`, (await storageRow.innerText()).includes('Хранилище: 0 Б') && !(await storageRow.innerText()).includes('из 1 МиБ') && (await storageRow.getByRole('button', { name: 'Очистить' }).count()) === 1);
       await main.locator('#keep').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: 'состояние записано' }).waitFor();
-      await storageRow.getByText(/Хранилище: \d+(,\d)? (Б|КиБ) из 1 МиБ/).waitFor();
+      await storageRow.getByText(/Хранилище: \d+(,\d)? (Б|КиБ)$/).waitFor();
       await page.waitForFunction(() => !/: 0 Б /.test(document.querySelector('[data-testid="studio-storage"]')?.textContent || ''));
       ok(`${theme}: состояние записано в <данные Studio>/program-data/…/studio/state.json, строка показывает занятое`, fs.existsSync(stateFile) && JSON.parse(fs.readFileSync(stateFile, 'utf8')).state.n === 1 && !(await storageRow.innerText()).includes(': 0 КиБ'));
       await page.screenshot({ path: path.join(shots, `studio-run-${theme}-9-storage.png`), fullPage: true });
@@ -472,18 +483,21 @@ async function main() {
       await main.locator('#load').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: '"n":1' }).waitFor();
       ok(`${theme}: после перезапуска запуска программа читает сохранённое состояние: ${await status(main)}`, (await status(main)).includes('"text":"сохранено"'));
-      // Больше предела 1 МиБ: отказ даёт главный процесс, программа получает LIMIT, журнал — тот же текст, что у человека; сохранённое цело
+      // Больше прежнего предела 1 МиБ: предела нет — запись проходит, отказа и строки «хранилище заполнено» нет
       await main.locator('#keepbig').dispatchEvent('click');
       await main.locator('#status').filter({ hasText: /LIMIT|записано/ }).waitFor();
-      ok(`${theme}: состояние больше 1 МиБ — программа получила LIMIT, а не успех: ${await status(main)}`, (await status(main)) === 'ошибка LIMIT');
-      ok(`${theme}: журнал: «LIMIT: Хранилище программы заполнено: … из 1 МиБ», сохранённое состояние цело`, /LIMIT: Хранилище программы заполнено: [\d,]+ МиБ из 1 МиБ/.test(await page.locator('table.log').innerText()) && JSON.parse(fs.readFileSync(stateFile, 'utf8')).state.n === 1);
-      await page.screenshot({ path: path.join(shots, `studio-run-${theme}-10-limit.png`), fullPage: true });
+      ok(`${theme}: состояние больше 1 МиБ — запись прошла, а не LIMIT: ${await status(main)}`, (await status(main)) === 'записано');
+      ok(`${theme}: в журнале нет ни LIMIT, ни «Хранилище программы заполнено»`, !/LIMIT|заполнено/.test((await page.locator('table.log').count()) ? await page.locator('table.log').innerText() : ''));
+      ok(`${theme}: файл области studio содержит большое состояние целиком (1,08 МБ знаков «я»)`, JSON.parse(fs.readFileSync(stateFile, 'utf8')).state.pad.length === 540000);
+      await storageRow.getByText(/Хранилище: [\d,]+ МиБ$/).waitFor();
+      ok(`${theme}: строка хранилища показывает размер в МиБ без «из 1 МиБ» и без предупреждения`, !(await storageRow.innerText()).includes('из 1 МиБ') && !/заполн|предел|много/i.test(await storageRow.innerText()));
+      await page.screenshot({ path: path.join(shots, `studio-run-${theme}-10-no-limit.png`), fullPage: true });
       await main.locator('#load').dispatchEvent('click');
-      await main.locator('#status').filter({ hasText: '"n":1' }).waitFor();
-      ok(`${theme}: после отказа окно по-прежнему отдаёт прежнее состояние`, (await status(main)).includes('"text":"сохранено"'));
+      await main.locator('#status').filter({ hasText: '"pad"' }).waitFor();
+      ok(`${theme}: после большой записи окно отдаёт её же`, (await status(main)).length > 540000);
       await storageRow.getByRole('button', { name: 'Очистить' }).click();
       await page.getByText(/очищено; перезапустите программу/).first().waitFor();
-      ok(`${theme}: «Очистить» удалила файл области studio, строка снова «0 Б», журнал записал очистку`, !fs.existsSync(stateFile) && (await storageRow.innerText()).includes('Хранилище: 0 Б из 1 МиБ'));
+      ok(`${theme}: «Очистить» удалила файл области studio, строка снова «0 Б», журнал записал очистку`, !fs.existsSync(stateFile) && (await storageRow.innerText()).includes('Хранилище: 0 Б'));
       await page.locator('.studio-bottom').getByRole('button', { name: 'Перезапустить' }).click();
       await main.locator('#status').filter({ hasText: 'готово' }).waitFor();
       await main.locator('#load').dispatchEvent('click');

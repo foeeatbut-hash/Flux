@@ -1,11 +1,12 @@
 'use strict';
-const {app,BrowserWindow,ipcMain,dialog,clipboard,shell,protocol}=require('electron');
+const {app,BrowserWindow,ipcMain,dialog,clipboard,shell,protocol,safeStorage,powerMonitor}=require('electron');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto');
 const setupApi=require('./setup.cjs');
 const {startDatabaseRuntime}=require('../../shared/database-runtime.cjs');
 const version=require('../../../package.json').version;
 const vaultApi=require('./vault.cjs'),signing=require('./signing.cjs'),net=require('./network.cjs');
 const {applyPublicConfig}=require('./public-config.cjs');
+const emergency=require('./emergency.cjs'),{createRemember}=require('./remember.cjs'),{resumeSession}=require('./resume.cjs');
 const {createDiagnostics}=require('./diagnostics.cjs');
 const {AsyncLocalStorage}=require('node:async_hooks');
 const diagnosticOperation=new AsyncLocalStorage();
@@ -16,17 +17,21 @@ function ownerRequest(origin,route,options={}){return net.request(origin,route,{
 const vaultFile=path.join(os.homedir(),'.flux-owner','vault.flux-owner');
 let win,fluxWin,activeParent=null,vault=null,password='',server='',token='',user=null,exe=null,operation=null,lastActivity=Date.now();
 let databaseRuntime=null,disconnecting=Promise.resolve();
+// Запомненные адрес базы и пароль (под защитой учётной записи Windows, remember.cjs) и состояние входа без вопросов
+let remember=null,resuming=false,resumeError='',lockPending=false;
+function rememberStore(){return remember??=createRemember({dir:app.getPath?.('userData')||path.join(os.homedir(),'.flux-owner'),storage:safeStorage});}
 const displayServer=()=>databaseRuntime?databaseRuntime.display:server;
 let vaultExists=false,backupSession=false,setupFolder='',setupKitPath='',publicFilePath='',previousVaultPath='',setupVerified=false;
 const signalProgress=(phase,current,total)=>{const span=diagnosticOperation.getStore();if(phase&&span&&span.lastPhase!==phase){span.lastPhase=phase;span.stage(phase,{current,total});}if(win&&!win.isDestroyed())win.webContents.send('console:progress',{phase,current,total});};
-function snapshot(){return {version,setupKitPath,publicFilePath,previousVaultPath,setupVerified,unlocked:!!vault,vaultExists,vaultPath:vaultFile,backupSession,kind:vault?.kind||'',publicKeys:vault?Object.fromEntries(Object.entries(vault.keys).map(([k,v])=>[k,v.publicHex])):{},backupOwnerPublic:vault?.backupOwnerPublic||'',licenses:vault?.licenses||[],updates:vault?.updates||[],revocations:vault?.revocations||[],server:displayServer(),connectionKind:'database',connected:!!token,user:user?{name:user.name,role:user.role}:null,exe:exe?{name:path.basename(exe.path),size:exe.size,sha256:exe.sha256}:null};}
+function snapshot(){return {version,setupKitPath,publicFilePath,previousVaultPath,setupVerified,unlocked:!!vault,vaultExists,vaultPath:vaultFile,backupSession,kind:vault?.kind||'',publicKeys:vault?Object.fromEntries(Object.entries(vault.keys).map(([k,v])=>[k,v.publicHex])):{},backupOwnerPublic:vault?.backupOwnerPublic||'',licenses:vault?.licenses||[],updates:vault?.updates||[],revocations:vault?.revocations||[],server:displayServer(),connectionKind:'database',connected:!!token,remember:rememberStore().info(),resuming,resumeError,canResume:!vault&&!!rememberStore().passwordUntil(),user:user?{name:user.name,role:user.role}:null,exe:exe?{name:path.basename(exe.path),size:exe.size,sha256:exe.sha256}:null};}
 function requireVault(){if(!vault)throw new Error('Сначала разблокируйте хранилище.');lastActivity=Date.now();}
 async function save(next){if(backupSession)throw new Error('Запасной ключ открыт временно. Основное хранилище не изменяется.');await vaultApi.atomicWrite(vaultFile,await vaultApi.encrypt(next,password));vault=next;vaultExists=true;}
 function requireIdle(){if(operation)throw new Error('Дождитесь завершения текущей операции или отмените её.');}
-async function busy(fn){requireIdle();const controller=new AbortController();operation=controller;try{return await fn(controller.signal);}finally{operation=null;signalProgress('',0,0);}}
+async function busy(fn){requireIdle();const controller=new AbortController();operation=controller;try{return await fn(controller.signal);}finally{operation=null;signalProgress('',0,0);if(lockPending){lockPending=false;void lock();}}}
 async function disconnect(){token='';server='';user=null;if(fluxWin&&!fluxWin.isDestroyed())fluxWin.close();fluxWin=null;const previous=databaseRuntime;databaseRuntime=null;if(previous)disconnecting=Promise.resolve(previous.stop()).catch(()=>{});await disconnecting;}
 // Окно разделов (console.cjs) подписывается на запирание и обрыв связи
-const listeners={locked:new Set(),disconnected:new Set()};
+const listeners={locked:new Set(),disconnected:new Set(),changed:new Set()};
+const notifyChanged=()=>{for(const f of listeners.changed)f();};
 async function lock(){operation?.abort();vault=null;password='';backupSession=false;setupVerified=false;exe=null;await disconnect();for(const f of listeners.locked)f();}
 async function confirm(message,detail,parent=win){const r=await dialog.showMessageBox(parent,{type:'question',buttons:['Отмена','Подтвердить'],defaultId:0,cancelId:0,noLink:true,message,detail});return r.response===1;}
 async function exportEncrypted(payload,phrase,title,defaultPath){vaultApi.passwordCheck(phrase);const r=await dialog.showSaveDialog(win,{title,defaultPath,filters:[{name:'Зашифрованные ключи Flux',extensions:['flux-owner']}]});if(r.canceled||!r.filePath)return false;protectLocalVault(r.filePath);await vaultApi.atomicWrite(r.filePath,await vaultApi.encrypt(payload,phrase));return true;}
@@ -42,9 +47,9 @@ const actions={
   verifySetup:async a=>{requireVault();if(!setupKitPath||backupSession)throw new Error('Сначала создайте новый комплект ключей.');return busy(async signal=>{setupVerified=false;const loaded=await vaultApi.readVault(vaultFile,safeText(a.password,1024));if(!setupApi.sameKeys(loaded,vault))throw new Error('Рабочее хранилище изменилось. Откройте его заново.');await setupApi.verifyKit(setupKitPath,a.password,loaded);signal.throwIfAborted();setupVerified=true;return snapshot();});},
   showSetupFolder:async()=>{requireIdle();if(!setupKitPath)throw new Error('Комплект восстановления ещё не создан.');const error=await shell.openPath(setupKitPath);if(error)throw new Error('Не удалось открыть папку: '+error);return {opened:true};},
   create:async a=>{requireIdle();if(vaultExists)throw new Error('Хранилище уже существует. Разблокируйте его или импортируйте резервную копию.');vaultApi.passwordCheck(a.password);vaultApi.passwordCheck(a.backupPassword);if(a.password===a.backupPassword)throw new Error('Для запасного ключа используйте другую фразу-пароль.');const generated=vaultApi.generateVaults();const saved=await exportEncrypted(generated.backup,a.backupPassword,'Сохранить запасной ключ отдельно, на отключаемый носитель','Flux-Owner-Запасной.flux-owner');if(!saved)return {canceled:true};password=a.password;try{await save(generated.main);}catch(e){password='';throw e;}return snapshot();},
-  unlock:async a=>{requireIdle();const loaded=await vaultApi.readVault(vaultFile,safeText(a.password,1024));await disconnect();exe=null;vault=loaded;backupSession=loaded.kind==='backup';password=backupSession?'':a.password;lastActivity=Date.now();return snapshot();},
+  unlock:async a=>{requireIdle();const loaded=await vaultApi.readVault(vaultFile,safeText(a.password,1024));await disconnect();exe=null;vault=loaded;backupSession=loaded.kind==='backup';password=backupSession?'':a.password;lastActivity=Date.now();if(a.remember!==false&&!backupSession)rememberStore().rememberPassword(a.password);resumeError='';return snapshot();},
   openBackup:async a=>{requireIdle();const selected=await dialog.showOpenDialog(win,{title:'Открыть запасной ключ без замены основного хранилища',properties:['openFile'],filters:[{name:'Запасной ключ владельца Flux',extensions:['flux-owner']}]});if(selected.canceled)return {canceled:true};const loaded=await vaultApi.readVault(selected.filePaths[0],safeText(a.password,1024));if(loaded.kind!=='backup')throw new Error('Выбран основной файл. Откройте локальное хранилище или восстановите полную резервную копию.');await disconnect();exe=null;clearSetup();vault=loaded;password='';backupSession=true;lastActivity=Date.now();return snapshot();},
-  lock:async()=>{await lock();return snapshot();},
+  lock:async()=>{rememberStore().forgetPassword();await lock();return snapshot();},
   import:async a=>{requireIdle();const selected=await dialog.showOpenDialog(win,{title:'Импортировать зашифрованное хранилище',properties:['openFile'],filters:[{name:'Ключи владельца Flux',extensions:['flux-owner']}]});if(selected.canceled)return {canceled:true};const loaded=await vaultApi.readVault(selected.filePaths[0],safeText(a.importPassword,1024));if(loaded.kind==='backup'&&vaultExists)throw new Error('Запасной ключ не заменяет основное хранилище лицензий и обновлений. Используйте «Открыть запасной ключ без замены».');if(loaded.kind!=='main')throw new Error('Аварийный ключ используется только для временного входа. Для восстановления нужна полная копия.');vaultApi.passwordCheck(a.password);if(vaultExists&&!await confirm('Восстановить полную резервную копию?','Прежнее хранилище сохранится отдельно. Рабочие ключи и реестр будут восстановлены из выбранной полной копии.'))return {canceled:true};if(vaultExists)await setupApi.archiveExisting(vaultFile);const oldPassword=password,oldBackupSession=backupSession;password=a.password;backupSession=false;try{await save(loaded);}catch(e){password=oldPassword;backupSession=oldBackupSession;throw e;}clearSetup();await disconnect();exe=null;return snapshot();},
   export:async a=>{requireVault();requireIdle();const saved=await exportEncrypted(vault,a.password,'Экспорт резервной копии','Flux-Owner-Резервная.flux-owner');return {saved,canceled:!saved};},
   changePassword:async a=>{requireVault();requireIdle();vaultApi.passwordCheck(a.password);const old=password;password=a.password;try{await save(vault);}catch(e){password=old;throw e;}return snapshot();},
@@ -56,6 +61,12 @@ const actions={
   copy:async a=>{safeText(a.text,1024*1024);clipboard.writeText(a.text);return {copied:true};},
   chooseExe:async()=>{requireVault();return busy(async signal=>{const r=await dialog.showOpenDialog(win,{title:'Выберите portable Flux для сотрудников',properties:['openFile'],filters:[{name:'Windows EXE',extensions:['exe']}]});if(r.canceled)return {canceled:true};exe=null;exe=await signing.inspectExe(r.filePaths[0],(n,total)=>signalProgress('Проверка EXE',n,total),signal);return snapshot();});},
   signUpdate:async a=>{requireVault();if(!exe)throw new Error('Выберите EXE.');return busy(async signal=>{const verified=await signing.inspectExe(exe.path,(n,total)=>signalProgress('Проверка EXE',n,total),signal);if(verified.sha256!==exe.sha256)throw new Error('EXE изменился. Выберите его заново.');const signed=signing.signUpdate(vault,verified,safeText(a.version,40));const r=await dialog.showSaveDialog(win,{title:'Сохранить подпись обновления',defaultPath:`Flux-${a.version}.flux-sig`,filters:[{name:'Подпись обновления',extensions:['flux-sig']}]});if(r.canceled)return {canceled:true};await vaultApi.atomicWrite(r.filePath,signed.signature+'\n');const next=structuredClone(vault);next.updates.push({...signed.payload,signature:signed.signature,name:path.basename(exe.path),published:false});await save(next);return signed;});},
+  // Пакет экстренного обновления: подпись ключом из хранилища и запись файла .fluxupdate, сервер не нужен (emergency.cjs)
+  signPackage:async a=>{requireVault();if(!exe)throw new Error('Выберите EXE.');const version=safeText(a.version,40);return busy(async signal=>{const verified=await signing.inspectExe(exe.path,(n,total)=>signalProgress('Проверка EXE',n,total),signal);if(verified.sha256!==exe.sha256)throw new Error('EXE изменился. Выберите его заново.');const r=await dialog.showSaveDialog(win,{title:'Сохранить пакет обновления',defaultPath:`Flux-${version}.fluxupdate`,filters:[{name:'Пакет обновления Flux',extensions:['fluxupdate']}]});if(r.canceled||!r.filePath)return {canceled:true};protectLocalVault(r.filePath);const done=await emergency.signPackage({vault,exe:verified,version,outFile:r.filePath,signal,onProgress:(n,total)=>signalProgress('Запись пакета',n,total)});const next=structuredClone(vault);next.updates.push({...done.payload,signature:done.signature,name:path.basename(exe.path),published:false,package:path.basename(done.file)});await save(next);return {file:done.file,version:done.version,size:done.size,sha256:done.sha256};});},
+  // Вход без вопросов: запомненный пароль (не старше суток) открывает хранилище, запомненный адрес подключает базу
+  resume:async()=>runResume(),
+  connectRemembered:async()=>{const saved=rememberStore().server();if(!saved)throw new Error('Сохранённого адреса нет или он не расшифровался в этой учётной записи Windows. Введите адрес.');return actions.connect({server:saved.uri,remember:false});},
+  forgetRemembered:async()=>{rememberStore().forgetAll();resumeError='';return snapshot();},
   connect:async a=>{requireVault();return busy(async signal=>{
     await disconnect();
     const address=safeText(a.server,4096).trim();
@@ -67,7 +78,7 @@ const actions={
       const sig=net.signChallenge(packet,origin,vault.keys.owner.privatePem);
       const result=await ownerRequest(origin,'/api/owner/login',{method:'POST',body:{nonce:packet.nonce,sig},signal});
       if(typeof result.token!=='string'||result.token.length<16||result.token.length>10000||result.user?.role!=='OWNER')throw new Error('Flux не подтвердил вход владельца через общую БД.');
-      signal.throwIfAborted();server=origin;token=result.token;user=result.user;return snapshot();
+      signal.throwIfAborted();server=origin;token=result.token;user=result.user;if(a.remember!==false)rememberStore().rememberServer(address,displayServer());resumeError='';return snapshot();
     } catch(error) { await disconnect();throw error; }
   });},
   disconnect:async()=>{requireIdle();await disconnect();return snapshot();},
@@ -77,7 +88,20 @@ const actions={
   cancel:async()=>{operation?.abort();return {canceled:true};},
   openFlux:async()=>{requireVault();if(!token)throw new Error('Подключитесь к общей БД.');if(fluxWin&&!fluxWin.isDestroyed()){fluxWin.focus();return {opened:true};}const origin=server;fluxWin=new BrowserWindow({width:1440,height:950,minWidth:960,minHeight:640,title:'Flux — владелец',webPreferences:{contextIsolation:true,sandbox:true,nodeIntegration:false,partition:`owner-view-${crypto.randomBytes(8).toString('hex')}`}});const ses=fluxWin.webContents.session;ses.webRequest.onBeforeSendHeaders((details,callback)=>{const u=new URL(details.url);if(u.origin===origin&&(u.pathname.startsWith('/api/')||u.pathname.startsWith('/socket.io/')))details.requestHeaders.Authorization=`Bearer ${token}`;callback({requestHeaders:details.requestHeaders});});fluxWin.webContents.setWindowOpenHandler(()=>({action:'deny'}));fluxWin.webContents.on('will-navigate',(event,url)=>{if(new URL(url).origin!==origin)event.preventDefault();});await fluxWin.loadURL(origin);return {opened:true};}
 };
+async function runResume(){
+  if(resuming)return snapshot();
+  resuming=true;resumeError='';notifyChanged();
+  try{
+    const result=await resumeSession({remember:rememberStore(),unlocked:()=>!!vault,connected:()=>!!token,
+      unlock:pass=>actions.unlock({password:pass,remember:false}),connect:uri=>actions.connect({server:uri,remember:false}),
+      log:(event,error)=>diagnosticEvent(event,{error:String(error?.message||error).slice(0,300)})});
+    resumeError=result.error;
+  }finally{resuming=false;notifyChanged();}
+  return snapshot();
+}
 app.whenReady().then(async()=>{
+  // Блокировка компьютера: запомненный пароль стирается, хранилище запирается — дальше пароль спросят заново
+  try{powerMonitor?.on?.('lock-screen',()=>{try{rememberStore().forgetPassword();}catch{}diagnosticEvent('os.lockScreen');if(vault){if(operation)lockPending=true;else void lock();}});}catch{}
   journal().installProcessHandlers(process);diagnosticEvent('app.ready',journal().diagnosticsContext());
 });
 app.on('child-process-gone',(_event,details)=>diagnosticEvent('app.childProcessGone',{type:details.type,reason:details.reason,exitCode:details.exitCode,serviceName:details.serviceName}));
@@ -91,6 +115,6 @@ function consoleContext(){return {version,snapshot,vault:()=>vault,token:()=>tok
   confirm,touch:()=>{lastActivity=Date.now();},lockIfIdle:ms=>{if(vault&&!operation&&Date.now()-lastActivity>ms)lock();},
   setParent:w=>{activeParent=w;},listeners,refreshVault:async()=>{vaultExists=await fs.stat(vaultFile).then(()=>true,()=>false);},
   forward:{state:()=>snapshot(),unlock:a=>actions.unlock(a),connect:a=>actions.connect(a),disconnect:()=>actions.disconnect({}),lock:()=>actions.lock(),cancel:()=>actions.cancel()},
-  journal:()=>journal(),diagnosticOperation,lockAll:()=>lock(),setWindow:w=>{win=w;},actions};}
+  journal:()=>journal(),diagnosticOperation,lockAll:()=>lock(),setWindow:w=>{win=w;},resume:()=>runResume(),actions};}
 async function openConsole(tab){return require('./console.cjs').openConsole(consoleContext(),tab);}
 module.exports={openConsole};

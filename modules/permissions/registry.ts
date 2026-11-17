@@ -16,6 +16,7 @@
 import type { ModuleManifest, ModulePermission, Resource } from '../contract';
 import { resources } from '../contract';
 import { PROGRAM_ID } from '../programs/model';
+import { ATTACH_ROOT_FOLDER } from '../page/attach';
 import { ACCESS_NAMES, connectionsOf, describeConnection, humanText, parseConnections } from '../connections/model';
 
 export type PermissionLineKind = 'read' | 'open' | 'connect' | 'write' | 'run' | 'internet' | 'lan' | 'program' | 'attach';
@@ -62,6 +63,8 @@ export const ENTRY_NAMES: Record<string, string> = {
 export const PERMISSIONS_MAX = 16;
 export const NET_PERMISSION_KINDS = ['internet', 'lan'] as const;
 export type NetPermissionKind = typeof NET_PERMISSION_KINDS[number];
+/** Виды разрешений, которые знает эта сборка Flux (ветки parsePermissions ниже): остальное — признак манифеста для более нового Flux, а не поломки */
+export const KNOWN_PERMISSION_KINDS: readonly string[] = [...NET_PERMISSION_KINDS, 'program', 'attach'];
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 
 /** Раздел `permissions`: любое лишнее или неверное поле — отказ целиком; `does` — текст для человека, как у подключений */
@@ -96,8 +99,8 @@ export const hasNetPermission = (manifest: { permissions?: unknown } | null | un
 export const hasProgramPermission = (manifest: { permissions?: unknown } | null | undefined, programId: string) =>
   permissionsOf(manifest).some(p => p.kind === 'program' && p.program === programId);
 /**
- * Программа заявила, что прикрепляет результаты к проектам (`flux.attach`). Пока это только заявление: записи во Flux нет нигде,
- * мост отвечает UNAVAILABLE даже при разрешении (modules/bridge.ts) — но разрешение уже подтверждается человеком и входит в отпечаток
+ * Программа заявила, что прикрепляет результаты к проектам (`flux.attach`): без этого разрешения в подписанном манифесте мост отвечает
+ * FORBIDDEN и ничего не передаёт хосту (modules/bridge.ts); разрешение подтверждается человеком и входит в отпечаток
  */
 export const hasAttachPermission = (manifest: { permissions?: unknown } | null | undefined) =>
   permissionsOf(manifest).some(p => p.kind === 'attach');
@@ -175,8 +178,9 @@ export const PERMISSION_KINDS: readonly PermissionKind[] = [
   netKind('lan'),
   programKind,
   attachKind,
-  // Запись в данные Flux и запуск программ договор не даёт (разрешение `attach` пока только заявление: записи нет) — строки остаются, чтобы отсутствие права было видно
-  { id: 'write', consent: false, check: () => true, items: () => [{ key: 'write', label: 'запись', line: { kind: 'write', text: 'Ничего не записывает во Flux' } }] },
+  // Запись в данные Flux и запуск программ договор не даёт (кроме прикрепления файла-результата `attach`, оно записывается отдельной строкой выше) — строки остаются, чтобы отсутствие права было видно
+  // С разрешением attach «Ничего не записывает» было бы неправдой: строка говорит, что именно и куда программа пишет
+  { id: 'write', consent: false, check: () => true, items: manifest => [{ key: 'write', label: 'запись', line: { kind: 'write', text: hasAttachPermission(manifest) ? `Записывает во Flux только файлы-результаты: в папку проекта «${ATTACH_ROOT_FOLDER}»` : 'Ничего не записывает во Flux' } }] },
   { id: 'run', consent: false, check: () => true, items: () => [{ key: 'run', label: 'запуск', line: { kind: 'run', text: 'Не запускает программы на компьютере' } }] },
 ];
 

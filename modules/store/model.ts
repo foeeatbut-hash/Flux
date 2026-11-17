@@ -75,7 +75,7 @@ export interface StoreEnv { fluxVersion: string; windows: boolean }
 export function unmetRequirements(manifest: ModuleManifest, env: StoreEnv): string[] {
   const out: string[] = [];
   const need = storeInfoOf(manifest).requires;
-  if (manifest.contractVersion > CONTRACT_VERSION) out.push(`Нужен более новый договор программ (v${manifest.contractVersion}): обновите Flux`);
+  if (manifest.contractVersion > CONTRACT_VERSION) out.push(`Обновите программу Flux: этой программе нужен более новый формат (v${manifest.contractVersion})`);
   if (need.flux && env.fluxVersion && compareVersions(env.fluxVersion, need.flux) < 0) out.push(`Нужен Flux ${need.flux} или новее, у вас ${env.fluxVersion}`);
   if (need.platform === 'windows' && !env.windows) out.push('Работает только в Windows');
   return out;

@@ -4,7 +4,7 @@ import type { ModuleLanguage, ModulePlatform, SourceLanguage, ComputeErrorCode }
 /**
  * v2 добавляет страницу (`ui: 'page'`), v3 — разделы `permissions` (интернет, локальная сеть, обращение к программам) и `exports` манифеста. Сообщения моста
  * остаются v1: добавляются только новые виды, смысл прежних не меняется. Выпуск с `permissions` — v3, и старый Flux
- * (его схема манифеста строгая) показывает «обновите Flux», а не запускает программу без права, о котором не знает.
+ * (его схема манифеста строгая) показывает «Обновите программу Flux», а не запускает программу без права, о котором не знает.
  */
 export const CONTRACT_VERSION = 3 as const;
 export const resources = ['project', 'equipment', 'tag', 'specification', 'catalog'] as const;
@@ -19,7 +19,7 @@ export type ModulePermission =
   | { kind: 'internet' | 'lan'; does: string }
   /** Обращение к другой программе (`flux.programs.call`): `program` — её идентификатор, метод должен быть в её `exports` */
   | { kind: 'program'; program: string; does: string }
-  /** Прикрепление результатов к проектам (`flux.attach`): пока только заявление, мост отвечает UNAVAILABLE даже при разрешении */
+  /** Прикрепление результатов к проектам (`flux.attach`): файл ложится в папку проекта в Проводнике Flux (modules/page/attach.ts) */
   | { kind: 'attach'; does: string };
 /** Метод, который программа отдаёт другим программам (modules/programs/model.ts): `does` — текст для человека */
 export interface ModuleExport { method: string; does: string }
@@ -93,7 +93,7 @@ export type PageOp =
   | { op: 'state-load' }
   | { op: 'state-keep'; state: Record<string, unknown> }
   | { op: 'file-offer'; name: string; mime?: string; data: string; encoding: 'utf8' | 'base64' }
-  /** Прикрепить результат к проекту (заложено): без разрешения `attach` — FORBIDDEN, с разрешением — UNAVAILABLE, записи нет нигде */
+  /** Прикрепить результат к проекту: без разрешения `attach` — FORBIDDEN; с ним хост окна пишет файл в проект и отвечает `{ name, folder }`, а при отказе — NO_PROJECT, DENIED, LIMIT, FAILED */
   | { op: 'attach'; name: string; mime?: string; data: string; encoding: 'utf8' | 'base64' }
   /** Файл пользователя (добавлено к v2): диалог показывает Flux, программа получает имя и содержимое только выбранного файла */
   | { op: 'file-pick'; accept?: string[] }
@@ -112,7 +112,7 @@ export type PageOp =
 export type PageHostMessage =
   | { flux: 'module'; v: 1; session: string; type: 'page-result'; id: string; data: unknown }
   | { flux: 'module'; v: 1; session: string; type: 'page-message'; data: unknown }
-  | { flux: 'module'; v: 1; session: string; type: 'page-error'; id: string; code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' | 'FORBIDDEN' | 'UNAVAILABLE' };
+  | { flux: 'module'; v: 1; session: string; type: 'page-error'; id: string; code: 'DENIED' | 'LIMIT' | 'FAILED' | 'CANCELLED' | 'FORBIDDEN' | 'UNAVAILABLE' | 'NO_PROJECT' };
 export type BridgeError = 'READ_ONLY' | 'DENIED' | 'NO_PROJECT' | 'FAILED' | 'LIMIT';
 export type HostMessage =
   | { flux: 'module'; v: 1; session: string; type: 'event'; event: 'opened' | 'project-changed' | 'changed'; context: LaunchContext; theme: ThemeTokens }

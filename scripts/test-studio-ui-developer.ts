@@ -22,6 +22,8 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { chromium, type Page } from 'playwright-core';
+import { peekEnvelope } from '../modules/trust/envelope';
+import { parseRequestClaim } from '../modules/trust/claims';
 import { createControlsEngine } from '../studio/shared/controlsEngine';
 import { createTsBuilder } from '../studio/shared/tsBuildHost';
 import { DeveloperService } from '../studio/shell/developer';
@@ -89,6 +91,9 @@ async function main() {
   // Тот же договор, что у маршрута из PR владельца (server/routes/moduleCertRequests.ts): тело {key, name}, профиль из входа
   const certRequests: any[] = [];
   flux.post('/api/modules/certificate-requests', (q, r) => { certRequests.push(q.body); r.json({ ok: true }); });
+  // Право «Просить рабочий канал» (его выдаёт владелец): от него зависит, открыт ли в окне публикации выбор «Сразу всем»
+  const rights = { publish: false };
+  flux.get('/api/modules/me', (_q, r) => r.json({ owner: false, channels: ['production'], develop: true, publish: rights.publish }));
   flux.get('/api/studio/modules', (_q, r) => r.json({ modules: requestRows().map(x => ({ moduleId: x.moduleId, version: x.version, state: x.state, createdAt: x.createdAt, requests: 1 })) }));
   flux.get('/api/studio/releases', (_q, r) => r.json({ releases: extraReleases }));
   flux.get('/api/studio/pins', (_q, r) => r.json({ pins: extraPins }));
@@ -421,11 +426,32 @@ async function main() {
       await page.getByRole('button', { name: 'Опубликовать' }).click();
       await pub.waitFor();
       await pub.getByLabel('Что нового').fill('Первая версия');
+      // Выбор «в тест» или «сразу всем»: без права «Просить рабочий канал» открыт только тест, и сказано почему
+      const audience = pub.getByRole('group', { name: 'Кому предложить версию' });
+      const claimOf = () => parseRequestClaim(peekEnvelope('request', String(submitted.at(-1).signature)));
+      ok(`${theme}: выбор «В тест» / «Сразу всем»: по умолчанию «В тест»`, (await audience.getByRole('button').allInnerTexts()).join('|') === 'В тест|Сразу всем' && (await audience.getByRole('button', { name: 'В тест' }).getAttribute('aria-pressed')) === 'true');
+      ok(`${theme}: без права «Сразу всем» закрыто, причина названа, подсказка про пробную группу`, await audience.getByRole('button', { name: 'Сразу всем' }).isDisabled() && (await pub.innerText()).includes('для него нужно отдельное право') && (await pub.getByTestId('pub-audience-hint').innerText()).includes('только пробная группа владельца'));
       await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-5-publish.png`), fullPage: true });
+      const sentBefore = submitted.length;
       await pub.getByRole('button', { name: 'Отправить владельцу' }).click();
       await pub.getByRole('alert').waitFor();
       ok(`${theme}: отказ сервера показан текстом, запрос подписан и дошёл до сервера`, submitted.length >= 1 && typeof submitted.at(-1).signature === 'string' && submitted.at(-1).signature.startsWith('FLUXMODREQ1.'));
+      ok(`${theme}: «В тест» ушло в подписанном запросе как test`, submitted.length === sentBefore + 1 && claimOf()?.meta.channel === 'test');
       await pub.getByRole('button', { name: 'Отмена' }).click();
+      // Владелец выдал право «Просить рабочий канал»: «Сразу всем» открыто, выбор уходит в запрос как production
+      rights.publish = true;
+      await page.getByRole('button', { name: 'Опубликовать' }).click();
+      await pub.waitFor();
+      ok(`${theme}: с правом «Сразу всем» открыто, предупреждения о праве нет`, await audience.getByRole('button', { name: 'Сразу всем' }).isEnabled() && !(await pub.innerText()).includes('для него нужно отдельное право'));
+      await audience.getByRole('button', { name: 'Сразу всем' }).click();
+      ok(`${theme}: выбрано «Сразу всем», подсказка сменилась`, (await audience.getByRole('button', { name: 'Сразу всем' }).getAttribute('aria-pressed')) === 'true' && (await pub.getByTestId('pub-audience-hint').innerText()).includes('все, у кого программа установлена'));
+      await pub.getByLabel('Что нового').fill('Первая версия');
+      await page.screenshot({ path: path.join(shots, `studio-dev-${theme}-5b-publish-all.png`), fullPage: true });
+      await pub.getByRole('button', { name: 'Отправить владельцу' }).click();
+      await pub.getByRole('alert').waitFor();
+      ok(`${theme}: «Сразу всем» ушло в подписанном запросе как production`, submitted.length === sentBefore + 2 && claimOf()?.meta.channel === 'production');
+      await pub.getByRole('button', { name: 'Отмена' }).click();
+      rights.publish = false;
       certificate.status = 'none';
 
       // Сбои у пользователей

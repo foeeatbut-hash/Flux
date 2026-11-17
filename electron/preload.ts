@@ -202,7 +202,7 @@ contextBridge.exposeInMainWorld('electron', {
   
   // Автообновления: проверка и публикация идут через HTTP API сервера
   // (см. UpdaterWidget); главный процесс скачивает exe и подменяет приложение
-  startDownload: (data: { url: string; version: string; token?: string; server?: string; signature?: string }) =>
+  startDownload: (data: { url: string; version: string; token?: string; server?: string; signature?: string; campaignId?: string; rollback?: boolean }) =>
     ipcRenderer.invoke('updater:start-download', data),
   quitAndInstall: (campaignId?: string) => ipcRenderer.invoke('updater:quitAndInstall', campaignId),
   updateDevice: () => ipcRenderer.invoke('updater:device'),
@@ -213,6 +213,18 @@ contextBridge.exposeInMainWorld('electron', {
   // Портативный ли это файл: от этого зависит, что обещать человеку про
   // подмену программы на месте
   isPortable: () => ipcRenderer.invoke('updater:is-portable'),
+  // Скрытый раздел: экстренная установка из файла .fluxupdate (electron/emergencyIpc.ts). Путь к файлу окно не передаёт:
+  // файл выбирается системным диалогом главного процесса
+  emergencyUpdate: {
+    pick: () => ipcRenderer.invoke('emergency:pick'),
+    install: () => ipcRenderer.invoke('emergency:install'),
+    discard: () => ipcRenderer.invoke('emergency:discard'),
+    onProgress: (callback: (percent: number) => void) => {
+      const subscription = (_event: unknown, percent: number) => callback(percent);
+      ipcRenderer.on('emergency:progress', subscription);
+      return () => { ipcRenderer.removeListener('emergency:progress', subscription); };
+    },
+  },
 
   // Listener registrations
   onUpdaterStatus: (callback: (state: string, data?: any) => void) => {

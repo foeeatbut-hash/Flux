@@ -22,6 +22,8 @@ const ROUTES = {
   requests: { method: 'GET', path: '/api/studio/requests' },
   requestBundle: { method: 'GET', path: '/api/studio/requests/:id/bundle' },
   releases: { method: 'GET', path: '/api/studio/releases' },
+  /** Что разрешено этому человеку: нужно, чтобы окно публикации не предлагало «сразу всем» без права «Просить рабочий канал» */
+  me: { method: 'GET', path: '/api/modules/me' },
   /** Откат владельца по своей программе: действующее назначение канала */
   pins: { method: 'GET', path: '/api/studio/pins' },
   /** Единственная запись Studio в рабочую базу при публикации: подписанный запрос (сервер проверяет подпись и право) */

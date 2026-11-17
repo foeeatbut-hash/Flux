@@ -124,7 +124,7 @@ const api = {
   compute(input: Record<string, unknown>): Promise<ModuleOutput> {
     return request('compute', { input }, 120_000);
   },
-  /** Состояние (общее для окон программы, переживает перезапуск страницы). Программа, читающая данные Flux: хранится в памяти Flux, пропадает при закрытии Flux и выходе из профиля, до 256 КиБ. Самостоятельная программа (ничего не читает во Flux, открывается только из «Пуска»): хранится на диске этого компьютера у этого человека, переживает перезапуск и обновление Flux, до 1 МиБ; переполнение — ошибка LIMIT, сбой диска — FAILED */
+  /** Состояние (общее для окон программы, переживает перезапуск страницы). Программа, читающая данные Flux: хранится в памяти Flux, пропадает при закрытии Flux и выходе из профиля, до 256 КиБ. Самостоятельная программа (ничего не читает во Flux, открывается только из «Пуска»): хранится на диске этого компьютера у этого человека, переживает перезапуск и обновление Flux, размер не ограничен; сбой диска — ошибка FAILED */
   state: {
     get: () => request<Record<string, unknown>>('page', { op: 'state-load' }, 5000),
     set: (state: Record<string, unknown>) => request<null>('page', { op: 'state-keep', state }, 5000),
@@ -170,17 +170,17 @@ const api = {
     return request('page', { op: 'file-offer', name, mime, data: text, encoding }, 120_000);
   },
   /**
-   * Прикрепить результат к проекту (заложено, договор v3): нужно разрешение `attach` в permissions манифеста. Пока Flux ничего не
-   * прикрепляет: без разрешения ошибка FORBIDDEN, с разрешением — UNAVAILABLE («появится позже»). Форма файла как у saveFile
+   * Прикрепить результат к проекту: нужно разрешение `attach` в permissions манифеста (contractVersion 3). Flux кладёт файл в папку
+   * открытого проекта «Результаты программ / <название программы>» в Проводнике; те же люди, что видят проект, видят и файл. Прежний
+   * файл не перезаписывается: при занятом имени у нового появляется номер, поэтому ответ называет имя, под которым файл лёг.
+   * Ошибки: FORBIDDEN (нет разрешения), NO_PROJECT (проект не открыт), DENIED (недопустимое имя или проект закрыт для человека),
+   * LIMIT, FAILED. Форма файла как у saveFile
    */
-  attach(name: string, data: string | Uint8Array, mime = 'application/octet-stream'): Promise<never> {
+  attach(name: string, data: string | Uint8Array, mime = 'application/octet-stream'): Promise<{ name: string; folder: string }> {
     let text: string, encoding: 'utf8' | 'base64' = 'utf8';
     if (typeof data === 'string') text = data;
     else { let raw = ''; for (let i = 0; i < data.length; i += 0x8000) raw += String.fromCharCode(...data.subarray(i, i + 0x8000)); text = btoa(raw); encoding = 'base64'; }
-    return request<never>('page', { op: 'attach', name, mime, data: text, encoding }, 20_000).catch((e: unknown) => {
-      if (e instanceof FluxError && e.code === 'UNAVAILABLE') throw new FluxError('UNAVAILABLE', 'Прикрепление результатов к проектам появится позже.');
-      throw e;
-    });
+    return request<{ name: string; folder: string }>('page', { op: 'attach', name, mime, data: text, encoding }, 60_000);
   },
   /**
    * Попросить у пользователя файл (добавлено к v2): Flux покажет системный диалог, человек выберет файл сам,

@@ -5,9 +5,13 @@ import { compareVersions, readUpdateSignature } from '../../electron/updateSigna
 import { newestFirst } from '../updateOrder.js';
 import { licenseInstallationId } from '../licenseService.js';
 import { notifyUser } from '../context.js';
+import { cancelAssignmentsAbove, listAssignments } from '../updateAssignStore.js';
+import { coversUser } from '../updateAudience.js';
 
 const MAX_CHAIN = 500;
 const DEVICE = 'update.device', COMMAND = 'update.command', HEAD = 'update.head';
+/** Напоминание «Доступна версия» — не чаще раза в сутки; при запуске программы после «Позже» — по запросу `launch`, но не чаще раза в минуту (окно на каждом мониторе) */
+const REMINDER_DAY_MS = 24 * 3600000, REMINDER_LAUNCH_MS = 60000;
 const statuses = new Set(['idle', 'scheduled', 'delivered', 'downloading', 'verifying', 'ready', 'saving', 'restarting', 'updated', 'delayed', 'failed', 'cancelled']);
 export interface UpdateCampaignDeps {
   getPrisma: () => any; updatePublicKeyHex?: string; installationId?: () => Promise<string>;
@@ -109,15 +113,34 @@ export function registerUpdateCampaignRoutes(app: Express, deps: UpdateCampaignD
     } catch { res.status(503).json({ error: 'Не удалось проверить назначение обновления.' }); }
   });
 
+  /** Назначено ли человеку обновление этой версии: обычным назначением или подписанным заданием на его компьютер */
+  const assignedTo = async (db: any, userId: string, version: string) => {
+    const user = await db.user.findUnique({ where: { id: userId }, select: { id: true, departmentId: true, isActive: true } });
+    const list = (await listAssignments(db)).filter(a => a.version === version);
+    if (user && list.length) {
+      const departments = list.some(a => a.departmentIds.length) ? await db.department.findMany({ select: { id: true, parentId: true } }) : [];
+      if (list.some(a => coversUser(a, user, departments))) return true;
+    }
+    const heads = await db.appSetting.findMany({ where: { key: HEAD, userId: null, id: { endsWith: `:${userId}` } }, take: 200 });
+    for (const head of heads) {
+      const envelope = valueOf(await db.appSetting.findUnique({ where: { id: rowId(COMMAND, String(head.value)) } })) as SignedUpdateCommand | null;
+      const command = envelope ? verifyUpdateCommand(envelope, { inst: await inst(), keyHex: deps.updatePublicKeyHex }) : null;
+      if (command?.action === 'schedule' && command.version === version) return true;
+    }
+    return false;
+  };
   app.post('/api/updates/reminder', async (req: any, res) => {
     if (!req.authUser?.id) return res.status(401).json({ error: 'Войдите в программу.' });
     try {
       const db = deps.getPrisma(), now = Date.now(), actor = req.authUser.id;
       await release(db, String(req.body?.version || ''));
-      const id = rowId('update.reminder', actor);
+      // Чужая версия — не напоминание: плашка и уведомление только тем, кому обновление назначено
+      if (!await assignedTo(db, actor, String(req.body.version))) return res.status(409).json({ error: 'Это обновление вам не назначено.', code: 'UPDATE_NOT_ASSIGNED' });
+      // Предел раз в сутки — на каждую версию отдельно: новое назначение не ждёт суток после прежнего
+      const id = rowId('update.reminder', `${actor}:${req.body.version}`);
       await db.appSetting.upsert({ where: { id }, create: { id, key: 'update.reminder', userId: null, value: '0' }, update: {} });
       const row = await db.appSetting.findUnique({ where: { id } }), previous = Number(row?.value || 0);
-      if (now - previous < 600000) return res.json({ reminded: false, shownAt: previous });
+      if (now - previous < (req.body?.launch === true ? REMINDER_LAUNCH_MS : REMINDER_DAY_MS)) return res.json({ reminded: false, shownAt: previous });
       const changed = await db.appSetting.updateMany({ where: { id, value: row.value }, data: { value: String(now) } });
       if (changed.count !== 1) return res.json({ reminded: false, shownAt: now });
       await notifyUser(actor, 'СИСТЕМА', `Доступна версия ${req.body.version}`, 'Посмотрите изменения и обновите программу.', '/updates');
@@ -136,7 +159,7 @@ export function registerUpdateCampaignRoutes(app: Express, deps: UpdateCampaignD
           isActive: person?.isActive !== false && !!person, version: d.version || '', platform: d.platform, arch: d.arch,
           lastSeen: d.lastSeen, offline: Date.now() - d.lastSeen > 180000,
           status: current?.action === 'cancel' ? 'cancelled' : current && d.commandId !== current.id ? 'scheduled' : d.status, code: d.code || '',
-          commandId: current?.id || null, action: current?.action || null, deadline: current?.deadline || null, targetVersion: current?.version || null,
+          commandId: current?.id || null, action: current?.action || null, deadline: current?.deadline || null, targetVersion: current?.version || null, rollback: current?.rollback === true,
           commandRelease: current ? { version: current.version, generation: current.generation, sha256: current.sha256, releaseSignature: currentItem!.envelope.releaseSignature } : null };
       });
       // Свежие по номеру версии, а не по дате публикации: хотфикс старой ветки не вытесняет новую
@@ -158,7 +181,9 @@ export function registerUpdateCampaignRoutes(app: Express, deps: UpdateCampaignD
       for (const t of c.targets) {
         const d = devices.find((d: any) => d.deviceId === t.deviceId && d.userId === t.userId && d.inst === scope);
         if (!d) return res.status(409).json({ error: 'Устройство или его профиль изменились. Обновите список.' });
-        if (c.action === 'schedule' && compareVersions(c.version, d.version) <= 0) return res.status(409).json({ error: 'Выбрано устройство с актуальной или более новой версией.' });
+        // Обычное назначение ставит версию выше работающей; возврат — наоборот, только ниже
+        if (c.action === 'schedule' && !c.rollback && compareVersions(c.version, d.version) <= 0) return res.status(409).json({ error: 'Выбрано устройство с актуальной или более новой версией.', code: 'UPDATE_DEVICE_CURRENT' });
+        if (c.action === 'schedule' && c.rollback && compareVersions(c.version, d.version) >= 0) return res.status(409).json({ error: 'Выбрано устройство, где версия уже не выше возвращаемой.', code: 'UPDATE_DEVICE_NOT_AHEAD' });
         const head = (await deviceChain(db, scope, t.deviceId, t.userId)).at(-1)?.command;
         if ((head?.id || null) !== t.previous || (c.action === 'cancel' && (!head || head.action !== 'schedule' || head.version !== c.version || head.sha256 !== c.sha256 || head.generation !== c.generation))) return res.status(409).json({ error: 'Назначение уже изменилось. Обновите список и подтвердите снова.' });
       }
@@ -172,6 +197,8 @@ export function registerUpdateCampaignRoutes(app: Express, deps: UpdateCampaignD
           }
         }
         await tx.appSetting.create({ data: { id: rowId(COMMAND, c.id), key: COMMAND, userId: null, value: JSON.stringify(envelope) } });
+        // Откат отзывает обычные назначения выше возвращаемой версии, иначе её тут же предложили бы снова
+        if (c.rollback) await cancelAssignmentsAbove(tx, c.version, req.authUser.id, Date.now());
       });
       deps.broadcast('app:update-assigned', { id: c.id }); res.json({ success: true, id: c.id });
     } catch (e: any) { res.status(e?.code === 'P2002' || e?.message === 'CONFLICT' ? 409 : 503).json({ error: 'Задание не сохранено. Обновите список перед повтором.' }); }

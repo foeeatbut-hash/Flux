@@ -8,6 +8,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { isNewer } from '../../../shared/versionCompare';
 import { call } from './api';
 import { Badge, Btn, Dialog, Empty, ErrorLine, useAction } from './ui';
+import UpdateAudience from './UpdateAudience';
+import UpdateRollback from './UpdateRollback';
 import type { UpdateDevice, UpdateRelease } from './types';
 
 const STATES: Record<string, string> = {
@@ -17,7 +19,27 @@ const STATES: Record<string, string> = {
 const key = (d: UpdateDevice) => `${d.deviceId}:${d.userId}`;
 const PAGE = 25;
 
+type View = 'audience' | 'devices';
+const VIEWS: Array<[View, string]> = [['audience', 'Сотрудникам и подразделениям'], ['devices', 'По компьютерам, со сроком']];
+
+/** Обычное обновление выбранным и обязательное по компьютерам; возврат версии — для обоих случаев */
 export default function Updates({ onPublish }: { onPublish: () => void }) {
+  const [view, setView] = useState<View>('audience');
+  const [notice, setNotice] = useState('');
+  const [reloads, setReloads] = useState(0);
+  return <div className="pane">
+    <div className="bar">
+      <div className="segs" role="group" aria-label="Кому назначить">{VIEWS.map(([id, label]) =>
+        <button key={id} type="button" aria-pressed={view === id} onClick={() => setView(id)}>{label}</button>)}</div>
+      <span className="grow" />
+      <UpdateRollback onDone={text => { setNotice(text); setReloads(n => n + 1); }} />
+    </div>
+    {notice && <div className="notice" role="status">{notice}</div>}
+    {view === 'audience' ? <UpdateAudience key={reloads} /> : <Devices key={reloads} onPublish={onPublish} />}
+  </div>;
+}
+
+function Devices({ onPublish }: { onPublish: () => void }) {
   const [devices, setDevices] = useState<UpdateDevice[]>([]);
   const [releases, setReleases] = useState<UpdateRelease[]>([]);
   const [version, setVersion] = useState('');
@@ -91,7 +113,7 @@ export default function Updates({ onPublish }: { onPublish: () => void }) {
                 <td title={d.deviceId}><label><input type="checkbox" checked={selected.has(key(d))} disabled={!((d.version && isNewer(version, d.version)) || (d.action === 'schedule' && d.commandRelease))}
                   onChange={() => toggle(key(d))} aria-label={`Выбрать ${d.name} ${d.deviceId.slice(0, 8)}`} /> {d.deviceId.slice(0, 8)} · {d.platform}/{d.arch}</label></td>
                 <td>{d.version || 'Неизвестна'}</td>
-                <td>{d.offline ? 'Offline' : d.commandId && d.status === 'idle' ? 'Запланировано' : STATES[d.status] || 'Неизвестно'}{d.targetVersion && d.action !== 'cancel' ? ` → ${d.targetVersion}` : ''}{d.code && <span className="muted" title={d.code}> · требуется проверка</span>}</td>
+                <td>{d.offline ? 'Offline' : d.commandId && d.status === 'idle' ? 'Запланировано' : STATES[d.status] || 'Неизвестно'}{d.targetVersion && d.action !== 'cancel' ? ` → ${d.targetVersion}${d.rollback ? ' (возврат)' : ''}` : ''}{d.code && <span className="muted" title={d.code}> · требуется проверка</span>}</td>
                 <td>{new Date(d.lastSeen).toLocaleString('ru')}</td></tr>)}
             </React.Fragment>;
           })}</tbody></table>}

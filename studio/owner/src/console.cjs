@@ -14,6 +14,7 @@ const fs = require('node:fs');
 const { consoleRequest, routeAllowed } = require('./consoleApi.cjs');
 const { signModule } = require('./moduleSigning.ts');
 const { signCampaign, CAMPAIGN_MAX_TARGETS } = require('./campaigns.ts');
+const { createUpdateActions, UPDATE_ACTION_NAMES } = require('./updateActions.cjs');
 const { unpackBundle, packBundle, bundleText, RUNTIME_FILE } = require('../../../modules/trust/bundle.ts');
 const { describeBundle } = require('../../../modules/trust/verify.ts');
 const { PAGE_URL_FILE, PAGE_ENTRY, FLUX_ASSET_FILE, pageTypeOf } = require('../../../modules/page/model.ts');
@@ -30,6 +31,9 @@ const when = ms => (ms ? new Date(ms).toLocaleString('ru') : 'сразу');
 
 /** Действия бывшего окна лицензий, которые главный процесс (main.cjs) выполняет без изменений */
 const MAIN_ACTIONS = ['reportDiagnostic', 'exportDiagnostics', 'chooseSetupFolder', 'setup', 'verifySetup', 'showSetupFolder', 'openBackup', 'import', 'export', 'changePassword', 'publicExport', 'publicApply', 'issue', 'copy', 'chooseExe', 'signUpdate', 'publish', 'publishRevocation', 'withdrawUpdate', 'openFlux'];
+
+/** Пакет экстренного обновления и запомненный вход (emergency.cjs, remember.cjs, resume.cjs): те же действия главного процесса */
+const OWNER_EXTRA = ['signPackage', 'resume', 'connectRemembered', 'forgetRemembered'];
 
 /**
  * Действия разделов. `ctx` даёт состояние главного процесса (хранилище, токен, подтверждение);
@@ -178,12 +182,17 @@ function createConsoleActions(ctx, request = consoleRequest) {
       return { ids };
     },
 
+    // ---- Обновление выбранным (сотрудникам и подразделениям) и возврат версии: updateActions.cjs
+    ...createUpdateActions({ api, need, confirm, ctx }),
+
     // ---- Лицензии, ключи и выпуск Flux (бывшее окно лицензий): те же действия главного процесса, то же хранилище и то же подключение.
     // «Запрос» и «отзыв» у лицензий называются иначе, чтобы не путаться с запросами на публикацию и отзывом выпусков программ
     licensesState: async () => main('state')({}),
     licenseRequest: async a => main('request')(a),
     licenseRevoke: async a => main('revoke')(a),
     ...Object.fromEntries(MAIN_ACTIONS.map(name => [name, async a => main(name)(a)])),
+
+    ...Object.fromEntries(OWNER_EXTRA.map(name => [name, async a => main(name)(a)])),
 
     // ---- Пробный запуск: страница программы из пакета запроса, который сейчас на экране
     trialLoad: async a => {
@@ -250,11 +259,13 @@ function trialHandler({ protocol }, CSP, PAGE_CSP) {
 }
 
 const FORWARDED = ['state', 'unlock', 'connect', 'disconnect', 'lock', 'cancel'];
+FORWARDED.push('resume', 'connectRemembered', 'forgetRemembered');
 const TABS = new Set(['programs', 'updates', 'licenses']);
 /** Прежние адреса разделов (до сведения в три пункта) ведут в «Программы на проверку»; внутри — свой подраздел */
 const LEGACY_TABS = { requests: 'programs', releases: 'programs', certificates: 'programs' };
 const ALLOWED = ['licensesState', 'licenseRequest', 'licenseRevoke', 'state', 'unlock', 'connect', 'disconnect', 'lock', 'cancel', 'requests', 'request', 'returnRequest', 'rejectRequest', 'release', 'ownerEdit',
-  'releases', 'testers', 'saveTesters', 'promote', 'pin', 'revoke', 'certificates', 'certify', 'declineCertificate', 'devices', 'assignUpdate', 'trialLoad', 'trialPickFile', ...MAIN_ACTIONS];
+  'releases', 'testers', 'saveTesters', 'promote', 'pin', 'revoke', 'certificates', 'certify', 'declineCertificate', 'devices', 'assignUpdate', ...UPDATE_ACTION_NAMES, 'trialLoad', 'trialPickFile', ...MAIN_ACTIONS];
+ALLOWED.push(...OWNER_EXTRA);
 
 async function openConsole(ctx, tab = 'programs') {
   const electron = require('electron');
@@ -298,23 +309,26 @@ async function openConsole(ctx, tab = 'programs') {
   ipcMain.handle('console:action', handler);
   const send = name => () => { if (!win.isDestroyed()) win.webContents.send(name); };
   const onLocked = send('console:locked'), onDisconnected = send('console:disconnected');
-  ctx.listeners.locked.add(onLocked); ctx.listeners.disconnected.add(onDisconnected);
+  const onChanged = send('console:changed');
+  ctx.listeners.locked.add(onLocked); ctx.listeners.disconnected.add(onDisconnected); ctx.listeners.changed?.add(onChanged);
   // Хранилище запирается через 15 минут без действий, как в окне лицензий
   const timer = setInterval(() => ctx.lockIfIdle(15 * 60 * 1000), 30000); timer.unref();
   win.on('closed', () => {
     clearInterval(timer); ipcMain.removeHandler('console:action');
-    ctx.listeners.locked.delete(onLocked); ctx.listeners.disconnected.delete(onDisconnected);
+    ctx.listeners.locked.delete(onLocked); ctx.listeners.disconnected.delete(onDisconnected); ctx.listeners.changed?.delete(onChanged);
     consoleWindow = null; trial = null; ctx.setWindow?.(null);
     // Окно закрыто — хранилище больше никому не нужно
     void ctx.lockAll?.();
   });
   await win.loadFile(path.join(__dirname, '..', 'ui', 'console', 'index.html'), { query: { tab: startTab, ...(section ? { section } : {}) } });
+  // Запомненный пароль и адрес открывают хранилище и подключают базу без вопросов (в фоне: окно уже видно)
+  void ctx.resume?.().catch(() => {});
 }
 
 /** Что окно знает о состоянии: без ключей, лицензий и реестров */
 function publicState(ctx) {
   const s = ctx.snapshot();
-  return { version: s.version, unlocked: s.unlocked, vaultExists: s.vaultExists, backupSession: s.backupSession, kind: s.kind, connected: !!ctx.token(), display: ctx.display(), user: ctx.user() ? { id: ctx.user().id, name: ctx.user().name } : null };
+  return { version: s.version, unlocked: s.unlocked, vaultExists: s.vaultExists, backupSession: s.backupSession, kind: s.kind, connected: !!ctx.token(), display: ctx.display(), remember: s.remember, resuming: !!s.resuming, resumeError: s.resumeError || '', canResume: !!s.canResume, user: ctx.user() ? { id: ctx.user().id, name: ctx.user().name } : null };
 }
 
 const isConsoleOpen = () => !!consoleWindow && !consoleWindow.isDestroyed();

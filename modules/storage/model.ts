@@ -11,8 +11,11 @@
 import type { ModuleManifest } from '../contract';
 import { permissionsOf } from '../permissions/registry';
 
-/** Предел сохранённого состояния самостоятельной программы: размер JSON поля `state`, на программу и человека */
-export const STORAGE_LIMIT_BYTES = 1024 * 1024;
+/**
+ * Предела хранилища самостоятельной программы нет: владелец 15 ноября 2026 — «Нужно сделать сколько угодно», предупреждения о большом
+ * хранилище не нужно, и замены пределу нет (решение подтверждено владельцем). Остановить запись может только сам диск: его отказ — `FAILED`.
+ */
+export const NO_STORAGE_LIMIT = Number.POSITIVE_INFINITY;
 /** Предел состояния в памяти (программа, читающая данные Flux): прежний, как до хранилища (modules/page/model.ts, `stateBytes`) */
 export const MEMORY_LIMIT_BYTES = 256 * 1024;
 
@@ -47,9 +50,9 @@ export function worksOffline(manifest: Pick<ModuleManifest, 'reads' | 'entries' 
   return !permissionsOf(manifest).some(p => p.kind === 'internet' || p.kind === 'lan' || p.kind === 'program');
 }
 
-/** Предел состояния для окна: диск у самостоятельной программы, память у остальных */
+/** Предел состояния для окна: у самостоятельной программы (диск) его нет, у остальных (память) прежние 256 КиБ */
 export const stateLimitFor = (manifest: Pick<ModuleManifest, 'reads' | 'entries'> | null | undefined): number =>
-  isStandalone(manifest) ? STORAGE_LIMIT_BYTES : MEMORY_LIMIT_BYTES;
+  isStandalone(manifest) ? NO_STORAGE_LIMIT : MEMORY_LIMIT_BYTES;
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -72,10 +75,8 @@ export function sizeText(bytes: number): string {
   }
   return `${(Math.round(bytes / (1024 * 1024) * 10) / 10).toString().replace('.', ',')} МиБ`;
 }
-/** Отказ `LIMIT`: один текст для человека (окно, журнал программ) и разработчика (Studio) */
-export const storageFullText = (bytes: number) => `Хранилище программы заполнено: ${sizeText(bytes)} из ${sizeText(STORAGE_LIMIT_BYTES)}`;
-/** Строка Studio и окна разработки: сколько занято */
-export const storageUsageText = (bytes: number) => `Хранилище: ${sizeText(bytes)} из ${sizeText(STORAGE_LIMIT_BYTES)}`;
+/** Строка Studio и окна разработки: сколько занято. «Из …» нет: предела нет, и предупреждение о большом хранилище владелец отменил */
+export const storageUsageText = (bytes: number) => `Хранилище: ${sizeText(bytes)}`;
 /** Строка в подтверждении удаления программы (решение владельца): человек знает, что вместе с программой уйдут её данные */
 /** Дополнение к галочке «Удалить и данные программы» в окне удаления: без галочки данные на компьютере остаются (решение владельца 14 ноября 2026) */
 export const STORAGE_WIPE_SUFFIX = ', в том числе сохранённые на этом компьютере';
@@ -86,4 +87,5 @@ export const WORKS_OFFLINE_LABEL = 'Работает без связи';
 /** Пояснение к метке: она заявляет, чего программа не просит; сам Flux без связи пока не запускается (этап 3) */
 export const OFFLINE_HINT = 'Не просит доступа к интернету, локальной сети и другим программам. Сам Flux без связи пока не запускается.';
 
+/** Диск отвечает только `FAILED`: `LIMIT` остался у состояния в памяти (программа, читающая данные Flux), его проверяет окно */
 export type StorageErrorCode = 'LIMIT' | 'FAILED';

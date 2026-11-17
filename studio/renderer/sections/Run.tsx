@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom';
 import { themeKeys, type LaunchContext, type ModuleManifest, type ThemeTokens } from '../../../modules/contract';
 import { kindOfOp, type ConnectCall, type GrantAsk } from '../../../modules/connections/model';
 import { PAGE_LIMITS, type WindowOptions } from '../../../modules/page/model';
+import { attachFolderPath, freeAttachName, type AttachResult } from '../../../modules/page/attach';
 import type { ProgramCall } from '../../../modules/programs/model';
 import { call } from '../call';
 import type { RunConnectReply, RunProgramReply, RunStorageInfo, RunStorageKeepReply, RunStorageLoadReply } from '../../shared/runActions';
@@ -45,6 +46,8 @@ export default function Run({ id, signal = 0, onFail, onStarted, scene, stopSign
   // Ширина кадра страницы: так видно, как она ведёт себя в узком и широком окне Flux
   const [width, setWidth] = useState<number>(DEFAULT_MAIN.width);
   const kept = useRef<Record<string, unknown>>({});
+  // Имена, уже «прикреплённые» в этом запуске (проект/папка → имена): имитация нумерует повтор так же, как Flux
+  const attachedNames = useRef(new Map<string, string[]>());
   // Хранилище запущенной программы: «N из 1 МиБ» у самостоятельной, «в памяти» у читающей данные Flux
   const [storage, setStorage] = useState<RunStorageInfo | null>(null);
   const mainFrame = useRef<HTMLIFrameElement | null>(null);
@@ -143,6 +146,20 @@ export default function Run({ id, signal = 0, onFail, onStarted, scene, stopSign
         add('файл', `${file.name} (${file.bytes.length} Б) — ${answer === 'saved' ? 'сохранён' : 'человек отказался сохранять'}`);
         return answer;
       } catch (e) { add('файл', `${file.name}: ${(e as Error).message}`, 'error'); return 'cancelled'; }
+    },
+    // Прикрепление к проекту — честная имитация: проверки и ответ те же, что у Flux (проект открыт, предел размера, номер при занятом имени), но файл
+    // никуда не записывается — у Studio нет ни проектов, ни базы Flux. Журнал говорит это прямо; настоящую запись проверяет «Запустить во Flux»
+    attach: async (file): Promise<AttachResult | { code: 'NO_PROJECT' | 'LIMIT' }> => {
+      const projectId = latest.current.projectId;
+      // Отказы пишет в журнал окно (onAttach в ProgramWindow) — одной строкой на исход, здесь только успех
+      if (!projectId) return { code: 'NO_PROJECT' };
+      if (file.bytes.length > PAGE_LIMITS.saveChars) return { code: 'LIMIT' };
+      const folder = attachFolderPath(started.manifest.name || started.manifest.id);
+      const key = `${projectId}/${folder}`, taken = attachedNames.current.get(key) || [];
+      const name = freeAttachName(file.name, taken);
+      attachedNames.current.set(key, [...taken, name]);
+      add('прикрепление', `${name} (${file.bytes.length} Б) — имитация: во Flux файл ляжет в проект «${contexts.find(c => c.id === projectId)?.name || projectId}», папка «${folder}». В Studio ничего не записано`);
+      return { name, folder };
     },
     // Файл пользователя: диалог показывает главный процесс Studio, как Flux в настоящем запуске; программа получает только выбранный файл
     pickFile: async request => pickedFromWire(await call('runPickFile', { accept: request.accept }), (text, level) => add('файл', text, level)),

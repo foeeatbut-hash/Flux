@@ -41,7 +41,7 @@ import { AppIcon } from './icons/FluxIcons';
 import ProjectSwitcher from './ProjectSwitcher';
 import DbStatusTray from './shell/DbStatusTray';
 import { useAssistantDockStore } from '../store/assistantDockStore';
-import { useUpdateStore, updateReady } from '../store/updateStore';
+import { useUpdateStore, updateReady, selectOffer } from '../store/updateStore';
 import UpdateDialog, { claimUpdateDialogOpen, useUpdateReminders } from './UpdateDialog';
 import { displayForRect } from '../../workspace/displays';
 import { useDisplayStore } from '../store/displayStore';
@@ -288,7 +288,8 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
    * «нажал на значок — попал в обновления», а не «нажал и ищи, где это».
    */
   const hasUpdate = useUpdateStore(updateReady);
-  const updateVersion = useUpdateStore((s) => s.latest?.version || '');
+  const updateVersion = useUpdateStore((s) => selectOffer(s)?.version || '');
+  const updateRollback = useUpdateStore((s) => !!selectOffer(s)?.rollback);
   const updateSeen = useUpdateStore((s) => s.seen);
   const trayBtn = (active: boolean) =>
     `relative rounded-lg cursor-pointer flex items-center justify-center transition-colors ${
@@ -511,16 +512,16 @@ export default function Taskbar({ displayId }: { displayId?: number } = {}) {
           <Monitor size={TRAY_ICON} />
         </button>}
 
-        {/* Обновление — как в системе: значок у часов светится, когда есть что
-            поставить, и по нажатию открывает раздел обновлений. Иначе о новой
-            версии узнаёт только тот, кто сам зашёл в настройки и нажал
-            «Проверить», — то есть почти никто */}
+        {/* Обновление — как в системе: значок у часов светится, когда этому
+            сотруднику назначено обновление, и по нажатию открывает окно
+            обновления. Невыбранному значка нет: опубликованную версию он
+            найдёт в настройках и поставит сам */}
         {hasUpdate && (
           <button
             type="button"
             onClick={() => window.dispatchEvent(new Event('flux:open-updates'))}
             data-tour="app-update-trigger"
-            title={`Доступно обновление v${updateVersion} — нажмите, чтобы поставить`}
+            title={updateRollback ? `Владелец вернул версию v${updateVersion} — нажмите, чтобы поставить` : `Доступно обновление v${updateVersion} — нажмите, чтобы поставить`}
             style={{ width: BAR_BTN, height: BAR_BTN }}
             className={trayBtn(false)}
           >

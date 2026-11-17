@@ -23,6 +23,9 @@ const ROUTES = [
   ['POST', /^\/api\/modules\/certificate-requests\/decline$/],
   ['GET', /^\/api\/updates\/devices$/],
   ['POST', /^\/api\/updates\/campaigns$/],
+  ['GET', /^\/api\/updates\/audience$/],
+  ['POST', /^\/api\/updates\/assignments$/],
+  ['POST', new RegExp(`^/api/updates/assignments/${ID}/cancel$`)],
 ];
 const routeAllowed = (method, route) => typeof route === 'string' && route.length < 300 && ROUTES.some(([m, re]) => m === method && re.test(route));
 const MAX_RESPONSE = 24 * 1024 * 1024;
