@@ -25,12 +25,13 @@
 - [x] 2. Откат: поле `rollback` в подписанной команде, сервер, клиент, главный процесс (скачивание/установка/подмена)
 - [x] 3. Клиент: плашка только назначенным, сокет `app:update-assigned`, «Позже» (обычное), напоминания
 - [x] 4. Studio: подразделения/сотрудники, «Вернуть предыдущую версию всем»
-- [ ] 5. Наборы, мутации, снимки, tsc
+- [ ] 5. Наборы (сделано: живые наборы test-update-ui и test-update-assign-ui на сервере :3411; осталось: мутации, tsc, общий прогон, документы в отчёт), мутации, снимки, tsc
 
 ## Проверки «до»
 - run-checks update owner-updates: 11 наборов, провалено 1 (test-update-ui: нужен живой сервер/FLUX_USER, не запускался без сервера).
 
 ## Ход
+- После лимита: настройки показывают UpdaterWidget (был сиротой, нигде не подключён) в GeneralSection; server/updates.ts: проверочный ключ по FLUX_TEST_UPDATE_KEY=1 только из исходников (живой набор test-update-ui без этого падал на публикации ещё до моих правок: тестовая подпись не сходится с рабочим ключом); живые наборы зелёные. Своя сервер-обвязка: /tmp/u7/{start,stop}-server.sh, порт 3411.
 - Шаг 4 готов: studio/owner/src/updateActions.cjs + rollbackPlan.ts (+минимальная регистрация в console.cjs, список в console-preload.cjs и consoleApi.cjs), console/UpdateAudience.tsx, UpdateRollback.tsx, Updates.tsx (переключатель видов); scripts/test-update-assign-studio.ts (41), test-studio-owner-console-ui.ts дополнен (476, снимки /tmp/u7-shots).
 - Шаг 2 готов: electron/updateRollback.ts, updateCampaign.allowsRollback/assertRollbackAllowed, main.ts (скачивание, установка, помощник подмены), scripts/test-update-assign-rollback.ts (21).
 - Шаг 3 готов: updateStore (assignedOffer/campaignOffer/refreshAssigned, плашка по назначению), UpdateDialog («Позже» только у обычного, напоминания по updateReminder), SocketProvider (app:update-assigned, убрана всплывашка «Опубликовано» всем), сервер: /api/updates/info/:version, без рассылки «Вышла версия» при публикации; scripts/test-update-assign-client.ts (20).
