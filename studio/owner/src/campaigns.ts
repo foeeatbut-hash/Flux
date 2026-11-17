@@ -17,6 +17,8 @@ const sign = (prefix: string, value: unknown, key: crypto.KeyObject) => {
 export interface CampaignTarget { deviceId: string; userId: string; previous: string | null }
 export interface CampaignInput {
   inst: string; actor: string; action: 'schedule' | 'cancel'; minutes?: number;
+  /** Возврат к предыдущему выпуску: подписанное разрешение поставить версию ниже работающей */
+  rollback?: boolean;
   release: { version: string; generation: string; sha256: string; signature: string };
   targets: CampaignTarget[]; now?: number;
 }
@@ -35,7 +37,8 @@ export function signCampaign(vault: any, input: CampaignInput) {
   const delegation = { v: 1, id: crypto.randomUUID(), inst: input.inst, userId: input.actor, publicKey: deviceHex,
     issuedAt: now - 1000, expiresAt: now + 3600000, maxTargets: Math.max(1, input.targets.length), maxMinutes: 1440 };
   const command = { v: 1, id: crypto.randomUUID(), inst: input.inst, actor: input.actor, issuedAt: now, deadline: now + minutes * 60000,
-    action: input.action, version: input.release.version, generation: input.release.generation, sha256: input.release.sha256, targets: input.targets };
+    action: input.action, version: input.release.version, generation: input.release.generation, sha256: input.release.sha256,
+    ...(input.rollback && input.action === 'schedule' ? { rollback: true } : {}), targets: input.targets };
   return {
     command: sign('FLUXUPDCMD1', command, device.privateKey),
     delegation: sign('FLUXUPDAUTH1', delegation, crypto.createPrivateKey(update.privatePem)),

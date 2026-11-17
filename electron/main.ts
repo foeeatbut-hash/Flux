@@ -2,7 +2,8 @@ import { app, BrowserWindow, ipcMain, Menu, Notification, nativeImage, utilityPr
 import path from 'path';
 import { licenseStatus, activateLicense } from './license';
 import { isRunnableFile, RUNNABLE_REFUSAL } from './runnable';
-import { updateRefusal, sha256File } from './updateSignature';
+import { sha256File } from './updateSignature';
+import { updateRefusalFor } from './updateRollback';
 import { downloadVerifiedUpdate, assertUpdatePublished, type VerifiedDownload } from './updateDownload';
 import { setupCapture } from './capture';
 import { setupDraftsShortcut } from './draftsShortcut';
@@ -32,7 +33,7 @@ import { badPackage, downloadError, applyArgs, parseApplyArgs } from './updates'
 import { applyUpdate } from './applyUpdate';
 import { registerEmergencyUpdate } from './emergencyIpc';
 import { cleanStaleUpdateFolders, removeUpdateFolder } from './updateTemp';
-import { registerUpdateCampaignIpc, assertCampaignRestart } from './updateCampaign';
+import { registerUpdateCampaignIpc, assertCampaignRestart, assertRollbackAllowed } from './updateCampaign';
 import { saveDatabaseConfig, saveLocalDatabasePathConfig } from './connectionConfig';
 import { companyDatabaseUri, databaseSummary, probeCompanyDatabase } from './databaseConnection';
 import { registerModuleScheme, setupModuleProtocol } from './modules';
@@ -837,7 +838,7 @@ app.whenReady().then(async () => {
    * проверки легла бы на место работающего exe.
    */
   ipcMain.handle('updater:start-download', async (event, payload: {
-    url: string; version: string; token?: string; server?: string; signature?: string;
+    url: string; version: string; token?: string; server?: string; signature?: string; campaignId?: string; rollback?: boolean;
   }) => {
     const path = require('path');
     const fs = require('fs');
@@ -848,6 +849,9 @@ app.whenReady().then(async () => {
     const version = String(payload?.version || '');
     if (!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?$/.test(version)) throw new Error('Неверная версия обновления.');
     if (!url || !version) throw new Error('Не переданы адрес или версия обновления.');
+    // Версия ниже работающей ставится только по подписанному заданию о возврате: слову окна главный процесс не верит
+    const rollback = payload?.rollback === true;
+    if (rollback) assertRollbackAllowed(payload?.campaignId, version);
 
     updateInProgress = true;
     // Тот же выпуск уже скачан и проверен, а установка не состоялась (отложена
@@ -859,7 +863,7 @@ app.whenReady().then(async () => {
       try {
         mainWindow?.webContents.send('updater:status', 'verifying', {});
         const kept = latestCachedUpdate.installerPath, size = fs.statSync(kept).size;
-        const refusal = updateRefusal({ signature: latestCachedUpdate.signature, version, current: app.getVersion(), size, sha256: await sha256File(kept) });
+        const refusal = updateRefusalFor({ signature: latestCachedUpdate.signature, version, current: app.getVersion(), size, sha256: await sha256File(kept) }, rollback);
         if (!refusal && !badPackage(headBytes(kept), size)) {
           appendLog('INFO', 'Обновление', `Файл ${version} уже скачан и проверен, повторная загрузка не нужна`);
           mainWindow?.webContents.send('updater:status', 'downloaded', { version });
@@ -873,7 +877,7 @@ app.whenReady().then(async () => {
     await removeUpdateFolder(updateFolder, app.getPath('temp')); updateFolder = '';
     let installerPath = '';
     let temporaryFolder = '';
-    const verified: VerifiedDownload = {version,signature:String(payload?.signature || ''),current:app.getVersion(),server:'http://localhost:3000',token:readNativeSession('') || ''};
+    const verified: VerifiedDownload = {version,signature:String(payload?.signature || ''),current:app.getVersion(),server:'http://localhost:3000',token:readNativeSession('') || '',rollback};
     appendLog('INFO', 'Обновление', `Скачиваю ${version}: ${url}`);
     mainWindow?.webContents.send('updater:status', 'downloading', { percent: 0 });
 
@@ -898,10 +902,10 @@ app.whenReady().then(async () => {
       }
       // Подпись владельца — до того, как файл станет «скачанным обновлением»:
       // запускается только то, что он выпустил (electron/updateSignature.ts)
-      const refusal = updateRefusal({
+      const refusal = updateRefusalFor({
         signature: String(payload?.signature || ''), version, current: app.getVersion(),
         size, sha256: await sha256File(installerPath),
-      });
+      }, rollback);
       if (refusal) {
         try { fs.unlinkSync(installerPath); } catch (_) { /* уже нет */ }
         throw new Error(refusal);
@@ -961,24 +965,25 @@ app.whenReady().then(async () => {
     // сети или отложенное закрытие файл не портят, и качать его заново незачем
     let fileRejected = false;
     try {
-      const refusal = updateRefusal({...cached,current:app.getVersion(),size:fs.statSync(installerPath).size,sha256:await sha256File(installerPath)});
+      const refusal = updateRefusalFor({...cached,current:app.getVersion(),size:fs.statSync(installerPath).size,sha256:await sha256File(installerPath)}, cached.rollback === true);
       if (refusal) { fileRejected = true; throw new Error(refusal); }
       await assertUpdatePublished({...cached,token:readNativeSession(cached.server) || ''});
       // Файл скачан и проверен — он остаётся, а окно получает «отложено», а не «сбой»:
       // иначе кампания с каждой минутой заново качала бы его, пока открыта правка
       if (!await nativeAppWindows.approveCloseAll() || !await mainClose.approveClose()) return {success:false,deferred:true,error:'Обновление отложено: сохраните изменения в открытых окнах.'};
+      if (cached.rollback === true && !campaignId) throw new Error('Возврат версии ставится только по подписанному заданию владельца.');
       if (campaignId) await assertCampaignRestart(campaignId, cached.version, async deviceId => {
         const response = await fetch(`http://localhost:3000/api/updates/devices/${encodeURIComponent(deviceId)}/commands`, { signal: AbortSignal.timeout(15000), redirect: 'error', headers: { Authorization: `Bearer ${readNativeSession('http://localhost:3000') || ''}` } });
         if (!response.ok) throw new Error('Назначение обновления недоступно. Перезапуск отложен.');
         return response.json();
-      });
+      }, cached.rollback === true);
       // Тот файл, который человек запускал (у portable-сборки это не execPath)
       const portableExe = process.env.PORTABLE_EXECUTABLE_FILE || '';
 
       if (portableExe && fs.existsSync(portableExe)) {
         // Синхронно: следом программа выходит, сбросить очередь будет негде
         appendLogNow('INFO', 'Обновление', `Подменяю программу: ${portableExe}`);
-        const child = spawn(installerPath, applyArgs(portableExe, process.pid, {signature:cached.signature,current:app.getVersion()}), {
+        const child = spawn(installerPath, applyArgs(portableExe, process.pid, {signature:cached.signature,current:app.getVersion(),rollback:cached.rollback === true}), {
           detached: true, stdio: 'ignore', windowsHide: true,
         });
         await new Promise<void>((resolve,reject) => { child.once('spawn', () => { child.unref(); resolve(); }); child.once('error',reject); });

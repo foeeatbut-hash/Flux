@@ -15,7 +15,8 @@
  */
 import { create } from 'zustand';
 import { getServerBaseUrl, getAuthToken } from '../config/env';
-import { isNewer, fileUrlOf, blocker, type Phase } from '../lib/updates';
+import { isNewer, needsInstall, fileUrlOf, blocker, type Phase } from '../lib/updates';
+import { updateService } from '../services/updateService';
 import { prepareSessionClose } from '../lib/closeGuard';
 
 export interface Release {
@@ -25,6 +26,20 @@ export interface Release {
   size?: number;
   /** Подпись владельца программы (FLUXUPD1…); без неё обновление не ставится */
   signature?: string;
+}
+
+/**
+ * Выпуск, назначенный этому сотруднику. Плашка и окно обновления показывают его, а не «последнюю
+ * версию»: невыбранному ничего не предлагается (ответ владельца 15 ноября 2026), хотя в настройках
+ * поставить можно всегда.
+ */
+export interface Offer extends Release {
+  /** assignment — обычное назначение сотрудникам и подразделениям; campaign — обязательное, со сроком */
+  source: 'assignment' | 'campaign';
+  /** Номер подписанного задания: нужен главному процессу, чтобы проверить перезапуск и возврат */
+  campaignId?: string;
+  /** Возврат к предыдущей версии: ставится версия ниже работающей */
+  rollback?: boolean;
 }
 
 /** Опубликованный релиз, у которого на сервере нет файла */
@@ -37,6 +52,12 @@ interface UpdateState {
   phase: Phase;
   percent: number;
   latest: Release | null;
+  /** Назначено обычным обновлением (сотрудникам и подразделениям) */
+  assignedOffer: Offer | null;
+  /** Назначено обязательным заданием со сроком; важнее обычного */
+  campaignOffer: Offer | null;
+  /** Версия, которую сейчас качают или ставят: у настроек и окна обновления может быть разный выпуск */
+  working: string;
   /** Публикации без файла: их видно администратору, чтобы он их отозвал */
   broken: BrokenRelease[];
   error: string;
@@ -51,8 +72,11 @@ interface UpdateState {
   init: (current: string) => Promise<void>;
   check: (silent: boolean) => Promise<void>;
   /** Скачать и поставить: одно нажатие доводит дело до конца */
-  install: (campaignId?: string) => Promise<void>;
-  prepare: () => Promise<boolean>;
+  install: (campaignId?: string, target?: Release & { rollback?: boolean }) => Promise<void>;
+  prepare: (target?: Release & { campaignId?: string; rollback?: boolean }) => Promise<boolean>;
+  /** Спросить у сервера, что назначено этому сотруднику обычным обновлением */
+  refreshAssigned: () => Promise<void>;
+  setCampaignOffer: (offer: Offer | null) => void;
   markSeen: () => void;
   /** Убрать публикацию, у которой нет файла (только администратор) */
   revoke: (version: string) => Promise<string>;
@@ -61,12 +85,16 @@ interface UpdateState {
 let initialized = false;
 let preparing: Promise<boolean> | null = null;
 let checking = false;
+let refreshing = false;
 const elec = (): any => (typeof window !== 'undefined' ? (window as any).electron : undefined);
 
 export const useUpdateStore = create<UpdateState>((set, get) => ({
   phase: 'idle',
   percent: 0,
   latest: null,
+  assignedOffer: null,
+  campaignOffer: null,
+  working: '',
   broken: [],
   error: '',
   current: '0.0.0',
@@ -132,6 +160,25 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
 
   markSeen: () => set({ seen: true }),
 
+  refreshAssigned: async () => {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      const d = await updateService.request<{ release: null | { assignmentId: string; version: string; changelog: string; fileUrl: string; size?: number; signature?: string } }>(
+        `assigned?current=${encodeURIComponent(get().current)}`);
+      const r = d.release, before = get().assignedOffer;
+      // Новый выпуск — снова непросмотренное: точка на значке зажигается заново
+      set({ assignedOffer: r ? { version: r.version, changelog: r.changelog || '', fileUrl: r.fileUrl, size: r.size, signature: r.signature || '', source: 'assignment' } : null,
+        ...(r && before?.version !== r.version ? { seen: false } : {}) });
+    } catch (_) { /* нет связи: то, что назначено, остаётся как было, а проверка повторится */ }
+    finally { refreshing = false; }
+  },
+
+  setCampaignOffer: (offer) => {
+    const before = get().campaignOffer;
+    set({ campaignOffer: offer, ...(offer && before?.version !== offer.version ? { seen: false } : {}) });
+  },
+
   revoke: async (version) => {
     try {
       const res = await fetch(`/api/updates/${encodeURIComponent(version)}`, { method: 'DELETE' });
@@ -145,20 +192,22 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     }
   },
 
-  prepare: async () => {
+  prepare: async (target) => {
     if (preparing) return preparing;
-    if (get().phase === 'ready') return true;
+    if (get().phase === 'ready' && (!target || get().working === target.version)) return true;
     if (['saving', 'installing'].includes(get().phase)) return false;
     const run = async () => {
-      const { latest, packaged, portable } = get();
+      const { packaged, portable } = get(), latest = target ?? get().latest;
       if (!latest) return false;
+      set({ working: latest.version });
       const base = getServerBaseUrl() || (typeof window !== 'undefined' ? window.location.origin : '');
       const url = fileUrlOf(latest.fileUrl, base);
       const stop = blocker({ electron: !!elec(), packaged, portable, fileUrl: url });
       if (stop && !stop.includes('установщик')) { set({ phase: 'failed', error: stop }); return false; }
       set({ phase: 'downloading', percent: 0, error: '' });
       try {
-        await elec().startDownload({ url, version: latest.version, token: getAuthToken(), server: base, signature: latest.signature || '' });
+        await elec().startDownload({ url, version: latest.version, token: getAuthToken(), server: base, signature: latest.signature || '',
+          campaignId: target?.campaignId, rollback: target?.rollback === true });
         set({ phase: 'ready', percent: 100 }); return true;
       } catch (err: any) {
         set({ phase: 'failed', error: String(err?.message || 'Не удалось скачать обновление') }); return false;
@@ -168,9 +217,9 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     return preparing;
   },
 
-  install: async (campaignId) => {
+  install: async (campaignId, target) => {
     if (['saving', 'installing'].includes(get().phase)) return;
-    if (!await get().prepare()) return;
+    if (!await get().prepare(target && { ...target, campaignId })) return;
     set({ phase: 'saving', error: '' });
     if (!await prepareSessionClose()) {
       set({ phase: 'ready', error: 'Обновление отложено: не удалось сохранить все документы. Сохраните их и повторите.' });
@@ -190,6 +239,14 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   },
 }));
 
-/** Есть ли что ставить — по этому и светится значок у часов */
-export const updateReady = (s: UpdateState): boolean =>
-  !!s.latest && (s.phase === 'available' || s.phase === 'failed');
+/** Что назначено сотруднику: обязательное со сроком важнее обычного */
+export const selectOffer = (s: UpdateState): Offer | null => s.campaignOffer ?? s.assignedOffer;
+
+/**
+ * Светится ли значок у часов: только когда обновление назначено этому сотруднику и ещё не стоит.
+ * «Последняя версия» значок не зажигает — она видна в настройках, куда ходят за ней сами.
+ */
+export const updateReady = (s: UpdateState): boolean => {
+  const offer = selectOffer(s);
+  return !!offer && needsInstall(offer, s.current) && !['saving', 'installing'].includes(s.phase);
+};

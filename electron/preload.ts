@@ -202,7 +202,7 @@ contextBridge.exposeInMainWorld('electron', {
   
   // Автообновления: проверка и публикация идут через HTTP API сервера
   // (см. UpdaterWidget); главный процесс скачивает exe и подменяет приложение
-  startDownload: (data: { url: string; version: string; token?: string; server?: string; signature?: string }) =>
+  startDownload: (data: { url: string; version: string; token?: string; server?: string; signature?: string; campaignId?: string; rollback?: boolean }) =>
     ipcRenderer.invoke('updater:start-download', data),
   quitAndInstall: (campaignId?: string) => ipcRenderer.invoke('updater:quitAndInstall', campaignId),
   updateDevice: () => ipcRenderer.invoke('updater:device'),

@@ -19,7 +19,8 @@ import fs from 'fs';
 import { spawn } from 'child_process';
 import { appendLog, appendLogNow } from './logs';
 import { stageExecutable, replaceExecutable, restoreExecutable } from './updateFiles';
-import { sha256File, updateRefusal } from './updateSignature';
+import { sha256File } from './updateSignature';
+import { updateRefusalFor } from './updateRollback';
 import {
   WAIT_EXIT_MS, COPY_PAUSE_MS, retryCopy, badPackage, type ApplyPlan,
 } from './updates';
@@ -69,8 +70,8 @@ export async function applyUpdate(plan: ApplyPlan): Promise<void> {
     try { fs.readSync(fd, head, 0, 2, 0); } finally { fs.closeSync(fd); }
     const bad = badPackage(Array.from(head), fs.statSync(staged).size);
     if (bad) throw new Error(bad);
-    const refusal = updateRefusal({ signature: plan.signature || '', version: app.getVersion(),
-      current: plan.previousVersion || app.getVersion(), size: fs.statSync(staged).size, sha256: await sha256File(staged) });
+    const refusal = updateRefusalFor({ signature: plan.signature || '', version: app.getVersion(),
+      current: plan.previousVersion || app.getVersion(), size: fs.statSync(staged).size, sha256: await sha256File(staged) }, plan.rollback === true);
     if (refusal) throw new Error(refusal);
     if (!await waitGone(plan.waitPid)) throw new Error('Старая программа не завершилась: файл не заменён');
   } catch (e: any) {

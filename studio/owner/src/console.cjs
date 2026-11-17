@@ -14,6 +14,7 @@ const fs = require('node:fs');
 const { consoleRequest, routeAllowed } = require('./consoleApi.cjs');
 const { signModule } = require('./moduleSigning.ts');
 const { signCampaign, CAMPAIGN_MAX_TARGETS } = require('./campaigns.ts');
+const { createUpdateActions, UPDATE_ACTION_NAMES } = require('./updateActions.cjs');
 const { unpackBundle, packBundle, bundleText, RUNTIME_FILE } = require('../../../modules/trust/bundle.ts');
 const { describeBundle } = require('../../../modules/trust/verify.ts');
 const { PAGE_URL_FILE, PAGE_ENTRY, FLUX_ASSET_FILE, pageTypeOf } = require('../../../modules/page/model.ts');
@@ -181,6 +182,9 @@ function createConsoleActions(ctx, request = consoleRequest) {
       return { ids };
     },
 
+    // ---- Обновление выбранным (сотрудникам и подразделениям) и возврат версии: updateActions.cjs
+    ...createUpdateActions({ api, need, confirm, ctx }),
+
     // ---- Лицензии, ключи и выпуск Flux (бывшее окно лицензий): те же действия главного процесса, то же хранилище и то же подключение.
     // «Запрос» и «отзыв» у лицензий называются иначе, чтобы не путаться с запросами на публикацию и отзывом выпусков программ
     licensesState: async () => main('state')({}),
@@ -260,7 +264,7 @@ const TABS = new Set(['programs', 'updates', 'licenses']);
 /** Прежние адреса разделов (до сведения в три пункта) ведут в «Программы на проверку»; внутри — свой подраздел */
 const LEGACY_TABS = { requests: 'programs', releases: 'programs', certificates: 'programs' };
 const ALLOWED = ['licensesState', 'licenseRequest', 'licenseRevoke', 'state', 'unlock', 'connect', 'disconnect', 'lock', 'cancel', 'requests', 'request', 'returnRequest', 'rejectRequest', 'release', 'ownerEdit',
-  'releases', 'testers', 'saveTesters', 'promote', 'pin', 'revoke', 'certificates', 'certify', 'declineCertificate', 'devices', 'assignUpdate', 'trialLoad', 'trialPickFile', ...MAIN_ACTIONS];
+  'releases', 'testers', 'saveTesters', 'promote', 'pin', 'revoke', 'certificates', 'certify', 'declineCertificate', 'devices', 'assignUpdate', ...UPDATE_ACTION_NAMES, 'trialLoad', 'trialPickFile', ...MAIN_ACTIONS];
 ALLOWED.push(...OWNER_EXTRA);
 
 async function openConsole(ctx, tab = 'programs') {

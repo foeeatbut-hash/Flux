@@ -9,6 +9,7 @@ import { newestFirst } from './updateOrder.js';
 import { ensureTables as ensureDbTables, getDialect } from './ddl.js';
 import { clientDialect, resetSchemaPreparations } from './schemaRuntime.js';
 import { registerUpdateCampaignRoutes } from './routes/updateCampaigns.js';
+import { registerUpdateAssignmentRoutes } from './routes/updateAssignments.js';
 import { registerModulePublishingRoutes } from './routes/modulePublishing.js';
 
 export function pickRelease<T extends { version: string }>(list: T[], ok: (r: T) => { ok: boolean; why: string }) {
@@ -57,7 +58,16 @@ export async function ensureUpdatePublicationSchema(db: any): Promise<void> {
   if (why) throw new Error(why);
 }
 
+/**
+ * Проверочный сервер из исходников (`tsx server.ts` с FLUX_TEST_UPDATE_KEY=1) доверяет открытому проверочному ключу
+ * scripts/fixtures/update-test-key.txt: так живые наборы проходят путь «выпуск → назначение → плашка». Это открытая
+ * половина ключа, который лежит в репозитории и настоящим не является; собранная программа (.cjs) этого не знает.
+ */
+const TEST_UPDATE_KEY_HEX = '9d155f2aa7bb2b9ec4b8e271c8181cd9d289b2c4e264fec77848963e1a6b0215';
+const testUpdateKey = () => (/\.ts$/.test(__filename) && process.env.FLUX_TEST_UPDATE_KEY === '1' ? TEST_UPDATE_KEY_HEX : undefined);
+
 export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
+  deps = { ...deps, updatePublicKeyHex: deps.updatePublicKeyHex ?? testUpdateKey() };
   registerUpdateCampaignRoutes(app, deps);
   // Выпуски модулей Flux Studio раздаются тем же путём — через общую базу, с подписью владельца
   registerModulePublishingRoutes(app, deps);
@@ -141,6 +151,8 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
     }
   };
 
+  // Обычное обновление выбранным (сотрудникам и подразделениям): Studio владельца и ответ «что назначено мне»
+  registerUpdateAssignmentRoutes(app, { getPrisma: deps.getPrisma, broadcast: deps.broadcast, updatePublicKeyHex: deps.updatePublicKeyHex, availability });
   app.get('/api/updates/latest', async (_req: Request, res: Response) => {
     try {
       const db = deps.getPrisma();
@@ -189,6 +201,18 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
     } catch (e: any) { res.status(503).json({ error: e?.message || 'База обновлений недоступна' }); }
   });
 
+  // Описание и подпись назначенного выпуска: он не обязательно «последний», и /latest его не отдаёт.
+  // Отдельно от /check: тот читает главный процесс с пределом ответа в 8 КБ, а описание бывает длинным
+  app.get('/api/updates/info/:version', async (req: Request, res: Response) => {
+    const version = validVersion(req.params.version);
+    if (!version) return res.status(400).json({ error: 'Укажите номер версии в виде 0.90.0' });
+    try {
+      const db = deps.getPrisma(), r = await db.appUpdate.findUnique({ where: { version } });
+      const a = r ? await availability(db, r) : { ok: false, size: 0, why: 'Выпуск не найден', signature: '' };
+      if (!r || !a.ok) return res.json({ version, ok: false, why: a.why });
+      res.json({ version, ok: true, changelog: r.changelog || '', fileUrl: `/api/updates/download/${version}`, size: a.size, signature: a.signature });
+    } catch (e: any) { res.status(503).json({ error: e?.message || 'База обновлений недоступна' }); }
+  });
   app.post('/api/updates/upload', requireOwnerMiddleware, express.raw({ type: () => true, limit: '800mb' }), async (req: Request, res: Response) => {
     const version = validVersion(req.query.version), body = req.body;
     if (!version) return res.status(400).json({ error: 'Укажите номер версии в виде 0.90.0' });
@@ -253,8 +277,7 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       if (changed.count !== 1) return res.status(409).json({ error: 'Выпуск изменился или отозван во время проверки' });
       const update = await db.appUpdate.findUnique({ where: { version } });
       deps.broadcast('app:update-published', { version, changelog });
-      // Notification failure does not turn a successful atomic publication into a failed upload.
-      await deps.notifyAll('СИСТЕМА', `Вышла версия ${version}`, changelog.split('\n')[0].slice(0, 120), '/updates', String((req as any).authUser.id || '')).catch(e => console.error('[Обновление] Уведомление не доставлено:', e?.message));
+      // Всем «Вышла версия» не рассылается: обновление получают выбранные, и напоминание создаётся при назначении (routes/updateCampaigns.ts, /reminder)
       res.json({ success: true, update });
     } catch (e: any) { res.status(503).json({ error: e?.message || 'Не удалось опубликовать релиз' }); }
   });

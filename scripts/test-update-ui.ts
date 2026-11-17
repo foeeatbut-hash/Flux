@@ -1,5 +1,5 @@
 import { testCredentials } from './testCredentials';
-/** Значок обновления ведёт сотрудника к скачиванию; публиковать может только владелец. */
+/** Значок обновления светится только назначенному сотруднику и ведёт его к скачиванию; публиковать и назначать может только владелец. */
 import { ownerTestLogin } from './fixtures/ownerTestLogin';
 import { testSignature } from './fixtures/updateTestSign';
 
@@ -58,6 +58,7 @@ const api = async (token: string, method: string, url: string, body?: any, raw?:
   }
 
   let ownerToken = '';
+  let assignmentId = '';
   let browser: any;
   try {
     ownerToken = (await ownerTestLogin(BASE)).token;
@@ -105,27 +106,56 @@ const api = async (token: string, method: string, url: string, body?: any, raw?:
       await page.waitForTimeout(5000);
     }
 
-    console.log('3. Значок ведёт сотрудника к доступному выпуску');
+    console.log('3. Выпущено, но не назначено: значка нет, а в настройках сведения видны');
     const badge = page.locator('button[title^="Доступно обновление"]').first();
-    await badge.waitFor({ state: 'visible', timeout: 25000 }).catch(() => {});
-    ok('значок обновления появился', await badge.isVisible().catch(() => false));
-    ok('в подсказке указана опубликованная версия',
-      String(await badge.getAttribute('title') || '').includes(VERSION), await badge.getAttribute('title'));
+    await page.waitForTimeout(11000); // больше одного круга проверки: значок должен был бы уже появиться
+    ok('значка у несвязанного с назначением сотрудника нет', (await badge.count()) === 0);
+    await page.evaluate(() => { location.hash = '#/settings'; });
+    await page.getByText(`v${VERSION}`, { exact: false }).first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+    ok('в настройках видна опубликованная версия', await page.getByText(`v${VERSION}`, { exact: false }).first().isVisible().catch(() => false));
+    await page.evaluate(() => { location.hash = '#/'; });
+
+    console.log('4. Назначили сотруднику: значок появляется сам, без перезапуска');
+    const assigned = await api(ownerToken, 'POST', '/api/updates/assignments', { version: VERSION, userIds: [employeeId] });
+    ok('владелец назначил обновление сотруднику', assigned.status === 200 && !!assigned.json?.id, assigned.json || assigned.status);
+    assignmentId = assigned.json?.id || '';
+    // Опрос назначенного — раз в минуту; за восемь секунд значок мог появиться только по событию сокета
+    await badge.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {});
+    ok('значок обновления появился за секунды', await badge.isVisible().catch(() => false));
+    ok('в подсказке указана назначенная версия', String(await badge.getAttribute('title') || '').includes(VERSION), await badge.getAttribute('title'));
     await badge.click();
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1500);
     ok('значок открыл самостоятельное окно обновления',
       await page.getByRole('dialog', { name: 'Обновление Flux', exact: true }).isVisible().catch(() => false));
-    ok('в окне показана новая версия',
-      await page.getByText(VERSION, { exact: false }).first().isVisible().catch(() => false));
+    ok('в окне показана новая версия и описание',
+      await page.getByText(VERSION, { exact: false }).first().isVisible().catch(() => false)
+      && await page.getByText('Проверочный выпуск для интерфейса обновлений.').isVisible().catch(() => false));
     ok('сотруднику доступно скачивание файла',
-      await page.getByRole('button', { name: 'Скачать файл', exact: true }).isVisible().catch(() => false));
+      await page.getByRole('dialog', { name: 'Обновление Flux', exact: true }).getByRole('button', { name: 'Скачать файл', exact: true }).isVisible().catch(() => false));
+    ok('обычное обновление можно отложить: есть «Позже»', await page.getByRole('dialog', { name: 'Обновление Flux', exact: true }).getByRole('button', { name: 'Позже', exact: true }).isVisible().catch(() => false));
+    await page.screenshot({ path: '/tmp/u7-shots/update-dialog-optional.png' });
+    await page.getByRole('button', { name: 'Позже', exact: true }).click();
+    await page.waitForTimeout(500);
+    ok('после «Позже» окно закрыто, значок остался',
+      !(await page.getByRole('dialog', { name: 'Обновление Flux', exact: true }).isVisible().catch(() => false)) && await badge.isVisible().catch(() => false));
+    ok('отложенное запомнено для сотрудника', await page.evaluate((id) => !!localStorage.getItem(`flux.update.postponed.${id}`), employeeId));
+    const mine = await api(employeeToken, 'GET', `/api/updates/assigned?current=0.0.1`);
+    ok('сервер называет назначенный выпуск сотруднику', mine.json?.release?.version === VERSION, mine.json);
+    ok('напоминание «Доступна версия» создано сервером ровно одно', await (async () => {
+      const list = await api(employeeToken, 'GET', '/api/notifications');
+      const rows: any[] = Array.isArray(list.json) ? list.json : list.json?.notifications || [];
+      return rows.filter(n => String(n.title || '').includes(`Доступна версия ${VERSION}`)).length === 1;
+    })());
+    await api(ownerToken, 'POST', `/api/updates/assignments/${assignmentId}/cancel`, {});
+    await badge.waitFor({ state: 'hidden', timeout: 8000 }).catch(() => {});
+    ok('отмена назначения убирает значок за секунды', !(await badge.isVisible().catch(() => false)));
 
-    console.log('4. Интерфейс не предлагает сотруднику публикацию');
+    console.log('5. Интерфейс не предлагает сотруднику публикацию');
     ok('кнопок публикации нет',
       (await page.getByRole('button', { name: /Опубликовать|Загрузить выпуск|Выбрать exe/i }).count()) === 0);
     ok('полей выбора файла для публикации нет', (await page.locator('input[type="file"]:visible').count()) === 0);
     ok('в консоли нет ошибок', errors.length === 0, errors.slice(0, 3));
-    await page.screenshot({ path: '/tmp/update-ui.png' });
+    await page.screenshot({ path: '/tmp/u7-shots/update-ui.png' });
   } catch (e: any) {
     f++;
     console.error('  ✗ ошибка сценария обновлений:', String(e?.message || e).slice(0, 300));

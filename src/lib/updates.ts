@@ -21,6 +21,14 @@ import { isNewer, compareVersions } from '../../shared/versionCompare';
 export { isNewer, compareVersions };
 
 /**
+ * Ждёт ли назначенный выпуск установки. Обычный — пока работающая версия ниже; возврат —
+ * пока работающая выше возвращаемой (подписанное задание «Вернуть предыдущую версию всем»).
+ */
+export function needsInstall(offer: { version: string; rollback?: boolean }, current: string): boolean {
+  return offer.rollback ? compareVersions(current, offer.version) > 0 : isNewer(offer.version, current);
+}
+
+/**
  * Полный адрес файла обновления. Относительный путь достраивается адресом
  * сервера, с которым программа и так работает.
  */

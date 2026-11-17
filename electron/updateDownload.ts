@@ -6,10 +6,13 @@ import crypto from 'node:crypto';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { sameServer, badPackage, downloadError } from './updates';
-import { readUpdateSignature, sha256File, updateRefusal } from './updateSignature';
+import { readUpdateSignature, sha256File } from './updateSignature';
+import { updateRefusalFor } from './updateRollback';
 
 export interface VerifiedDownload {
   version: string; signature: string; current: string; server: string; token?: string; keyHex?: string;
+  /** Выпуск ниже работающего ставится по подписанному заданию о возврате (electron/updateRollback.ts) */
+  rollback?: boolean;
   onProgress?: (percent: number) => void;
 }
 function updateUrl(url: string, p: VerifiedDownload): URL {
@@ -28,7 +31,7 @@ function get(url: URL, token = ''): Promise<http.IncomingMessage> {
 export async function downloadVerifiedUpdate(url: string, dest: string, p: VerifiedDownload): Promise<void> {
   const u = updateUrl(url, p), signed = readUpdateSignature(p.signature, p.keyHex);
   if (!signed) throw new Error('Подпись выпуска не подтверждена');
-  const before = updateRefusal({ ...p, size: signed.size, sha256: signed.sha256 });
+  const before = updateRefusalFor({ ...p, size: signed.size, sha256: signed.sha256 }, p.rollback === true);
   if (before) throw new Error(before);
   const part = `${dest}.part-${crypto.randomUUID()}`;
   let response: http.IncomingMessage | undefined;
@@ -46,7 +49,7 @@ export async function downloadVerifiedUpdate(url: string, dest: string, p: Verif
     } });
     await pipeline(response, verify, fs.createWriteStream(part, { flags: 'wx', mode: 0o600 }));
     const bad = badPackage(head, size); if (bad) throw new Error(bad);
-    const refusal = updateRefusal({ ...p, size, sha256: await sha256File(part) });
+    const refusal = updateRefusalFor({ ...p, size, sha256: await sha256File(part) }, p.rollback === true);
     if (refusal) throw new Error(refusal);
     fs.renameSync(part, dest);
   } catch (e) { response?.destroy(); try { fs.unlinkSync(part); } catch (_) {} throw e; }

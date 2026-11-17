@@ -260,10 +260,14 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       );
     };
 
-    // Админ опубликовал новый релиз — сообщаем сразу, не дожидаясь ручной проверки
+    // Владелец опубликовал выпуск: настройки узнают сразу, не дожидаясь проверки. Всем «вышло обновление»
+    // не показываем — плашка и уведомление только тем, кому его назначили (см. handleUpdateAssigned)
     const handleUpdatePublished = (data: { version: string; changelog?: string }) => {
       window.dispatchEvent(new CustomEvent('socket:app:update-published', { detail: data }));
-      addToast(`Опубликовано обновление Flux v${data.version} — откройте Настройки, чтобы установить.`, 'info');
+    };
+    // Владелец назначил или отменил обновление: плашка появляется (или исчезает) сразу, без перезапуска и ожидания опроса
+    const handleUpdateAssigned = (data: { id?: string }) => {
+      window.dispatchEvent(new CustomEvent('socket:app:update-assigned', { detail: data }));
     };
 
     /**
@@ -294,6 +298,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     activeSocket.on('tag:updated', handleTagUpdated);
     activeSocket.on('equipment:conflict', handleEquipmentConflict);
     activeSocket.on('app:update-published', handleUpdatePublished);
+    activeSocket.on('app:update-assigned', handleUpdateAssigned);
     activeSocket.on('entity:changed', handleEntityChanged);
     activeSocket.on('entity:ids:migrated', handleEntityIdsMigrated);
     activeSocket.on('e3:changed', handleE3Changed);
@@ -320,7 +325,11 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     activeSocket.on('capabilities:changed', handleCapabilities);
     activeSocket.on('connect', handleCapabilities);
     // Справочник подразделений изменили в другом окне или на другом компьютере
-    const handleDepartments = () => { if (useDepartmentStore.getState().loaded) void useDepartmentStore.getState().load(); };
+    // Перевод в подразделение и обратно меняет, кому назначено обновление: плашка узнаёт об этом сразу
+    const handleDepartments = () => {
+      if (useDepartmentStore.getState().loaded) void useDepartmentStore.getState().load();
+      window.dispatchEvent(new CustomEvent('socket:app:update-assigned', { detail: { reason: 'departments' } }));
+    };
     activeSocket.on('departments:changed', handleDepartments);
     activeSocket.on('feedback:changed', handleFeedback);
     activeSocket.on('feedback:unread', handleFeedback);
@@ -338,6 +347,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
       activeSocket.off('tag:updated', handleTagUpdated);
       activeSocket.off('equipment:conflict', handleEquipmentConflict);
       activeSocket.off('app:update-published', handleUpdatePublished);
+      activeSocket.off('app:update-assigned', handleUpdateAssigned);
       activeSocket.off('entity:changed', handleEntityChanged);
       activeSocket.off('entity:ids:migrated', handleEntityIdsMigrated);
       activeSocket.off('e3:changed', handleE3Changed);
