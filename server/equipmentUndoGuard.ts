@@ -14,6 +14,7 @@
  * есть всегда, а сверки с подтверждённым нет.
  */
 import { assertSeenVersions, PlanChanged, type SeenVersions } from './planGuard.js';
+import { undoChangedText } from '../src/lib/refusalTexts.js';
 import { shownRowOf, type ShownRow } from './equipmentPlanSeen.js';
 import type { ElementNow, UndoPlan } from './equipmentUndo.js';
 
@@ -61,7 +62,7 @@ export async function assertUndoSeen(
   if (!seen) return;
   const own: SeenVersions = {};
   for (const [id, version] of Object.entries(seen)) if (batchIds.has(id)) own[id] = version;
-  await assertSeenVersions(tx, 'componentElement', own);
+  await assertSeenVersions(tx, 'componentElement', own, { message: undoChangedText() });
   const extra = touchedIds(plan).filter((id) => !(id in own));
-  if (extra.length) throw new PlanChanged(extra.map((id) => ({ id, current: presentUndoRow(rawById.get(id)) })), []);
+  if (extra.length) throw new PlanChanged(extra.map((id) => ({ id, current: presentUndoRow(rawById.get(id)) })), [], undoChangedText());
 }

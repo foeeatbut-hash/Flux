@@ -44,4 +44,4 @@
 
 ## Ход
 - [x] T: теги и ВДР — готово: planGuard.ts; сервер; клиент; наборы test-tag-plan-guard-routes (51), -client (26), -ui (42); мутации пойманы (13 сервер, 6 клиент, 8 интерфейс), снимки в /tmp/t-shots
-- [ ] Q (в работе): оборудование и XML — шаги 1–2 из 5 готовы: сервер (план несёт seen/seenRows; import-to-category, import-draft, import-undo сверяют в транзакции; XML decisions сверяет seen, «хватка» через keepVersion — версия назад не ставится) и набор маршрутов `test-equipment-plan-guard-routes` (74 проверки, 16 мутаций). Дальше: клиент (предпросмотр, отмена, XML), набор интерфейса, снимки
+- [x] Q: оборудование и XML — готово: сервер (import-to-category, import-draft вкл. привязку, import-undo, XML decisions), наборы routes (74) / client (21) / ui (19), мутации пойманы, снимки /tmp/q-shots. Храповик: equipmentXmlSources.ts 2→0, equipmentXmlUndo.ts 1→0 (записи убрать)

@@ -40,7 +40,7 @@ import { registerEquipmentCoreRoutes } from '../server/routes/equipmentCore.js';
 import { registerEquipmentDraftRoutes } from '../server/routes/equipmentDraft.js';
 import { registerEquipmentUndoRoutes } from '../server/routes/equipmentUndo.js';
 import { registerEquipmentXmlSourceRoutes } from '../server/routes/equipmentXmlSources.js';
-import { bulkChangedText, VERSION_CONFLICT } from '../src/lib/refusalTexts.js';
+import { bulkChangedText, undoChangedText, VERSION_CONFLICT } from '../src/lib/refusalTexts.js';
 
 const require = createRequire(import.meta.url);
 const { PrismaClient } = require('../prisma-clients/client-sqlite');
@@ -269,7 +269,7 @@ async function main() {
   const beforeUndo = await world();
   const undoStale = await call('POST', '/api/equipment/import-undo', { batchId: fileOk.body.batchId, seen: undoFirst.body.seen });
   check('отмена по устаревшему плану: 409 `VERSION_CONFLICT`, перечень по позициям', undoStale.status === 409 && undoStale.body.code === VERSION_CONFLICT
-    && undoStale.body.changed.some((c: any) => c.id === fVlv.id) && undoStale.body.error === bulkChangedText(), undoStale.body);
+    && undoStale.body.changed.some((c: any) => c.id === fVlv.id) && undoStale.body.error === undoChangedText(), undoStale.body);
   check('отмена по устаревшему плану не записала ничего', sameWorld(beforeUndo, await world()));
   // Позиция, которой человек не видел: вентилятор откат пропускал, а теперь значение вернули к записанному импортом — откат дошёл бы и до него
   const batchRows = await raw.equipmentHistory.findMany({ where: { batchId: fileOk.body.batchId, elementId: fFan.id }, orderBy: { changedAt: 'asc' } });
