@@ -39,7 +39,7 @@ export default function UpdateRollback({ onDone }: { onDone: (text: string) => v
           : <>
             <p>Сейчас у сотрудников стоит до версии <b>{plan.top}</b>. Вернётся версия <b>{plan.release.version}</b>.</p>
             <ul>
-              <li>Затронуто: {plan.people} чел., {plan.targets.length} компьютеров.</li>
+              <li>Затронуто: {plan.people} чел., компьютеров: {plan.targets.length}.</li>
               <li>Это обязательное обновление: отложить его нельзя. Перед заменой Flux просит сохранить документы.</li>
               <li>Новый выпуск не создаётся. Версия {plan.top} остаётся опубликованной, но обычные назначения выпусков выше {plan.release.version} отменяются.</li>
             </ul>
