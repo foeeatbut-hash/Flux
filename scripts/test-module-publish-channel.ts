@@ -144,4 +144,5 @@ async function main() {
   server.close();
   console.log(`\nmodule-publish-channel: ${passed} проверок прошли`);
 }
-main().catch((e) => { console.error(e); process.exitCode = 1; });
+// Провал не должен оставлять слушающий сервер: процесс завершается сам, иначе набор висел бы до таймаута
+main().catch((e) => { console.error(e); process.exit(1); }).then(() => process.exit(process.exitCode ?? 0));
