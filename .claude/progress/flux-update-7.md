@@ -22,8 +22,8 @@
 
 ## Шаги
 - [x] 1. Сервер: назначения (сотрудники/подразделения), `GET /api/updates/assigned`, отмена, событие, уведомление, напоминание раз в сутки
-- [ ] 2. Откат: поле `rollback` в подписанной команде, сервер, клиент, главный процесс (скачивание/установка/подмена)
-- [ ] 3. Клиент: плашка только назначенным, сокет `app:update-assigned`, «Позже» (обычное), напоминания
+- [x] 2. Откат: поле `rollback` в подписанной команде, сервер, клиент, главный процесс (скачивание/установка/подмена)
+- [x] 3. Клиент: плашка только назначенным, сокет `app:update-assigned`, «Позже» (обычное), напоминания
 - [ ] 4. Studio: подразделения/сотрудники, «Вернуть предыдущую версию всем»
 - [ ] 5. Наборы, мутации, снимки, tsc
 
@@ -31,6 +31,8 @@
 - run-checks update owner-updates: 11 наборов, провалено 1 (test-update-ui: нужен живой сервер/FLUX_USER, не запускался без сервера).
 
 ## Ход
+- Шаг 2 готов: electron/updateRollback.ts, updateCampaign.allowsRollback/assertRollbackAllowed, main.ts (скачивание, установка, помощник подмены), scripts/test-update-assign-rollback.ts (21).
+- Шаг 3 готов: updateStore (assignedOffer/campaignOffer/refreshAssigned, плашка по назначению), UpdateDialog («Позже» только у обычного, напоминания по updateReminder), SocketProvider (app:update-assigned, убрана всплывашка «Опубликовано» всем), сервер: /api/updates/info/:version, без рассылки «Вышла версия» при публикации; scripts/test-update-assign-client.ts (20).
 - Шаг 1 готов: server/updateAudience.ts, updateAssignStore.ts, routes/updateAssignments.ts (audience, assignments, cancel, assigned), reminder раз в сутки + launch + шлюз «назначено», rollback в серверной проверке и в updateCommand.ts; scripts/test-update-assign-server.ts (37). Старые наборы update-campaign/updates/owner-updates зелёные.
 - Ещё не сделано в шаге 2: главный процесс (скачивание/установка/подмена по rollback), клиент.
 - Подготовка: слияние общей ветки, symlink node_modules.

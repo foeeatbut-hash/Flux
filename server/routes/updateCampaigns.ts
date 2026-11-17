@@ -136,7 +136,8 @@ export function registerUpdateCampaignRoutes(app: Express, deps: UpdateCampaignD
       await release(db, String(req.body?.version || ''));
       // Чужая версия — не напоминание: плашка и уведомление только тем, кому обновление назначено
       if (!await assignedTo(db, actor, String(req.body.version))) return res.status(409).json({ error: 'Это обновление вам не назначено.', code: 'UPDATE_NOT_ASSIGNED' });
-      const id = rowId('update.reminder', actor);
+      // Предел раз в сутки — на каждую версию отдельно: новое назначение не ждёт суток после прежнего
+      const id = rowId('update.reminder', `${actor}:${req.body.version}`);
       await db.appSetting.upsert({ where: { id }, create: { id, key: 'update.reminder', userId: null, value: '0' }, update: {} });
       const row = await db.appSetting.findUnique({ where: { id } }), previous = Number(row?.value || 0);
       if (now - previous < (req.body?.launch === true ? REMINDER_LAUNCH_MS : REMINDER_DAY_MS)) return res.json({ reminded: false, shownAt: previous });

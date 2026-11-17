@@ -42,9 +42,12 @@ export default function UpdaterWidget() {
   const [auditReport, setAuditReport] = useState<{ checked: number; broken: { version: string; why: string }[] } | null>(null);
   const isOwner = useStore((s) => s.user?.role === 'OWNER');
 
-  const phase = useUpdateStore((s) => s.phase);
+  const rawPhase = useUpdateStore((s) => s.phase);
+  const working = useUpdateStore((s) => s.working);
   const percent = useUpdateStore((s) => s.percent);
   const latest = useUpdateStore((s) => s.latest);
+  // Окно обновления может качать другой выпуск (назначенный, не «последний»): ход чужой загрузки здесь не показываем
+  const phase = latest && working && working !== latest.version && ['downloading', 'verifying', 'ready', 'saving', 'installing'].includes(rawPhase) ? 'available' : rawPhase;
   const error = useUpdateStore((s) => s.error);
   const currentVersion = useUpdateStore((s) => s.current);
   const isPackaged = useUpdateStore((s) => s.packaged);

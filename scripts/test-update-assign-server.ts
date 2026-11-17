@@ -189,14 +189,14 @@ void (async () => {
     assert.equal(notified.filter(x => x.startsWith('ivan')).length, 1);
   });
   await test('не чаще раза в сутки', async () => {
-    const key = 'update.reminder:ivan', now = Date.now();
+    const key = 'update.reminder:ivan:2.0.0', now = Date.now();
     rows.set(key, { ...rows.get(key), value: String(now - 23 * 3600000) });
     assert.equal((await remind('ivan', '2.0.0')).body.reminded, false);
     rows.set(key, { ...rows.get(key), value: String(now - 25 * 3600000) });
     assert.equal((await remind('ivan', '2.0.0')).body.reminded, true);
   });
   await test('при запуске после «Позже» напоминание не ждёт суток, но не дублируется окнами', async () => {
-    const key = 'update.reminder:ivan', now = Date.now();
+    const key = 'update.reminder:ivan:2.0.0', now = Date.now();
     rows.set(key, { ...rows.get(key), value: String(now - 2 * 3600000) });
     assert.equal((await remind('ivan', '2.0.0', true)).body.reminded, true);
     assert.equal((await remind('ivan', '2.0.0', true)).body.reminded, false);

@@ -268,8 +268,7 @@ export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
       if (changed.count !== 1) return res.status(409).json({ error: 'Выпуск изменился или отозван во время проверки' });
       const update = await db.appUpdate.findUnique({ where: { version } });
       deps.broadcast('app:update-published', { version, changelog });
-      // Notification failure does not turn a successful atomic publication into a failed upload.
-      await deps.notifyAll('СИСТЕМА', `Вышла версия ${version}`, changelog.split('\n')[0].slice(0, 120), '/updates', String((req as any).authUser.id || '')).catch(e => console.error('[Обновление] Уведомление не доставлено:', e?.message));
+      // Всем «Вышла версия» не рассылается: обновление получают выбранные, и напоминание создаётся при назначении (routes/updateCampaigns.ts, /reminder)
       res.json({ success: true, update });
     } catch (e: any) { res.status(503).json({ error: e?.message || 'Не удалось опубликовать релиз' }); }
   });
