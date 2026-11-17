@@ -55,7 +55,6 @@ export default function UpdaterWidget() {
   const init = useUpdateStore((s) => s.init);
   const check = useUpdateStore((s) => s.check);
   const install = useUpdateStore((s) => s.install);
-  const markSeen = useUpdateStore((s) => s.markSeen);
   const broken = useUpdateStore((s) => s.broken);
 
   const isElectron = typeof window !== 'undefined' && (window as any).electron !== undefined;
@@ -65,9 +64,6 @@ export default function UpdaterWidget() {
   useEffect(() => {
     void init(typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0');
   }, [init]);
-
-  // Человек в разделе обновлений — значку у часов больше подпрыгивать незачем
-  useEffect(() => { markSeen(); }, [markSeen]);
 
   // Автопроверка при открытии настроек + мгновенная реакция на публикацию
   // (сервер шлёт socket-событие, SocketProvider транслирует его в window)
@@ -249,7 +245,7 @@ export default function UpdaterWidget() {
           </div>}
         </div>}
 
-        <p className="fx-hint mt-3">Выпуски публикует владелец через отдельную программу «Flux · Владелец». Сотрудникам доступны только подписанные обновления.</p>
+        <p className="fx-hint mt-3">Выпуски публикует владелец в Studio — Владелец. Здесь можно поставить любую опубликованную версию, даже если обновление вам не назначено; значок у часов светится только по назначению.</p>
       </div>
 
       {/* Что изменилось и подтверждение установки */}

@@ -58,7 +58,16 @@ export async function ensureUpdatePublicationSchema(db: any): Promise<void> {
   if (why) throw new Error(why);
 }
 
+/**
+ * Проверочный сервер из исходников (`tsx server.ts` с FLUX_TEST_UPDATE_KEY=1) доверяет открытому проверочному ключу
+ * scripts/fixtures/update-test-key.txt: так живые наборы проходят путь «выпуск → назначение → плашка». Это открытая
+ * половина ключа, который лежит в репозитории и настоящим не является; собранная программа (.cjs) этого не знает.
+ */
+const TEST_UPDATE_KEY_HEX = '9d155f2aa7bb2b9ec4b8e271c8181cd9d289b2c4e264fec77848963e1a6b0215';
+const testUpdateKey = () => (/\.ts$/.test(__filename) && process.env.FLUX_TEST_UPDATE_KEY === '1' ? TEST_UPDATE_KEY_HEX : undefined);
+
 export function registerUpdateRoutes(app: Express, deps: UpdateDeps): void {
+  deps = { ...deps, updatePublicKeyHex: deps.updatePublicKeyHex ?? testUpdateKey() };
   registerUpdateCampaignRoutes(app, deps);
   // Выпуски модулей Flux Studio раздаются тем же путём — через общую базу, с подписью владельца
   registerModulePublishingRoutes(app, deps);

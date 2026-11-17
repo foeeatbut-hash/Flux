@@ -122,6 +122,7 @@ void (async () => {
     assert.match(text, /addEventListener\('socket:app:update-assigned', assignedUpdates\)/);
     assert.match(text, /const assignedUpdates = \(\) => \{ lastAssigned = 0;/);
   });
+  await test('перевод в подразделение тоже будит плашку', () => assert.match(read('src/components/SocketProvider.tsx'), /const handleDepartments = \(\) => \{[\s\S]*?socket:app:update-assigned/));
   await test('«Опубликовано» больше не показывается всем всплывашкой', () => assert.doesNotMatch(read('src/components/SocketProvider.tsx'), /Опубликовано обновление Flux/));
 
   console.log(`${count} проверок пройдено, 0 провалено`);

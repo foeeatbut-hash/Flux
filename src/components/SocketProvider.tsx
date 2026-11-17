@@ -325,7 +325,11 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({ children }) => {
     activeSocket.on('capabilities:changed', handleCapabilities);
     activeSocket.on('connect', handleCapabilities);
     // Справочник подразделений изменили в другом окне или на другом компьютере
-    const handleDepartments = () => { if (useDepartmentStore.getState().loaded) void useDepartmentStore.getState().load(); };
+    // Перевод в подразделение и обратно меняет, кому назначено обновление: плашка узнаёт об этом сразу
+    const handleDepartments = () => {
+      if (useDepartmentStore.getState().loaded) void useDepartmentStore.getState().load();
+      window.dispatchEvent(new CustomEvent('socket:app:update-assigned', { detail: { reason: 'departments' } }));
+    };
     activeSocket.on('departments:changed', handleDepartments);
     activeSocket.on('feedback:changed', handleFeedback);
     activeSocket.on('feedback:unread', handleFeedback);

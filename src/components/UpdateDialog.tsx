@@ -124,7 +124,7 @@ export default function UpdateDialog({ onClose }: { onClose: () => void }) {
     } catch (e: any) { useToastStore.getState().addToast(e.message || 'Не удалось скачать обновление.', 'error'); }
   };
   return <Dialog title={`Обновление Flux${offer ? ` · ${offer.version}` : ''}`} label="Обновление Flux" width="max-w-lg" onClose={onClose}
-    footer={<>{!mandatory && <Btn onClick={later}>Позже</Btn>}{offer && <Btn tone="primary" disabled={busy || !!connectionError} onClick={() => void install()}><Download />{mandatory ? 'Обновить сейчас' : rollback ? 'Вернуть версию' : (window as any).electron ? 'Обновить' : 'Скачать файл'}</Btn>}</>}>
+    footer={<>{!mandatory && <Btn onClick={later}>Позже</Btn>}{offer && <Btn tone="primary" disabled={busy || !!connectionError} onClick={() => void install()}><Download />{rollback ? 'Вернуть версию' : mandatory ? 'Обновить сейчас' : (window as any).electron ? 'Обновить' : 'Скачать файл'}</Btn>}</>}>
     <div data-tour="app-update-dialog">
       <p className="fx-hint">Сейчас работает версия {update.current}.</p>
       {!offer && <p className="fx-hint mt-3">Для вас обновление не назначено. Любую опубликованную версию можно поставить в настройках.</p>}
